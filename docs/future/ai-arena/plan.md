@@ -8,17 +8,30 @@
 
 ## 总览
 
-| Step | 主题 | 工时估算 | 独立可交付 |
-|---|---|---|---|
-| **0** | 代码调研与契约确认 | 0.5 天 ✅ 已完成 | [`notes-step0.md`](./notes-step0.md) |
-| **1** | 数据模型迁移 + 后端 API | 2.5 天 | 能 curl 起 N 个 workspace 并查询 group |
-| **2** | 基础多栏 Diff 视图（read-only） | 2 天 | 在 UI 看到三栏 diff |
-| **3** | Promote / Archive / Retry 行为 | 2 天 | 完成评审闭环 |
-| **4** | 创建卡片的 Race Mode UI + 资源上限 | 2.5 天 | 全功能可用 |
+| Step | 主题 | 工时估算 | 独立可交付 | 状态 |
+|---|---|---|---|---|
+| **0** | 代码调研与契约确认 | 0.5 天 | [`notes-step0.md`](./notes-step0.md) | ✅ 已完成 |
+| **1** | 数据模型迁移 + 后端 API | 2.5 天 | 能 curl 起 N 个 workspace 并查询 group | 🚧 进行中（1.1 ✅ / 1.2 ✅ 草稿待编译验证 / 1.3-1.6 ⏳） |
+| **2** | 基础多栏 Diff 视图（read-only） | 2 天 | 在 UI 看到三栏 diff | ⏳ |
+| **3** | Promote / Archive / Retry 行为 | 2 天 | 完成评审闭环 | ⏳ |
+| **4** | 创建卡片的 Race Mode UI + 资源上限 | 2.5 天 | 全功能可用 | ⏳ |
 
 合计 ≈ **9 工作日**，每 Step 都能独立 commit + tag 发版。
 
+### Step 1 子步骤进度
+
+| Sub-step | 状态 | Commit / 文件 |
+|---|---|---|
+| 1.1 SQLx 迁移 | ✅ 完成（python sqlite3 验证通过） | `249fcff1` · `crates/db/migrations/20260504000000_add_ai_arena.sql` |
+| 1.2 Rust 模型 | ✅ 草稿完成（等 cargo check 验证） | `crates/db/src/models/arena_group.rs` (新)、`workspace.rs`（加字段 + 5 处 query 改造 + 3 个新方法） |
+| 1.3 后端路由 + handler | ⏳ | 目标：`crates/server/src/routes/local_remote.rs` |
+| 1.4 Electric fallback | ⏳ | 同 1.3 文件 |
+| 1.5 ts-rs 类型同步 | ⏳ | `crates/server/src/bin/generate_types.rs` |
+| 1.6 完整验收 | ⏳ | cargo test + curl + DB 检查 |
+
 > Step 0 调研后调整：Step 1 +0.5 天（修复"按 issue 列 workspace"路由 + Electric local fallback shape），Step 4 +0.5 天（嵌入 `features/create-mode/` store 模式）。详见 [notes-step0.md §7](./notes-step0.md)。
+
+> **本机环境提示**：当前 Windows 缺 MSVC `link.exe`（未装 Visual Studio Build Tools），`cargo check` / `cargo install sqlx-cli` 暂无法在本机跑通。1.2-1.5 全部以代码草稿先行，最终验证依赖：① 装 VS Build Tools，或 ② 启用 `.github/workflows/test.yml` 在 PR 上自动跑 backend job，或 ③ WSL2/Codespaces。
 
 ---
 

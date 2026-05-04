@@ -10,6 +10,7 @@ use uuid::Uuid;
 const WORKSPACE_NAME_MAX_LEN: usize = 60;
 
 use super::{
+    arena_group::ArenaStatus,
     execution_process::ExecutorActionField,
     session::Session,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
@@ -51,6 +52,13 @@ pub struct Workspace {
     pub pinned: bool,
     pub name: Option<String>,
     pub worktree_deleted: bool,
+    /// AI Arena group this workspace belongs to, if any.
+    /// `None` for workspaces created outside of arena (race) mode.
+    pub arena_group_id: Option<Uuid>,
+    /// Status within the arena race. Always `Active` for non-arena
+    /// workspaces (the column is NOT NULL with a 'active' default and
+    /// is only meaningful when `arena_group_id IS NOT NULL`).
+    pub arena_status: ArenaStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -204,7 +212,9 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool"
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       arena_group_id    AS "arena_group_id: Uuid",
+                       arena_status      AS "arena_status!: ArenaStatus"
                FROM    workspaces
                WHERE   id = $1"#,
             id
@@ -226,7 +236,9 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool"
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       arena_group_id    AS "arena_group_id: Uuid",
+                       arena_status      AS "arena_status!: ArenaStatus"
                FROM    workspaces
                WHERE   rowid = $1"#,
             rowid
@@ -269,7 +281,9 @@ impl Workspace {
                 w.archived as "archived!: bool",
                 w.pinned as "pinned!: bool",
                 w.name,
-                w.worktree_deleted as "worktree_deleted!: bool"
+                w.worktree_deleted as "worktree_deleted!: bool",
+                w.arena_group_id   as "arena_group_id: Uuid",
+                w.arena_status     as "arena_status!: ArenaStatus"
             FROM workspaces w
             LEFT JOIN sessions s ON w.id = s.workspace_id
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
@@ -317,7 +331,7 @@ impl Workspace {
             Workspace,
             r#"INSERT INTO workspaces (id, task_id, container_ref, branch, setup_completed_at, name)
                VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool""#,
+               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool", arena_group_id as "arena_group_id: Uuid", arena_status as "arena_status!: ArenaStatus""#,
             id,
             Option::<Uuid>::None,
             Option::<String>::None,
@@ -401,6 +415,75 @@ impl Workspace {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    /// Attach a workspace to an arena group. Used when spawning the
+    /// N race attempts for a single issue, and when adding a fresh
+    /// workspace to a group via the retry flow.
+    pub async fn set_arena_group_id(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        arena_group_id: Option<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE workspaces SET arena_group_id = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
+            arena_group_id,
+            workspace_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Flip the arena status of a workspace. Caller is responsible for
+    /// the surrounding semantics: when promoting one workspace, also
+    /// archive its siblings; when archiving, also call `set_archived(true)`
+    /// to trigger the 1h accelerated cleanup path used by
+    /// `find_expired_for_cleanup`.
+    pub async fn set_arena_status(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        arena_status: ArenaStatus,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "UPDATE workspaces SET arena_status = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
+            arena_status,
+            workspace_id
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List all workspaces belonging to an arena group, ordered by
+    /// creation time so the UI can render "attempt 1, attempt 2, ..."
+    /// stably.
+    pub async fn find_by_arena_group_id(
+        pool: &SqlitePool,
+        arena_group_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Workspace,
+            r#"SELECT  id                AS "id!: Uuid",
+                       task_id           AS "task_id: Uuid",
+                       container_ref,
+                       branch,
+                       setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                       created_at        AS "created_at!: DateTime<Utc>",
+                       updated_at        AS "updated_at!: DateTime<Utc>",
+                       archived          AS "archived!: bool",
+                       pinned            AS "pinned!: bool",
+                       name,
+                       worktree_deleted  AS "worktree_deleted!: bool",
+                       arena_group_id    AS "arena_group_id: Uuid",
+                       arena_status      AS "arena_status!: ArenaStatus"
+               FROM    workspaces
+               WHERE   arena_group_id = $1
+               ORDER BY created_at ASC"#,
+            arena_group_id
+        )
+        .fetch_all(pool)
+        .await
     }
 
     /// Update workspace fields. Only non-None values will be updated.
@@ -514,6 +597,8 @@ impl Workspace {
                 w.pinned AS "pinned!: bool",
                 w.name,
                 w.worktree_deleted AS "worktree_deleted!: bool",
+                w.arena_group_id   AS "arena_group_id: Uuid",
+                w.arena_status     AS "arena_status!: ArenaStatus",
 
                 CASE WHEN EXISTS (
                     SELECT 1
@@ -556,6 +641,8 @@ impl Workspace {
                     pinned: rec.pinned,
                     name: rec.name,
                     worktree_deleted: rec.worktree_deleted,
+                    arena_group_id: rec.arena_group_id,
+                    arena_status: rec.arena_status,
                 },
                 is_running: rec.is_running != 0,
                 is_errored: rec.is_errored != 0,
@@ -608,6 +695,8 @@ impl Workspace {
                 w.pinned AS "pinned!: bool",
                 w.name,
                 w.worktree_deleted AS "worktree_deleted!: bool",
+                w.arena_group_id   AS "arena_group_id: Uuid",
+                w.arena_status     AS "arena_status!: ArenaStatus",
 
                 CASE WHEN EXISTS (
                     SELECT 1
