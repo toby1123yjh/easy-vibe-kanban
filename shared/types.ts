@@ -152,9 +152,60 @@ export type CreateScratch = { payload: ScratchPayload, };
 
 export type UpdateScratch = { payload: ScratchPayload, };
 
-export type Workspace = { id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
+export type Workspace = { id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
+/**
+ * AI Arena group this workspace belongs to, if any.
+ * `None` for workspaces created outside of arena (race) mode.
+ */
+arena_group_id: string | null, 
+/**
+ * Status within the arena race. Always `Active` for non-arena
+ * workspaces (the column is NOT NULL with a 'active' default and
+ * is only meaningful when `arena_group_id IS NOT NULL`).
+ */
+arena_status: ArenaStatus, };
 
-export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
+export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
+/**
+ * AI Arena group this workspace belongs to, if any.
+ * `None` for workspaces created outside of arena (race) mode.
+ */
+arena_group_id: string | null, 
+/**
+ * Status within the arena race. Always `Active` for non-arena
+ * workspaces (the column is NOT NULL with a 'active' default and
+ * is only meaningful when `arena_group_id IS NOT NULL`).
+ */
+arena_status: ArenaStatus, };
+
+export type ArenaGroup = { id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, promoted_workspace_id: string | null, promoted_at: string | null, created_at: string, updated_at: string, };
+
+export type ArenaStatus = "active" | "promoted" | "archived";
+
+export type CreateArenaGroup = { issue_id: string, project_id: string, prompt: string, base_branch: string, };
+
+export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string | null, 
+/**
+ * Optional per-attempt prompt override. Falls back to the
+ * group-level `prompt` when not provided.
+ */
+prompt?: string | null, };
+
+export type CreateArenaRequest = { project_id: string, base_branch: string, prompt: string, repos: Array<WorkspaceRepoInput>, attempts: Array<ArenaAttemptInput>, };
+
+export type ArenaWorkspaceSummary = { workspace_id: string, name: string | null, branch: string, arena_status: ArenaStatus, executor: string | null, variant: string | null, };
+
+export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, promoted_workspace_id: string | null, promoted_at: string | null, created_at: string, updated_at: string, };
+
+export type PromoteArenaRequest = { workspace_id: string, };
+
+export type RetryArenaRequest = { executor_config: ExecutorConfig, name?: string | null, 
+/**
+ * Optional override; falls back to the group's prompt.
+ */
+prompt?: string | null, };
+
+export type DissolveArenaResponse = { group_id: string, workspaces_archived: number, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
@@ -587,7 +638,7 @@ export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: 
 
 export type CommandBuilder = { 
 /**
- * Base executable command (e.g., "npx -y @anthropic-ai/claude-code@latest")
+ * Base executable command (e.g., "npx -y --package @anthropic-ai/claude-code@latest claude")
  */
 base: string, 
 /**

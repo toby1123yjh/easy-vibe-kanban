@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id                    AS \"id!: Uuid\",\n                      issue_id              AS \"issue_id!: Uuid\",\n                      project_id            AS \"project_id!: Uuid\",\n                      prompt,\n                      base_branch,\n                      promoted_workspace_id AS \"promoted_workspace_id: Uuid\",\n                      promoted_at           AS \"promoted_at: DateTime<Utc>\",\n                      created_at            AS \"created_at!: DateTime<Utc>\",\n                      updated_at            AS \"updated_at!: DateTime<Utc>\"\n               FROM arena_groups\n               WHERE issue_id = $1\n               ORDER BY created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "issue_id!: Uuid",
+        "ordinal": 1,
+        "type_info": "Blob"
+      },
+      {
+        "name": "project_id!: Uuid",
+        "ordinal": 2,
+        "type_info": "Blob"
+      },
+      {
+        "name": "prompt",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "base_branch",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "promoted_workspace_id: Uuid",
+        "ordinal": 5,
+        "type_info": "Blob"
+      },
+      {
+        "name": "promoted_at: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "de1102b84e82f93b483e6d5ea78bbd303a6941ef9a875c31fa44ed73b772fd0b"
+}
