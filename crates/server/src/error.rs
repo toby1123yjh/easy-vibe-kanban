@@ -5,8 +5,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use db::models::{
-    execution_process::ExecutionProcessError, repo::RepoError, scratch::ScratchError,
-    session::SessionError, workspace::WorkspaceError,
+    arena_group::ArenaGroupError, execution_process::ExecutionProcessError, repo::RepoError,
+    scratch::ScratchError, session::SessionError, workspace::WorkspaceError,
 };
 use deployment::{DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
 use executors::{command::CommandBuildError, executors::ExecutorError};
@@ -572,6 +572,25 @@ impl From<RepoServiceError> for ApiError {
 impl From<RelayHostLookupError> for ApiError {
     fn from(err: RelayHostLookupError) -> Self {
         ApiError::BadRequest(err.to_string())
+    }
+}
+
+impl From<ArenaGroupError> for ApiError {
+    fn from(err: ArenaGroupError) -> Self {
+        match err {
+            ArenaGroupError::Database(db_err) => ApiError::Database(db_err),
+            ArenaGroupError::NotFound => ApiError::BadRequest("Arena group not found".to_string()),
+            ArenaGroupError::AlreadyPromoted { group_id } => ApiError::Conflict(format!(
+                "Arena group {group_id} has already been promoted"
+            )),
+            ArenaGroupError::WorkspaceNotInGroup {
+                group_id,
+                workspace_id,
+            } => ApiError::BadRequest(format!(
+                "Workspace {workspace_id} does not belong to arena group {group_id}"
+            )),
+            ArenaGroupError::ValidationError(msg) => ApiError::BadRequest(msg),
+        }
     }
 }
 

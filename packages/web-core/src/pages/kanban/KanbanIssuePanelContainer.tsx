@@ -20,6 +20,7 @@ import { IssueCommentsSectionContainer } from './IssueCommentsSectionContainer';
 import { IssueSubIssuesSectionContainer } from './IssueSubIssuesSectionContainer';
 import { IssueRelationshipsSectionContainer } from './IssueRelationshipsSectionContainer';
 import { IssueWorkspacesSectionContainer } from './IssueWorkspacesSectionContainer';
+import { IssueArenaSectionContainer } from './IssueArenaSectionContainer';
 import {
   KanbanIssuePanel,
   type IssueFormData,
@@ -1110,7 +1111,10 @@ export function KanbanIssuePanelContainer({
         <WYSIWYGEditor {...props} localAttachments={localAttachments} />
       )}
       renderWorkspacesSection={(issueId) => (
-        <IssueWorkspacesSectionContainer issueId={issueId} />
+        <>
+          <IssueArenaSectionContainer issueId={issueId} />
+          <IssueWorkspacesSectionContainer issueId={issueId} />
+        </>
       )}
       renderRelationshipsSection={(issueId) => (
         <IssueRelationshipsSectionContainer issueId={issueId} />

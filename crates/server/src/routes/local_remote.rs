@@ -17,13 +17,21 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use chrono::Utc;
+use db::models::{
+    arena_group::{ArenaGroup, ArenaGroupError, ArenaStatus, CreateArenaGroup},
+    requests::WorkspaceRepoInput,
+    workspace::Workspace as DbWorkspace,
+};
 use deployment::Deployment;
-use serde::Deserialize;
+use executors::profile::ExecutorConfig;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use services::services::container::ContainerService;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, routes::workspaces::create::create_workspace_record};
 
 const LOCAL_PROJECT_COLOR: &str = "210 80% 52%";
 
@@ -183,6 +191,30 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route(
             "/v1/issue_comment_reactions/{reaction_id}",
             delete(delete_issue_comment_reaction),
+        )
+        // ── AI Arena (race mode) ────────────────────────────────────────
+        // see docs/future/ai-arena/spec.md §4 + plan.md Step 1.3
+        .route("/v1/fallback/arena_groups", get(fallback_arena_groups))
+        .route("/v1/issues/{issue_id}/workspaces", get(list_issue_workspaces))
+        .route(
+            "/v1/issues/{issue_id}/arena",
+            post(create_arena_group),
+        )
+        .route(
+            "/v1/issues/{issue_id}/arena/active",
+            get(get_active_arena_for_issue),
+        )
+        .route(
+            "/v1/arena/{group_id}",
+            get(get_arena_group).delete(dissolve_arena_group),
+        )
+        .route(
+            "/v1/arena/{group_id}/promote",
+            post(promote_arena_workspace),
+        )
+        .route(
+            "/v1/arena/{group_id}/workspaces/{workspace_id}/retry",
+            post(retry_arena_workspace),
         )
 }
 
@@ -1751,6 +1783,596 @@ async fn delete_issue_comment_reaction(
         .execute(&deployment.db().pool)
         .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AI Arena (race mode)
+//
+// One arena_group represents N parallel attempts at a single local
+// kanban issue, each running in its own workspace + worktree under a
+// different executor. See docs/future/ai-arena/spec.md for the full
+// design and notes-step0.md §2 / §5 for the rationale behind the
+// promote-via-archived-flag pattern (it triggers the existing 1h
+// accelerated cleanup path in `find_expired_for_cleanup`).
+// ─────────────────────────────────────────────────────────────────────
+
+const ARENA_MIN_ATTEMPTS: usize = 2;
+const ARENA_MAX_ATTEMPTS: usize = 6;
+
+/// Per-project ceiling for parallel arena attempts. Falls back to the
+/// global hard limit (`ARENA_MAX_ATTEMPTS`) when the row hasn't been
+/// migrated yet (e.g. very old DBs predating the `arena_max_workspaces`
+/// column).
+async fn arena_max_for_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<usize, ApiError> {
+    let row: Option<i64> = sqlx::query_scalar(
+        r#"SELECT arena_max_workspaces
+             FROM local_project_metadata
+            WHERE project_id = ?"#,
+    )
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let project_cap = row
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(ARENA_MAX_ATTEMPTS);
+
+    Ok(project_cap.clamp(ARENA_MIN_ATTEMPTS, ARENA_MAX_ATTEMPTS))
+}
+
+/// One executor slot in a `CreateArenaRequest`. Mirrors the structure
+/// of `CreateAndStartWorkspaceRequest` for a single attempt: a fully
+/// resolved `ExecutorConfig`, an optional per-attempt name, and an
+/// optional per-attempt prompt override (defaults to the group's
+/// shared `prompt`).
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct ArenaAttemptInput {
+    pub executor_config: ExecutorConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Optional per-attempt prompt override. Falls back to the
+    /// group-level `prompt` when not provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct CreateArenaRequest {
+    pub project_id: Uuid,
+    pub base_branch: String,
+    pub prompt: String,
+    pub repos: Vec<WorkspaceRepoInput>,
+    pub attempts: Vec<ArenaAttemptInput>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct ArenaWorkspaceSummary {
+    pub workspace_id: Uuid,
+    pub name: Option<String>,
+    pub branch: String,
+    pub arena_status: ArenaStatus,
+    pub executor: Option<String>,
+    pub variant: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct ArenaGroupResponse {
+    #[serde(flatten)]
+    pub group: ArenaGroup,
+    pub workspaces: Vec<ArenaWorkspaceSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct PromoteArenaRequest {
+    pub workspace_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct RetryArenaRequest {
+    pub executor_config: ExecutorConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Optional override; falls back to the group's prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct DissolveArenaResponse {
+    pub group_id: Uuid,
+    pub workspaces_archived: usize,
+}
+
+/// Insert (or upsert) a row into `local_workspace_links` so the new
+/// workspace shows up under the issue everywhere the rest of the
+/// fallback queries already join through that table.
+async fn insert_workspace_link(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"INSERT INTO local_workspace_links
+               (workspace_id, project_id, issue_id)
+           VALUES (?, ?, ?)
+           ON CONFLICT(workspace_id) DO UPDATE
+               SET project_id = excluded.project_id,
+                   issue_id   = excluded.issue_id,
+                   updated_at = datetime('now', 'subsec')"#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(issue_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Verify the issue exists and belongs to the project.
+async fn ensure_issue_in_project(
+    pool: &SqlitePool,
+    issue_id: Uuid,
+    project_id: Uuid,
+) -> Result<(), ApiError> {
+    let row = sqlx::query("SELECT 1 FROM local_issues WHERE id = ? AND project_id = ?")
+        .bind(issue_id)
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+    if row.is_none() {
+        return Err(ApiError::BadRequest(format!(
+            "issue {issue_id} does not belong to project {project_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn workspace_to_summary(ws: &DbWorkspace, executor_config: Option<&ExecutorConfig>) -> ArenaWorkspaceSummary {
+    ArenaWorkspaceSummary {
+        workspace_id: ws.id,
+        name: ws.name.clone(),
+        branch: ws.branch.clone(),
+        arena_status: ws.arena_status,
+        executor: executor_config.map(|c| c.executor.to_string()),
+        variant: executor_config.and_then(|c| c.variant.clone()),
+    }
+}
+
+/// Spawn one workspace inside a group: create the DB row, attach
+/// repos, link to the issue, mark `arena_group_id`, then start the
+/// initial coding agent execution. The whole thing is sequential per
+/// call so we can surface a precise error per-attempt; the caller
+/// loops over N attempts.
+async fn spawn_arena_attempt(
+    deployment: &DeploymentImpl,
+    group: &ArenaGroup,
+    issue_id: Uuid,
+    project_id: Uuid,
+    repos: &[WorkspaceRepoInput],
+    attempt: ArenaAttemptInput,
+    attempt_index: usize,
+) -> Result<(DbWorkspace, ExecutorConfig), ApiError> {
+    let pool = &deployment.db().pool;
+
+    let attempt_prompt = attempt
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| group.prompt.clone());
+    if attempt_prompt.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Arena prompt must not be empty.".to_string(),
+        ));
+    }
+
+    let display_name = attempt.name.clone().unwrap_or_else(|| {
+        format!(
+            "{}-arena-{}",
+            attempt.executor_config.executor.to_string().to_lowercase(),
+            attempt_index + 1
+        )
+    });
+
+    let workspace = create_workspace_record(deployment, Some(display_name)).await?;
+
+    let mut managed_workspace = deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace.clone())
+        .await?;
+    for repo in repos {
+        managed_workspace
+            .add_repository(repo, deployment.git())
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    let workspace = managed_workspace.workspace.clone();
+
+    DbWorkspace::set_arena_group_id(pool, workspace.id, Some(group.id)).await?;
+    DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
+    insert_workspace_link(pool, workspace.id, project_id, issue_id).await?;
+
+    deployment
+        .container()
+        .start_workspace(&workspace, attempt.executor_config.clone(), attempt_prompt)
+        .await?;
+
+    let updated = DbWorkspace::find_by_id(pool, workspace.id)
+        .await?
+        .unwrap_or(workspace);
+
+    Ok((updated, attempt.executor_config))
+}
+
+async fn workspaces_for_group(
+    pool: &SqlitePool,
+    group_id: Uuid,
+) -> Result<Vec<ArenaWorkspaceSummary>, ApiError> {
+    let workspaces = DbWorkspace::find_by_arena_group_id(pool, group_id).await?;
+    Ok(workspaces
+        .iter()
+        .map(|ws| workspace_to_summary(ws, None))
+        .collect())
+}
+
+async fn create_arena_group(
+    State(deployment): State<DeploymentImpl>,
+    Path(issue_id): Path<Uuid>,
+    Json(payload): Json<CreateArenaRequest>,
+) -> Result<ResponseJson<MutationResponse<ArenaGroupResponse>>, ApiError> {
+    let CreateArenaRequest {
+        project_id,
+        base_branch,
+        prompt,
+        repos,
+        attempts,
+    } = payload;
+
+    if attempts.len() < ARENA_MIN_ATTEMPTS {
+        return Err(ApiError::BadRequest(format!(
+            "Arena requires at least {ARENA_MIN_ATTEMPTS} attempts, got {}",
+            attempts.len()
+        )));
+    }
+
+    let pool = &deployment.db().pool;
+    let project_max = arena_max_for_project(pool, project_id).await?;
+    if attempts.len() > project_max {
+        return Err(ApiError::BadRequest(format!(
+            "Project allows at most {project_max} arena attempts, got {}",
+            attempts.len()
+        )));
+    }
+    if repos.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one repository is required.".to_string(),
+        ));
+    }
+    if prompt.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Arena prompt must not be empty.".to_string(),
+        ));
+    }
+
+    ensure_issue_in_project(pool, issue_id, project_id).await?;
+
+    if ArenaGroup::find_active_by_issue_id(pool, issue_id).await?.is_some() {
+        return Err(ApiError::BadRequest(format!(
+            "issue {issue_id} already has an active arena group; promote or dissolve it first"
+        )));
+    }
+
+    let group = ArenaGroup::create(
+        pool,
+        &CreateArenaGroup {
+            issue_id,
+            project_id,
+            prompt: prompt.clone(),
+            base_branch: base_branch.clone(),
+        },
+    )
+    .await?;
+
+    let mut summaries = Vec::with_capacity(attempts.len());
+    for (idx, attempt) in attempts.into_iter().enumerate() {
+        match spawn_arena_attempt(
+            &deployment,
+            &group,
+            issue_id,
+            project_id,
+            &repos,
+            attempt,
+            idx,
+        )
+        .await
+        {
+            Ok((workspace, executor_config)) => {
+                summaries.push(workspace_to_summary(&workspace, Some(&executor_config)));
+            }
+            Err(err) => {
+                tracing::error!(
+                    arena_group_id = %group.id,
+                    attempt_index = idx,
+                    "failed to spawn arena attempt: {err:#}"
+                );
+                // Best-effort cleanup: leave the group + already-spawned
+                // workspaces in place (the user can dissolve via the
+                // DELETE endpoint). The error reflects the first failing
+                // attempt so the UI can surface it.
+                return Err(err);
+            }
+        }
+    }
+
+    deployment
+        .track_if_analytics_allowed(
+            "arena_group_created",
+            json!({
+                "arena_group_id": group.id.to_string(),
+                "issue_id":       issue_id.to_string(),
+                "attempt_count":  summaries.len(),
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(MutationResponse {
+        data: ArenaGroupResponse {
+            group,
+            workspaces: summaries,
+        },
+        txid: txid(),
+    }))
+}
+
+async fn get_active_arena_for_issue(
+    State(deployment): State<DeploymentImpl>,
+    Path(issue_id): Path<Uuid>,
+) -> Result<ResponseJson<Option<ArenaGroupResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let Some(group) = ArenaGroup::find_active_by_issue_id(pool, issue_id).await? else {
+        return Ok(ResponseJson(None));
+    };
+    let workspaces = workspaces_for_group(pool, group.id).await?;
+    Ok(ResponseJson(Some(ArenaGroupResponse { group, workspaces })))
+}
+
+async fn get_arena_group(
+    State(deployment): State<DeploymentImpl>,
+    Path(group_id): Path<Uuid>,
+) -> Result<ResponseJson<ArenaGroupResponse>, ApiError> {
+    let pool = &deployment.db().pool;
+    let group = ArenaGroup::find_by_id(pool, group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    let workspaces = workspaces_for_group(pool, group.id).await?;
+    Ok(ResponseJson(ArenaGroupResponse { group, workspaces }))
+}
+
+async fn promote_arena_workspace(
+    State(deployment): State<DeploymentImpl>,
+    Path(group_id): Path<Uuid>,
+    Json(payload): Json<PromoteArenaRequest>,
+) -> Result<ResponseJson<MutationResponse<ArenaGroupResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let group = ArenaGroup::find_by_id(pool, group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+
+    let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
+    if !siblings.iter().any(|ws| ws.id == payload.workspace_id) {
+        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
+            group_id: group.id,
+            workspace_id: payload.workspace_id,
+        }));
+    }
+
+    // 1. Mark the chosen workspace as promoted.
+    DbWorkspace::set_arena_status(pool, payload.workspace_id, ArenaStatus::Promoted).await?;
+    ArenaGroup::set_promoted(pool, group.id, payload.workspace_id).await?;
+
+    // 2. Archive every other sibling (arena_status=archived AND archived=true)
+    //    so the existing 1h cleanup path picks them up. We deliberately do
+    //    NOT call container.delete here — that synchronously removes the
+    //    worktree and would block this request.
+    for ws in siblings.iter() {
+        if ws.id == payload.workspace_id {
+            continue;
+        }
+        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
+        DbWorkspace::set_archived(pool, ws.id, true).await?;
+    }
+
+    let group = ArenaGroup::find_by_id(pool, group.id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    let workspaces = workspaces_for_group(pool, group.id).await?;
+
+    deployment
+        .track_if_analytics_allowed(
+            "arena_workspace_promoted",
+            json!({
+                "arena_group_id":       group.id.to_string(),
+                "promoted_workspace_id": payload.workspace_id.to_string(),
+                "sibling_count":        siblings.len().saturating_sub(1),
+            }),
+        )
+        .await;
+
+    Ok(ResponseJson(MutationResponse {
+        data: ArenaGroupResponse { group, workspaces },
+        txid: txid(),
+    }))
+}
+
+async fn retry_arena_workspace(
+    State(deployment): State<DeploymentImpl>,
+    Path((group_id, workspace_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<RetryArenaRequest>,
+) -> Result<ResponseJson<MutationResponse<ArenaGroupResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let group = ArenaGroup::find_by_id(pool, group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    if group.promoted_workspace_id.is_some() {
+        return Err(ApiError::from(ArenaGroupError::AlreadyPromoted {
+            group_id: group.id,
+        }));
+    }
+
+    // Verify workspace belongs to group + figure out repos to reuse.
+    let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
+    let target = siblings
+        .iter()
+        .find(|ws| ws.id == workspace_id)
+        .ok_or_else(|| ArenaGroupError::WorkspaceNotInGroup {
+            group_id: group.id,
+            workspace_id,
+        })?;
+
+    // Pull repo set from the failing workspace so the retry mirrors it.
+    let repo_rows = sqlx::query!(
+        r#"SELECT repo_id AS "repo_id!: Uuid", target_branch
+             FROM workspace_repos
+            WHERE workspace_id = ?
+            ORDER BY created_at ASC"#,
+        target.id
+    )
+    .fetch_all(pool)
+    .await?;
+    let repos: Vec<WorkspaceRepoInput> = repo_rows
+        .into_iter()
+        .map(|row| WorkspaceRepoInput {
+            repo_id: row.repo_id,
+            target_branch: row.target_branch,
+        })
+        .collect();
+
+    if repos.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "workspace {workspace_id} has no repos to mirror; cannot retry"
+        )));
+    }
+
+    // Mark the failing attempt as archived (arena-internally) but
+    // **don't** flip the user-archived flag — the user might want to
+    // keep its logs around.
+    DbWorkspace::set_arena_status(pool, workspace_id, ArenaStatus::Archived).await?;
+
+    let attempts_so_far = siblings.len();
+    let attempt = ArenaAttemptInput {
+        executor_config: payload.executor_config,
+        name: payload.name,
+        prompt: payload.prompt,
+    };
+    let (new_workspace, executor_config) = spawn_arena_attempt(
+        &deployment,
+        &group,
+        group.issue_id,
+        group.project_id,
+        &repos,
+        attempt,
+        attempts_so_far,
+    )
+    .await?;
+
+    let group = ArenaGroup::find_by_id(pool, group.id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    let mut workspaces = workspaces_for_group(pool, group.id).await?;
+
+    // Surface the freshly-created summary explicitly (in case the
+    // ordering query happens to lag) — `find_by_arena_group_id`
+    // already orders by created_at ASC so it will appear at the end.
+    if !workspaces.iter().any(|w| w.workspace_id == new_workspace.id) {
+        workspaces.push(workspace_to_summary(&new_workspace, Some(&executor_config)));
+    }
+
+    Ok(ResponseJson(MutationResponse {
+        data: ArenaGroupResponse { group, workspaces },
+        txid: txid(),
+    }))
+}
+
+async fn dissolve_arena_group(
+    State(deployment): State<DeploymentImpl>,
+    Path(group_id): Path<Uuid>,
+) -> Result<ResponseJson<MutationResponse<DissolveArenaResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+
+    let group = ArenaGroup::find_by_id(pool, group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    if group.promoted_workspace_id.is_some() {
+        return Err(ApiError::BadRequest(
+            "Cannot dissolve a promoted arena group; the merged attempt is now your work.".to_string(),
+        ));
+    }
+
+    let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
+    let mut archived = 0usize;
+    for ws in siblings.iter() {
+        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
+        DbWorkspace::set_archived(pool, ws.id, true).await?;
+        archived += 1;
+    }
+
+    ArenaGroup::delete(pool, group.id).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: DissolveArenaResponse {
+            group_id: group.id,
+            workspaces_archived: archived,
+        },
+        txid: txid(),
+    }))
+}
+
+async fn fallback_arena_groups(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<ProjectQuery>,
+) -> Result<ResponseJson<Value>, ApiError> {
+    let Some(project_id) = query.project_id else {
+        return Ok(empty_rows("arena_groups"));
+    };
+
+    let groups = ArenaGroup::find_all_by_project_id(&deployment.db().pool, project_id).await?;
+    Ok(ResponseJson(json!({ "arena_groups": groups })))
+}
+
+async fn list_issue_workspaces(
+    State(deployment): State<DeploymentImpl>,
+    Path(issue_id): Path<Uuid>,
+) -> Result<ResponseJson<Vec<DbWorkspace>>, ApiError> {
+    // Fixes the dead-code `?task_id=` pattern noted in
+    // docs/future/ai-arena/notes-step0.md §3.5: list every workspace
+    // that the local kanban issue links to (regardless of arena
+    // membership).
+    let pool = &deployment.db().pool;
+    let rows = sqlx::query!(
+        r#"SELECT workspace_id AS "workspace_id!: Uuid"
+             FROM local_workspace_links
+            WHERE issue_id = ?
+            ORDER BY created_at ASC"#,
+        issue_id
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut workspaces = Vec::with_capacity(rows.len());
+    for row in rows {
+        if let Some(ws) = DbWorkspace::find_by_id(pool, row.workspace_id).await? {
+            workspaces.push(ws);
+        }
+    }
+    Ok(ResponseJson(workspaces))
 }
 
 #[cfg(test)]

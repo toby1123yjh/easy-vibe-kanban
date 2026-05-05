@@ -110,7 +110,9 @@ impl Workspace {
                           archived AS "archived!: bool",
                           pinned AS "pinned!: bool",
                           name,
-                          worktree_deleted AS "worktree_deleted!: bool"
+                          worktree_deleted AS "worktree_deleted!: bool",
+                          arena_group_id AS "arena_group_id: Uuid",
+                          arena_status AS "arena_status!: ArenaStatus"
                    FROM workspaces
                    ORDER BY created_at DESC"#
         )
@@ -742,6 +744,8 @@ impl Workspace {
                 pinned: rec.pinned,
                 name: rec.name,
                 worktree_deleted: rec.worktree_deleted,
+                arena_group_id: rec.arena_group_id,
+                arena_status: rec.arena_status,
             },
             is_running: rec.is_running != 0,
             is_errored: rec.is_errored != 0,

@@ -76,6 +76,11 @@ npx-cli/vibe-kanban-*
 vibe-kanban-*.tgz
 toby-vibe-kanban-windows-x64-npx/
 toby-vibe-kanban-windows-x64-npx.zip
+easy-vibe-kanban-windows-x64-npx/
+easy-vibe-kanban-windows-x64-npx.zip
+
+# Claude Code local files
+.claude/
 
 # Development ports file
 .dev-ports.json
