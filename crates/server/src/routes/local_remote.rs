@@ -2240,7 +2240,7 @@ async fn retry_arena_workspace(
     // Pull repo set from the failing workspace so the retry mirrors it.
     // Runtime-checked query to avoid requiring a fresh .sqlx cache for
     // a fork-only path; matches the style of sibling queries in this file.
-    let repo_rows: Vec<(Uuid, Option<String>)> = sqlx::query_as::<_, (Uuid, Option<String>)>(
+    let repo_rows: Vec<(Uuid, String)> = sqlx::query_as::<_, (Uuid, String)>(
         r#"SELECT repo_id, target_branch
              FROM workspace_repos
             WHERE workspace_id = ?

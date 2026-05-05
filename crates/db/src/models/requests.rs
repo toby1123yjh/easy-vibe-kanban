@@ -11,7 +11,7 @@ pub struct ContainerQuery {
     pub container_ref: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspaceRepoInput {
     pub repo_id: Uuid,
     pub target_branch: String,
