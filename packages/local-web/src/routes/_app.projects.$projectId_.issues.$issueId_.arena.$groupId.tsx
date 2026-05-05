@@ -1,4 +1,8 @@
-import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router';
+import {
+  createFileRoute,
+  useNavigate,
+  useParams,
+} from '@tanstack/react-router';
 import { ArenaView } from '@/features/arena';
 import { projectSearchValidator } from '@vibe/web-core/project-search';
 

@@ -1,0 +1,69 @@
+name: Regenerate SQLx + TS types
+
+# One-shot helper for AI Arena (and any future schema-changing branch).
+# Runs `cargo sqlx prepare` against a fresh SQLite DB with all migrations applied,
+# then runs `cargo run --bin generate_types` to regenerate shared/types.ts.
+# Commits both back to the branch the workflow was dispatched on.
+#
+# Use when local toolchain (Windows w/o MSVC linker) cannot run sqlx-cli.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: regen-sqlx-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: nightly-2025-12-04
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Need full history + token that can push back
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref }}
+
+      - name: Setup Rust + Node + sqlx-cli
+        uses: ./.github/actions/cargo-checks-common-setup
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          cache-key: regen-sqlx-${{ runner.os }}-${{ runner.arch }}
+          setup-node: "true"
+          setup-sqlx-cli: "true"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate SQLx offline metadata
+        run: pnpm run prepare-db
+
+      - name: Regenerate shared/types.ts
+        run: pnpm run generate-types
+
+      - name: Show diff
+        run: |
+          git status
+          git --no-pager diff --stat
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add crates/db/.sqlx shared/types.ts
+          git commit -m "chore(arena): regenerate SQLx metadata and shared/types.ts [skip ci]"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}

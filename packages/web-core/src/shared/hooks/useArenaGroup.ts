@@ -1,4 +1,8 @@
-import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import {
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { arenaApi, type ArenaGroupResponse } from '@/shared/lib/arenaApi';
 

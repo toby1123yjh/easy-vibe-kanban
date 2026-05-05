@@ -56,11 +56,19 @@ function defaultDraft(executor: BaseCodingAgent): AttemptDraft {
 }
 
 const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
-  ({ projectId, issueId, initialPrompt = '', maxAttempts: maxAttemptsProp }) => {
+  ({
+    projectId,
+    issueId,
+    initialPrompt = '',
+    maxAttempts: maxAttemptsProp,
+  }) => {
     const modal = useModal();
     const maxAttempts = Math.max(
       ARENA_MIN_ATTEMPTS,
-      Math.min(maxAttemptsProp ?? ARENA_MAX_ATTEMPTS_DEFAULT, ARENA_MAX_ATTEMPTS_DEFAULT)
+      Math.min(
+        maxAttemptsProp ?? ARENA_MAX_ATTEMPTS_DEFAULT,
+        ARENA_MAX_ATTEMPTS_DEFAULT
+      )
     );
 
     const [prompt, setPrompt] = useState(initialPrompt);
@@ -68,7 +76,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     const [repoId, setRepoId] = useState<string | null>(null);
     const [attempts, setAttempts] = useState<AttemptDraft[]>(() => [
       defaultDraft(EXECUTOR_OPTIONS[0] as BaseCodingAgent),
-      defaultDraft(EXECUTOR_OPTIONS[1] as BaseCodingAgent ?? (EXECUTOR_OPTIONS[0] as BaseCodingAgent)),
+      defaultDraft(
+        (EXECUTOR_OPTIONS[1] as BaseCodingAgent) ??
+          (EXECUTOR_OPTIONS[0] as BaseCodingAgent)
+      ),
     ]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);

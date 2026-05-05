@@ -43,7 +43,8 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
   const groupAlreadyPromoted = group.promoted_workspace_id != null;
   const myStatus = workspace.arena_status;
   const liveSiblings = group.workspaces.filter(
-    (w) => w.workspace_id !== workspace.workspace_id && w.arena_status === 'active'
+    (w) =>
+      w.workspace_id !== workspace.workspace_id && w.arena_status === 'active'
   ).length;
 
   const isThisPending = promote.isPending || retry.isPending;
@@ -67,9 +68,7 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
     try {
       await promote.mutateAsync({ workspaceId: workspace.workspace_id });
     } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : 'Promote failed'
-      );
+      setErrorMessage(err instanceof Error ? err.message : 'Promote failed');
     }
   };
 

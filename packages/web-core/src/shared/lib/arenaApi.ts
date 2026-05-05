@@ -114,9 +114,7 @@ async function parseError(
     const message = body?.message || body?.error || fallback;
     return new Error(`${message} (${response.status} ${response.statusText})`);
   } catch {
-    return new Error(
-      `${fallback} (${response.status} ${response.statusText})`
-    );
+    return new Error(`${fallback} (${response.status} ${response.statusText})`);
   }
 }
 
@@ -156,9 +154,7 @@ export const arenaApi = {
     ),
 
   /** GET /v1/issues/{issue_id}/arena/active */
-  getActiveForIssue: (
-    issueId: string
-  ): Promise<ArenaGroupResponse | null> =>
+  getActiveForIssue: (issueId: string): Promise<ArenaGroupResponse | null> =>
     getJson<ArenaGroupResponse | null>(
       `/issues/${issueId}/arena/active`,
       'Failed to load active arena group'
