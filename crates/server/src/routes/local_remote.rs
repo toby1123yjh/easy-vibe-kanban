@@ -2238,20 +2238,22 @@ async fn retry_arena_workspace(
         })?;
 
     // Pull repo set from the failing workspace so the retry mirrors it.
-    let repo_rows = sqlx::query!(
-        r#"SELECT repo_id AS "repo_id!: Uuid", target_branch
+    // Runtime-checked query to avoid requiring a fresh .sqlx cache for
+    // a fork-only path; matches the style of sibling queries in this file.
+    let repo_rows: Vec<(Uuid, Option<String>)> = sqlx::query_as::<_, (Uuid, Option<String>)>(
+        r#"SELECT repo_id, target_branch
              FROM workspace_repos
             WHERE workspace_id = ?
             ORDER BY created_at ASC"#,
-        target.id
     )
+    .bind(target.id)
     .fetch_all(pool)
     .await?;
     let repos: Vec<WorkspaceRepoInput> = repo_rows
         .into_iter()
-        .map(|row| WorkspaceRepoInput {
-            repo_id: row.repo_id,
-            target_branch: row.target_branch,
+        .map(|(repo_id, target_branch)| WorkspaceRepoInput {
+            repo_id,
+            target_branch,
         })
         .collect();
 
@@ -2356,19 +2358,22 @@ async fn list_issue_workspaces(
     // that the local kanban issue links to (regardless of arena
     // membership).
     let pool = &deployment.db().pool;
-    let rows = sqlx::query!(
-        r#"SELECT workspace_id AS "workspace_id!: Uuid"
+    // Use runtime-checked query (matches other `local_workspace_links`
+    // queries in this file) so this handler does not require a refreshed
+    // .sqlx offline cache to compile.
+    let workspace_ids: Vec<Uuid> = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT workspace_id
              FROM local_workspace_links
             WHERE issue_id = ?
             ORDER BY created_at ASC"#,
-        issue_id
     )
+    .bind(issue_id)
     .fetch_all(pool)
     .await?;
 
-    let mut workspaces = Vec::with_capacity(rows.len());
-    for row in rows {
-        if let Some(ws) = DbWorkspace::find_by_id(pool, row.workspace_id).await? {
+    let mut workspaces = Vec::with_capacity(workspace_ids.len());
+    for ws_id in workspace_ids {
+        if let Some(ws) = DbWorkspace::find_by_id(pool, ws_id).await? {
             workspaces.push(ws);
         }
     }
