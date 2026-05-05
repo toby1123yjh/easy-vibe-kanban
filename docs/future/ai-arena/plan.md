@@ -11,10 +11,10 @@
 | Step | 主题 | 工时估算 | 独立可交付 | 状态 |
 |---|---|---|---|---|
 | **0** | 代码调研与契约确认 | 0.5 天 | [`notes-step0.md`](./notes-step0.md) | ✅ 已完成 |
-| **1** | 数据模型迁移 + 后端 API | 2.5 天 | 能 curl 起 N 个 workspace 并查询 group | 🚧 进行中（1.1 ✅ / 1.2 ✅ 草稿待编译验证 / 1.3-1.6 ⏳） |
-| **2** | 基础多栏 Diff 视图（read-only） | 2 天 | 在 UI 看到三栏 diff | ⏳ |
-| **3** | Promote / Archive / Retry 行为 | 2 天 | 完成评审闭环 | ⏳ |
-| **4** | 创建卡片的 Race Mode UI + 资源上限 | 2.5 天 | 全功能可用 | ⏳ |
+| **1** | 数据模型迁移 + 后端 API | 2.5 天 | 能 curl 起 N 个 workspace 并查询 group | ✅ 草稿完成（1.1–1.5 全部落地，待 cargo check） |
+| **2** | 基础多栏 Diff 视图（read-only） | 2 天 | 在 UI 看到三栏 diff | ✅ 草稿完成（API 客户端 + hook + ArenaView 组件 + 路由） |
+| **3** | Promote / Archive / Retry 行为 | 2 天 | 完成评审闭环 | ✅ 草稿完成（mutation hook + ActionsBar + Dissolve header） |
+| **4** | 创建卡片的 Race Mode UI + 资源上限 | 2.5 天 | 全功能可用 | ✅ 草稿完成（CreateArenaDialog + Issue 详情页入口 + arena_max_workspaces 迁移） |
 
 合计 ≈ **9 工作日**，每 Step 都能独立 commit + tag 发版。
 
@@ -23,11 +23,11 @@
 | Sub-step | 状态 | Commit / 文件 |
 |---|---|---|
 | 1.1 SQLx 迁移 | ✅ 完成（python sqlite3 验证通过） | `249fcff1` · `crates/db/migrations/20260504000000_add_ai_arena.sql` |
-| 1.2 Rust 模型 | ✅ 草稿完成（等 cargo check 验证） | `crates/db/src/models/arena_group.rs` (新)、`workspace.rs`（加字段 + 5 处 query 改造 + 3 个新方法） |
-| 1.3 后端路由 + handler | ⏳ | 目标：`crates/server/src/routes/local_remote.rs` |
-| 1.4 Electric fallback | ⏳ | 同 1.3 文件 |
-| 1.5 ts-rs 类型同步 | ⏳ | `crates/server/src/bin/generate_types.rs` |
-| 1.6 完整验收 | ⏳ | cargo test + curl + DB 检查 |
+| 1.2 Rust 模型 | ✅ 草稿完成（含 `fetch_all` / `find_by_id_with_status` 字段补齐） | `crates/db/src/models/arena_group.rs` (新)、`workspace.rs`（加字段 + 5 处 query 改造 + 3 个新方法） |
+| 1.3 后端路由 + handler | ✅ 草稿完成 | `crates/server/src/routes/local_remote.rs` 末尾 +400 行：6 个 arena handler + `list_issue_workspaces` + `fallback_arena_groups` + 7 个 request/response 类型 |
+| 1.4 Electric fallback | ✅ `fallback_arena_groups` 已落到同文件，按 `?project_id=` 过滤 | 同上 |
+| 1.5 ts-rs 类型同步 | ✅ `generate_types.rs` 已加 `ArenaGroup`/`ArenaStatus`/`CreateArenaGroup` + 7 个 arena handler request/response 类型；`error.rs` 加 `From<ArenaGroupError>` 映射 | `crates/server/src/bin/generate_types.rs`、`crates/server/src/error.rs` |
+| 1.6 完整验收 | ⏳ 等本机或 CI cargo check + curl smoke + DB 检查 | — |
 
 > Step 0 调研后调整：Step 1 +0.5 天（修复"按 issue 列 workspace"路由 + Electric local fallback shape），Step 4 +0.5 天（嵌入 `features/create-mode/` store 模式）。详见 [notes-step0.md §7](./notes-step0.md)。
 
