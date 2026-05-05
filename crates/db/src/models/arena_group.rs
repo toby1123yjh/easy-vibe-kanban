@@ -12,7 +12,7 @@ use uuid::Uuid;
 /// over"; `archived=true` retains its existing meaning of "user-driven
 /// soft archive".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
-#[sqlx(rename_all = "lowercase")]
+#[sqlx(type_name = "arena_status", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]
 pub enum ArenaStatus {
