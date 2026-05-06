@@ -5,15 +5,13 @@ const MODE_LABEL: Record<ArenaGroupResponse['mode'], string> = {
   implementation: 'Implementation Arena',
 };
 
-const LIFECYCLE_LABEL: Record<
-  ArenaGroupResponse['lifecycle_status'],
-  string
-> = {
-  open: 'Open',
-  closed: 'Closed',
-  adopted: 'Adopted',
-  implementation_started: 'Implementation started',
-};
+const LIFECYCLE_LABEL: Record<ArenaGroupResponse['lifecycle_status'], string> =
+  {
+    open: 'Open',
+    closed: 'Closed',
+    adopted: 'Adopted',
+    implementation_started: 'Implementation started',
+  };
 
 export function ArenaModeBadge({ group }: { group: ArenaGroupResponse }) {
   return (

@@ -525,11 +525,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              type="button"
-              onClick={handleClose}
-            >
+            <Button variant="outline" type="button" onClick={handleClose}>
               Cancel
             </Button>
             <Button

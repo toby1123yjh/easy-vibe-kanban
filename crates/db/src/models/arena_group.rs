@@ -342,8 +342,9 @@ impl ArenaGroup {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
 
     async fn setup_arena_group_test_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()

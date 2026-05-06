@@ -16,7 +16,9 @@ function executorConfigForWorkspace(
   workspace: ArenaWorkspaceSummary | undefined
 ): ExecutorConfig {
   return {
-    executor: (workspace?.executor as BaseCodingAgent | undefined) ?? BaseCodingAgent.CODEX,
+    executor:
+      (workspace?.executor as BaseCodingAgent | undefined) ??
+      BaseCodingAgent.CODEX,
     variant: workspace?.variant ?? null,
     model_id: null,
     agent_id: null,
@@ -45,7 +47,8 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
     (workspace) => workspace.latest_execution_status === 'running'
   );
   const isPending = message.isPending || startImplementation.isPending;
-  const actionsDisabled = isRunning || isPending || group.workspaces.length === 0;
+  const actionsDisabled =
+    isRunning || isPending || group.workspaces.length === 0;
   const trimmedMessage = messageText.trim();
 
   const handleAskAll = async () => {

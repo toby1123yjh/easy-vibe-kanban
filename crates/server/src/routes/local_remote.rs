@@ -18,8 +18,7 @@ use axum::{
 use chrono::Utc;
 use db::models::{
     arena_group::{
-        ArenaGroup, ArenaGroupError, ArenaLifecycleStatus, ArenaMode, ArenaStatus,
-        CreateArenaGroup,
+        ArenaGroup, ArenaGroupError, ArenaLifecycleStatus, ArenaMode, ArenaStatus, CreateArenaGroup,
     },
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus},
@@ -31,8 +30,7 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
         coding_agent_initial::CodingAgentInitialRequest,
     },
     profile::ExecutorConfig,
@@ -1949,7 +1947,9 @@ pub struct StartArenaImplementationRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ArenaMessageTarget {
     All,
-    Workspace { workspace_id: Uuid },
+    Workspace {
+        workspace_id: Uuid,
+    },
     Challenge {
         responder_workspace_id: Uuid,
         source_workspace_id: Uuid,
@@ -2241,7 +2241,8 @@ async fn create_arena_group(
         .await
         {
             Ok((workspace, executor_config)) => {
-                summaries.push(workspace_to_summary(pool, &workspace, Some(&executor_config)).await?);
+                summaries
+                    .push(workspace_to_summary(pool, &workspace, Some(&executor_config)).await?);
             }
             Err(err) => {
                 tracing::error!(

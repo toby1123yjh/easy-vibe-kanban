@@ -1659,11 +1659,25 @@ impl ContainerService for LocalContainerService {
     }
 }
 
+fn success_exit_status() -> std::process::ExitStatus {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatusExt::from_raw(0)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatusExt::from_raw(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use db::models::arena_group::{ArenaLifecycleStatus, ArenaMode};
     use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
 
     async fn setup_container_policy_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -1768,17 +1782,5 @@ mod tests {
             .expect("policy lookup");
 
         assert!(!disabled);
-    }
-}
-fn success_exit_status() -> std::process::ExitStatus {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
     }
 }
