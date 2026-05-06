@@ -237,7 +237,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Check private deploy key availability
+        id: private-deploy-key
+        env:
+          VK_PRIVATE_DEPLOY_KEY: ${{ secrets.VK_PRIVATE_DEPLOY_KEY }}
+        run: |
+          if [ -n "$VK_PRIVATE_DEPLOY_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping backend remote checks because VK_PRIVATE_DEPLOY_KEY is not configured." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Setup Rust
+        if: steps.private-deploy-key.outputs.available == 'true'
         uses: ./.github/actions/cargo-checks-common-setup
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -247,29 +260,35 @@ jobs:
           setup-sqlx-cli: "true"
 
       - name: Setup SSH Agent for private dependencies
+        if: steps.private-deploy-key.outputs.available == 'true'
         uses: webfactory/ssh-agent@dc588b651fe13675774614f8e6a936a468676387 # v0.9.0
         with:
           ssh-private-key: ${{ secrets.VK_PRIVATE_DEPLOY_KEY }}
 
       - name: Check remote Cargo.lock is consistent
+        if: steps.private-deploy-key.outputs.available == 'true'
         run: |
           cargo metadata --locked --format-version 1 --manifest-path crates/remote/Cargo.toml > /dev/null
           cargo metadata --locked --format-version 1 --manifest-path crates/relay-tunnel/Cargo.toml > /dev/null
 
       - name: Check formatting
+        if: steps.private-deploy-key.outputs.available == 'true'
         run: |
           cargo fmt --all --manifest-path crates/remote/Cargo.toml -- --check
           cargo fmt --all --manifest-path crates/relay-tunnel/Cargo.toml -- --check
 
       - name: Run Clippy
+        if: steps.private-deploy-key.outputs.available == 'true'
         run: |
           cargo clippy --all-targets --manifest-path crates/remote/Cargo.toml -- -D warnings
           cargo clippy --all-targets --manifest-path crates/relay-tunnel/Cargo.toml -- -D warnings
 
       - name: Check generated types
+        if: steps.private-deploy-key.outputs.available == 'true'
         run: npm run remote:generate-types:check
 
       - name: Sqlx checks
+        if: steps.private-deploy-key.outputs.available == 'true'
         run: npm run remote:prepare-db:check
 
   backend-clippy:
