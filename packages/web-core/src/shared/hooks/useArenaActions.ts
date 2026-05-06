@@ -5,9 +5,12 @@ import {
 } from '@tanstack/react-query';
 import {
   arenaApi,
+  type ArenaMessageRequest,
   type ArenaGroupResponse,
+  type CloseArenaResponse,
   type DissolveArenaResponse,
   type RetryArenaRequest,
+  type StartArenaImplementationRequest,
 } from '@/shared/lib/arenaApi';
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
 
@@ -23,6 +26,13 @@ interface UseArenaActionsResult {
     { workspaceId: string; payload: RetryArenaRequest }
   >;
   dissolve: UseMutationResult<DissolveArenaResponse, Error, void>;
+  close: UseMutationResult<CloseArenaResponse, Error, void>;
+  message: UseMutationResult<ArenaGroupResponse, Error, ArenaMessageRequest>;
+  startImplementation: UseMutationResult<
+    ArenaGroupResponse,
+    Error,
+    StartArenaImplementationRequest
+  >;
 }
 
 /**
@@ -81,5 +91,28 @@ export function useArenaActions(
     onSettled,
   });
 
-  return { promote, retry, dissolve };
+  const close = useMutation({
+    mutationFn: () => arenaApi.close(groupId),
+    onSettled,
+  });
+
+  const message = useMutation({
+    mutationFn: (payload: ArenaMessageRequest) =>
+      arenaApi.message(groupId, payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    },
+    onSettled,
+  });
+
+  const startImplementation = useMutation({
+    mutationFn: (payload: StartArenaImplementationRequest) =>
+      arenaApi.startImplementation(groupId, payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    },
+    onSettled,
+  });
+
+  return { promote, retry, dissolve, close, message, startImplementation };
 }

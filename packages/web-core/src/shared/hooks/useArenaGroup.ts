@@ -48,9 +48,9 @@ export function useArenaGroup(
     refetchInterval: (query) => {
       if (refetchIntervalMs === false) return false;
       const data = query.state.data as ArenaGroupResponse | undefined;
-      if (!data) return refetchIntervalMs;
+      if (!data) return false;
       const stillRunning = data.workspaces.some(
-        (ws) => ws.arena_status === 'active'
+        (ws) => ws.latest_execution_status === 'running'
       );
       return stillRunning ? refetchIntervalMs : false;
     },
@@ -81,9 +81,10 @@ export function useActiveArenaForIssue(
     refetchInterval: (query) => {
       if (refetchIntervalMs === false) return false;
       const data = query.state.data as ArenaGroupResponse | null | undefined;
-      if (!data) return refetchIntervalMs;
+      if (!data) return false;
+      if (data.lifecycle_status !== 'open') return false;
       const stillRunning = data.workspaces.some(
-        (ws) => ws.arena_status === 'active'
+        (ws) => ws.latest_execution_status === 'running'
       );
       return stillRunning ? refetchIntervalMs : false;
     },

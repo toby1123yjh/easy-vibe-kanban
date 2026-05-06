@@ -10,7 +10,7 @@ use uuid::Uuid;
 const WORKSPACE_NAME_MAX_LEN: usize = 60;
 
 use super::{
-    arena_group::ArenaStatus,
+    arena_group::{ArenaGroup, ArenaStatus},
     execution_process::ExecutorActionField,
     session::Session,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
@@ -485,6 +485,33 @@ impl Workspace {
             arena_group_id
         )
         .fetch_all(pool)
+        .await
+    }
+
+    pub async fn find_arena_group_for_workspace(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<Option<ArenaGroup>, sqlx::Error> {
+        sqlx::query_as::<_, ArenaGroup>(
+            r#"SELECT ag.id,
+                      ag.issue_id,
+                      ag.project_id,
+                      ag.prompt,
+                      ag.base_branch,
+                      ag.mode,
+                      ag.lifecycle_status,
+                      ag.promoted_workspace_id,
+                      ag.implementation_workspace_id,
+                      ag.promoted_at,
+                      ag.closed_at,
+                      ag.created_at,
+                      ag.updated_at
+                 FROM workspaces w
+                 JOIN arena_groups ag ON ag.id = w.arena_group_id
+                WHERE w.id = ?"#,
+        )
+        .bind(workspace_id)
+        .fetch_optional(pool)
         .await
     }
 

@@ -21,6 +21,17 @@ import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 // ── Mirror of Rust types (see comment above) ────────────────────────
 
 export type ArenaStatus = 'active' | 'promoted' | 'archived';
+export type ArenaMode = 'design' | 'implementation';
+export type ArenaLifecycleStatus =
+  | 'open'
+  | 'closed'
+  | 'adopted'
+  | 'implementation_started';
+export type ExecutionProcessStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'killed';
 
 export interface ArenaGroup {
   id: string;
@@ -28,19 +39,26 @@ export interface ArenaGroup {
   project_id: string;
   prompt: string;
   base_branch: string;
+  mode: ArenaMode;
+  lifecycle_status: ArenaLifecycleStatus;
   promoted_workspace_id: string | null;
+  implementation_workspace_id: string | null;
   promoted_at: string | null;
+  closed_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface ArenaWorkspaceSummary {
   workspace_id: string;
+  session_id: string | null;
   name: string | null;
   branch: string;
   arena_status: ArenaStatus;
   executor: string | null;
   variant: string | null;
+  latest_execution_status: ExecutionProcessStatus | null;
+  has_uncommitted_changes: boolean | null;
 }
 
 export interface ArenaGroupResponse extends ArenaGroup {
@@ -62,6 +80,7 @@ export interface CreateArenaRequest {
   project_id: string;
   base_branch: string;
   prompt: string;
+  mode?: ArenaMode;
   repos: WorkspaceRepoInput[];
   attempts: ArenaAttemptInput[];
 }
@@ -79,6 +98,33 @@ export interface RetryArenaRequest {
 export interface DissolveArenaResponse {
   group_id: string;
   workspaces_archived: number;
+}
+
+export interface CloseArenaResponse {
+  group_id: string;
+  lifecycle_status: ArenaLifecycleStatus;
+}
+
+export interface StartArenaImplementationRequest {
+  workspace_id: string;
+  follow_up_prompt?: string | null;
+  executor_config?: ExecutorConfig | null;
+}
+
+export type ArenaMessageTarget =
+  | { type: 'all' }
+  | { type: 'workspace'; workspace_id: string }
+  | {
+      type: 'challenge';
+      responder_workspace_id: string;
+      source_workspace_id: string;
+    }
+  | { type: 'synthesize' };
+
+export interface ArenaMessageRequest {
+  target: ArenaMessageTarget;
+  prompt: string;
+  executor_config: ExecutorConfig;
 }
 
 // ── Transport ───────────────────────────────────────────────────────
@@ -196,6 +242,36 @@ export const arenaApi = {
       `/arena/${groupId}`,
       { method: 'DELETE' },
       'Failed to dissolve arena group'
+    ),
+
+  /** POST /v1/arena/{group_id}/close */
+  close: (groupId: string): Promise<CloseArenaResponse> =>
+    mutate<CloseArenaResponse>(
+      `/arena/${groupId}/close`,
+      { method: 'POST' },
+      'Failed to close arena group'
+    ),
+
+  /** POST /v1/arena/{group_id}/message */
+  message: (
+    groupId: string,
+    payload: ArenaMessageRequest
+  ): Promise<ArenaGroupResponse> =>
+    mutate<ArenaGroupResponse>(
+      `/arena/${groupId}/message`,
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to send arena message'
+    ),
+
+  /** POST /v1/arena/{group_id}/start-implementation */
+  startImplementation: (
+    groupId: string,
+    payload: StartArenaImplementationRequest
+  ): Promise<ArenaGroupResponse> =>
+    mutate<ArenaGroupResponse>(
+      `/arena/${groupId}/start-implementation`,
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to start arena implementation'
     ),
 
   /** GET /v1/issues/{issue_id}/workspaces */

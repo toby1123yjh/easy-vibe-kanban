@@ -4,6 +4,9 @@ import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
 import { ConfirmDialog } from '@/shared/dialogs/shared/ConfirmDialog';
 import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
+import { ArenaConversationPane } from './ArenaConversationPane';
+import { ArenaModeBadge } from './ArenaModeBadge';
+import { ArenaPageActions } from './ArenaPageActions';
 import { ArenaWorkspaceColumn } from './ArenaWorkspaceColumn';
 
 interface ArenaViewProps {
@@ -36,12 +39,28 @@ function ArenaHeader({
   const archived = group.workspaces.filter(
     (ws) => ws.arena_status === 'archived'
   ).length;
-  const active = total - promoted - archived;
+  const running = group.workspaces.filter(
+    (ws) => ws.latest_execution_status === 'running'
+  ).length;
 
-  const { dissolve } = useArenaActions(group.id, group.issue_id);
+  const { dissolve, close } = useArenaActions(group.id, group.issue_id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const groupAlreadyPromoted = group.promoted_workspace_id != null;
+  const canCloseDesign =
+    group.mode === 'design' && group.lifecycle_status === 'open';
+  const canDissolveImplementation =
+    group.mode === 'implementation' && !groupAlreadyPromoted;
+
+  const handleClose = async () => {
+    setErrorMessage(null);
+    try {
+      await close.mutateAsync();
+      onDissolved?.();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Close failed');
+    }
+  };
 
   const handleDissolve = async () => {
     setErrorMessage(null);
@@ -67,15 +86,29 @@ function ArenaHeader({
       <div className="flex items-start justify-between gap-base">
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-medium">Arena · {total} attempts</h2>
+          <div className="mt-half">
+            <ArenaModeBadge group={group} />
+          </div>
           <p className="mt-1 line-clamp-2 max-w-2xl text-xs text-low">
             {group.prompt}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-half">
           <div className="text-xs text-low">
-            {active} running · {promoted} promoted · {archived} archived
+            {running} running / {promoted} promoted / {archived} archived
           </div>
-          {!groupAlreadyPromoted ? (
+          {canCloseDesign ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => void handleClose()}
+              disabled={close.isPending}
+              aria-label="Close this arena group"
+            >
+              {close.isPending ? 'Closing...' : 'Close'}
+            </Button>
+          ) : null}
+          {canDissolveImplementation ? (
             <Button
               size="xs"
               variant="outline"
@@ -83,7 +116,7 @@ function ArenaHeader({
               disabled={dissolve.isPending}
               aria-label="Dissolve this arena group"
             >
-              {dissolve.isPending ? 'Dissolving…' : 'Dissolve'}
+              {dissolve.isPending ? 'Dissolving...' : 'Dissolve'}
             </Button>
           ) : null}
         </div>
@@ -129,9 +162,10 @@ export function ArenaView({
   }
 
   if (isLoading || !data) {
-    return <div className="p-base text-sm text-low">Loading arena…</div>;
+    return <div className="p-base text-sm text-low">Loading arena...</div>;
   }
 
+  const isDesignArena = data.mode === 'design';
   const columnsClassName =
     data.workspaces.length === 1
       ? 'grid-cols-1'
@@ -143,18 +177,33 @@ export function ArenaView({
     <div className="flex h-full flex-col">
       <ArenaHeader group={data} onDissolved={handleDissolved} />
 
-      <div
-        className={`grid flex-1 gap-base overflow-auto p-base ${columnsClassName}`}
-      >
-        {data.workspaces.map((ws) => (
-          <ArenaWorkspaceColumn
-            key={ws.workspace_id}
-            group={data}
-            workspace={ws}
-            detailHref={buildWorkspaceHref?.(ws.workspace_id)}
-          />
-        ))}
-      </div>
+      {isDesignArena ? <ArenaPageActions group={data} /> : null}
+
+      {isDesignArena ? (
+        <div className="flex min-h-0 flex-1 gap-base overflow-x-auto p-base">
+          {data.workspaces.map((ws) => (
+            <ArenaConversationPane
+              key={ws.workspace_id}
+              group={data}
+              workspace={ws}
+              detailHref={buildWorkspaceHref?.(ws.workspace_id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div
+          className={`grid flex-1 gap-base overflow-auto p-base ${columnsClassName}`}
+        >
+          {data.workspaces.map((ws) => (
+            <ArenaWorkspaceColumn
+              key={ws.workspace_id}
+              group={data}
+              workspace={ws}
+              detailHref={buildWorkspaceHref?.(ws.workspace_id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

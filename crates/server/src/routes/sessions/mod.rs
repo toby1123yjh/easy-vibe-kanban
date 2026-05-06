@@ -9,6 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
+    arena_group::{ArenaLifecycleStatus, ArenaMode},
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
     requests::UpdateSession,
@@ -34,6 +35,28 @@ use crate::{
     DeploymentImpl, error::ApiError, middleware::load_session_middleware,
     routes::workspaces::execution::RunScriptError,
 };
+
+fn design_arena_prompt(prompt: &str) -> String {
+    format!(
+        "You are in AI Arena Design Mode.\n\
+         Focus on design reasoning, tradeoffs, risks, and decision support.\n\
+         Do not create commits, push branches, open PRs, or treat code changes as the final output unless the user explicitly asks to start implementation.\n\n\
+         User request:\n{}",
+        prompt
+    )
+}
+
+async fn is_open_design_arena_workspace(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let group = Workspace::find_arena_group_for_workspace(pool, workspace_id).await?;
+
+    Ok(matches!(
+        group.map(|g| (g.mode, g.lifecycle_status)),
+        Some((ArenaMode::Design, ArenaLifecycleStatus::Open))
+    ))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SessionQuery {
@@ -177,7 +200,10 @@ pub async fn follow_up(
 
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
-    let prompt = payload.prompt;
+    let mut prompt = payload.prompt;
+    if is_open_design_arena_workspace(pool, workspace.id).await? {
+        prompt = design_arena_prompt(&prompt);
+    }
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let cleanup_action = deployment.container().cleanup_actions_for_repos(&repos);

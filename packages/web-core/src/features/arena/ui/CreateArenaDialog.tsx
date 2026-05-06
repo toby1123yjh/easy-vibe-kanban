@@ -1,5 +1,5 @@
 import { create, useModal } from '@ebay/nice-modal-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@vibe/ui/components/Button';
 import { Input } from '@vibe/ui/components/Input';
@@ -15,7 +15,11 @@ import {
 import { BaseCodingAgent } from 'shared/types';
 import type { Repo } from 'shared/types';
 import { repoApi } from '@/shared/lib/api';
-import { arenaApi, type CreateArenaRequest } from '@/shared/lib/arenaApi';
+import {
+  arenaApi,
+  type ArenaMode,
+  type CreateArenaRequest,
+} from '@/shared/lib/arenaApi';
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
 import { useRepoBranches } from '@/shared/hooks/useRepoBranches';
 import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
@@ -89,6 +93,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     );
 
     const [prompt, setPrompt] = useState(initialPrompt);
+    const [mode, setMode] = useState<ArenaMode>('design');
     const [baseBranch, setBaseBranch] = useState('main');
     const [repoId, setRepoId] = useState<string | null>(null);
     const [attempts, setAttempts] = useState<AttemptDraft[]>(() => [
@@ -100,6 +105,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     ]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const canceledRef = useRef(false);
 
     // Discover repos available for this project. We don't currently
     // filter by project membership — the user is expected to pick the
@@ -195,7 +201,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     const canRemoveAttempt = attempts.length > ARENA_MIN_ATTEMPTS;
 
     const handleClose = () => {
-      if (submitting) return;
+      canceledRef.current = true;
       modal.resolve({ kind: 'canceled' } satisfies CreateArenaDialogResult);
       modal.hide();
     };
@@ -257,6 +263,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
         return;
       }
       if (!repoId) return;
+      canceledRef.current = false;
       setSubmitting(true);
       setError(null);
 
@@ -264,6 +271,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
         project_id: projectId,
         base_branch: baseBranch.trim(),
         prompt: prompt.trim(),
+        mode,
         repos: [{ repo_id: repoId, target_branch: baseBranch.trim() }],
         attempts: attempts.map((attempt) => ({
           executor_config: {
@@ -281,6 +289,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
       try {
         const group = await arenaApi.create(issueId, payload);
+        if (canceledRef.current) return;
         queryClient.setQueryData(arenaQueryKeys.group(group.id), group);
         queryClient.setQueryData(arenaQueryKeys.activeForIssue(issueId), group);
         modal.resolve({
@@ -295,6 +304,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           const activeGroup = await arenaApi
             .getActiveForIssue(issueId)
             .catch(() => null);
+          if (canceledRef.current) return;
           if (activeGroup) {
             queryClient.setQueryData(
               arenaQueryKeys.group(activeGroup.id),
@@ -313,20 +323,27 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           }
         }
 
+        if (canceledRef.current) return;
         setError(message);
         setSubmitting(false);
       }
     };
 
+    const dialogTitle =
+      mode === 'design'
+        ? `Start Design Arena / ${attempts.length} attempts`
+        : `Start Implementation Arena / ${attempts.length} attempts`;
+    const dialogDescription =
+      mode === 'design'
+        ? 'Compare multiple agents as design conversations. Workspaces are isolated, and commits are not created by default.'
+        : 'Run multiple implementation attempts and compare their code changes.';
+
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Start a race · {attempts.length} attempts</DialogTitle>
-            <DialogDescription>
-              Run the same prompt against multiple coding agents in parallel.
-              Compare results side-by-side, then promote one to merge.
-            </DialogDescription>
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-base py-half">
@@ -345,6 +362,36 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                 rows={4}
                 className="font-ibm-plex-mono"
               />
+            </div>
+
+            <div className="space-y-half">
+              <span className="text-xs font-medium text-low">Mode</span>
+              <div className="inline-flex rounded border border-zinc-200 bg-secondary p-0.5 dark:border-zinc-800">
+                <button
+                  type="button"
+                  className={`rounded px-3 py-1.5 text-xs ${
+                    mode === 'design'
+                      ? 'bg-primary text-high shadow-sm'
+                      : 'text-low hover:text-normal'
+                  }`}
+                  aria-pressed={mode === 'design'}
+                  onClick={() => setMode('design')}
+                >
+                  Design
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-3 py-1.5 text-xs ${
+                    mode === 'implementation'
+                      ? 'bg-primary text-high shadow-sm'
+                      : 'text-low hover:text-normal'
+                  }`}
+                  aria-pressed={mode === 'implementation'}
+                  onClick={() => setMode('implementation')}
+                >
+                  Implementation
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-half">
@@ -379,7 +426,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                     className="truncate text-[11px] text-low"
                     title={selectedRepo.path}
                   >
-                    {selectedRepo.path}
+                    Loaded from local repositories / {selectedRepo.path}
                   </p>
                 ) : null}
               </div>
@@ -482,7 +529,6 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
               variant="outline"
               type="button"
               onClick={handleClose}
-              disabled={submitting}
             >
               Cancel
             </Button>
@@ -491,7 +537,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
               onClick={() => void handleSubmit()}
               disabled={submitting || !!validationError}
             >
-              {submitting ? 'Starting…' : 'Start race'}
+              {submitting ? 'Starting...' : 'Start Arena'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -51,6 +51,7 @@ use services::services::{
     remote_client::RemoteClient,
     remote_sync,
 };
+use sqlx::SqlitePool;
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
@@ -64,6 +65,20 @@ use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 use crate::{command, copy};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
+
+async fn should_disable_default_commit_for_workspace(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    use db::models::arena_group::{ArenaLifecycleStatus, ArenaMode};
+
+    let group = Workspace::find_arena_group_for_workspace(pool, workspace_id).await?;
+
+    Ok(matches!(
+        group.map(|g| (g.mode, g.lifecycle_status)),
+        Some((ArenaMode::Design, ArenaLifecycleStatus::Open))
+    ))
+}
 
 #[derive(Clone)]
 pub struct LocalContainerService {
@@ -1349,8 +1364,11 @@ impl ContainerService for LocalContainerService {
         let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
         let repo_context = RepoContext::new(current_dir.clone(), repo_names);
 
+        let design_arena_no_commit =
+            should_disable_default_commit_for_workspace(&self.db.pool, workspace.id).await?;
+
         let config = self.config.read().await;
-        let commit_reminder_enabled = config.commit_reminder_enabled;
+        let commit_reminder_enabled = config.commit_reminder_enabled && !design_arena_no_commit;
         let commit_reminder_prompt = config
             .commit_reminder_prompt
             .clone()
@@ -1559,6 +1577,14 @@ impl ContainerService for LocalContainerService {
             return Ok(false);
         }
 
+        if should_disable_default_commit_for_workspace(&self.db.pool, ctx.workspace.id).await? {
+            tracing::info!(
+                workspace_id = %ctx.workspace.id,
+                "Skipping automatic commit for open Design Arena workspace"
+            );
+            return Ok(false);
+        }
+
         let message = self.get_commit_message(ctx).await;
 
         let container_ref = ctx
@@ -1630,6 +1656,118 @@ impl ContainerService for LocalContainerService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::models::arena_group::{ArenaLifecycleStatus, ArenaMode};
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn setup_container_policy_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+
+        for statement in [
+            r#"
+            CREATE TABLE arena_groups (
+                id BLOB PRIMARY KEY,
+                issue_id BLOB NOT NULL,
+                project_id BLOB NOT NULL,
+                prompt TEXT NOT NULL,
+                base_branch TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                lifecycle_status TEXT NOT NULL,
+                promoted_workspace_id BLOB,
+                implementation_workspace_id BLOB,
+                promoted_at TEXT,
+                closed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
+            CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY,
+                arena_group_id BLOB
+            )
+            "#,
+        ] {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .expect("create schema");
+        }
+
+        pool
+    }
+
+    async fn insert_workspace_in_arena(
+        pool: &SqlitePool,
+        mode: ArenaMode,
+        lifecycle_status: ArenaLifecycleStatus,
+    ) -> Uuid {
+        let group_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"INSERT INTO arena_groups
+                  (id, issue_id, project_id, prompt, base_branch, mode, lifecycle_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(group_id)
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .bind("Compare designs")
+        .bind("main")
+        .bind(mode)
+        .bind(lifecycle_status)
+        .execute(pool)
+        .await
+        .expect("insert arena group");
+
+        sqlx::query("INSERT INTO workspaces (id, arena_group_id) VALUES (?, ?)")
+            .bind(workspace_id)
+            .bind(group_id)
+            .execute(pool)
+            .await
+            .expect("insert workspace");
+
+        workspace_id
+    }
+
+    #[tokio::test]
+    async fn open_design_arena_workspace_disables_default_commit() {
+        let pool = setup_container_policy_pool().await;
+        let workspace_id =
+            insert_workspace_in_arena(&pool, ArenaMode::Design, ArenaLifecycleStatus::Open).await;
+
+        let disabled = should_disable_default_commit_for_workspace(&pool, workspace_id)
+            .await
+            .expect("policy lookup");
+
+        assert!(disabled);
+    }
+
+    #[tokio::test]
+    async fn implementation_started_workspace_allows_normal_commit_policy() {
+        let pool = setup_container_policy_pool().await;
+        let workspace_id = insert_workspace_in_arena(
+            &pool,
+            ArenaMode::Design,
+            ArenaLifecycleStatus::ImplementationStarted,
+        )
+        .await;
+
+        let disabled = should_disable_default_commit_for_workspace(&pool, workspace_id)
+            .await
+            .expect("policy lookup");
+
+        assert!(!disabled);
     }
 }
 fn success_exit_status() -> std::process::ExitStatus {

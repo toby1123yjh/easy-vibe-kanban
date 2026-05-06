@@ -8,17 +8,17 @@ import { CreateArenaDialog } from '@/features/arena';
 
 interface IssueArenaSectionContainerProps {
   issueId: string;
-  /** Suggested initial prompt for the new race (e.g. issue title). */
+  /** Suggested initial prompt for the new arena (e.g. issue title). */
   initialPrompt?: string;
 }
 
 /**
- * Compact entry point for AI Arena (race mode) that lives next to the
+ * Compact entry point for AI Arena that lives next to the
  * existing IssueWorkspacesSection on the kanban issue panel.
  *
  * - When the issue already has an active (un-promoted) arena group:
  *   shows a "Open arena · N attempts" chip that links into ArenaView.
- * - When it doesn't: shows a [Start race] button that opens
+ * - When it doesn't: shows a [Start Arena] button that opens
  *   {@link CreateArenaDialog}.
  *
  * Keeping this section minimal lets us deliver the full Step 4 entry
@@ -75,8 +75,10 @@ export function IssueArenaSectionContainer({
   if (activeArena) {
     const total = activeArena.workspaces.length;
     const running = activeArena.workspaces.filter(
-      (ws) => ws.arena_status === 'active'
+      (ws) => ws.latest_execution_status === 'running'
     ).length;
+    const modeLabel =
+      activeArena.mode === 'design' ? 'Design Arena' : 'Implementation Arena';
     return (
       <div className="my-half">
         <button
@@ -86,9 +88,9 @@ export function IssueArenaSectionContainer({
           aria-label="Open arena"
         >
           <span className="font-medium">
-            Arena · {total} attempts ({running} running)
+            {modeLabel} / {total} attempts ({running} running)
           </span>
-          <span className="text-xs text-low">Open →</span>
+          <span className="text-xs text-low">Open</span>
         </button>
       </div>
     );
@@ -100,10 +102,10 @@ export function IssueArenaSectionContainer({
         type="button"
         onClick={() => void handleStart()}
         className="flex w-full items-center justify-between rounded border border-zinc-200 px-base py-half text-sm hover:bg-secondary dark:border-zinc-800"
-        aria-label="Start race"
+        aria-label="Start Arena"
       >
-        <span className="font-medium">Race mode</span>
-        <span className="text-xs text-low">Start race →</span>
+        <span className="font-medium">AI Arena</span>
+        <span className="text-xs text-low">Start Arena</span>
       </button>
     </div>
   );

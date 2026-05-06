@@ -40,6 +40,10 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
   const { promote, retry } = useArenaActions(group.id, group.issue_id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  if (group.mode === 'design') {
+    return null;
+  }
+
   const groupAlreadyPromoted = group.promoted_workspace_id != null;
   const myStatus = workspace.arena_status;
   const liveSiblings = group.workspaces.filter(
