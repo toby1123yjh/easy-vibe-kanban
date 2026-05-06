@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE arena_groups\n                  SET implementation_workspace_id = $1,\n                      lifecycle_status = 'implementation_started',\n                      updated_at = datetime('now', 'subsec')\n                WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "74bcf8dbed7a066435fb773c141c78745114e26d03c9faf175510760edda0735"
+}

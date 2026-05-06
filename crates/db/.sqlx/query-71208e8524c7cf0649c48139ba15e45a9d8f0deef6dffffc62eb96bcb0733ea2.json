@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE arena_groups\n                  SET promoted_workspace_id = $1,\n                      promoted_at = $2,\n                      lifecycle_status = 'adopted',\n                      implementation_workspace_id = $1,\n                      updated_at  = datetime('now', 'subsec')\n               WHERE id = $3\n                 AND promoted_workspace_id IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "71208e8524c7cf0649c48139ba15e45a9d8f0deef6dffffc62eb96bcb0733ea2"
+}

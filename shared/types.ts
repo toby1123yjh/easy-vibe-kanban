@@ -178,11 +178,15 @@ arena_group_id: string | null,
  */
 arena_status: ArenaStatus, };
 
-export type ArenaGroup = { id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, promoted_workspace_id: string | null, promoted_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroup = { id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type ArenaStatus = "active" | "promoted" | "archived";
 
-export type CreateArenaGroup = { issue_id: string, project_id: string, prompt: string, base_branch: string, };
+export type ArenaMode = "design" | "implementation";
+
+export type ArenaLifecycleStatus = "open" | "closed" | "adopted" | "implementation_started";
+
+export type CreateArenaGroup = { issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, };
 
 export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string | null, 
 /**
@@ -191,11 +195,11 @@ export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string
  */
 prompt?: string | null, };
 
-export type CreateArenaRequest = { project_id: string, base_branch: string, prompt: string, repos: Array<WorkspaceRepoInput>, attempts: Array<ArenaAttemptInput>, };
+export type CreateArenaRequest = { project_id: string, base_branch: string, prompt: string, mode: ArenaMode, repos: Array<WorkspaceRepoInput>, attempts: Array<ArenaAttemptInput>, };
 
-export type ArenaWorkspaceSummary = { workspace_id: string, name: string | null, branch: string, arena_status: ArenaStatus, executor: string | null, variant: string | null, };
+export type ArenaWorkspaceSummary = { workspace_id: string, session_id: string | null, name: string | null, branch: string, arena_status: ArenaStatus, executor: string | null, variant: string | null, latest_execution_status: ExecutionProcessStatus | null, has_uncommitted_changes: boolean | null, };
 
-export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, promoted_workspace_id: string | null, promoted_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type PromoteArenaRequest = { workspace_id: string, };
 
@@ -206,6 +210,14 @@ export type RetryArenaRequest = { executor_config: ExecutorConfig, name?: string
 prompt?: string | null, };
 
 export type DissolveArenaResponse = { group_id: string, workspaces_archived: number, };
+
+export type CloseArenaResponse = { group_id: string, lifecycle_status: ArenaLifecycleStatus, };
+
+export type StartArenaImplementationRequest = { workspace_id: string, follow_up_prompt?: string | null, executor_config?: ExecutorConfig | null, };
+
+export type ArenaMessageTarget = { "type": "all" } | { "type": "workspace", workspace_id: string, } | { "type": "challenge", responder_workspace_id: string, source_workspace_id: string, } | { "type": "synthesize" };
+
+export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
