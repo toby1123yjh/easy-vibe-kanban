@@ -1,6 +1,6 @@
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@vibe/ui/components/Button';
 import { Input } from '@vibe/ui/components/Input';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -16,6 +16,10 @@ import { BaseCodingAgent } from 'shared/types';
 import type { Repo } from 'shared/types';
 import { repoApi } from '@/shared/lib/api';
 import { arenaApi, type CreateArenaRequest } from '@/shared/lib/arenaApi';
+import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
+import { useRepoBranches } from '@/shared/hooks/useRepoBranches';
+import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import BranchSelector from '@/shared/components/tasks/BranchSelector';
 import { defineModal } from '@/shared/lib/modals';
 
 interface CreateArenaDialogProps {
@@ -55,6 +59,18 @@ function defaultDraft(executor: BaseCodingAgent): AttemptDraft {
   };
 }
 
+function getRepoDisplayName(repo: Repo): string {
+  return repo.display_name || repo.name;
+}
+
+function getRepoOptionLabel(repo: Repo): string {
+  return `${getRepoDisplayName(repo)} - ${repo.path}`;
+}
+
+function isActiveArenaConflict(errorMessage: string): boolean {
+  return errorMessage.includes('already has an active arena group');
+}
+
 const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
   ({
     projectId,
@@ -63,6 +79,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     maxAttempts: maxAttemptsProp,
   }) => {
     const modal = useModal();
+    const queryClient = useQueryClient();
     const maxAttempts = Math.max(
       ARENA_MIN_ATTEMPTS,
       Math.min(
@@ -93,21 +110,112 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       staleTime: 60_000,
     });
 
-    // Auto-select the first repo once loaded.
+    const repoIdsKey = useMemo(
+      () => repos?.map((repo) => repo.id).join('|') ?? '',
+      [repos]
+    );
+    const { data: projectRepoDefaults = [], isLoading: defaultsLoading } =
+      useQuery({
+        queryKey: ['projectRepoDefaults', projectId, repoIdsKey],
+        queryFn: () =>
+          getValidProjectRepoDefaults(
+            projectId,
+            new Set((repos ?? []).map((repo) => repo.id))
+          ),
+        enabled: !!projectId && !!repos?.length,
+        staleTime: 60_000,
+      });
+
+    const selectedRepo = useMemo(
+      () => repos?.find((repo) => repo.id === repoId) ?? null,
+      [repos, repoId]
+    );
+    const selectedProjectDefault = useMemo(
+      () =>
+        selectedRepo
+          ? projectRepoDefaults.find(
+              (defaultRepo) => defaultRepo.repo_id === selectedRepo.id
+            )
+          : undefined,
+      [projectRepoDefaults, selectedRepo]
+    );
+
+    const {
+      data: branches = [],
+      isLoading: branchesLoading,
+      isError: branchesError,
+    } = useRepoBranches(repoId, {
+      enabled: !!repoId,
+    });
+
     useEffect(() => {
-      if (!repoId && repos && repos.length > 0) {
-        setRepoId(repos[0].id);
-        if (repos[0].default_target_branch) {
-          setBaseBranch(repos[0].default_target_branch);
-        }
+      if (repoId || !repos || repos.length === 0 || defaultsLoading) {
+        return;
       }
-    }, [repos, repoId]);
+
+      const preferredRepoId = projectRepoDefaults[0]?.repo_id;
+      const nextRepo =
+        repos.find((repo) => repo.id === preferredRepoId) ?? repos[0];
+      const preferredBranch =
+        projectRepoDefaults.find(
+          (defaultRepo) => defaultRepo.repo_id === nextRepo.id
+        )?.target_branch || nextRepo.default_target_branch;
+
+      setRepoId(nextRepo.id);
+      if (preferredBranch) {
+        setBaseBranch(preferredBranch);
+      }
+    }, [repos, repoId, defaultsLoading, projectRepoDefaults]);
+
+    useEffect(() => {
+      if (!selectedRepo) return;
+
+      const preferredBranch =
+        selectedProjectDefault?.target_branch ||
+        selectedRepo.default_target_branch;
+      const currentBranch = branches.find((branch) => branch.is_current)?.name;
+      const fallbackBranch =
+        preferredBranch || currentBranch || branches[0]?.name;
+
+      if (!baseBranch.trim() && fallbackBranch) {
+        setBaseBranch(fallbackBranch);
+        return;
+      }
+
+      if (
+        branches.length > 0 &&
+        !branches.some((branch) => branch.name === baseBranch) &&
+        fallbackBranch
+      ) {
+        setBaseBranch(fallbackBranch);
+      }
+    }, [baseBranch, branches, selectedProjectDefault, selectedRepo]);
 
     const canAddAttempt = attempts.length < maxAttempts;
     const canRemoveAttempt = attempts.length > ARENA_MIN_ATTEMPTS;
 
     const handleClose = () => {
+      if (submitting) return;
       modal.resolve({ kind: 'canceled' } satisfies CreateArenaDialogResult);
+      modal.hide();
+    };
+
+    const handleOpenChange = (open: boolean) => {
+      if (!open) {
+        handleClose();
+      }
+    };
+
+    const handleRepoChange = (nextRepoId: string) => {
+      const nextRepo = repos?.find((repo) => repo.id === nextRepoId);
+      const preferredBranch =
+        projectRepoDefaults.find(
+          (defaultRepo) => defaultRepo.repo_id === nextRepoId
+        )?.target_branch || nextRepo?.default_target_branch;
+
+      setRepoId(nextRepoId || null);
+      setBaseBranch(preferredBranch ?? '');
+      setError(null);
     };
 
     const handleAddAttempt = () => {
@@ -173,18 +281,45 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
       try {
         const group = await arenaApi.create(issueId, payload);
+        queryClient.setQueryData(arenaQueryKeys.group(group.id), group);
+        queryClient.setQueryData(arenaQueryKeys.activeForIssue(issueId), group);
         modal.resolve({
           kind: 'created',
           groupId: group.id,
         } satisfies CreateArenaDialogResult);
+        modal.hide();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to create arena');
+        const message =
+          err instanceof Error ? err.message : 'Failed to create arena';
+        if (isActiveArenaConflict(message)) {
+          const activeGroup = await arenaApi
+            .getActiveForIssue(issueId)
+            .catch(() => null);
+          if (activeGroup) {
+            queryClient.setQueryData(
+              arenaQueryKeys.group(activeGroup.id),
+              activeGroup
+            );
+            queryClient.setQueryData(
+              arenaQueryKeys.activeForIssue(issueId),
+              activeGroup
+            );
+            modal.resolve({
+              kind: 'created',
+              groupId: activeGroup.id,
+            } satisfies CreateArenaDialogResult);
+            modal.hide();
+            return;
+          }
+        }
+
+        setError(message);
         setSubmitting(false);
       }
     };
 
     return (
-      <Dialog open={modal.visible} onOpenChange={handleClose}>
+      <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Start a race · {attempts.length} attempts</DialogTitle>
@@ -223,7 +358,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                 <select
                   id="arena-repo"
                   value={repoId ?? ''}
-                  onChange={(e) => setRepoId(e.target.value)}
+                  onChange={(e) => handleRepoChange(e.target.value)}
                   disabled={reposLoading}
                   className="h-10 w-full rounded border bg-secondary px-2 text-sm"
                 >
@@ -234,25 +369,39 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   ) : (
                     repos.map((repo) => (
                       <option key={repo.id} value={repo.id}>
-                        {repo.display_name || repo.name}
+                        {getRepoOptionLabel(repo)}
                       </option>
                     ))
                   )}
                 </select>
+                {selectedRepo ? (
+                  <p
+                    className="truncate text-[11px] text-low"
+                    title={selectedRepo.path}
+                  >
+                    {selectedRepo.path}
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-half">
-                <label
-                  htmlFor="arena-base-branch"
-                  className="text-xs font-medium text-low"
-                >
+                <label className="text-xs font-medium text-low">
                   Base branch
                 </label>
-                <Input
-                  id="arena-base-branch"
-                  value={baseBranch}
-                  onChange={(e) => setBaseBranch(e.target.value)}
-                  placeholder="main"
+                <BranchSelector
+                  branches={branches}
+                  selectedBranch={baseBranch || null}
+                  onBranchSelect={(branch) => {
+                    setBaseBranch(branch);
+                    setError(null);
+                  }}
+                  placeholder={
+                    branchesLoading
+                      ? 'Loading branches...'
+                      : branchesError
+                        ? 'Failed to load branches'
+                        : 'Select branch'
+                  }
                 />
               </div>
             </div>

@@ -1,5 +1,9 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { useActiveArenaForIssue } from '@/shared/hooks/useArenaGroup';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  arenaQueryKeys,
+  useActiveArenaForIssue,
+} from '@/shared/hooks/useArenaGroup';
 import { CreateArenaDialog } from '@/features/arena';
 
 interface IssueArenaSectionContainerProps {
@@ -26,8 +30,13 @@ export function IssueArenaSectionContainer({
 }: IssueArenaSectionContainerProps) {
   const { projectId } = useParams({ strict: false });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const { data: activeArena, isLoading } = useActiveArenaForIssue(issueId);
+  const {
+    data: activeArena,
+    isLoading,
+    refetch,
+  } = useActiveArenaForIssue(issueId);
 
   if (!projectId) return null;
 
@@ -38,12 +47,21 @@ export function IssueArenaSectionContainer({
   };
 
   const handleStart = async () => {
+    const latestArena = await refetch();
+    if (latestArena.data) {
+      goToArena(latestArena.data.id);
+      return;
+    }
+
     const result = await CreateArenaDialog.show({
       projectId,
       issueId,
       initialPrompt,
     });
     if (result.kind === 'created') {
+      await queryClient.invalidateQueries({
+        queryKey: arenaQueryKeys.activeForIssue(issueId),
+      });
       goToArena(result.groupId);
     }
   };
