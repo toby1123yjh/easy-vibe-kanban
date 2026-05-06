@@ -433,7 +433,8 @@ mod tests {
         });
 
         assert_eq!(
-            agent.capabilities()
+            agent
+                .capabilities()
                 .contains(&BaseAgentCapability::SetupHelper),
             cfg!(unix)
         );

@@ -121,12 +121,9 @@ fn quote_script_arg(arg: &str) -> String {
 
 fn quote_cmd_arg(arg: &str) -> String {
     if arg.is_empty()
-        || arg
-            .chars()
-            .any(|ch| {
-                ch.is_whitespace()
-                    || matches!(ch, '"' | '&' | '|' | '<' | '>' | '^' | '(' | ')')
-            })
+        || arg.chars().any(|ch| {
+            ch.is_whitespace() || matches!(ch, '"' | '&' | '|' | '<' | '>' | '^' | '(' | ')')
+        })
     {
         format!("\"{}\"", arg.replace('"', "\\\""))
     } else {

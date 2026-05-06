@@ -11,20 +11,15 @@ use uuid::Uuid;
 /// flag. `Archived` here means "this attempt lost the race / was retried
 /// over"; `archived=true` retains its existing meaning of "user-driven
 /// soft archive".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "arena_status", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]
 pub enum ArenaStatus {
+    #[default]
     Active,
     Promoted,
     Archived,
-}
-
-impl Default for ArenaStatus {
-    fn default() -> Self {
-        ArenaStatus::Active
-    }
 }
 
 #[derive(Debug, Error)]
@@ -34,10 +29,7 @@ pub enum ArenaGroupError {
     #[error("Arena group not found")]
     NotFound,
     #[error("Workspace {workspace_id} does not belong to arena group {group_id}")]
-    WorkspaceNotInGroup {
-        group_id: Uuid,
-        workspace_id: Uuid,
-    },
+    WorkspaceNotInGroup { group_id: Uuid, workspace_id: Uuid },
     #[error("Arena group {group_id} has already been promoted")]
     AlreadyPromoted { group_id: Uuid },
     #[error("Validation error: {0}")]
@@ -68,10 +60,7 @@ pub struct CreateArenaGroup {
 }
 
 impl ArenaGroup {
-    pub async fn find_by_id(
-        pool: &SqlitePool,
-        id: Uuid,
-    ) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             ArenaGroup,
             r#"SELECT id                    AS "id!: Uuid",
@@ -167,10 +156,7 @@ impl ArenaGroup {
         .await
     }
 
-    pub async fn create(
-        pool: &SqlitePool,
-        data: &CreateArenaGroup,
-    ) -> Result<Self, sqlx::Error> {
+    pub async fn create(pool: &SqlitePool, data: &CreateArenaGroup) -> Result<Self, sqlx::Error> {
         let id = Uuid::new_v4();
         sqlx::query_as!(
             ArenaGroup,

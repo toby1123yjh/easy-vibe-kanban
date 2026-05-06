@@ -580,9 +580,9 @@ impl From<ArenaGroupError> for ApiError {
         match err {
             ArenaGroupError::Database(db_err) => ApiError::Database(db_err),
             ArenaGroupError::NotFound => ApiError::BadRequest("Arena group not found".to_string()),
-            ArenaGroupError::AlreadyPromoted { group_id } => ApiError::Conflict(format!(
-                "Arena group {group_id} has already been promoted"
-            )),
+            ArenaGroupError::AlreadyPromoted { group_id } => {
+                ApiError::Conflict(format!("Arena group {group_id} has already been promoted"))
+            }
             ArenaGroupError::WorkspaceNotInGroup {
                 group_id,
                 workspace_id,

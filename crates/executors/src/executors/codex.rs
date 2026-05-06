@@ -786,8 +786,7 @@ impl Codex {
                     }
                     _ => {
                         tracing::error!("Codex spawn error: {}", err);
-                        let error =
-                            format!("{}\n\nCodex launch context:\n{}", err, launch_context);
+                        let error = format!("{}\n\nCodex launch context:\n{}", err, launch_context);
                         log_writer
                             .log_raw(&Error::launch_error(error).raw())
                             .await

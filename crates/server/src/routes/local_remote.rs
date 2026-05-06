@@ -6,9 +6,8 @@ use api_types::{
     IssuePriority, IssueRelationship, IssueRelationshipType, IssueTag, ListMembersResponse,
     ListOrganizationsResponse, MemberRole, MutationResponse, OrganizationMember,
     OrganizationMemberWithProfile, OrganizationWithRole, Project, ProjectStatus, Tag,
-    UpdateIssueCommentRequest,
-    UpdateIssueRequest, UpdateProjectRequest, UpdateProjectStatusRequest, UpdateTagRequest,
-    User, Workspace,
+    UpdateIssueCommentRequest, UpdateIssueRequest, UpdateProjectRequest,
+    UpdateProjectStatusRequest, UpdateTagRequest, User, Workspace,
 };
 use axum::{
     Router,
@@ -116,12 +115,21 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .route("/v1/fallback/users", get(fallback_users))
         .route("/v1/fallback/projects", get(fallback_projects))
-        .route("/v1/fallback/project_statuses", get(fallback_project_statuses))
+        .route(
+            "/v1/fallback/project_statuses",
+            get(fallback_project_statuses),
+        )
         .route("/v1/fallback/issues", get(fallback_issues))
         .route("/v1/fallback/tags", get(fallback_tags))
         .route("/v1/fallback/issue_tags", get(fallback_issue_tags))
-        .route("/v1/fallback/issue_assignees", get(fallback_issue_assignees))
-        .route("/v1/fallback/issue_followers", get(fallback_issue_followers))
+        .route(
+            "/v1/fallback/issue_assignees",
+            get(fallback_issue_assignees),
+        )
+        .route(
+            "/v1/fallback/issue_followers",
+            get(fallback_issue_followers),
+        )
         .route(
             "/v1/fallback/issue_relationships",
             get(fallback_issue_relationships),
@@ -131,8 +139,14 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/fallback/pull_request_issues",
             get(fallback_pull_request_issues),
         )
-        .route("/v1/fallback/project_workspaces", get(fallback_project_workspaces))
-        .route("/v1/fallback/user_workspaces", get(fallback_user_workspaces))
+        .route(
+            "/v1/fallback/project_workspaces",
+            get(fallback_project_workspaces),
+        )
+        .route(
+            "/v1/fallback/user_workspaces",
+            get(fallback_user_workspaces),
+        )
         .route("/v1/fallback/notifications", get(fallback_notifications))
         .route("/v1/fallback/issue_comments", get(fallback_issue_comments))
         .route(
@@ -143,7 +157,9 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/v1/projects/bulk", post(bulk_update_projects))
         .route(
             "/v1/projects/{project_id}",
-            get(get_project).patch(update_project).delete(delete_project),
+            get(get_project)
+                .patch(update_project)
+                .delete(delete_project),
         )
         .route("/v1/project_statuses", post(create_project_status))
         .route(
@@ -195,11 +211,11 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         // ── AI Arena (race mode) ────────────────────────────────────────
         // see docs/future/ai-arena/spec.md §4 + plan.md Step 1.3
         .route("/v1/fallback/arena_groups", get(fallback_arena_groups))
-        .route("/v1/issues/{issue_id}/workspaces", get(list_issue_workspaces))
         .route(
-            "/v1/issues/{issue_id}/arena",
-            post(create_arena_group),
+            "/v1/issues/{issue_id}/workspaces",
+            get(list_issue_workspaces),
         )
+        .route("/v1/issues/{issue_id}/arena", post(create_arena_group))
         .route(
             "/v1/issues/{issue_id}/arena/active",
             get(get_active_arena_for_issue),
@@ -292,10 +308,11 @@ async fn ensure_project_metadata(pool: &SqlitePool) -> Result<(), ApiError> {
 
     for row in rows {
         let project_id: Uuid = row.try_get("id")?;
-        let sort_order: i32 =
-            sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM local_project_metadata")
-                .fetch_one(pool)
-                .await?;
+        let sort_order: i32 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM local_project_metadata",
+        )
+        .fetch_one(pool)
+        .await?;
 
         sqlx::query(
             r#"
@@ -423,11 +440,13 @@ async fn update_local_project(
     changes: UpdateProjectRequest,
 ) -> Result<Project, ApiError> {
     if let Some(name) = changes.name {
-        sqlx::query("UPDATE projects SET name = ?, updated_at = datetime('now', 'subsec') WHERE id = ?")
-            .bind(name)
-            .bind(project_id)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "UPDATE projects SET name = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
+        )
+        .bind(name)
+        .bind(project_id)
+        .execute(pool)
+        .await?;
     }
 
     if changes.color.is_some() || changes.sort_order.is_some() {
@@ -485,10 +504,7 @@ async fn list_project_statuses(
         .map_err(ApiError::from)
 }
 
-async fn get_project_status(
-    pool: &SqlitePool,
-    status_id: Uuid,
-) -> Result<ProjectStatus, ApiError> {
+async fn get_project_status(pool: &SqlitePool, status_id: Uuid) -> Result<ProjectStatus, ApiError> {
     let row = sqlx::query(
         r#"
         SELECT id, project_id, name, color, sort_order, hidden, created_at
@@ -695,11 +711,12 @@ async fn create_local_issue(
     request: CreateIssueRequest,
 ) -> Result<Issue, ApiError> {
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let issue_number: i32 =
-        sqlx::query_scalar("SELECT COALESCE(MAX(issue_number), 0) + 1 FROM local_issues WHERE project_id = ?")
-            .bind(request.project_id)
-            .fetch_one(pool)
-            .await?;
+    let issue_number: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(issue_number), 0) + 1 FROM local_issues WHERE project_id = ?",
+    )
+    .bind(request.project_id)
+    .fetch_one(pool)
+    .await?;
     let simple_id = format!("LOCAL-{issue_number}");
     let extension_metadata =
         serde_json::to_string(&request.extension_metadata).unwrap_or_else(|_| "null".to_string());
@@ -1042,9 +1059,7 @@ async fn get_issue_comment(pool: &SqlitePool, comment_id: Uuid) -> Result<IssueC
     issue_comment_from_row(&row).map_err(ApiError::from)
 }
 
-fn issue_comment_reaction_from_row(
-    row: &SqliteRow,
-) -> Result<IssueCommentReaction, sqlx::Error> {
+fn issue_comment_reaction_from_row(row: &SqliteRow) -> Result<IssueCommentReaction, sqlx::Error> {
     Ok(IssueCommentReaction {
         id: row.try_get("id")?,
         comment_id: row.try_get("comment_id")?,
@@ -1175,9 +1190,7 @@ async fn list_organizations() -> ResponseJson<ListOrganizationsResponse> {
     })
 }
 
-async fn list_members(
-    Path(_org_id): Path<Uuid>,
-) -> ResponseJson<ListMembersResponse> {
+async fn list_members(Path(_org_id): Path<Uuid>) -> ResponseJson<ListMembersResponse> {
     ResponseJson(ListMembersResponse {
         members: vec![OrganizationMemberWithProfile {
             user_id: local_user_id(),
@@ -1322,7 +1335,9 @@ async fn fallback_issue_relationships(
 
     let issue_relationships =
         list_project_issue_relationships(&deployment.db().pool, project_id).await?;
-    Ok(ResponseJson(json!({ "issue_relationships": issue_relationships })))
+    Ok(ResponseJson(
+        json!({ "issue_relationships": issue_relationships }),
+    ))
 }
 
 async fn fallback_pull_requests() -> ResponseJson<Value> {
@@ -1349,7 +1364,10 @@ async fn fallback_user_workspaces(
     State(deployment): State<DeploymentImpl>,
     Query(query): Query<UserQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
-    if query.user_id.is_some_and(|user_id| user_id != local_user_id()) {
+    if query
+        .user_id
+        .is_some_and(|user_id| user_id != local_user_id())
+    {
         return Ok(empty_rows("workspaces"));
     }
 
@@ -1383,7 +1401,9 @@ async fn fallback_issue_comment_reactions(
 
     let issue_comment_reactions =
         list_issue_comment_reactions(&deployment.db().pool, issue_id).await?;
-    Ok(ResponseJson(json!({ "issue_comment_reactions": issue_comment_reactions })))
+    Ok(ResponseJson(
+        json!({ "issue_comment_reactions": issue_comment_reactions }),
+    ))
 }
 
 async fn create_project(
@@ -1627,12 +1647,14 @@ async fn create_issue_follower(
     Json(request): Json<CreateIssueFollowerRequest>,
 ) -> Result<ResponseJson<MutationResponse<IssueFollower>>, ApiError> {
     let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query("INSERT OR IGNORE INTO local_issue_followers (id, issue_id, user_id) VALUES (?, ?, ?)")
-        .bind(id)
-        .bind(request.issue_id)
-        .bind(request.user_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    sqlx::query(
+        "INSERT OR IGNORE INTO local_issue_followers (id, issue_id, user_id) VALUES (?, ?, ?)",
+    )
+    .bind(id)
+    .bind(request.issue_id)
+    .bind(request.user_id)
+    .execute(&deployment.db().pool)
+    .await?;
 
     let data = IssueFollower {
         id,
@@ -1803,10 +1825,7 @@ const ARENA_MAX_ATTEMPTS: usize = 6;
 /// global hard limit (`ARENA_MAX_ATTEMPTS`) when the row hasn't been
 /// migrated yet (e.g. very old DBs predating the `arena_max_workspaces`
 /// column).
-async fn arena_max_for_project(
-    pool: &SqlitePool,
-    project_id: Uuid,
-) -> Result<usize, ApiError> {
+async fn arena_max_for_project(pool: &SqlitePool, project_id: Uuid) -> Result<usize, ApiError> {
     let row: Option<i64> = sqlx::query_scalar(
         r#"SELECT arena_max_workspaces
              FROM local_project_metadata
@@ -1931,7 +1950,10 @@ async fn ensure_issue_in_project(
     Ok(())
 }
 
-fn workspace_to_summary(ws: &DbWorkspace, executor_config: Option<&ExecutorConfig>) -> ArenaWorkspaceSummary {
+fn workspace_to_summary(
+    ws: &DbWorkspace,
+    executor_config: Option<&ExecutorConfig>,
+) -> ArenaWorkspaceSummary {
     ArenaWorkspaceSummary {
         workspace_id: ws.id,
         name: ws.name.clone(),
@@ -2062,7 +2084,10 @@ async fn create_arena_group(
 
     ensure_issue_in_project(pool, issue_id, project_id).await?;
 
-    if ArenaGroup::find_active_by_issue_id(pool, issue_id).await?.is_some() {
+    if ArenaGroup::find_active_by_issue_id(pool, issue_id)
+        .await?
+        .is_some()
+    {
         return Err(ApiError::BadRequest(format!(
             "issue {issue_id} already has an active arena group; promote or dissolve it first"
         )));
@@ -2293,7 +2318,10 @@ async fn retry_arena_workspace(
     // Surface the freshly-created summary explicitly (in case the
     // ordering query happens to lag) — `find_by_arena_group_id`
     // already orders by created_at ASC so it will appear at the end.
-    if !workspaces.iter().any(|w| w.workspace_id == new_workspace.id) {
+    if !workspaces
+        .iter()
+        .any(|w| w.workspace_id == new_workspace.id)
+    {
         workspaces.push(workspace_to_summary(&new_workspace, Some(&executor_config)));
     }
 
@@ -2314,7 +2342,8 @@ async fn dissolve_arena_group(
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
     if group.promoted_workspace_id.is_some() {
         return Err(ApiError::BadRequest(
-            "Cannot dissolve a promoted arena group; the merged attempt is now your work.".to_string(),
+            "Cannot dissolve a promoted arena group; the merged attempt is now your work."
+                .to_string(),
         ));
     }
 
