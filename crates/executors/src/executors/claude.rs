@@ -304,9 +304,12 @@ fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscovered
             ],
         },
         slash_commands: ClaudeCode::hardcoded_slash_commands(),
+        skills: vec![],
+        skill_errors: vec![],
         loading_models: false,
         loading_agents: false,
         loading_slash_commands: false,
+        loading_skills: false,
         error: None,
     }
 }

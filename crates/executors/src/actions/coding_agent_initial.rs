@@ -7,7 +7,7 @@ use ts_rs::TS;
 #[cfg(not(feature = "qa-mode"))]
 use crate::profile::ExecutorConfigs;
 use crate::{
-    actions::Executable,
+    actions::{Executable, SelectedSkill},
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
     executors::{BaseCodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
@@ -17,6 +17,9 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct CodingAgentInitialRequest {
     pub prompt: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub selected_skills: Vec<SelectedSkill>,
     /// Unified executor identity + overrides
     #[serde(alias = "executor_profile_id", alias = "profile_variant_label")]
     pub executor_config: ExecutorConfig,
@@ -69,7 +72,14 @@ impl Executable for CodingAgentInitialRequest {
             }
             agent.use_approvals(approvals.clone());
 
-            agent.spawn(&effective_dir, &self.prompt, env).await
+            agent
+                .spawn_with_selected_skills(
+                    &effective_dir,
+                    &self.prompt,
+                    &self.selected_skills,
+                    env,
+                )
+                .await
         }
     }
 }

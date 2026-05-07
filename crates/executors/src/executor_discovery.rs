@@ -8,13 +8,32 @@ use crate::{
     model_selector::ModelSelectorConfig,
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+pub struct CodexSkillDescription {
+    pub name: String,
+    pub description: String,
+    pub short_description: Option<String>,
+    pub path: PathBuf,
+    pub scope: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+pub struct CodexSkillLoadError {
+    pub path: PathBuf,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
 pub struct ExecutorDiscoveredOptions {
     pub model_selector: ModelSelectorConfig,
     pub slash_commands: Vec<SlashCommandDescription>,
+    pub skills: Vec<CodexSkillDescription>,
+    pub skill_errors: Vec<CodexSkillLoadError>,
     pub loading_models: bool,
     pub loading_agents: bool,
     pub loading_slash_commands: bool,
+    pub loading_skills: bool,
     pub error: Option<String>,
 }
 
@@ -23,6 +42,7 @@ impl ExecutorDiscoveredOptions {
         self.loading_models = loading;
         self.loading_agents = loading;
         self.loading_slash_commands = loading;
+        self.loading_skills = loading;
         self
     }
 }

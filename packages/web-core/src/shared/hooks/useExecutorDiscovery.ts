@@ -16,9 +16,12 @@ const defaultOptions: ExecutorDiscoveredOptions = {
     permissions: [],
   },
   slash_commands: [],
+  skills: [],
+  skill_errors: [],
   loading_models: true,
   loading_agents: true,
   loading_slash_commands: true,
+  loading_skills: true,
   error: null,
 };
 
@@ -105,6 +108,27 @@ export function useSlashCommands(
   return {
     commands: options?.slash_commands ?? [],
     discovering: options?.loading_slash_commands ?? false,
+    error,
+    isConnected,
+    isInitialized,
+  };
+}
+
+export function useExecutorTooling(
+  agent: BaseCodingAgent | null | undefined,
+  opts?: { workspaceId?: string; sessionId?: string; repoId?: string }
+) {
+  const { options, error, isConnected, isInitialized } = useExecutorDiscovery(
+    agent,
+    opts
+  );
+
+  return {
+    commands: options?.slash_commands ?? [],
+    skills: options?.skills ?? [],
+    skillErrors: options?.skill_errors ?? [],
+    discoveringCommands: options?.loading_slash_commands ?? false,
+    discoveringSkills: options?.loading_skills ?? false,
     error,
     isConnected,
     isInitialized,

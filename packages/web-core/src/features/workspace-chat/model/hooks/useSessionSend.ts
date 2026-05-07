@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ExecutorConfig } from 'shared/types';
+import type { ExecutorConfig, SelectedSkill } from 'shared/types';
 import { sessionsApi } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
@@ -18,7 +18,7 @@ interface UseSessionSendOptions {
 
 interface UseSessionSendResult {
   /** Send a message. Returns true on success, false on failure. */
-  send: (message: string) => Promise<boolean>;
+  send: (message: string, selectedSkills?: SelectedSkill[]) => Promise<boolean>;
   /** Whether a send operation is in progress */
   isSending: boolean;
   /** Error message if send failed */
@@ -49,7 +49,10 @@ export function useSessionSend({
   const [error, setError] = useState<string | null>(null);
 
   const send = useCallback(
-    async (message: string): Promise<boolean> => {
+    async (
+      message: string,
+      selectedSkills: SelectedSkill[] = []
+    ): Promise<boolean> => {
       const trimmed = message.trim();
       if (!trimmed) return false;
       if (!executorConfig) {
@@ -69,6 +72,7 @@ export function useSessionSend({
           const session = await createSession({
             workspaceId,
             prompt: trimmed,
+            selectedSkills,
             executorConfig,
           });
           onSelectSession?.(session.id);
@@ -87,6 +91,7 @@ export function useSessionSend({
         try {
           await sessionsApi.followUp(sessionId, {
             prompt: trimmed,
+            selected_skills: selectedSkills,
             executor_config: executorConfig,
             retry_process_id: null,
             force_when_dirty: null,

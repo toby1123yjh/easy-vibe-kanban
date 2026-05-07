@@ -148,10 +148,34 @@ pub trait ContainerService {
             };
 
             (workdir, repo_path)
-        } else if workspace_id.is_some() {
-            return Err(ContainerError::Other(anyhow!(
-                "session_id is required when workspace_id is provided"
-            )));
+        } else if let Some(workspace_id) = workspace_id {
+            let workspace = Workspace::find_by_id(&self.db().pool, workspace_id)
+                .await?
+                .ok_or(SqlxError::RowNotFound)?;
+
+            let ensured_container_ref;
+            let container_ref = match workspace.container_ref.as_deref() {
+                Some(container_ref) if !container_ref.is_empty() => container_ref,
+                _ => {
+                    ensured_container_ref = self.ensure_container_exists(&workspace).await?;
+                    ensured_container_ref.as_str()
+                }
+            };
+
+            if container_ref.is_empty() {
+                return Err(ContainerError::Other(anyhow!("Workspace path is empty")));
+            }
+
+            let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id)
+                .await
+                .unwrap_or_default();
+            let repo_path = if repos.len() == 1 {
+                Some(repos[0].path.clone())
+            } else {
+                None
+            };
+
+            (Some(PathBuf::from(container_ref)), repo_path)
         } else if let Some(repo_id) = repo_id {
             let repo = Repo::find_by_id(&self.db().pool, repo_id)
                 .await
@@ -1086,6 +1110,7 @@ pub trait ContainerService {
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,
+                selected_skills: vec![],
                 executor_config: executor_config.clone(),
                 working_dir,
             }),

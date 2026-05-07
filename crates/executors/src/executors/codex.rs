@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 /// Returns the Codex home directory.
@@ -47,13 +48,16 @@ pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> 
     }
 }
 
+const SKILLS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
+
 use async_trait::async_trait;
 use codex_app_server_protocol::{
-    AskForApproval as V2AskForApproval, ReviewTarget, SandboxMode as V2SandboxMode,
-    ThreadForkParams, ThreadStartParams, UserInput,
+    AskForApproval as V2AskForApproval, ReviewTarget, SandboxMode as V2SandboxMode, SkillScope,
+    SkillsListResponse, ThreadForkParams, ThreadStartParams, UserInput,
 };
 use codex_protocol::config_types::ServiceTier;
 use derivative::Derivative;
+use futures::StreamExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,10 +72,11 @@ use self::{
     normalize_logs::{Error, normalize_logs},
 };
 use crate::{
+    actions::SelectedSkill,
     approvals::ExecutorApprovalService,
     command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
-    env::ExecutionEnv,
-    executor_discovery::ExecutorDiscoveredOptions,
+    env::{ExecutionEnv, RepoContext},
+    executor_discovery::{CodexSkillDescription, CodexSkillLoadError, ExecutorDiscoveredOptions},
     executors::{
         AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, ExecutorExitResult,
         SpawnedChild, StandardCodingAgentExecutor,
@@ -144,7 +149,10 @@ pub enum ReasoningSummaryFormat {
 }
 
 enum CodexSessionAction {
-    Chat { prompt: String },
+    Chat {
+        prompt: String,
+        selected_skills: Vec<SelectedSkill>,
+    },
     Review { target: ReviewTarget },
 }
 
@@ -230,7 +238,18 @@ impl StandardCodingAgentExecutor for Codex {
         prompt: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        self.spawn_slash_command(current_dir, prompt, None, env)
+        self.spawn_slash_command(current_dir, prompt, None, vec![], env)
+            .await
+    }
+
+    async fn spawn_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        self.spawn_slash_command(current_dir, prompt, None, selected_skills.to_vec(), env)
             .await
     }
 
@@ -242,8 +261,27 @@ impl StandardCodingAgentExecutor for Codex {
         _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        self.spawn_slash_command(current_dir, prompt, Some(session_id), env)
+        self.spawn_slash_command(current_dir, prompt, Some(session_id), vec![], env)
             .await
+    }
+
+    async fn spawn_follow_up_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: &str,
+        _reset_to_message_id: Option<&str>,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        self.spawn_slash_command(
+            current_dir,
+            prompt,
+            Some(session_id),
+            selected_skills.to_vec(),
+            env,
+        )
+        .await
     }
 
     fn normalize_logs(
@@ -311,8 +349,8 @@ impl StandardCodingAgentExecutor for Codex {
 
     async fn discover_options(
         &self,
-        _workdir: Option<&std::path::Path>,
-        _repo_path: Option<&std::path::Path>,
+        workdir: Option<&std::path::Path>,
+        repo_path: Option<&std::path::Path>,
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
         let xhigh_reasoning_options = ReasoningOption::from_names(
             [
@@ -324,7 +362,8 @@ impl StandardCodingAgentExecutor for Codex {
             .map(|e| e.as_ref().to_string()),
         );
 
-        let options = ExecutorDiscoveredOptions {
+        let skills_cwd = workdir.or(repo_path).map(Path::to_path_buf);
+        let mut options = ExecutorDiscoveredOptions {
             model_selector: ModelSelectorConfig {
                 models: vec![
                     ModelInfo {
@@ -386,9 +425,48 @@ impl StandardCodingAgentExecutor for Codex {
             slash_commands: slash_commands::supported_slash_commands(),
             ..Default::default()
         };
-        Ok(Box::pin(futures::stream::once(async move {
-            patch::executor_discovered_options(options)
-        })))
+        options.loading_skills = skills_cwd.is_some();
+        let initial_patch = patch::executor_discovered_options(options);
+
+        let Some(skills_cwd) = skills_cwd else {
+            return Ok(Box::pin(futures::stream::once(async move {
+                initial_patch
+            })));
+        };
+
+        let this = self.clone();
+        let skills_stream = async_stream::stream! {
+            let result = tokio::time::timeout(
+                SKILLS_DISCOVERY_TIMEOUT,
+                this.discover_skills(skills_cwd),
+            )
+            .await;
+
+            match result {
+                Ok(Ok((skills, errors))) => {
+                    yield patch::update_skills(skills);
+                    yield patch::update_skill_errors(errors);
+                }
+                Ok(Err(err)) => {
+                    tracing::warn!("Failed to discover Codex skills: {err}");
+                    yield patch::update_skill_errors(vec![CodexSkillLoadError {
+                        path: PathBuf::new(),
+                        message: format!("Failed to discover Codex skills: {err}"),
+                    }]);
+                }
+                Err(_) => {
+                    yield patch::update_skill_errors(vec![CodexSkillLoadError {
+                        path: PathBuf::new(),
+                        message: "Timed out discovering Codex skills".to_string(),
+                    }]);
+                }
+            }
+            yield patch::skills_loaded();
+        };
+
+        Ok(Box::pin(
+            futures::stream::once(async move { initial_patch }).chain(skills_stream),
+        ))
     }
 
     async fn spawn_review(
@@ -460,6 +538,97 @@ impl Codex {
         }
 
         apply_overrides(builder, &self.cmd)
+    }
+
+    async fn discover_skills(
+        &self,
+        cwd: PathBuf,
+    ) -> Result<(Vec<CodexSkillDescription>, Vec<CodexSkillLoadError>), ExecutorError> {
+        let request_cwd = cwd.clone();
+        let response = self
+            .with_discovery_app_server(&cwd, move |client| async move {
+                client.skills_list(request_cwd).await
+            })
+            .await?;
+        Ok(skills_list_response_to_discovery(response))
+    }
+
+    async fn with_discovery_app_server<T, F, Fut>(
+        &self,
+        current_dir: &Path,
+        task: F,
+    ) -> Result<T, ExecutorError>
+    where
+        F: FnOnce(Arc<AppServerClient>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, ExecutorError>>,
+    {
+        let command_parts = self.build_command_builder()?.build_initial()?;
+        let (program_path, args) = command_parts.into_resolved().await?;
+        let launch_context = self.launch_context(&program_path, &args, current_dir);
+
+        let mut process = Command::new(&program_path);
+        process
+            .kill_on_drop(true)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .current_dir(current_dir)
+            .env("NPM_CONFIG_LOGLEVEL", "error")
+            .env("NODE_NO_WARNINGS", "1")
+            .env("NO_COLOR", "1")
+            .env("RUST_LOG", "error")
+            .args(&args);
+
+        ExecutionEnv::new(RepoContext::default(), false, String::new())
+            .with_profile(&self.cmd)
+            .apply_to_command(&mut process);
+
+        let mut child = process.group_spawn_no_window().map_err(|err| {
+            ExecutorError::Io(std::io::Error::other(format!(
+                "failed to spawn Codex app-server for discovery: {err}\n\nCodex launch context:\n{}",
+                launch_context
+            )))
+        })?;
+
+        let child_stdout = child.inner().stdout.take().ok_or_else(|| {
+            ExecutorError::Io(std::io::Error::other("Codex app server missing stdout"))
+        })?;
+        let child_stdin = child.inner().stdin.take().ok_or_else(|| {
+            ExecutorError::Io(std::io::Error::other("Codex app server missing stdin"))
+        })?;
+
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let (exit_signal_tx, _exit_signal_rx) = tokio::sync::oneshot::channel();
+        let exit_signal_tx = ExitSignalSender::new(exit_signal_tx);
+        let client = AppServerClient::new(
+            LogWriter::new(tokio::io::sink()),
+            None,
+            false,
+            self.plan,
+            RepoContext::default(),
+            false,
+            String::new(),
+            cancel.clone(),
+        );
+        let rpc_peer = JsonRpcPeer::spawn(
+            child_stdin,
+            child_stdout,
+            client.clone(),
+            exit_signal_tx,
+            cancel.clone(),
+        );
+        client.connect(rpc_peer);
+
+        let result = async {
+            client.initialize().await?;
+            task(client).await
+        }
+        .await;
+
+        cancel.cancel();
+        let _ = child.kill().await;
+
+        result
     }
 
     fn build_thread_start_params(&self, cwd: &Path) -> ThreadStartParams {
@@ -582,8 +751,18 @@ impl Codex {
             env,
             move |client, _| async move {
                 match action {
-                    CodexSessionAction::Chat { prompt } => {
-                        Self::launch_codex_agent(params, resume_session, prompt, client).await
+                    CodexSessionAction::Chat {
+                        prompt,
+                        selected_skills,
+                    } => {
+                        Self::launch_codex_agent(
+                            params,
+                            resume_session,
+                            prompt,
+                            selected_skills,
+                            client,
+                        )
+                        .await
                     }
                     CodexSessionAction::Review { target } => {
                         review::launch_codex_review(params, resume_session, target, client).await
@@ -598,6 +777,7 @@ impl Codex {
         thread_start_params: ThreadStartParams,
         resume_session: Option<String>,
         combined_prompt: String,
+        selected_skills: Vec<SelectedSkill>,
         client: Arc<AppServerClient>,
     ) -> Result<(), ExecutorError> {
         let account = client.get_account().await?;
@@ -624,15 +804,9 @@ impl Codex {
         client.set_resolved_model(resolved_model);
         client.register_session(&thread_id).await?;
         let collaboration_mode = client.initial_collaboration_mode()?;
+        let input = build_chat_input(combined_prompt, selected_skills);
         client
-            .turn_start_with_mode(
-                thread_id,
-                vec![UserInput::Text {
-                    text: combined_prompt,
-                    text_elements: vec![],
-                }],
-                Some(collaboration_mode),
-            )
+            .turn_start_with_mode(thread_id, input, Some(collaboration_mode))
             .await?;
 
         Ok(())
@@ -774,9 +948,72 @@ impl Codex {
     }
 }
 
+fn build_chat_input(combined_prompt: String, selected_skills: Vec<SelectedSkill>) -> Vec<UserInput> {
+    let mut input = selected_skills
+        .into_iter()
+        .map(|skill| UserInput::Skill {
+            name: skill.name,
+            path: skill.path,
+        })
+        .collect::<Vec<_>>();
+    input.push(UserInput::Text {
+        text: combined_prompt,
+        text_elements: vec![],
+    });
+    input
+}
+
+fn skills_list_response_to_discovery(
+    response: SkillsListResponse,
+) -> (Vec<CodexSkillDescription>, Vec<CodexSkillLoadError>) {
+    let mut skills = Vec::new();
+    let mut errors = Vec::new();
+
+    for entry in response.data {
+        for skill in entry.skills {
+            skills.push(CodexSkillDescription {
+                name: skill.name,
+                description: skill.description,
+                short_description: skill
+                    .interface
+                    .and_then(|interface| interface.short_description)
+                    .or(skill.short_description),
+                path: skill.path.to_path_buf(),
+                scope: skill_scope_to_string(skill.scope).to_string(),
+                enabled: skill.enabled,
+            });
+        }
+
+        for error in entry.errors {
+            errors.push(CodexSkillLoadError {
+                path: error.path,
+                message: error.message,
+            });
+        }
+    }
+
+    skills.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.path.cmp(&b.path)));
+    errors.sort_by(|a, b| a.path.cmp(&b.path));
+    (skills, errors)
+}
+
+fn skill_scope_to_string(scope: SkillScope) -> &'static str {
+    match scope {
+        SkillScope::User => "user",
+        SkillScope::Repo => "repo",
+        SkillScope::System => "system",
+        SkillScope::Admin => "admin",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_model;
+    use std::path::PathBuf;
+
+    use codex_app_server_protocol::UserInput;
+
+    use super::{build_chat_input, resolve_model};
+    use crate::actions::SelectedSkill;
 
     #[test]
     fn resolve_model_detects_fast_suffix() {
@@ -792,5 +1029,33 @@ mod tests {
             (Some("gpt-5.4-mini"), false)
         );
         assert_eq!(resolve_model(None), (None, false));
+    }
+
+    #[test]
+    fn build_chat_input_places_selected_skills_before_text() {
+        let skill_path = PathBuf::from("/tmp/skills/review/SKILL.md");
+        let input = build_chat_input(
+            "review this change".to_string(),
+            vec![SelectedSkill {
+                name: "code-review".to_string(),
+                path: skill_path.clone(),
+            }],
+        );
+
+        assert_eq!(input.len(), 2);
+        match &input[0] {
+            UserInput::Skill { name, path } => {
+                assert_eq!(name, "code-review");
+                assert_eq!(path, &skill_path);
+            }
+            other => panic!("expected skill input first, got {other:?}"),
+        }
+        match &input[1] {
+            UserInput::Text { text, text_elements } => {
+                assert_eq!(text, "review this change");
+                assert!(text_elements.is_empty());
+            }
+            other => panic!("expected text input second, got {other:?}"),
+        }
     }
 }

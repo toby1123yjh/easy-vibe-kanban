@@ -21,7 +21,8 @@ use db::models::{
 use deployment::Deployment;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        ExecutorAction, ExecutorActionType, SelectedSkill,
+        coding_agent_follow_up::CodingAgentFollowUpRequest,
     },
     profile::ExecutorConfig,
 };
@@ -131,6 +132,9 @@ pub async fn update_session(
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateFollowUpAttempt {
     pub prompt: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub selected_skills: Vec<SelectedSkill>,
     pub executor_config: ExecutorConfig,
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
@@ -218,6 +222,7 @@ pub async fn follow_up(
         let is_reset = payload.retry_process_id.is_some();
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
+            selected_skills: payload.selected_skills.clone(),
             session_id: info.session_id,
             reset_to_message_id: if is_reset { info.message_id } else { None },
             executor_config: payload.executor_config.clone(),
@@ -227,6 +232,7 @@ pub async fn follow_up(
         ExecutorActionType::CodingAgentInitialRequest(
             executors::actions::coding_agent_initial::CodingAgentInitialRequest {
                 prompt,
+                selected_skills: payload.selected_skills.clone(),
                 executor_config: payload.executor_config.clone(),
                 working_dir,
             },

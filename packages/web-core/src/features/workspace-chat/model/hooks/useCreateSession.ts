@@ -6,11 +6,13 @@ import type {
   Session,
   CreateFollowUpAttempt,
   ExecutorConfig,
+  SelectedSkill,
 } from 'shared/types';
 
 interface CreateSessionParams {
   workspaceId: string;
   prompt: string;
+  selectedSkills?: SelectedSkill[];
   executorConfig: ExecutorConfig;
 }
 
@@ -26,6 +28,7 @@ export function useCreateSession() {
     mutationFn: async ({
       workspaceId,
       prompt,
+      selectedSkills = [],
       executorConfig,
     }: CreateSessionParams): Promise<Session> => {
       const session = await sessionsApi.create({
@@ -34,6 +37,7 @@ export function useCreateSession() {
 
       const body: CreateFollowUpAttempt = {
         prompt,
+        selected_skills: selectedSkills,
         executor_config: executorConfig,
         retry_process_id: null,
         force_when_dirty: null,

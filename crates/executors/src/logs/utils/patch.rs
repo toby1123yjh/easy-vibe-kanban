@@ -302,6 +302,29 @@ pub fn slash_commands_loaded() -> Patch {
     .unwrap_or_default()
 }
 
+pub fn update_skills(skills: Vec<crate::executor_discovery::CodexSkillDescription>) -> Patch {
+    serde_json::from_value(json!([
+        {"op": "replace", "path": "/options/skills", "value": skills},
+    ]))
+    .unwrap_or_default()
+}
+
+pub fn update_skill_errors(
+    errors: Vec<crate::executor_discovery::CodexSkillLoadError>,
+) -> Patch {
+    serde_json::from_value(json!([
+        {"op": "replace", "path": "/options/skill_errors", "value": errors},
+    ]))
+    .unwrap_or_default()
+}
+
+pub fn skills_loaded() -> Patch {
+    serde_json::from_value(json!([
+        {"op": "replace", "path": "/options/loading_skills", "value": false},
+    ]))
+    .unwrap_or_default()
+}
+
 pub fn update_providers(providers: Vec<crate::model_selector::ModelProvider>) -> Patch {
     serde_json::from_value(json!([
         {"op": "replace", "path": "/options/model_selector/providers", "value": providers},
@@ -322,6 +345,7 @@ pub fn discovery_error(error: String) -> Patch {
         {"op": "replace", "path": "/options/loading_models", "value": false},
         {"op": "replace", "path": "/options/loading_agents", "value": false},
         {"op": "replace", "path": "/options/loading_slash_commands", "value": false},
+        {"op": "replace", "path": "/options/loading_skills", "value": false},
     ]))
     .unwrap_or_default()
 }

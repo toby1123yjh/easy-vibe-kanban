@@ -45,6 +45,10 @@ import {
   type SearchResultItemLike,
 } from '@vibe/ui/components/FileTagTypeaheadPlugin';
 import { SlashCommandTypeaheadPlugin } from '@vibe/ui/components/SlashCommandTypeaheadPlugin';
+import {
+  SkillTypeaheadPlugin,
+  type SelectedSkillLike,
+} from '@vibe/ui/components/SkillTypeaheadPlugin';
 import { KeyboardCommandsPlugin } from '@vibe/ui/components/KeyboardCommandsPlugin';
 import { ImageKeyboardPlugin } from '@vibe/ui/components/ImageKeyboardPlugin';
 import { ComponentInfoKeyboardPlugin } from '@vibe/ui/components/ComponentInfoKeyboardPlugin';
@@ -67,7 +71,7 @@ import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import { type EditorState, type LexicalEditor } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { useDiffPaths } from '@/shared/stores/useWorkspaceDiffStore';
-import { useSlashCommands } from '@/shared/hooks/useExecutorDiscovery';
+import { useExecutorTooling } from '@/shared/hooks/useExecutorDiscovery';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { cn } from '@/shared/lib/utils';
 import { repoApi } from '@/shared/lib/api';
@@ -88,7 +92,7 @@ import {
 import { fetchAttachmentSasUrl } from '@/shared/lib/remoteApi';
 import { writeClipboardViaBridge } from '@/shared/lib/clipboard';
 import type { SendMessageShortcut } from 'shared/types';
-import type { BaseCodingAgent } from 'shared/types';
+import type { BaseCodingAgent, SelectedSkill } from 'shared/types';
 
 /** Markdown string representing the editor content */
 export type SerializedEditorState = string;
@@ -106,6 +110,10 @@ type WysiwygProps = {
   repoIds?: string[];
   /** Enables `/` command autocomplete (agent-specific). */
   executor?: BaseCodingAgent | null;
+  /** Structured Codex skills selected from `$` mentions. */
+  selectedSkills?: SelectedSkill[];
+  /** Called when structured Codex skill selections change. */
+  onSelectedSkillsChange?: (skills: SelectedSkill[]) => void;
   onCmdEnter?: () => void;
   onShiftCmdEnter?: () => void;
   /** Keyboard shortcut mode for sending messages */
@@ -234,6 +242,24 @@ function toRepoItem(repo: RepoLike): RepoItem {
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasSkillMention(markdown: string, skillName: string): boolean {
+  return new RegExp(`(^|\\s)\\$${escapeRegExp(skillName)}(?=$|\\s)`).test(
+    markdown
+  );
+}
+
+function selectedSkillsEqual(a: SelectedSkill[], b: SelectedSkill[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (skill, index) =>
+      skill.name === b[index]?.name && skill.path === b[index]?.path
+  );
+}
+
 /** Plugin to capture the Lexical editor instance into a ref */
 function EditorRefPlugin({
   editorRef,
@@ -259,6 +285,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       className,
       repoIds,
       executor = null,
+      selectedSkills = [],
+      onSelectedSkillsChange,
       onCmdEnter,
       onShiftCmdEnter,
       sendShortcut,
@@ -281,6 +309,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
   ) {
     // Ref to capture the Lexical editor instance for imperative methods
     const editorInstanceRef = useRef<LexicalEditor | null>(null);
+    const selectedSkillsRef = useRef(selectedSkills);
+
+    useEffect(() => {
+      selectedSkillsRef.current = selectedSkills;
+    }, [selectedSkills]);
 
     // Expose focus method via ref.
     // Guard: only pass a valid ref to useImperativeHandle. When the component
@@ -304,11 +337,65 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     const setFileSearchRepo = useUiPreferencesStore(
       (state) => state.setFileSearchRepo
     );
-    const slashCommandsQuery = useSlashCommands(executor, {
-      workspaceId: sessionId ? workspaceId : undefined,
+    const executorTooling = useExecutorTooling(executor, {
+      workspaceId,
       sessionId,
       repoId,
     });
+
+    const syncSelectedSkillsFromMarkdown = useCallback(
+      (markdown: string) => {
+        if (!onSelectedSkillsChange) return;
+
+        const currentSelectedSkills = selectedSkillsRef.current;
+        const retained = currentSelectedSkills.filter((skill) =>
+          hasSkillMention(markdown, skill.name)
+        );
+        const selectedNames = new Set(
+          retained.map((skill) => skill.name.toLowerCase())
+        );
+        const next = [...retained];
+
+        for (const skill of executorTooling.skills) {
+          if (skill.enabled === false) continue;
+          const nameKey = skill.name.toLowerCase();
+          if (selectedNames.has(nameKey)) continue;
+          if (!hasSkillMention(markdown, skill.name)) continue;
+          next.push({ name: skill.name, path: skill.path });
+          selectedNames.add(nameKey);
+        }
+
+        if (!selectedSkillsEqual(currentSelectedSkills, next)) {
+          selectedSkillsRef.current = next;
+          onSelectedSkillsChange(next);
+        }
+      },
+      [executorTooling.skills, onSelectedSkillsChange]
+    );
+
+    const handleEditorChange = useCallback(
+      (nextValue: SerializedEditorState) => {
+        onChange?.(nextValue);
+        syncSelectedSkillsFromMarkdown(nextValue);
+      },
+      [onChange, syncSelectedSkillsFromMarkdown]
+    );
+
+    const handleSelectSkill = useCallback(
+      (skill: SelectedSkillLike) => {
+        if (!onSelectedSkillsChange) return;
+        const currentSelectedSkills = selectedSkillsRef.current;
+        if (
+          currentSelectedSkills.some((selected) => selected.path === skill.path)
+        ) {
+          return;
+        }
+        const next = [...currentSelectedSkills, skill];
+        selectedSkillsRef.current = next;
+        onSelectedSkillsChange(next);
+      },
+      [onSelectedSkillsChange]
+    );
     const listRecentRepos = useCallback(async () => repoApi.listRecent(), []);
     const getRepoById = useCallback(async (targetRepoId: string) => {
       try {
@@ -518,7 +605,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                 <EditorRefPlugin editorRef={editorInstanceRef} />
                 <MarkdownSyncPlugin
                   value={value}
-                  onChange={onChange}
+                  onChange={handleEditorChange}
                   onEditorStateChange={onEditorStateChange}
                   editable={!disabled}
                   transformers={allTransformers}
@@ -577,9 +664,18 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                       {executor && (
                         <SlashCommandTypeaheadPlugin
                           enabled={true}
-                          commands={slashCommandsQuery.commands}
-                          isInitialized={slashCommandsQuery.isInitialized}
-                          isDiscovering={slashCommandsQuery.discovering}
+                          commands={executorTooling.commands}
+                          isInitialized={executorTooling.isInitialized}
+                          isDiscovering={executorTooling.discoveringCommands}
+                        />
+                      )}
+                      {executor && onSelectedSkillsChange && (
+                        <SkillTypeaheadPlugin
+                          enabled={true}
+                          skills={executorTooling.skills}
+                          isInitialized={executorTooling.isInitialized}
+                          isDiscovering={executorTooling.discoveringSkills}
+                          onSelectSkill={handleSelectSkill}
                         />
                       )}
                       <KeyboardCommandsPlugin

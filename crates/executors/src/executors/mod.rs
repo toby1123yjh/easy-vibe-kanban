@@ -17,7 +17,7 @@ use workspace_utils::msg_store::MsgStore;
 #[cfg(feature = "qa-mode")]
 use crate::executors::qa_mock::QaMockExecutor;
 use crate::{
-    actions::{ExecutorAction, review::RepoReviewContext},
+    actions::{ExecutorAction, SelectedSkill, review::RepoReviewContext},
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
@@ -199,6 +199,59 @@ impl CodingAgent {
             Self::QaMock(_) => vec![], // QA mock doesn't need special capabilities
         }
     }
+
+    pub async fn spawn_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        match self {
+            Self::Codex(codex) => {
+                codex
+                    .spawn_with_selected_skills(current_dir, prompt, selected_skills, env)
+                    .await
+            }
+            _ => StandardCodingAgentExecutor::spawn(self, current_dir, prompt, env).await,
+        }
+    }
+
+    pub async fn spawn_follow_up_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: &str,
+        reset_to_message_id: Option<&str>,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        match self {
+            Self::Codex(codex) => {
+                codex
+                    .spawn_follow_up_with_selected_skills(
+                        current_dir,
+                        prompt,
+                        session_id,
+                        reset_to_message_id,
+                        selected_skills,
+                        env,
+                    )
+                    .await
+            }
+            _ => {
+                StandardCodingAgentExecutor::spawn_follow_up(
+                    self,
+                    current_dir,
+                    prompt,
+                    session_id,
+                    reset_to_message_id,
+                    env,
+                )
+                .await
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -232,6 +285,17 @@ pub trait StandardCodingAgentExecutor {
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError>;
 
+    async fn spawn_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let _ = selected_skills;
+        self.spawn(current_dir, prompt, env).await
+    }
+
     /// Continue a session, optionally resetting to a specific message.
     async fn spawn_follow_up(
         &self,
@@ -241,6 +305,20 @@ pub trait StandardCodingAgentExecutor {
         reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError>;
+
+    async fn spawn_follow_up_with_selected_skills(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: &str,
+        reset_to_message_id: Option<&str>,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let _ = selected_skills;
+        self.spawn_follow_up(current_dir, prompt, session_id, reset_to_message_id, env)
+            .await
+    }
 
     async fn spawn_review(
         &self,

@@ -371,7 +371,7 @@ export type RefreshRelaySigningSessionRequest = { client_id: string, timestamp: 
 
 export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
+export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
@@ -595,6 +595,8 @@ export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
+export type SelectedSkill = { name: string, path: string, };
+
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest | { "type": "ReviewRequest" } & ReviewRequest;
@@ -728,7 +730,7 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, 
+export type CodingAgentInitialRequest = { prompt: string, selected_skills?: Array<SelectedSkill>,
 /**
  * Unified executor identity + overrides
  */
@@ -739,7 +741,7 @@ executor_config: ExecutorConfig,
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, session_id: string, reset_to_message_id: string | null, 
+export type CodingAgentFollowUpRequest = { prompt: string, selected_skills?: Array<SelectedSkill>, session_id: string, reset_to_message_id: string | null,
 /**
  * Unified executor identity + overrides
  */
@@ -868,7 +870,11 @@ agents: Array<AgentInfo>,
  */
 permissions: Array<PermissionPolicy>, };
 
-export type ExecutorDiscoveredOptions = { model_selector: ModelSelectorConfig, slash_commands: Array<SlashCommandDescription>, loading_models: boolean, loading_agents: boolean, loading_slash_commands: boolean, error: string | null, };
+export type CodexSkillDescription = { name: string, description: string, short_description: string | null, path: string, scope: string, enabled: boolean, };
+
+export type CodexSkillLoadError = { path: string, message: string, };
+
+export type ExecutorDiscoveredOptions = { model_selector: ModelSelectorConfig, slash_commands: Array<SlashCommandDescription>, skills: Array<CodexSkillDescription>, skill_errors: Array<CodexSkillLoadError>, loading_models: boolean, loading_agents: boolean, loading_slash_commands: boolean, loading_skills: boolean, error: string | null, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 

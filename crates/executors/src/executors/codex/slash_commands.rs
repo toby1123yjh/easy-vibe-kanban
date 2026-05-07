@@ -15,6 +15,7 @@ use super::{
     codex_home, fork_params_from, resolve_model,
 };
 use crate::{
+    actions::SelectedSkill,
     env::ExecutionEnv,
     executors::{
         ExecutorError, ExecutorExitResult, SlashCommandDescription, SpawnedChild,
@@ -103,6 +104,7 @@ impl Codex {
         current_dir: &Path,
         prompt: &str,
         session_id: Option<&str>,
+        selected_skills: Vec<SelectedSkill>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         if let Some(command) = CodexSlashCommand::parse(prompt) {
@@ -119,6 +121,7 @@ impl Codex {
                             current_dir,
                             CODEX_INIT_PROMPT,
                             session_id,
+                            vec![],
                             env,
                         )
                         .await
@@ -156,7 +159,7 @@ impl Codex {
             };
         }
 
-        self.spawn_agent_with_prompt(current_dir, prompt, session_id, env)
+        self.spawn_agent_with_prompt(current_dir, prompt, session_id, selected_skills, env)
             .await
     }
 
@@ -165,6 +168,7 @@ impl Codex {
         current_dir: &Path,
         prompt: &str,
         session_id: Option<&str>,
+        selected_skills: Vec<SelectedSkill>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         let command_parts = match session_id {
@@ -174,6 +178,7 @@ impl Codex {
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let action = super::CodexSessionAction::Chat {
             prompt: combined_prompt,
+            selected_skills,
         };
         self.spawn_inner(current_dir, command_parts, action, session_id, env)
             .await

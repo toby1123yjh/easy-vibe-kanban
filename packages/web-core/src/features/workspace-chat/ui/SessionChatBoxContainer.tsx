@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
@@ -7,6 +7,7 @@ import {
   type Session,
   type BaseCodingAgent,
   ExecutionProcessStatus,
+  type SelectedSkill,
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useHostId } from '@/shared/providers/HostIdProvider';
@@ -473,6 +474,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     SettingsDialog.show({ initialSection: 'agents' });
   };
 
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
+
+  useEffect(() => {
+    setSelectedSkills([]);
+  }, [sessionId, workspaceId]);
+
   // Queue interaction
   const {
     isQueued,
@@ -505,10 +512,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     onScrollToBottom('auto');
 
-    const success = await send(prompt);
+    const success = await send(prompt, isSlashCommand ? [] : selectedSkills);
     if (success) {
       cancelDebouncedSave();
       setLocalMessage('');
+      setSelectedSkills([]);
       clearUploadedAttachments();
       if (isNewSessionMode) await clearDraft();
       if (!isSlashCommand) {
@@ -525,6 +533,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     send,
     localMessage,
     reviewMarkdown,
+    selectedSkills,
     cancelDebouncedSave,
     setLocalMessage,
     clearUploadedAttachments,
@@ -924,6 +933,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         className="min-h-double max-h-[50vh] overflow-y-auto"
         repoIds={repoIds}
         executor={executor}
+        selectedSkills={selectedSkills}
+        onSelectedSkillsChange={setSelectedSkills}
+        workspaceId={workspaceId}
         sessionId={sessionId}
         autoFocus
         onPasteFiles={onPasteFiles}
@@ -931,7 +943,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         sendShortcut={config?.send_message_shortcut}
       />
     ),
-    [config?.send_message_shortcut, sessionId]
+    [config?.send_message_shortcut, selectedSkills, sessionId, workspaceId]
   );
 
   const modelSelectorNode = effectiveExecutor ? (
