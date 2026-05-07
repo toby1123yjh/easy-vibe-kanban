@@ -371,7 +371,7 @@ export type RefreshRelaySigningSessionRequest = { client_id: string, timestamp: 
 
 export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill> | null, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
+export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
@@ -730,7 +730,7 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, selected_skills?: Array<SelectedSkill> | null,
+export type CodingAgentInitialRequest = { prompt: string, selected_skills?: Array<SelectedSkill>,
 /**
  * Unified executor identity + overrides
  */
@@ -741,7 +741,7 @@ executor_config: ExecutorConfig,
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, selected_skills?: Array<SelectedSkill> | null, session_id: string, reset_to_message_id: string | null,
+export type CodingAgentFollowUpRequest = { prompt: string, selected_skills?: Array<SelectedSkill>, session_id: string, reset_to_message_id: string | null,
 /**
  * Unified executor identity + overrides
  */
