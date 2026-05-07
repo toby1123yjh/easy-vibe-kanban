@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use codex_app_server_protocol::{ConfigEdit, JSONRPCNotification, MergeStrategy};
+use codex_app_server_protocol::{
+    ConfigEdit, JSONRPCNotification, MergeStrategy, SkillScope, SkillsListResponse,
+};
 use codex_protocol::{
     config_types::ServiceTier,
     protocol::{AgentMessageEvent, ErrorEvent, EventMsg},
@@ -15,7 +17,7 @@ use super::{
 use crate::{
     env::ExecutionEnv,
     executors::{
-        ExecutorError, ExecutorExitResult, SpawnedChild,
+        ExecutorError, ExecutorExitResult, SlashCommandDescription, SpawnedChild,
         utils::{SlashCommandCall, parse_slash_command},
     },
     stdout_dup::spawn_local_output_process,
@@ -30,6 +32,7 @@ pub enum CodexSlashCommand {
     Compact { instructions: Option<String> },
     Status,
     Mcp,
+    Skills,
     Fast { enable: Option<bool>, status: bool },
 }
 
@@ -47,6 +50,7 @@ impl CodexSlashCommand {
             }),
             "status" => Some(Self::Status),
             "mcp" => Some(Self::Mcp),
+            "skills" => Some(Self::Skills),
             "fast" => Some(Self::Fast {
                 status: matches!(cmd.arguments.trim(), "status"),
                 enable: match cmd.arguments.trim() {
@@ -58,6 +62,39 @@ impl CodexSlashCommand {
             _ => None,
         }
     }
+}
+
+pub(super) fn supported_slash_commands() -> Vec<SlashCommandDescription> {
+    vec![
+        SlashCommandDescription {
+            name: "compact".to_string(),
+            description: Some(
+                "summarize conversation to prevent hitting the context limit".to_string(),
+            ),
+        },
+        SlashCommandDescription {
+            name: "init".to_string(),
+            description: Some("create an AGENTS.md file with instructions for Codex".to_string()),
+        },
+        SlashCommandDescription {
+            name: "status".to_string(),
+            description: Some("show current session configuration and token usage".to_string()),
+        },
+        SlashCommandDescription {
+            name: "mcp".to_string(),
+            description: Some("list configured MCP tools".to_string()),
+        },
+        SlashCommandDescription {
+            name: "skills".to_string(),
+            description: Some("list available Codex skills for this workspace".to_string()),
+        },
+        SlashCommandDescription {
+            name: "fast".to_string(),
+            description: Some(
+                "toggle fast mode for highest speed inference (2x plan usage). Use `/fast on` or `/fast off` to set explicitly".to_string(),
+            ),
+        },
+    ]
 }
 
 impl Codex {
@@ -108,6 +145,10 @@ impl Codex {
                     self.handle_app_server_slash_command(current_dir, command, None, env)
                         .await
                 }
+                CodexSlashCommand::Skills => {
+                    self.handle_app_server_slash_command(current_dir, command, None, env)
+                        .await
+                }
                 CodexSlashCommand::Fast { .. } => {
                     self.handle_app_server_slash_command(current_dir, command, session_id, env)
                         .await
@@ -150,6 +191,7 @@ impl Codex {
         let session_id = session_id.map(|s| s.to_string());
         let (_, session_fast) = resolve_model(self.model.as_deref());
         let thread_start_params = self.build_thread_start_params(current_dir);
+        let current_dir_path = current_dir.to_path_buf();
 
         self.spawn_app_server(
             current_dir,
@@ -157,6 +199,11 @@ impl Codex {
             env,
             move |client, exit_signal_tx| async move {
                 match command {
+                    CodexSlashCommand::Init => {
+                        return Err(ExecutorError::Io(std::io::Error::other(
+                            "Unsupported Codex slash command",
+                        )));
+                    }
                     CodexSlashCommand::Compact { .. } => {
                         let old_thread_id = session_id.ok_or_else(|| {
                             ExecutorError::Io(std::io::Error::other("No active session to compact"))
@@ -179,6 +226,14 @@ impl Codex {
                     }
                     CodexSlashCommand::Mcp => {
                         let message = fetch_mcp_status_message(&client).await?;
+                        log_event_raw(client.log_writer(), message).await?;
+                        exit_signal_tx
+                            .send_exit_signal(ExecutorExitResult::Success)
+                            .await;
+                    }
+                    CodexSlashCommand::Skills => {
+                        let response = client.skills_list(current_dir_path).await?;
+                        let message = format_skills_status(&response);
                         log_event_raw(client.log_writer(), message).await?;
                         exit_signal_tx
                             .send_exit_signal(ExecutorExitResult::Success)
@@ -244,11 +299,6 @@ impl Codex {
                         exit_signal_tx
                             .send_exit_signal(ExecutorExitResult::Success)
                             .await;
-                    }
-                    _ => {
-                        return Err(ExecutorError::Io(std::io::Error::other(
-                            "Unsupported Codex slash command",
-                        )));
                     }
                 }
 
@@ -665,9 +715,72 @@ fn format_mcp_auth_status(status: &codex_app_server_protocol::McpAuthStatus) -> 
     }
 }
 
+fn format_skills_status(response: &SkillsListResponse) -> String {
+    let has_skills = response.data.iter().any(|entry| !entry.skills.is_empty());
+    let has_errors = response.data.iter().any(|entry| !entry.errors.is_empty());
+    if !has_skills && !has_errors {
+        return "_No Codex skills available for this workspace._".to_string();
+    }
+
+    let mut lines = vec!["# Codex Skills".to_string()];
+
+    for entry in &response.data {
+        lines.push(String::new());
+        lines.push(format!("## {}", entry.cwd.display()));
+
+        if entry.skills.is_empty() {
+            lines.push("_No skills found._".to_string());
+        } else {
+            let mut skills = entry.skills.iter().collect::<Vec<_>>();
+            skills.sort_by(|a, b| a.name.cmp(&b.name));
+
+            for skill in skills {
+                let status = if skill.enabled { "enabled" } else { "disabled" };
+                lines.push(format!(
+                    "- `{}` - {}",
+                    format_skill_invocation(&skill.name),
+                    skill.description
+                ));
+                lines.push(format!("  - Status: `{status}`"));
+                lines.push(format!("  - Scope: `{}`", format_skill_scope(skill.scope)));
+                lines.push(format!("  - Path: `{}`", skill.path.display()));
+            }
+        }
+
+        if !entry.errors.is_empty() {
+            lines.push(String::new());
+            lines.push("### Load Errors".to_string());
+            for error in &entry.errors {
+                lines.push(format!("- `{}`: {}", error.path.display(), error.message));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn format_skill_invocation(name: &str) -> String {
+    if name.starts_with('$') {
+        name.to_string()
+    } else {
+        format!("${name}")
+    }
+}
+
+fn format_skill_scope(scope: SkillScope) -> &'static str {
+    match scope {
+        SkillScope::User => "user",
+        SkillScope::Repo => "repo",
+        SkillScope::System => "system",
+        SkillScope::Admin => "admin",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::CodexSlashCommand;
+    use serde_json::json;
+
+    use super::{CodexSlashCommand, format_skills_status, supported_slash_commands};
 
     #[test]
     fn parses_fast_enable_and_disable() {
@@ -707,5 +820,61 @@ mod tests {
                 status: false,
             })
         ));
+    }
+
+    #[test]
+    fn parses_skills_command() {
+        assert!(matches!(
+            CodexSlashCommand::parse("/skills"),
+            Some(CodexSlashCommand::Skills)
+        ));
+    }
+
+    #[test]
+    fn advertised_slash_commands_are_supported_by_parser() {
+        let commands = supported_slash_commands();
+        assert!(commands.iter().any(|cmd| cmd.name == "skills"));
+        assert!(!commands.iter().any(|cmd| cmd.name == "model"));
+
+        for command in commands {
+            let prompt = format!("/{}", command.name);
+            assert!(
+                CodexSlashCommand::parse(&prompt).is_some(),
+                "advertised command `{}` must be parsed",
+                command.name
+            );
+        }
+    }
+
+    #[test]
+    fn formats_skills_status() {
+        let cwd = std::env::current_dir().unwrap();
+        let skill_path = cwd
+            .join(".codex")
+            .join("skills")
+            .join("demo")
+            .join("SKILL.md");
+        let response = serde_json::from_value(json!({
+            "data": [{
+                "cwd": cwd,
+                "skills": [{
+                    "name": "demo-skill",
+                    "description": "Demo skill description",
+                    "shortDescription": "Demo short description",
+                    "path": skill_path,
+                    "scope": "user",
+                    "enabled": true
+                }],
+                "errors": []
+            }]
+        }))
+        .unwrap();
+
+        let formatted = format_skills_status(&response);
+
+        assert!(formatted.contains("# Codex Skills"));
+        assert!(formatted.contains("`$demo-skill`"));
+        assert!(formatted.contains("Demo skill description"));
+        assert!(formatted.contains("enabled"));
     }
 }
