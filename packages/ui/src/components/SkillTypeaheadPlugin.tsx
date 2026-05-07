@@ -187,9 +187,7 @@ export function SkillTypeaheadPlugin({
                       onClick={() => selectOptionAndCleanUp(option)}
                     >
                       <div className="flex items-center justify-between gap-half font-medium">
-                        <span className="font-mono">
-                          ${option.skill.name}
-                        </span>
+                        <span className="font-mono">${option.skill.name}</span>
                         {option.skill.scope && (
                           <span className="text-xs text-low">
                             {option.skill.scope}
