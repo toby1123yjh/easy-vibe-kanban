@@ -1108,7 +1108,7 @@ impl LocalContainerService {
         let action_type = if let Some(info) = latest_session_info {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
                 prompt: queued_data.message.clone(),
-                selected_skills: vec![],
+                selected_skills: None,
                 session_id: info.session_id,
                 reset_to_message_id: None,
                 executor_config: queued_data.executor_config.clone(),
@@ -1117,7 +1117,7 @@ impl LocalContainerService {
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt: queued_data.message.clone(),
-                selected_skills: vec![],
+                selected_skills: None,
                 executor_config: queued_data.executor_config.clone(),
                 working_dir,
             })

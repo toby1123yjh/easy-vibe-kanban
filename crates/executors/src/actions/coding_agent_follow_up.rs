@@ -19,7 +19,7 @@ pub struct CodingAgentFollowUpRequest {
     pub prompt: String,
     #[serde(default)]
     #[ts(optional)]
-    pub selected_skills: Vec<SelectedSkill>,
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     pub session_id: String,
     #[serde(default)]
     pub reset_to_message_id: Option<String>,
@@ -83,13 +83,14 @@ impl Executable for CodingAgentFollowUpRequest {
             }
             agent.use_approvals(approvals.clone());
 
+            let selected_skills = self.selected_skills.as_deref().unwrap_or(&[]);
             agent
                 .spawn_follow_up_with_selected_skills(
                     &effective_dir,
                     &self.prompt,
                     &self.session_id,
                     self.reset_to_message_id.as_deref(),
-                    &self.selected_skills,
+                    selected_skills,
                     env,
                 )
                 .await

@@ -1110,7 +1110,7 @@ pub trait ContainerService {
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,
-                selected_skills: vec![],
+                selected_skills: None,
                 executor_config: executor_config.clone(),
                 working_dir,
             }),

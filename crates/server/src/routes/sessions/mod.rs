@@ -134,7 +134,7 @@ pub struct CreateFollowUpAttempt {
     pub prompt: String,
     #[serde(default)]
     #[ts(optional)]
-    pub selected_skills: Vec<SelectedSkill>,
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     pub executor_config: ExecutorConfig,
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,

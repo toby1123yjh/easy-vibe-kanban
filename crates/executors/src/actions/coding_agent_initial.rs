@@ -19,7 +19,7 @@ pub struct CodingAgentInitialRequest {
     pub prompt: String,
     #[serde(default)]
     #[ts(optional)]
-    pub selected_skills: Vec<SelectedSkill>,
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     /// Unified executor identity + overrides
     #[serde(alias = "executor_profile_id", alias = "profile_variant_label")]
     pub executor_config: ExecutorConfig,
@@ -72,11 +72,12 @@ impl Executable for CodingAgentInitialRequest {
             }
             agent.use_approvals(approvals.clone());
 
+            let selected_skills = self.selected_skills.as_deref().unwrap_or(&[]);
             agent
                 .spawn_with_selected_skills(
                     &effective_dir,
                     &self.prompt,
-                    &self.selected_skills,
+                    selected_skills,
                     env,
                 )
                 .await

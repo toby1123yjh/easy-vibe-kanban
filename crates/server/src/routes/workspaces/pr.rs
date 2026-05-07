@@ -157,7 +157,7 @@ async fn trigger_pr_description_follow_up(
     let action_type = if let Some(info) = latest_session_info {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt,
-            selected_skills: vec![],
+            selected_skills: None,
             session_id: info.session_id,
             reset_to_message_id: None,
             executor_config: executors::profile::ExecutorConfig::from(executor_profile_id.clone()),
@@ -166,7 +166,7 @@ async fn trigger_pr_description_follow_up(
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
             prompt,
-            selected_skills: vec![],
+            selected_skills: None,
             executor_config: executors::profile::ExecutorConfig::from(executor_profile_id.clone()),
             working_dir,
         })
