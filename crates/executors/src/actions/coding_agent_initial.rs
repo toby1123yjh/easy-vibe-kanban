@@ -74,12 +74,7 @@ impl Executable for CodingAgentInitialRequest {
 
             let selected_skills = self.selected_skills.as_deref().unwrap_or(&[]);
             agent
-                .spawn_with_selected_skills(
-                    &effective_dir,
-                    &self.prompt,
-                    selected_skills,
-                    env,
-                )
+                .spawn_with_selected_skills(&effective_dir, &self.prompt, selected_skills, env)
                 .await
         }
     }

@@ -153,7 +153,9 @@ enum CodexSessionAction {
         prompt: String,
         selected_skills: Vec<SelectedSkill>,
     },
-    Review { target: ReviewTarget },
+    Review {
+        target: ReviewTarget,
+    },
 }
 
 #[derive(Derivative, Clone, Serialize, Deserialize, TS, JsonSchema)]
