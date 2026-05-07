@@ -429,9 +429,9 @@ impl StandardCodingAgentExecutor for Codex {
         let initial_patch = patch::executor_discovered_options(options);
 
         let Some(skills_cwd) = skills_cwd else {
-            return Ok(Box::pin(futures::stream::once(async move {
-                initial_patch
-            })));
+            return Ok(Box::pin(futures::stream::once(
+                async move { initial_patch },
+            )));
         };
 
         let this = self.clone();
@@ -948,7 +948,10 @@ impl Codex {
     }
 }
 
-fn build_chat_input(combined_prompt: String, selected_skills: Vec<SelectedSkill>) -> Vec<UserInput> {
+fn build_chat_input(
+    combined_prompt: String,
+    selected_skills: Vec<SelectedSkill>,
+) -> Vec<UserInput> {
     let mut input = selected_skills
         .into_iter()
         .map(|skill| UserInput::Skill {
@@ -1051,7 +1054,10 @@ mod tests {
             other => panic!("expected skill input first, got {other:?}"),
         }
         match &input[1] {
-            UserInput::Text { text, text_elements } => {
+            UserInput::Text {
+                text,
+                text_elements,
+            } => {
                 assert_eq!(text, "review this change");
                 assert!(text_elements.is_empty());
             }

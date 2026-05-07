@@ -309,9 +309,7 @@ pub fn update_skills(skills: Vec<crate::executor_discovery::CodexSkillDescriptio
     .unwrap_or_default()
 }
 
-pub fn update_skill_errors(
-    errors: Vec<crate::executor_discovery::CodexSkillLoadError>,
-) -> Patch {
+pub fn update_skill_errors(errors: Vec<crate::executor_discovery::CodexSkillLoadError>) -> Patch {
     serde_json::from_value(json!([
         {"op": "replace", "path": "/options/skill_errors", "value": errors},
     ]))
