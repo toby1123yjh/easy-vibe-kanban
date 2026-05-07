@@ -730,7 +730,7 @@ export type DroidReasoningEffort = "none" | "dynamic" | "off" | "low" | "medium"
 
 export type AppendPrompt = string | null;
 
-export type CodingAgentInitialRequest = { prompt: string, selected_skills?: Array<SelectedSkill>,
+export type CodingAgentInitialRequest = { prompt: string, selected_skills?: Array<SelectedSkill>, 
 /**
  * Unified executor identity + overrides
  */
@@ -741,7 +741,7 @@ executor_config: ExecutorConfig,
  */
 working_dir: string | null, };
 
-export type CodingAgentFollowUpRequest = { prompt: string, selected_skills?: Array<SelectedSkill>, session_id: string, reset_to_message_id: string | null,
+export type CodingAgentFollowUpRequest = { prompt: string, selected_skills?: Array<SelectedSkill>, session_id: string, reset_to_message_id: string | null, 
 /**
  * Unified executor identity + overrides
  */
