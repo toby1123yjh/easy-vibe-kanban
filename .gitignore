@@ -102,3 +102,6 @@ vibe-kanban-cloud/
 *.ts.net.key
 Caddyfile
 Caddyfile.dev
+
+# AI Workflow benchmark clones (per-developer research, do not commit)
+docs/future/ai-workflow/search-project/*/
