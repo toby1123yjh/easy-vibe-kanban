@@ -82,6 +82,9 @@ easy-vibe-kanban-windows-x64-npx.zip
 # Claude Code local files
 .claude/
 
+# Local git worktrees
+.worktrees/
+
 # Development ports file
 .dev-ports.json
 
