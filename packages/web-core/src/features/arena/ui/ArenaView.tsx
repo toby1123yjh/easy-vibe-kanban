@@ -3,7 +3,11 @@ import { Button } from '@vibe/ui/components/Button';
 import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
 import { ConfirmDialog } from '@/shared/dialogs/shared/ConfirmDialog';
-import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
+import type {
+  ArenaEvent,
+  ArenaGroupResponse,
+  ArenaWorkspaceSummary,
+} from '@/shared/lib/arenaApi';
 import { ArenaConversationPane } from './ArenaConversationPane';
 import { ArenaModeBadge } from './ArenaModeBadge';
 import { ArenaPageActions } from './ArenaPageActions';
@@ -32,7 +36,12 @@ function ArenaHeader({
   group: ArenaGroupResponse;
   onDissolved?: () => void;
 }) {
-  const total = group.workspaces.length;
+  const attemptTotal = group.workspaces.filter(
+    (ws) => ws.purpose === 'attempt'
+  ).length;
+  const synthesisTotal = group.workspaces.filter(
+    (ws) => ws.purpose === 'synthesis'
+  ).length;
   const promoted = group.workspaces.filter(
     (ws) => ws.arena_status === 'promoted'
   ).length;
@@ -66,7 +75,7 @@ function ArenaHeader({
     setErrorMessage(null);
     const result = await ConfirmDialog.show({
       title: 'Dissolve this arena?',
-      message: `Archives all ${total} attempt${total === 1 ? '' : 's'}. Their worktrees will be cleaned up automatically. This cannot be undone.`,
+      message: `Archives all ${attemptTotal} attempt${attemptTotal === 1 ? '' : 's'}. Their worktrees will be cleaned up automatically. This cannot be undone.`,
       confirmText: 'Dissolve',
       cancelText: 'Cancel',
       variant: 'destructive',
@@ -85,7 +94,9 @@ function ArenaHeader({
     <div className="border-b border-zinc-200 px-base py-half dark:border-zinc-800">
       <div className="flex items-start justify-between gap-base">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-medium">Arena · {total} attempts</h2>
+          <h2 className="text-lg font-medium">
+            Arena · {attemptTotal} attempts
+          </h2>
           <div className="mt-half">
             <ArenaModeBadge group={group} />
           </div>
@@ -96,6 +107,7 @@ function ArenaHeader({
         <div className="flex shrink-0 flex-col items-end gap-half">
           <div className="text-xs text-low">
             {running} running / {promoted} promoted / {archived} archived
+            {synthesisTotal > 0 ? ` / ${synthesisTotal} memo` : ''}
           </div>
           {canCloseDesign ? (
             <Button
@@ -126,6 +138,66 @@ function ArenaHeader({
           {errorMessage}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function workspaceName(
+  workspaces: ArenaWorkspaceSummary[],
+  workspaceId: string | null
+) {
+  if (!workspaceId) return 'Arena';
+  const index = workspaces.findIndex(
+    (workspace) => workspace.workspace_id === workspaceId
+  );
+  if (index === -1) return 'Arena';
+  return (
+    workspaces[index].name ||
+    workspaces[index].executor ||
+    `Attempt ${index + 1}`
+  );
+}
+
+function eventTitle(event: ArenaEvent, workspaces: ArenaWorkspaceSummary[]) {
+  switch (event.kind) {
+    case 'ask_all':
+      return 'Ask all';
+    case 'workspace':
+      return `Message to ${workspaceName(workspaces, event.target_workspace_id)}`;
+    case 'challenge':
+      return `${workspaceName(workspaces, event.target_workspace_id)} challenged ${workspaceName(workspaces, event.source_workspace_id)}`;
+    case 'synthesize':
+      return 'Synthesize';
+    case 'start_implementation':
+      return `Start implementation from ${workspaceName(workspaces, event.target_workspace_id)}`;
+    default:
+      return 'Arena activity';
+  }
+}
+
+function ArenaActivity({ group }: { group: ArenaGroupResponse }) {
+  if (group.events.length === 0) return null;
+
+  const events = group.events.slice(-6).reverse();
+
+  return (
+    <div className="border-b border-zinc-200 bg-primary px-base py-half dark:border-zinc-800">
+      <div className="mb-half text-xs font-medium text-low">Arena Activity</div>
+      <div className="flex flex-wrap gap-half">
+        {events.map((event) => (
+          <div
+            key={event.id}
+            className="max-w-[320px] rounded border border-zinc-200 bg-secondary px-half py-1 text-xs dark:border-zinc-800"
+          >
+            <div className="font-medium text-normal">
+              {eventTitle(event, group.workspaces)}
+            </div>
+            <div className="truncate text-low">
+              {event.prompt || 'No prompt'}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -166,6 +238,12 @@ export function ArenaView({
   }
 
   const isDesignArena = data.mode === 'design';
+  const attemptWorkspaces = data.workspaces.filter(
+    (workspace) => workspace.purpose === 'attempt'
+  );
+  const synthesisWorkspaces = data.workspaces.filter(
+    (workspace) => workspace.purpose === 'synthesis'
+  );
   const columnsClassName =
     data.workspaces.length === 1
       ? 'grid-cols-1'
@@ -180,15 +258,35 @@ export function ArenaView({
       {isDesignArena ? <ArenaPageActions group={data} /> : null}
 
       {isDesignArena ? (
-        <div className="flex min-h-0 flex-1 gap-base overflow-x-auto p-base">
-          {data.workspaces.map((ws) => (
-            <ArenaConversationPane
-              key={ws.workspace_id}
-              group={data}
-              workspace={ws}
-              detailHref={buildWorkspaceHref?.(ws.workspace_id)}
-            />
-          ))}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ArenaActivity group={data} />
+          <div className="flex min-h-0 flex-1 gap-base overflow-x-auto p-base">
+            {attemptWorkspaces.map((ws) => (
+              <ArenaConversationPane
+                key={ws.workspace_id}
+                group={data}
+                workspace={ws}
+                detailHref={buildWorkspaceHref?.(ws.workspace_id)}
+              />
+            ))}
+          </div>
+          {synthesisWorkspaces.length > 0 ? (
+            <div className="max-h-[42%] min-h-[280px] border-t border-zinc-200 bg-secondary dark:border-zinc-800">
+              <div className="px-base pt-half text-xs font-medium text-low">
+                Decision Memo
+              </div>
+              <div className="flex h-[calc(100%-1.75rem)] gap-base overflow-x-auto p-base pt-half">
+                {synthesisWorkspaces.map((ws) => (
+                  <ArenaConversationPane
+                    key={ws.workspace_id}
+                    group={data}
+                    workspace={ws}
+                    detailHref={buildWorkspaceHref?.(ws.workspace_id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div

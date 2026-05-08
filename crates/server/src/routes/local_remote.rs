@@ -15,7 +15,7 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, get, patch, post},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use db::models::{
     arena_group::{
         ArenaGroup, ArenaGroupError, ArenaLifecycleStatus, ArenaMode, ArenaStatus, CreateArenaGroup,
@@ -60,6 +60,8 @@ const DEFAULT_TAGS: [(&str, &str); 4] = [
     ("documentation", "205 100% 40%"),
     ("enhancement", "181 72% 78%"),
 ];
+
+const ARENA_SYNTHESIS_WORKSPACE_PREFIX: &str = "Arena Synthesis";
 
 #[derive(Debug, Deserialize)]
 struct OrganizationQuery {
@@ -1893,6 +1895,7 @@ pub struct ArenaWorkspaceSummary {
     pub session_id: Option<Uuid>,
     pub name: Option<String>,
     pub branch: String,
+    pub purpose: ArenaWorkspacePurpose,
     pub arena_status: ArenaStatus,
     pub executor: Option<String>,
     pub variant: Option<String>,
@@ -1900,11 +1903,45 @@ pub struct ArenaWorkspaceSummary {
     pub has_uncommitted_changes: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum ArenaWorkspacePurpose {
+    #[default]
+    Attempt,
+    Synthesis,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, sqlx::Type)]
+#[sqlx(type_name = "arena_event_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum ArenaEventKind {
+    AskAll,
+    Workspace,
+    Challenge,
+    Synthesize,
+    StartImplementation,
+}
+
+#[derive(Debug, Clone, Serialize, TS, sqlx::FromRow)]
+pub struct ArenaEvent {
+    pub id: Uuid,
+    pub arena_group_id: Uuid,
+    pub kind: ArenaEventKind,
+    pub prompt: String,
+    pub source_workspace_id: Option<Uuid>,
+    pub target_workspace_id: Option<Uuid>,
+    pub synthesis_workspace_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct ArenaGroupResponse {
     #[serde(flatten)]
     pub group: ArenaGroup,
     pub workspaces: Vec<ArenaWorkspaceSummary>,
+    pub events: Vec<ArenaEvent>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -1954,13 +1991,41 @@ pub enum ArenaMessageTarget {
         responder_workspace_id: Uuid,
         source_workspace_id: Uuid,
     },
-    Synthesize,
+    Synthesize {
+        #[serde(default)]
+        options: ArenaSynthesizeOptions,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ArenaSynthesizeOptions {
+    pub include_original_prompt: bool,
+    pub include_attempt_summaries: bool,
+    pub include_activity: bool,
+}
+
+impl Default for ArenaSynthesizeOptions {
+    fn default() -> Self {
+        Self {
+            include_original_prompt: true,
+            include_attempt_summaries: true,
+            include_activity: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct ArenaMessageRequest {
     pub target: ArenaMessageTarget,
     pub prompt: String,
+    pub executor_config: ExecutorConfig,
+    #[serde(default)]
+    pub executor_configs: Vec<ArenaWorkspaceExecutorConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+pub struct ArenaWorkspaceExecutorConfig {
+    pub workspace_id: Uuid,
     pub executor_config: ExecutorConfig,
 }
 
@@ -2009,6 +2074,35 @@ async fn ensure_issue_in_project(
     Ok(())
 }
 
+fn arena_workspace_purpose_from_name(name: Option<&str>) -> ArenaWorkspacePurpose {
+    if name
+        .map(str::trim)
+        .is_some_and(|name| name.starts_with(ARENA_SYNTHESIS_WORKSPACE_PREFIX))
+    {
+        ArenaWorkspacePurpose::Synthesis
+    } else {
+        ArenaWorkspacePurpose::Attempt
+    }
+}
+
+fn is_synthesis_workspace(workspace: &DbWorkspace) -> bool {
+    arena_workspace_purpose_from_name(workspace.name.as_deref()) == ArenaWorkspacePurpose::Synthesis
+}
+
+fn find_attempt_workspace_in_group<'a>(
+    workspaces: &'a [DbWorkspace],
+    group_id: Uuid,
+    workspace_id: Uuid,
+) -> Result<&'a DbWorkspace, ArenaGroupError> {
+    workspaces
+        .iter()
+        .find(|workspace| workspace.id == workspace_id && !is_synthesis_workspace(workspace))
+        .ok_or(ArenaGroupError::WorkspaceNotInGroup {
+            group_id,
+            workspace_id,
+        })
+}
+
 fn build_design_arena_prompt(prompt: &str) -> String {
     format!(
         "You are in AI Arena Design Mode.\n\
@@ -2026,6 +2120,53 @@ fn build_attempt_prompt(mode: ArenaMode, prompt: &str) -> String {
         ArenaMode::Design => build_design_arena_prompt(prompt),
         ArenaMode::Implementation => prompt.to_string(),
     }
+}
+
+fn build_synthesis_prompt(
+    instruction: &str,
+    original_prompt: &str,
+    attempt_sections: &[String],
+    activity_sections: &[String],
+    options: &ArenaSynthesizeOptions,
+) -> String {
+    let mut sections = vec![
+        "You are the independent synthesis agent for an AI Arena.\n\
+         Write a neutral decision memo. Compare the attempts, preserve disagreement, tradeoffs, and open risks.\n\
+         Do not inherit or assume any single attempt's position. Do not create commits, push branches, or open PRs."
+            .to_string(),
+        format!("User synthesis instruction:\n{}", instruction.trim()),
+    ];
+
+    if options.include_original_prompt {
+        sections.push(format!(
+            "Original Arena prompt:\n{}",
+            original_prompt.trim()
+        ));
+    }
+
+    if options.include_attempt_summaries {
+        sections.push(format!(
+            "Attempt summaries:\n\n{}",
+            if attempt_sections.is_empty() {
+                "No attempt summaries available yet.".to_string()
+            } else {
+                attempt_sections.join("\n\n")
+            }
+        ));
+    }
+
+    if options.include_activity {
+        sections.push(format!(
+            "Arena activity history:\n\n{}",
+            if activity_sections.is_empty() {
+                "No prior page-level activity recorded.".to_string()
+            } else {
+                activity_sections.join("\n\n")
+            }
+        ));
+    }
+
+    sections.join("\n\n---\n\n")
 }
 
 async fn latest_session_id_for_workspace(
@@ -2072,6 +2213,7 @@ async fn workspace_to_summary(
         session_id: latest_session_id_for_workspace(pool, ws.id).await?,
         name: ws.name.clone(),
         branch: ws.branch.clone(),
+        purpose: arena_workspace_purpose_from_name(ws.name.as_deref()),
         arena_status: ws.arena_status,
         executor: executor_config.map(|c| c.executor.to_string()),
         variant: executor_config.and_then(|c| c.variant.clone()),
@@ -2162,6 +2304,71 @@ async fn workspaces_for_group(
         summaries.push(workspace_to_summary(pool, ws, None).await?);
     }
     Ok(summaries)
+}
+
+async fn arena_events_for_group(
+    pool: &SqlitePool,
+    group_id: Uuid,
+) -> Result<Vec<ArenaEvent>, ApiError> {
+    Ok(sqlx::query_as::<_, ArenaEvent>(
+        r#"SELECT id,
+                  arena_group_id,
+                  kind,
+                  prompt,
+                  source_workspace_id,
+                  target_workspace_id,
+                  synthesis_workspace_id,
+                  created_at
+             FROM arena_events
+            WHERE arena_group_id = ?
+            ORDER BY created_at ASC"#,
+    )
+    .bind(group_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+struct RecordArenaEvent<'a> {
+    group_id: Uuid,
+    kind: ArenaEventKind,
+    prompt: &'a str,
+    source_workspace_id: Option<Uuid>,
+    target_workspace_id: Option<Uuid>,
+    synthesis_workspace_id: Option<Uuid>,
+}
+
+async fn record_arena_event(
+    pool: &SqlitePool,
+    event: RecordArenaEvent<'_>,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"INSERT INTO arena_events
+               (id, arena_group_id, kind, prompt, source_workspace_id, target_workspace_id, synthesis_workspace_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(event.group_id)
+    .bind(event.kind)
+    .bind(event.prompt)
+    .bind(event.source_workspace_id)
+    .bind(event.target_workspace_id)
+    .bind(event.synthesis_workspace_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn arena_group_response(
+    pool: &SqlitePool,
+    group: ArenaGroup,
+) -> Result<ArenaGroupResponse, ApiError> {
+    let workspaces = workspaces_for_group(pool, group.id).await?;
+    let events = arena_events_for_group(pool, group.id).await?;
+    Ok(ArenaGroupResponse {
+        group,
+        workspaces,
+        events,
+    })
 }
 
 async fn create_arena_group(
@@ -2274,6 +2481,7 @@ async fn create_arena_group(
         data: ArenaGroupResponse {
             group,
             workspaces: summaries,
+            events: Vec::new(),
         },
         txid: txid(),
     }))
@@ -2287,8 +2495,7 @@ async fn get_active_arena_for_issue(
     let Some(group) = ArenaGroup::find_active_by_issue_id(pool, issue_id).await? else {
         return Ok(ResponseJson(None));
     };
-    let workspaces = workspaces_for_group(pool, group.id).await?;
-    Ok(ResponseJson(Some(ArenaGroupResponse { group, workspaces })))
+    Ok(ResponseJson(Some(arena_group_response(pool, group).await?)))
 }
 
 async fn get_arena_group(
@@ -2299,8 +2506,7 @@ async fn get_arena_group(
     let group = ArenaGroup::find_by_id(pool, group_id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    let workspaces = workspaces_for_group(pool, group.id).await?;
-    Ok(ResponseJson(ArenaGroupResponse { group, workspaces }))
+    Ok(ResponseJson(arena_group_response(pool, group).await?))
 }
 
 async fn close_arena_group(
@@ -2336,14 +2542,22 @@ async fn start_arena_implementation(
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
 
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    if !siblings.iter().any(|ws| ws.id == payload.workspace_id) {
-        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
-            group_id: group.id,
-            workspace_id: payload.workspace_id,
-        }));
-    }
+    let workspace = find_attempt_workspace_in_group(&siblings, group.id, payload.workspace_id)
+        .map_err(ApiError::from)?;
 
     ArenaGroup::set_implementation_workspace(pool, group.id, payload.workspace_id).await?;
+    record_arena_event(
+        pool,
+        RecordArenaEvent {
+            group_id: group.id,
+            kind: ArenaEventKind::StartImplementation,
+            prompt: payload.follow_up_prompt.as_deref().unwrap_or(""),
+            source_workspace_id: None,
+            target_workspace_id: Some(payload.workspace_id),
+            synthesis_workspace_id: None,
+        },
+    )
+    .await?;
 
     if let Some(prompt) = payload
         .follow_up_prompt
@@ -2351,12 +2565,9 @@ async fn start_arena_implementation(
         .map(str::trim)
         .filter(|prompt| !prompt.is_empty())
     {
-        let workspace = DbWorkspace::find_by_id(pool, payload.workspace_id)
-            .await?
-            .ok_or_else(|| ApiError::BadRequest("Workspace not found".to_string()))?;
         let _ = start_arena_follow_up(
             &deployment,
-            &workspace,
+            workspace,
             prompt.to_string(),
             payload.executor_config.clone(),
         )
@@ -2366,10 +2577,9 @@ async fn start_arena_implementation(
     let group = ArenaGroup::find_by_id(pool, group.id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    let workspaces = workspaces_for_group(pool, group.id).await?;
 
     Ok(ResponseJson(MutationResponse {
-        data: ArenaGroupResponse { group, workspaces },
+        data: arena_group_response(pool, group).await?,
         txid: txid(),
     }))
 }
@@ -2400,6 +2610,132 @@ fn build_challenge_prompt(user_prompt: &str, source_label: &str, source_summary:
          Other attempt summary:\n{source_summary}\n\n\
          User instruction:\n{user_prompt}"
     )
+}
+
+fn workspace_label(workspace: &DbWorkspace, index: usize) -> String {
+    workspace
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("Attempt {}", index + 1))
+}
+
+async fn workspace_repo_inputs(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Vec<WorkspaceRepoInput>, ApiError> {
+    let repo_rows: Vec<(Uuid, String)> = sqlx::query_as::<_, (Uuid, String)>(
+        r#"SELECT repo_id, target_branch
+             FROM workspace_repos
+            WHERE workspace_id = ?
+            ORDER BY created_at ASC"#,
+    )
+    .bind(workspace_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(repo_rows
+        .into_iter()
+        .map(|(repo_id, target_branch)| WorkspaceRepoInput {
+            repo_id,
+            target_branch,
+        })
+        .collect())
+}
+
+fn event_activity_section(event: &ArenaEvent, workspaces: &[DbWorkspace]) -> String {
+    let label_for = |workspace_id: Option<Uuid>| {
+        workspace_id
+            .and_then(|id| {
+                workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == id)
+                    .map(|index| workspace_label(&workspaces[index], index))
+            })
+            .unwrap_or_else(|| "Arena".to_string())
+    };
+
+    let title = match event.kind {
+        ArenaEventKind::AskAll => "Ask all".to_string(),
+        ArenaEventKind::Workspace => format!("Message to {}", label_for(event.target_workspace_id)),
+        ArenaEventKind::Challenge => format!(
+            "{} challenged {}",
+            label_for(event.target_workspace_id),
+            label_for(event.source_workspace_id)
+        ),
+        ArenaEventKind::Synthesize => "Synthesize".to_string(),
+        ArenaEventKind::StartImplementation => {
+            format!(
+                "Start implementation from {}",
+                label_for(event.target_workspace_id)
+            )
+        }
+    };
+
+    format!("{title}:\n{}", event.prompt)
+}
+
+async fn spawn_arena_synthesis_workspace(
+    deployment: &DeploymentImpl,
+    group: &ArenaGroup,
+    source_workspace: &DbWorkspace,
+    existing_synthesis_count: usize,
+    prompt: String,
+    executor_config: ExecutorConfig,
+) -> Result<DbWorkspace, ApiError> {
+    let pool = &deployment.db().pool;
+    let repos = workspace_repo_inputs(pool, source_workspace.id).await?;
+    if repos.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "workspace {} has no repos to mirror for synthesis",
+            source_workspace.id
+        )));
+    }
+
+    let display_name = format!(
+        "{} {}",
+        ARENA_SYNTHESIS_WORKSPACE_PREFIX,
+        existing_synthesis_count + 1
+    );
+    let workspace = create_workspace_record(deployment, Some(display_name)).await?;
+
+    let mut managed_workspace = deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace.clone())
+        .await?;
+    for repo in &repos {
+        managed_workspace
+            .add_repository(repo, deployment.git())
+            .await
+            .map_err(ApiError::from)?;
+    }
+
+    let workspace = managed_workspace.workspace.clone();
+    DbWorkspace::set_arena_group_id(pool, workspace.id, Some(group.id)).await?;
+    DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
+    insert_workspace_link(pool, workspace.id, group.project_id, group.issue_id).await?;
+
+    deployment
+        .container()
+        .start_workspace(&workspace, executor_config, prompt)
+        .await?;
+
+    let updated = DbWorkspace::find_by_id(pool, workspace.id)
+        .await?
+        .unwrap_or(workspace);
+
+    Ok(updated)
+}
+
+fn executor_config_for_arena_message(
+    default_config: &ExecutorConfig,
+    overrides: &[ArenaWorkspaceExecutorConfig],
+    workspace_id: Uuid,
+) -> ExecutorConfig {
+    overrides
+        .iter()
+        .find(|override_config| override_config.workspace_id == workspace_id)
+        .map(|override_config| override_config.executor_config.clone())
+        .unwrap_or_else(|| default_config.clone())
 }
 
 async fn start_arena_follow_up(
@@ -2471,27 +2807,60 @@ async fn send_arena_message(
     Path(group_id): Path<Uuid>,
     Json(payload): Json<ArenaMessageRequest>,
 ) -> Result<ResponseJson<MutationResponse<ArenaGroupResponse>>, ApiError> {
+    let ArenaMessageRequest {
+        target,
+        prompt,
+        executor_config,
+        executor_configs,
+    } = payload;
     let pool = &deployment.db().pool;
     let group = ArenaGroup::find_by_id(pool, group_id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
+    let attempt_siblings: Vec<&DbWorkspace> = siblings
+        .iter()
+        .filter(|workspace| !is_synthesis_workspace(workspace))
+        .collect();
 
-    match payload.target {
+    match target {
         ArenaMessageTarget::All => {
-            for workspace in siblings.iter() {
+            if attempt_siblings.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "Arena group has no attempts to message".to_string(),
+                ));
+            }
+            for workspace in attempt_siblings.iter().copied() {
+                let workspace_executor_config = executor_config_for_arena_message(
+                    &executor_config,
+                    &executor_configs,
+                    workspace.id,
+                );
                 start_arena_follow_up(
                     &deployment,
                     workspace,
-                    payload.prompt.clone(),
-                    Some(payload.executor_config.clone()),
+                    prompt.clone(),
+                    Some(workspace_executor_config),
                 )
                 .await?;
             }
+            record_arena_event(
+                pool,
+                RecordArenaEvent {
+                    group_id: group.id,
+                    kind: ArenaEventKind::AskAll,
+                    prompt: &prompt,
+                    source_workspace_id: None,
+                    target_workspace_id: None,
+                    synthesis_workspace_id: None,
+                },
+            )
+            .await?;
         }
         ArenaMessageTarget::Workspace { workspace_id } => {
-            let workspace = siblings
+            let workspace = attempt_siblings
                 .iter()
+                .copied()
                 .find(|ws| ws.id == workspace_id)
                 .ok_or_else(|| ArenaGroupError::WorkspaceNotInGroup {
                     group_id: group.id,
@@ -2500,8 +2869,20 @@ async fn send_arena_message(
             start_arena_follow_up(
                 &deployment,
                 workspace,
-                payload.prompt.clone(),
-                Some(payload.executor_config.clone()),
+                prompt.clone(),
+                Some(executor_config.clone()),
+            )
+            .await?;
+            record_arena_event(
+                pool,
+                RecordArenaEvent {
+                    group_id: group.id,
+                    kind: ArenaEventKind::Workspace,
+                    prompt: &prompt,
+                    source_workspace_id: None,
+                    target_workspace_id: Some(workspace_id),
+                    synthesis_workspace_id: None,
+                },
             )
             .await?;
         }
@@ -2509,14 +2890,18 @@ async fn send_arena_message(
             responder_workspace_id,
             source_workspace_id,
         } => {
-            let responder = siblings
+            let responder = attempt_siblings
                 .iter()
+                .copied()
                 .find(|ws| ws.id == responder_workspace_id)
                 .ok_or_else(|| ArenaGroupError::WorkspaceNotInGroup {
                     group_id: group.id,
                     workspace_id: responder_workspace_id,
                 })?;
-            if !siblings.iter().any(|ws| ws.id == source_workspace_id) {
+            if !attempt_siblings
+                .iter()
+                .any(|ws| ws.id == source_workspace_id)
+            {
                 return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
                     group_id: group.id,
                     workspace_id: source_workspace_id,
@@ -2525,42 +2910,82 @@ async fn send_arena_message(
             let source_summary = latest_workspace_summary_text(pool, source_workspace_id)
                 .await?
                 .unwrap_or_else(|| "No summary available yet.".to_string());
-            let prompt = build_challenge_prompt(
-                &payload.prompt,
-                &source_workspace_id.to_string(),
-                &source_summary,
-            );
+            let challenge_prompt =
+                build_challenge_prompt(&prompt, &source_workspace_id.to_string(), &source_summary);
             start_arena_follow_up(
                 &deployment,
                 responder,
-                prompt,
-                Some(payload.executor_config.clone()),
+                challenge_prompt,
+                Some(executor_config.clone()),
+            )
+            .await?;
+            record_arena_event(
+                pool,
+                RecordArenaEvent {
+                    group_id: group.id,
+                    kind: ArenaEventKind::Challenge,
+                    prompt: &prompt,
+                    source_workspace_id: Some(source_workspace_id),
+                    target_workspace_id: Some(responder_workspace_id),
+                    synthesis_workspace_id: None,
+                },
             )
             .await?;
         }
-        ArenaMessageTarget::Synthesize => {
-            let Some(workspace) = siblings.first() else {
+        ArenaMessageTarget::Synthesize { options } => {
+            let Some(source_workspace) = attempt_siblings.first().copied() else {
                 return Err(ApiError::BadRequest(
                     "Arena group has no workspaces to synthesize".to_string(),
                 ));
             };
             let mut summaries = Vec::new();
-            for sibling in siblings.iter() {
+            for (index, sibling) in attempt_siblings.iter().copied().enumerate() {
                 let summary = latest_workspace_summary_text(pool, sibling.id)
                     .await?
                     .unwrap_or_else(|| "No summary available yet.".to_string());
-                summaries.push(format!("Attempt {}:\n{}", sibling.id, summary));
+                summaries.push(format!(
+                    "{} ({})\n{}",
+                    workspace_label(sibling, index),
+                    sibling.id,
+                    summary
+                ));
             }
-            let prompt = format!(
-                "{}\n\nArena attempt summaries:\n\n{}",
-                payload.prompt,
-                summaries.join("\n\n")
+
+            let events = arena_events_for_group(pool, group.id).await?;
+            let activity_sections: Vec<String> = events
+                .iter()
+                .map(|event| event_activity_section(event, &siblings))
+                .collect();
+            let synthesis_prompt = build_synthesis_prompt(
+                &prompt,
+                &group.prompt,
+                &summaries,
+                &activity_sections,
+                &options,
             );
-            start_arena_follow_up(
+            let synthesis_count = siblings
+                .iter()
+                .filter(|ws| is_synthesis_workspace(ws))
+                .count();
+            let synthesis_workspace = spawn_arena_synthesis_workspace(
                 &deployment,
-                workspace,
-                prompt,
-                Some(payload.executor_config.clone()),
+                &group,
+                source_workspace,
+                synthesis_count,
+                synthesis_prompt,
+                executor_config.clone(),
+            )
+            .await?;
+            record_arena_event(
+                pool,
+                RecordArenaEvent {
+                    group_id: group.id,
+                    kind: ArenaEventKind::Synthesize,
+                    prompt: &prompt,
+                    source_workspace_id: None,
+                    target_workspace_id: None,
+                    synthesis_workspace_id: Some(synthesis_workspace.id),
+                },
             )
             .await?;
         }
@@ -2569,10 +2994,9 @@ async fn send_arena_message(
     let group = ArenaGroup::find_by_id(pool, group.id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    let workspaces = workspaces_for_group(pool, group.id).await?;
 
     Ok(ResponseJson(MutationResponse {
-        data: ArenaGroupResponse { group, workspaces },
+        data: arena_group_response(pool, group).await?,
         txid: txid(),
     }))
 }
@@ -2597,12 +3021,8 @@ async fn promote_arena_workspace(
     }
 
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    if !siblings.iter().any(|ws| ws.id == payload.workspace_id) {
-        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
-            group_id: group.id,
-            workspace_id: payload.workspace_id,
-        }));
-    }
+    find_attempt_workspace_in_group(&siblings, group.id, payload.workspace_id)
+        .map_err(ApiError::from)?;
 
     // 1. Mark the chosen workspace as promoted.
     DbWorkspace::set_arena_status(pool, payload.workspace_id, ArenaStatus::Promoted).await?;
@@ -2623,7 +3043,6 @@ async fn promote_arena_workspace(
     let group = ArenaGroup::find_by_id(pool, group.id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    let workspaces = workspaces_for_group(pool, group.id).await?;
 
     deployment
         .track_if_analytics_allowed(
@@ -2637,7 +3056,7 @@ async fn promote_arena_workspace(
         .await;
 
     Ok(ResponseJson(MutationResponse {
-        data: ArenaGroupResponse { group, workspaces },
+        data: arena_group_response(pool, group).await?,
         txid: txid(),
     }))
 }
@@ -2660,13 +3079,8 @@ async fn retry_arena_workspace(
 
     // Verify workspace belongs to group + figure out repos to reuse.
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    let target = siblings
-        .iter()
-        .find(|ws| ws.id == workspace_id)
-        .ok_or_else(|| ArenaGroupError::WorkspaceNotInGroup {
-            group_id: group.id,
-            workspace_id,
-        })?;
+    let target = find_attempt_workspace_in_group(&siblings, group.id, workspace_id)
+        .map_err(ApiError::from)?;
 
     // Pull repo set from the failing workspace so the retry mirrors it.
     // Runtime-checked query to avoid requiring a fresh .sqlx cache for
@@ -2699,13 +3113,16 @@ async fn retry_arena_workspace(
     // keep its logs around.
     DbWorkspace::set_arena_status(pool, workspace_id, ArenaStatus::Archived).await?;
 
-    let attempts_so_far = siblings.len();
+    let attempts_so_far = siblings
+        .iter()
+        .filter(|workspace| !is_synthesis_workspace(workspace))
+        .count();
     let attempt = ArenaAttemptInput {
         executor_config: payload.executor_config,
         name: payload.name,
         prompt: payload.prompt,
     };
-    let (new_workspace, executor_config) = spawn_arena_attempt(
+    spawn_arena_attempt(
         &deployment,
         &group,
         group.issue_id,
@@ -2719,20 +3136,9 @@ async fn retry_arena_workspace(
     let group = ArenaGroup::find_by_id(pool, group.id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    let mut workspaces = workspaces_for_group(pool, group.id).await?;
-
-    // Surface the freshly-created summary explicitly (in case the
-    // ordering query happens to lag) — `find_by_arena_group_id`
-    // already orders by created_at ASC so it will appear at the end.
-    if !workspaces
-        .iter()
-        .any(|w| w.workspace_id == new_workspace.id)
-    {
-        workspaces.push(workspace_to_summary(pool, &new_workspace, Some(&executor_config)).await?);
-    }
 
     Ok(ResponseJson(MutationResponse {
-        data: ArenaGroupResponse { group, workspaces },
+        data: arena_group_response(pool, group).await?,
         txid: txid(),
     }))
 }
@@ -2818,6 +3224,7 @@ async fn list_issue_workspaces(
 #[cfg(test)]
 mod tests {
     use api_types::{CreateIssueRequest, CreateProjectRequest, IssuePriority};
+    use chrono::Utc;
     use serde_json::Value;
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use uuid::Uuid;
@@ -2973,5 +3380,88 @@ mod tests {
             tag_names,
             vec!["bug", "documentation", "enhancement", "feature"]
         );
+    }
+
+    #[test]
+    fn arena_workspace_purpose_detects_synthesis_workspace_names() {
+        assert_eq!(
+            super::arena_workspace_purpose_from_name(Some("Arena Synthesis 1")),
+            super::ArenaWorkspacePurpose::Synthesis
+        );
+        assert_eq!(
+            super::arena_workspace_purpose_from_name(Some("codex-arena-1")),
+            super::ArenaWorkspacePurpose::Attempt
+        );
+        assert_eq!(
+            super::arena_workspace_purpose_from_name(None),
+            super::ArenaWorkspacePurpose::Attempt
+        );
+    }
+
+    fn test_workspace(
+        group_id: Uuid,
+        workspace_id: Uuid,
+        name: Option<&str>,
+    ) -> super::DbWorkspace {
+        let now = Utc::now();
+        super::DbWorkspace {
+            id: workspace_id,
+            task_id: None,
+            container_ref: None,
+            branch: "arena-test".to_string(),
+            setup_completed_at: None,
+            created_at: now,
+            updated_at: now,
+            archived: false,
+            pinned: false,
+            name: name.map(str::to_string),
+            worktree_deleted: false,
+            arena_group_id: Some(group_id),
+            arena_status: super::ArenaStatus::Active,
+        }
+    }
+
+    #[test]
+    fn attempt_workspace_lookup_rejects_synthesis_workspaces() {
+        let group_id = Uuid::new_v4();
+        let attempt_id = Uuid::new_v4();
+        let synthesis_id = Uuid::new_v4();
+        let workspaces = vec![
+            test_workspace(group_id, attempt_id, Some("codex-arena-1")),
+            test_workspace(group_id, synthesis_id, Some("Arena Synthesis 1")),
+        ];
+
+        let attempt = super::find_attempt_workspace_in_group(&workspaces, group_id, attempt_id)
+            .expect("attempt workspace");
+        assert_eq!(attempt.id, attempt_id);
+
+        let synthesis_result =
+            super::find_attempt_workspace_in_group(&workspaces, group_id, synthesis_id);
+        assert!(synthesis_result.is_err());
+    }
+
+    #[test]
+    fn synthesis_prompt_only_includes_selected_context_sections() {
+        let options = super::ArenaSynthesizeOptions {
+            include_original_prompt: true,
+            include_attempt_summaries: true,
+            include_activity: false,
+        };
+
+        let prompt = super::build_synthesis_prompt(
+            "Write the decision memo.",
+            "Original arena prompt",
+            &[
+                "Attempt A:\nUse the lightweight design.".to_string(),
+                "Attempt B:\nUse the workflow design.".to_string(),
+            ],
+            &["Ask all: explain risks".to_string()],
+            &options,
+        );
+
+        assert!(prompt.contains("Write the decision memo."));
+        assert!(prompt.contains("Original arena prompt"));
+        assert!(prompt.contains("Attempt A"));
+        assert!(!prompt.contains("Ask all: explain risks"));
     }
 }

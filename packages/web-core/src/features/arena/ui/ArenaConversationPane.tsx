@@ -151,6 +151,7 @@ export function ArenaConversationPane({
   }, []);
 
   const badge = STATUS_LABEL[workspace.arena_status];
+  const isSynthesis = workspace.purpose === 'synthesis';
   const entriesProviderKey = `${workspace.workspace_id}:${selectedSessionId ?? 'new'}`;
   const isLoading = workspaceLoading || sessionsLoading || !attempt;
 
@@ -168,7 +169,9 @@ export function ArenaConversationPane({
                   <div className="min-w-0">
                     <div className="flex items-center gap-half text-sm font-medium">
                       <span className="truncate">
-                        {workspace.executor || workspace.name || 'Agent'}
+                        {isSynthesis
+                          ? 'Decision Memo'
+                          : workspace.executor || workspace.name || 'Agent'}
                       </span>
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badge.className}`}
@@ -177,7 +180,9 @@ export function ArenaConversationPane({
                       </span>
                     </div>
                     <div className="mt-1 truncate text-xs text-low">
-                      {workspace.variant || group.mode} / {workspace.branch}
+                      {isSynthesis
+                        ? `${workspace.name || 'Arena Synthesis'} / ${workspace.branch}`
+                        : `${workspace.variant || group.mode} / ${workspace.branch}`}
                     </div>
                   </div>
                   {detailHref ? (

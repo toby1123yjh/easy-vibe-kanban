@@ -7,6 +7,7 @@ import type {
   ArenaGroupResponse,
   ArenaWorkspaceSummary,
 } from '@/shared/lib/arenaApi';
+import { SynthesizeArenaDialog } from './SynthesizeArenaDialog';
 
 interface ArenaPageActionsProps {
   group: ArenaGroupResponse;
@@ -43,12 +44,15 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
     return null;
   }
 
+  const attemptWorkspaces = group.workspaces.filter(
+    (workspace) => workspace.purpose === 'attempt'
+  );
   const isRunning = group.workspaces.some(
     (workspace) => workspace.latest_execution_status === 'running'
   );
   const isPending = message.isPending || startImplementation.isPending;
   const actionsDisabled =
-    isRunning || isPending || group.workspaces.length === 0;
+    isRunning || isPending || attemptWorkspaces.length === 0;
   const trimmedMessage = messageText.trim();
 
   const handleAskAll = async () => {
@@ -56,16 +60,15 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
 
     setErrorMessage(null);
     try {
-      for (const workspace of group.workspaces) {
-        await message.mutateAsync({
-          target: {
-            type: 'workspace',
-            workspace_id: workspace.workspace_id,
-          },
-          prompt: trimmedMessage,
+      await message.mutateAsync({
+        target: { type: 'all' },
+        prompt: trimmedMessage,
+        executor_config: executorConfigForWorkspace(attemptWorkspaces[0]),
+        executor_configs: attemptWorkspaces.map((workspace) => ({
+          workspace_id: workspace.workspace_id,
           executor_config: executorConfigForWorkspace(workspace),
-        });
-      }
+        })),
+      });
       setMessageText('');
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Ask all failed');
@@ -73,11 +76,11 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
   };
 
   const handleChallengeFrom = async (source: ArenaWorkspaceSummary) => {
-    if (actionsDisabled || group.workspaces.length < 2) return;
+    if (actionsDisabled || attemptWorkspaces.length < 2) return;
 
     setErrorMessage(null);
     try {
-      for (const responder of group.workspaces) {
+      for (const responder of attemptWorkspaces) {
         if (responder.workspace_id === source.workspace_id) continue;
         await message.mutateAsync({
           target: {
@@ -100,11 +103,16 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
 
     setErrorMessage(null);
     try {
+      const result = await SynthesizeArenaDialog.show({
+        activityCount: group.events.length,
+        attemptCount: attemptWorkspaces.length,
+      });
+      if (result.kind !== 'confirmed') return;
+
       await message.mutateAsync({
-        target: { type: 'synthesize' },
-        prompt:
-          'Synthesize the Arena attempts into a concise decision memo. Preserve disagreement, tradeoffs, and open risks.',
-        executor_config: executorConfigForWorkspace(group.workspaces[0]),
+        target: { type: 'synthesize', options: result.options },
+        prompt: result.prompt,
+        executor_config: executorConfigForWorkspace(attemptWorkspaces[0]),
       });
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Synthesize failed');
@@ -168,7 +176,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
       </div>
 
       <div className="mt-half flex flex-wrap items-center gap-half">
-        {group.workspaces.map((workspace, index) => (
+        {attemptWorkspaces.map((workspace, index) => (
           <div
             key={workspace.workspace_id}
             className="flex items-center gap-half rounded border border-zinc-200 bg-primary px-half py-1 dark:border-zinc-800"
@@ -180,7 +188,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
               type="button"
               size="xs"
               variant="ghost"
-              disabled={actionsDisabled || group.workspaces.length < 2}
+              disabled={actionsDisabled || attemptWorkspaces.length < 2}
               onClick={() => void handleChallengeFrom(workspace)}
             >
               Challenge

@@ -21,6 +21,7 @@ import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 // ── Mirror of Rust types (see comment above) ────────────────────────
 
 export type ArenaStatus = 'active' | 'promoted' | 'archived';
+export type ArenaWorkspacePurpose = 'attempt' | 'synthesis';
 export type ArenaMode = 'design' | 'implementation';
 export type ArenaLifecycleStatus =
   | 'open'
@@ -54,6 +55,7 @@ export interface ArenaWorkspaceSummary {
   session_id: string | null;
   name: string | null;
   branch: string;
+  purpose: ArenaWorkspacePurpose;
   arena_status: ArenaStatus;
   executor: string | null;
   variant: string | null;
@@ -61,8 +63,27 @@ export interface ArenaWorkspaceSummary {
   has_uncommitted_changes: boolean | null;
 }
 
+export type ArenaEventKind =
+  | 'ask_all'
+  | 'workspace'
+  | 'challenge'
+  | 'synthesize'
+  | 'start_implementation';
+
+export interface ArenaEvent {
+  id: string;
+  arena_group_id: string;
+  kind: ArenaEventKind;
+  prompt: string;
+  source_workspace_id: string | null;
+  target_workspace_id: string | null;
+  synthesis_workspace_id: string | null;
+  created_at: string;
+}
+
 export interface ArenaGroupResponse extends ArenaGroup {
   workspaces: ArenaWorkspaceSummary[];
+  events: ArenaEvent[];
 }
 
 export interface ArenaAttemptInput {
@@ -111,6 +132,17 @@ export interface StartArenaImplementationRequest {
   executor_config?: ExecutorConfig | null;
 }
 
+export interface ArenaSynthesizeOptions {
+  include_original_prompt: boolean;
+  include_attempt_summaries: boolean;
+  include_activity: boolean;
+}
+
+export interface ArenaWorkspaceExecutorConfig {
+  workspace_id: string;
+  executor_config: ExecutorConfig;
+}
+
 export type ArenaMessageTarget =
   | { type: 'all' }
   | { type: 'workspace'; workspace_id: string }
@@ -119,12 +151,13 @@ export type ArenaMessageTarget =
       responder_workspace_id: string;
       source_workspace_id: string;
     }
-  | { type: 'synthesize' };
+  | { type: 'synthesize'; options?: ArenaSynthesizeOptions };
 
 export interface ArenaMessageRequest {
   target: ArenaMessageTarget;
   prompt: string;
   executor_config: ExecutorConfig;
+  executor_configs?: ArenaWorkspaceExecutorConfig[];
 }
 
 // ── Transport ───────────────────────────────────────────────────────
