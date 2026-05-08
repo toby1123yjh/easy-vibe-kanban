@@ -1,6 +1,8 @@
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { X } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
 import { Input } from '@vibe/ui/components/Input';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -83,6 +85,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     maxAttempts: maxAttemptsProp,
   }) => {
     const modal = useModal();
+    const { t } = useTranslation('common');
     const queryClient = useQueryClient();
     const maxAttempts = Math.max(
       ARENA_MIN_ATTEMPTS,
@@ -247,15 +250,20 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     };
 
     const validationError = useMemo<string | null>(() => {
-      if (!prompt.trim()) return 'Prompt is required.';
-      if (!baseBranch.trim()) return 'Base branch is required.';
-      if (!repoId) return 'Pick a repository.';
+      if (!prompt.trim()) return t('arena.create.validation.promptRequired');
+      if (!baseBranch.trim())
+        return t('arena.create.validation.baseBranchRequired');
+      if (!repoId) return t('arena.create.validation.repositoryRequired');
       if (attempts.length < ARENA_MIN_ATTEMPTS)
-        return `At least ${ARENA_MIN_ATTEMPTS} attempts are required.`;
+        return t('arena.create.validation.minAttempts', {
+          count: ARENA_MIN_ATTEMPTS,
+        });
       if (attempts.length > maxAttempts)
-        return `At most ${maxAttempts} attempts are allowed.`;
+        return t('arena.create.validation.maxAttempts', {
+          count: maxAttempts,
+        });
       return null;
-    }, [prompt, baseBranch, repoId, attempts.length, maxAttempts]);
+    }, [prompt, baseBranch, repoId, attempts.length, maxAttempts, t]);
 
     const handleSubmit = async () => {
       if (validationError) {
@@ -299,7 +307,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
         modal.hide();
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : 'Failed to create arena';
+          err instanceof Error ? err.message : t('arena.errors.createFailed');
         if (isActiveArenaConflict(message)) {
           const activeGroup = await arenaApi
             .getActiveForIssue(issueId)
@@ -331,12 +339,12 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
     const dialogTitle =
       mode === 'design'
-        ? `Start Design Arena / ${attempts.length} attempts`
-        : `Start Implementation Arena / ${attempts.length} attempts`;
+        ? t('arena.create.titleDesign', { count: attempts.length })
+        : t('arena.create.titleImplementation', { count: attempts.length });
     const dialogDescription =
       mode === 'design'
-        ? 'Compare multiple agents as design conversations. Workspaces are isolated, and commits are not created by default.'
-        : 'Run multiple implementation attempts and compare their code changes.';
+        ? t('arena.create.descriptionDesign')
+        : t('arena.create.descriptionImplementation');
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
@@ -352,20 +360,22 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                 htmlFor="arena-prompt"
                 className="text-xs font-medium text-low"
               >
-                Prompt
+                {t('arena.create.prompt')}
               </label>
               <Textarea
                 id="arena-prompt"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what each agent should do…"
+                placeholder={t('arena.create.promptPlaceholder')}
                 rows={4}
                 className="font-ibm-plex-mono"
               />
             </div>
 
             <div className="space-y-half">
-              <span className="text-xs font-medium text-low">Mode</span>
+              <span className="text-xs font-medium text-low">
+                {t('arena.create.mode')}
+              </span>
               <div className="inline-flex rounded border border-zinc-200 bg-secondary p-0.5 dark:border-zinc-800">
                 <button
                   type="button"
@@ -377,7 +387,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   aria-pressed={mode === 'design'}
                   onClick={() => setMode('design')}
                 >
-                  Design
+                  {t('arena.create.modeDesign')}
                 </button>
                 <button
                   type="button"
@@ -389,7 +399,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   aria-pressed={mode === 'implementation'}
                   onClick={() => setMode('implementation')}
                 >
-                  Implementation
+                  {t('arena.create.modeImplementation')}
                 </button>
               </div>
             </div>
@@ -400,7 +410,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   htmlFor="arena-repo"
                   className="text-xs font-medium text-low"
                 >
-                  Repository
+                  {t('arena.create.repository')}
                 </label>
                 <select
                   id="arena-repo"
@@ -411,7 +421,9 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                 >
                   {!repos || repos.length === 0 ? (
                     <option value="">
-                      {reposLoading ? 'Loading…' : 'No repositories'}
+                      {reposLoading
+                        ? t('arena.create.loadingRepositories')
+                        : t('arena.create.noRepositories')}
                     </option>
                   ) : (
                     repos.map((repo) => (
@@ -426,14 +438,16 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                     className="truncate text-[11px] text-low"
                     title={selectedRepo.path}
                   >
-                    Loaded from local repositories / {selectedRepo.path}
+                    {t('arena.create.loadedFrom', {
+                      path: selectedRepo.path,
+                    })}
                   </p>
                 ) : null}
               </div>
 
               <div className="space-y-half">
                 <label className="text-xs font-medium text-low">
-                  Base branch
+                  {t('arena.create.baseBranch')}
                 </label>
                 <BranchSelector
                   branches={branches}
@@ -444,10 +458,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   }}
                   placeholder={
                     branchesLoading
-                      ? 'Loading branches...'
+                      ? t('arena.create.loadingBranches')
                       : branchesError
-                        ? 'Failed to load branches'
-                        : 'Select branch'
+                        ? t('arena.create.failedBranches')
+                        : t('arena.create.selectBranch')
                   }
                 />
               </div>
@@ -455,7 +469,9 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
             <div className="space-y-half">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-low">Attempts</span>
+                <span className="text-xs font-medium text-low">
+                  {t('arena.create.attempts')}
+                </span>
                 <Button
                   size="xs"
                   variant="outline"
@@ -463,7 +479,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                   disabled={!canAddAttempt}
                   onClick={handleAddAttempt}
                 >
-                  Add attempt ({attempts.length}/{maxAttempts})
+                  {t('arena.actions.addAttempt', {
+                    count: attempts.length,
+                    max: maxAttempts,
+                  })}
                 </Button>
               </div>
 
@@ -484,7 +503,9 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                         })
                       }
                       className="h-9 rounded border bg-primary px-2 text-sm"
-                      aria-label={`Attempt ${idx + 1} executor`}
+                      aria-label={t('arena.aria.attemptExecutor', {
+                        index: idx + 1,
+                      })}
                     >
                       {EXECUTOR_OPTIONS.map((opt) => (
                         <option key={opt} value={opt}>
@@ -499,8 +520,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                           variant: e.target.value,
                         })
                       }
-                      placeholder="variant (optional)"
-                      aria-label={`Attempt ${idx + 1} variant`}
+                      placeholder={t('arena.create.variantPlaceholder')}
+                      aria-label={t('arena.aria.attemptVariant', {
+                        index: idx + 1,
+                      })}
                     />
                     <Button
                       size="xs"
@@ -508,9 +531,11 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                       type="button"
                       onClick={() => handleRemoveAttempt(attempt.id)}
                       disabled={!canRemoveAttempt}
-                      aria-label={`Remove attempt ${idx + 1}`}
+                      aria-label={t('arena.aria.removeAttempt', {
+                        index: idx + 1,
+                      })}
                     >
-                      ×
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                   </li>
                 ))}
@@ -526,14 +551,16 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
           <DialogFooter>
             <Button variant="outline" type="button" onClick={handleClose}>
-              Cancel
+              {t('buttons.cancel')}
             </Button>
             <Button
               type="button"
               onClick={() => void handleSubmit()}
               disabled={submitting || !!validationError}
             >
-              {submitting ? 'Starting...' : 'Start Arena'}
+              {submitting
+                ? t('arena.actions.starting')
+                : t('arena.actions.startArena')}
             </Button>
           </DialogFooter>
         </DialogContent>

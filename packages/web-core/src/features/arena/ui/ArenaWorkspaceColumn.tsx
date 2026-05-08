@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useDiffSummary } from '@/shared/hooks/useDiffSummary';
 import type {
   ArenaGroupResponse,
@@ -13,22 +14,13 @@ interface ArenaWorkspaceColumnProps {
   detailHref?: string;
 }
 
-const STATUS_BADGE: Record<
+const STATUS_BADGE_CLASS: Record<
   ArenaWorkspaceSummary['arena_status'],
-  { label: string; className: string }
+  string
 > = {
-  active: {
-    label: 'Running',
-    className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
-  },
-  promoted: {
-    label: 'Promoted',
-    className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-  },
-  archived: {
-    label: 'Archived',
-    className: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
-  },
+  active: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  promoted: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+  archived: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 };
 
 /**
@@ -46,16 +38,19 @@ export function ArenaWorkspaceColumn({
   workspace,
   detailHref,
 }: ArenaWorkspaceColumnProps) {
+  const { t } = useTranslation('common');
   const { fileCount, added, deleted, error } = useDiffSummary(
     workspace.workspace_id
   );
-  const badge = STATUS_BADGE[workspace.arena_status];
+  const badgeClassName = STATUS_BADGE_CLASS[workspace.arena_status];
 
   const headerInner = (
     <>
       <div className="flex items-center gap-2 text-sm font-medium">
         <span className="truncate">
-          {workspace.executor || workspace.name || 'Workspace'}
+          {workspace.executor ||
+            workspace.name ||
+            t('arena.workspace.workspace')}
         </span>
         {workspace.variant ? (
           <span className="text-xs text-low">· {workspace.variant}</span>
@@ -63,9 +58,13 @@ export function ArenaWorkspaceColumn({
       </div>
       <div className="mt-1 flex items-center gap-2 text-xs text-low">
         <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badge.className}`}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeClassName}`}
         >
-          {badge.label}
+          {t(
+            workspace.arena_status === 'active'
+              ? 'arena.status.running'
+              : `arena.status.${workspace.arena_status}`
+          )}
         </span>
         <span className="truncate font-ibm-plex-mono">{workspace.branch}</span>
       </div>
@@ -79,7 +78,12 @@ export function ArenaWorkspaceColumn({
           <a
             href={detailHref}
             className="block hover:opacity-80"
-            aria-label={`Open ${workspace.executor ?? workspace.name ?? 'workspace'} detail`}
+            aria-label={t('arena.aria.openWorkspaceDetail', {
+              name:
+                workspace.executor ??
+                workspace.name ??
+                t('arena.workspace.workspace'),
+            })}
           >
             {headerInner}
           </a>
@@ -90,18 +94,20 @@ export function ArenaWorkspaceColumn({
 
       <div className="flex-1 overflow-auto p-base">
         {error ? (
-          <div className="text-xs text-error">Diff stream error: {error}</div>
+          <div className="text-xs text-error">
+            {t('arena.errors.diffStream', { message: error })}
+          </div>
         ) : fileCount === 0 ? (
           <div className="text-xs text-low">
             {workspace.arena_status === 'active'
-              ? 'Waiting for first changes…'
-              : 'No file changes yet.'}
+              ? t('arena.workspace.waitingForChanges')
+              : t('arena.workspace.noFileChanges')}
           </div>
         ) : (
           <ul className="space-y-1 text-xs font-ibm-plex-mono">
             <li className="flex items-center justify-between">
               <span className="text-low">
-                {fileCount} {fileCount === 1 ? 'file' : 'files'}
+                {t('arena.workspace.fileCount', { count: fileCount })}
               </span>
               <span className="space-x-2">
                 <span className="text-emerald-600 dark:text-emerald-400">

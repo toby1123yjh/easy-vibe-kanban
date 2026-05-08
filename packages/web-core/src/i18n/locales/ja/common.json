@@ -67,6 +67,151 @@
   "language": {
     "browserDefault": "ブラウザ設定"
   },
+  "arena": {
+    "title": "AI Arena",
+    "attemptCount": "{{count}} 件の試行",
+    "memoCount": "{{count}} 件のメモ",
+    "headerTitle": "Arena / {{count}} 件の試行",
+    "headerSummary": "{{running}} 件実行中 / {{promoted}} 件採用済み / {{archived}} 件アーカイブ済み",
+    "headerSummaryWithMemos": "{{running}} 件実行中 / {{promoted}} 件採用済み / {{archived}} 件アーカイブ済み / {{memos}} 件のメモ",
+    "modes": {
+      "design": "設計 Arena",
+      "implementation": "実装 Arena"
+    },
+    "lifecycle": {
+      "open": "進行中",
+      "closed": "クローズ済み",
+      "adopted": "採用済み",
+      "implementationStarted": "実装開始済み"
+    },
+    "status": {
+      "active": "アクティブ",
+      "running": "実行中",
+      "promoted": "採用済み",
+      "archived": "アーカイブ済み"
+    },
+    "actions": {
+      "open": "開く",
+      "close": "閉じる",
+      "closing": "閉じています...",
+      "dissolve": "解散",
+      "dissolving": "解散中...",
+      "askAll": "全員に質問",
+      "synthesize": "統合",
+      "challenge": "チャレンジ",
+      "startImplementation": "実装を開始",
+      "promote": "採用",
+      "promoting": "採用中...",
+      "retry": "再試行",
+      "retrying": "再試行中...",
+      "startArena": "Arena を開始",
+      "starting": "開始中...",
+      "createMemo": "メモを作成",
+      "bottom": "末尾",
+      "addAttempt": "試行を追加 ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "Arena を開く",
+      "startArena": "Arena を開始",
+      "closeGroup": "この Arena グループを閉じる",
+      "dissolveGroup": "この Arena グループを解散",
+      "promoteAttempt": "この試行を採用",
+      "retryAttempt": "この試行を再試行",
+      "openWorkspaceDetail": "{{name}} の詳細を開く",
+      "attemptExecutor": "試行 {{index}} の実行エージェント",
+      "attemptVariant": "試行 {{index}} のバリアント",
+      "removeAttempt": "試行 {{index}} を削除"
+    },
+    "errors": {
+      "loadFailed": "Arena グループの読み込みに失敗しました: {{message}}",
+      "closeFailed": "クローズに失敗しました",
+      "dissolveFailed": "解散に失敗しました",
+      "askAllFailed": "全員への質問に失敗しました",
+      "challengeFailed": "チャレンジに失敗しました",
+      "synthesizeFailed": "統合に失敗しました",
+      "startImplementationFailed": "実装開始に失敗しました",
+      "promoteFailed": "採用に失敗しました",
+      "retryFailed": "再試行に失敗しました",
+      "createFailed": "Arena の作成に失敗しました",
+      "retryUnknownExecutor": "再試行できません: この試行の元の実行エージェントが不明です。",
+      "diffStream": "Diff ストリームエラー: {{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "この Arena を解散しますか？",
+      "dissolveMessage": "すべての {{count}} 件の試行をアーカイブします。worktree は自動的にクリーンアップされます。この操作は元に戻せません。",
+      "promoteTitle": "この試行を採用しますか？",
+      "promoteMessageWithSiblings": "この試行の変更をマージし、他の {{count}} 件の試行をアーカイブします。worktree は自動的にクリーンアップされます。",
+      "promoteMessageSingle": "この試行を採用済みにして、通常の merge / PR フローを続行します。"
+    },
+    "activity": {
+      "title": "Arena アクティビティ",
+      "askAll": "全員に質問",
+      "messageTo": "{{workspace}} へのメッセージ",
+      "challenge": "{{target}} が {{source}} にチャレンジしました",
+      "synthesize": "統合",
+      "startImplementation": "{{workspace}} から実装を開始",
+      "default": "Arena アクティビティ",
+      "noPrompt": "プロンプトなし"
+    },
+    "synthesis": {
+      "decisionMemo": "意思決定メモ",
+      "defaultWorkspaceName": "Arena 統合",
+      "dialogTitle": "Arena を統合",
+      "dialogDescription": "意思決定メモに含めるコンテキストを選択します。",
+      "instructionLabel": "統合指示",
+      "includeLabel": "含める",
+      "originalPrompt": "元の Arena プロンプト",
+      "attemptSummaries": "試行サマリー ({{count}})",
+      "arenaActivity": "Arena アクティビティ ({{count}})",
+      "defaultPrompt": "Arena の各試行を簡潔な意思決定メモに統合します。相違点、トレードオフ、未解決のリスクを残してください。"
+    },
+    "create": {
+      "titleDesign": "設計 Arena を開始 / {{count}} 件の試行",
+      "titleImplementation": "実装 Arena を開始 / {{count}} 件の試行",
+      "descriptionDesign": "複数のエージェントを設計会話として比較します。ワークスペースは分離され、デフォルトではコミットは作成されません。",
+      "descriptionImplementation": "複数の実装試行を実行し、コード変更を比較します。",
+      "prompt": "プロンプト",
+      "promptPlaceholder": "各エージェントに何をさせるかを記述...",
+      "mode": "モード",
+      "modeDesign": "設計",
+      "modeImplementation": "実装",
+      "repository": "リポジトリ",
+      "loadingRepositories": "読み込み中...",
+      "noRepositories": "リポジトリがありません",
+      "loadedFrom": "ローカルリポジトリから読み込み / {{path}}",
+      "baseBranch": "ベースブランチ",
+      "loadingBranches": "ブランチを読み込み中...",
+      "failedBranches": "ブランチの読み込みに失敗しました",
+      "selectBranch": "ブランチを選択",
+      "attempts": "試行",
+      "variantPlaceholder": "バリアント（任意）",
+      "validation": {
+        "promptRequired": "プロンプトは必須です。",
+        "baseBranchRequired": "ベースブランチは必須です。",
+        "repositoryRequired": "リポジトリを選択してください。",
+        "minAttempts": "少なくとも {{count}} 件の試行が必要です。",
+        "maxAttempts": "最大 {{count}} 件の試行まで許可されます。"
+      }
+    },
+    "workspace": {
+      "workspace": "ワークスペース",
+      "agent": "エージェント",
+      "attemptName": "試行 {{index}}",
+      "loadingArena": "Arena を読み込み中...",
+      "loadingConversation": "会話を読み込み中...",
+      "waitingForChanges": "最初の変更を待機中...",
+      "noFileChanges": "まだファイル変更はありません。",
+      "fileCount": "{{count}} ファイル"
+    },
+    "pageActions": {
+      "askPlaceholder": "各試行にフォローアップを質問...",
+      "attemptsRunning": "Arena の試行が実行中です。",
+      "challengePrompt": "現在の回答を別の試行と比較してください。相違点、より強いアイデア、リスク、変更する点を指摘してください。"
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}} 件の試行（{{running}} 件実行中）"
+    }
+  },
   "states": {
     "loading": "読み込み中..."
   },

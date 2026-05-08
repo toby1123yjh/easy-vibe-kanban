@@ -67,6 +67,151 @@
   "language": {
     "browserDefault": "브라우저 기본값"
   },
+  "arena": {
+    "title": "AI Arena",
+    "attemptCount": "{{count}}개 시도",
+    "memoCount": "{{count}}개 메모",
+    "headerTitle": "Arena / {{count}}개 시도",
+    "headerSummary": "{{running}}개 실행 중 / {{promoted}}개 채택됨 / {{archived}}개 보관됨",
+    "headerSummaryWithMemos": "{{running}}개 실행 중 / {{promoted}}개 채택됨 / {{archived}}개 보관됨 / {{memos}}개 메모",
+    "modes": {
+      "design": "설계 Arena",
+      "implementation": "구현 Arena"
+    },
+    "lifecycle": {
+      "open": "진행 중",
+      "closed": "닫힘",
+      "adopted": "채택됨",
+      "implementationStarted": "구현 시작됨"
+    },
+    "status": {
+      "active": "활성",
+      "running": "실행 중",
+      "promoted": "채택됨",
+      "archived": "보관됨"
+    },
+    "actions": {
+      "open": "열기",
+      "close": "닫기",
+      "closing": "닫는 중...",
+      "dissolve": "해체",
+      "dissolving": "해체 중...",
+      "askAll": "모두에게 질문",
+      "synthesize": "종합",
+      "challenge": "챌린지",
+      "startImplementation": "구현 시작",
+      "promote": "채택",
+      "promoting": "채택 중...",
+      "retry": "다시 시도",
+      "retrying": "다시 시도 중...",
+      "startArena": "Arena 시작",
+      "starting": "시작 중...",
+      "createMemo": "메모 생성",
+      "bottom": "맨 아래",
+      "addAttempt": "시도 추가 ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "Arena 열기",
+      "startArena": "Arena 시작",
+      "closeGroup": "이 Arena 그룹 닫기",
+      "dissolveGroup": "이 Arena 그룹 해체",
+      "promoteAttempt": "이 시도 채택",
+      "retryAttempt": "이 시도 다시 시도",
+      "openWorkspaceDetail": "{{name}} 상세 열기",
+      "attemptExecutor": "시도 {{index}} 실행기",
+      "attemptVariant": "시도 {{index}} 변형",
+      "removeAttempt": "시도 {{index}} 제거"
+    },
+    "errors": {
+      "loadFailed": "Arena 그룹을 불러오지 못했습니다: {{message}}",
+      "closeFailed": "닫기 실패",
+      "dissolveFailed": "해체 실패",
+      "askAllFailed": "모두에게 질문 실패",
+      "challengeFailed": "챌린지 실패",
+      "synthesizeFailed": "종합 실패",
+      "startImplementationFailed": "구현 시작 실패",
+      "promoteFailed": "채택 실패",
+      "retryFailed": "다시 시도 실패",
+      "createFailed": "Arena 생성 실패",
+      "retryUnknownExecutor": "다시 시도할 수 없습니다: 이 시도의 원래 실행기를 알 수 없습니다.",
+      "diffStream": "Diff 스트림 오류: {{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "이 Arena를 해체할까요?",
+      "dissolveMessage": "전체 {{count}}개 시도를 보관합니다. 해당 worktree는 자동으로 정리됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "promoteTitle": "이 시도를 채택할까요?",
+      "promoteMessageWithSiblings": "이 시도의 변경 사항을 병합하고 다른 {{count}}개 시도를 보관합니다. 해당 worktree는 자동으로 정리됩니다.",
+      "promoteMessageSingle": "이 시도를 채택됨으로 표시하고 표준 merge / PR 흐름을 계속합니다."
+    },
+    "activity": {
+      "title": "Arena 활동",
+      "askAll": "모두에게 질문",
+      "messageTo": "{{workspace}}에게 메시지",
+      "challenge": "{{target}}이(가) {{source}}에 챌린지했습니다",
+      "synthesize": "종합",
+      "startImplementation": "{{workspace}}에서 구현 시작",
+      "default": "Arena 활동",
+      "noPrompt": "프롬프트 없음"
+    },
+    "synthesis": {
+      "decisionMemo": "의사결정 메모",
+      "defaultWorkspaceName": "Arena 종합",
+      "dialogTitle": "Arena 종합",
+      "dialogDescription": "의사결정 메모에 포함할 컨텍스트를 선택하세요.",
+      "instructionLabel": "종합 지시",
+      "includeLabel": "포함",
+      "originalPrompt": "원본 Arena 프롬프트",
+      "attemptSummaries": "시도 요약 ({{count}})",
+      "arenaActivity": "Arena 활동 ({{count}})",
+      "defaultPrompt": "Arena의 각 시도를 간결한 의사결정 메모로 종합하세요. 의견 차이, 트레이드오프, 열린 위험을 보존하세요."
+    },
+    "create": {
+      "titleDesign": "설계 Arena 시작 / {{count}}개 시도",
+      "titleImplementation": "구현 Arena 시작 / {{count}}개 시도",
+      "descriptionDesign": "여러 에이전트를 설계 대화로 비교합니다. 워크스페이스는 격리되며 기본적으로 커밋은 생성되지 않습니다.",
+      "descriptionImplementation": "여러 구현 시도를 실행하고 코드 변경 사항을 비교합니다.",
+      "prompt": "프롬프트",
+      "promptPlaceholder": "각 에이전트가 해야 할 일을 설명하세요...",
+      "mode": "모드",
+      "modeDesign": "설계",
+      "modeImplementation": "구현",
+      "repository": "저장소",
+      "loadingRepositories": "불러오는 중...",
+      "noRepositories": "저장소 없음",
+      "loadedFrom": "로컬 저장소에서 불러옴 / {{path}}",
+      "baseBranch": "기준 브랜치",
+      "loadingBranches": "브랜치 불러오는 중...",
+      "failedBranches": "브랜치 불러오기 실패",
+      "selectBranch": "브랜치 선택",
+      "attempts": "시도",
+      "variantPlaceholder": "변형(선택 사항)",
+      "validation": {
+        "promptRequired": "프롬프트가 필요합니다.",
+        "baseBranchRequired": "기준 브랜치가 필요합니다.",
+        "repositoryRequired": "저장소를 선택하세요.",
+        "minAttempts": "최소 {{count}}개 시도가 필요합니다.",
+        "maxAttempts": "최대 {{count}}개 시도까지 허용됩니다."
+      }
+    },
+    "workspace": {
+      "workspace": "워크스페이스",
+      "agent": "에이전트",
+      "attemptName": "시도 {{index}}",
+      "loadingArena": "Arena 불러오는 중...",
+      "loadingConversation": "대화 불러오는 중...",
+      "waitingForChanges": "첫 변경 사항을 기다리는 중...",
+      "noFileChanges": "아직 파일 변경 사항이 없습니다.",
+      "fileCount": "{{count}}개 파일"
+    },
+    "pageActions": {
+      "askPlaceholder": "각 시도에 후속 질문하기...",
+      "attemptsRunning": "Arena 시도가 실행 중입니다.",
+      "challengePrompt": "현재 답변을 다른 시도와 비교하세요. 의견 차이, 더 나은 아이디어, 위험, 변경할 점을 짚어 주세요."
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}}개 시도 ({{running}}개 실행 중)"
+    }
+  },
   "states": {
     "loading": "로딩 중..."
   },

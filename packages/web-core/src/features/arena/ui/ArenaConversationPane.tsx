@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
 import { ConversationList } from '@/features/workspace-chat/ui/ConversationListContainer';
@@ -25,22 +26,13 @@ interface ArenaConversationPaneProps {
   detailHref?: string;
 }
 
-const STATUS_LABEL: Record<
+const STATUS_BADGE_CLASS: Record<
   ArenaWorkspaceSummary['arena_status'],
-  { label: string; className: string }
+  string
 > = {
-  active: {
-    label: 'Active',
-    className: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
-  },
-  promoted: {
-    label: 'Promoted',
-    className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-  },
-  archived: {
-    label: 'Archived',
-    className: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
-  },
+  active: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  promoted: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+  archived: 'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400',
 };
 
 function ChatBoxWithDiffSummary({
@@ -105,6 +97,7 @@ export function ArenaConversationPane({
   workspace,
   detailHref,
 }: ArenaConversationPaneProps) {
+  const { t } = useTranslation('common');
   const conversationListRef = useRef<ConversationListHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const { data: workspaceRecord, isLoading: workspaceLoading } =
@@ -150,7 +143,7 @@ export function ArenaConversationPane({
     return conversationListRef.current?.getVisibleUserMessagePatchKey() ?? null;
   }, []);
 
-  const badge = STATUS_LABEL[workspace.arena_status];
+  const badgeClassName = STATUS_BADGE_CLASS[workspace.arena_status];
   const isSynthesis = workspace.purpose === 'synthesis';
   const entriesProviderKey = `${workspace.workspace_id}:${selectedSessionId ?? 'new'}`;
   const isLoading = workspaceLoading || sessionsLoading || !attempt;
@@ -170,24 +163,26 @@ export function ArenaConversationPane({
                     <div className="flex items-center gap-half text-sm font-medium">
                       <span className="truncate">
                         {isSynthesis
-                          ? 'Decision Memo'
-                          : workspace.executor || workspace.name || 'Agent'}
+                          ? t('arena.synthesis.decisionMemo')
+                          : workspace.executor ||
+                            workspace.name ||
+                            t('arena.workspace.agent')}
                       </span>
                       <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badge.className}`}
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badgeClassName}`}
                       >
-                        {badge.label}
+                        {t(`arena.status.${workspace.arena_status}`)}
                       </span>
                     </div>
                     <div className="mt-1 truncate text-xs text-low">
                       {isSynthesis
-                        ? `${workspace.name || 'Arena Synthesis'} / ${workspace.branch}`
+                        ? `${workspace.name || t('arena.synthesis.defaultWorkspaceName')} / ${workspace.branch}`
                         : `${workspace.variant || group.mode} / ${workspace.branch}`}
                     </div>
                   </div>
                   {detailHref ? (
                     <Button asChild size="xs" variant="outline">
-                      <a href={detailHref}>Open</a>
+                      <a href={detailHref}>{t('arena.actions.open')}</a>
                     </Button>
                   ) : null}
                 </div>
@@ -195,7 +190,7 @@ export function ArenaConversationPane({
 
               {isLoading ? (
                 <div className="flex flex-1 items-center justify-center text-sm text-low">
-                  Loading conversation...
+                  {t('arena.workspace.loadingConversation')}
                 </div>
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -219,7 +214,7 @@ export function ArenaConversationPane({
                         type="button"
                         onClick={() => handleScrollToBottom('auto')}
                       >
-                        Bottom
+                        {t('arena.actions.bottom')}
                       </Button>
                     </div>
                   ) : null}

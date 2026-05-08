@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@vibe/ui/components/Button';
 import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
@@ -36,6 +38,7 @@ function ArenaHeader({
   group: ArenaGroupResponse;
   onDissolved?: () => void;
 }) {
+  const { t } = useTranslation('common');
   const attemptTotal = group.workspaces.filter(
     (ws) => ws.purpose === 'attempt'
   ).length;
@@ -67,17 +70,19 @@ function ArenaHeader({
       await close.mutateAsync();
       onDissolved?.();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Close failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.closeFailed')
+      );
     }
   };
 
   const handleDissolve = async () => {
     setErrorMessage(null);
     const result = await ConfirmDialog.show({
-      title: 'Dissolve this arena?',
-      message: `Archives all ${attemptTotal} attempt${attemptTotal === 1 ? '' : 's'}. Their worktrees will be cleaned up automatically. This cannot be undone.`,
-      confirmText: 'Dissolve',
-      cancelText: 'Cancel',
+      title: t('arena.confirm.dissolveTitle'),
+      message: t('arena.confirm.dissolveMessage', { count: attemptTotal }),
+      confirmText: t('arena.actions.dissolve'),
+      cancelText: t('buttons.cancel'),
       variant: 'destructive',
     });
     if (result !== 'confirmed') return;
@@ -86,7 +91,9 @@ function ArenaHeader({
       await dissolve.mutateAsync();
       onDissolved?.();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Dissolve failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.dissolveFailed')
+      );
     }
   };
 
@@ -95,7 +102,7 @@ function ArenaHeader({
       <div className="flex items-start justify-between gap-base">
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-medium">
-            Arena · {attemptTotal} attempts
+            {t('arena.headerTitle', { count: attemptTotal })}
           </h2>
           <div className="mt-half">
             <ArenaModeBadge group={group} />
@@ -106,8 +113,17 @@ function ArenaHeader({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-half">
           <div className="text-xs text-low">
-            {running} running / {promoted} promoted / {archived} archived
-            {synthesisTotal > 0 ? ` / ${synthesisTotal} memo` : ''}
+            {t(
+              synthesisTotal > 0
+                ? 'arena.headerSummaryWithMemos'
+                : 'arena.headerSummary',
+              {
+                running,
+                promoted,
+                archived,
+                memos: synthesisTotal,
+              }
+            )}
           </div>
           {canCloseDesign ? (
             <Button
@@ -115,9 +131,11 @@ function ArenaHeader({
               variant="outline"
               onClick={() => void handleClose()}
               disabled={close.isPending}
-              aria-label="Close this arena group"
+              aria-label={t('arena.aria.closeGroup')}
             >
-              {close.isPending ? 'Closing...' : 'Close'}
+              {close.isPending
+                ? t('arena.actions.closing')
+                : t('arena.actions.close')}
             </Button>
           ) : null}
           {canDissolveImplementation ? (
@@ -126,9 +144,11 @@ function ArenaHeader({
               variant="outline"
               onClick={() => void handleDissolve()}
               disabled={dissolve.isPending}
-              aria-label="Dissolve this arena group"
+              aria-label={t('arena.aria.dissolveGroup')}
             >
-              {dissolve.isPending ? 'Dissolving...' : 'Dissolve'}
+              {dissolve.isPending
+                ? t('arena.actions.dissolving')
+                : t('arena.actions.dissolve')}
             </Button>
           ) : null}
         </div>
@@ -144,45 +164,60 @@ function ArenaHeader({
 
 function workspaceName(
   workspaces: ArenaWorkspaceSummary[],
-  workspaceId: string | null
+  workspaceId: string | null,
+  t: TFunction
 ) {
-  if (!workspaceId) return 'Arena';
+  if (!workspaceId) return t('arena.title');
   const index = workspaces.findIndex(
     (workspace) => workspace.workspace_id === workspaceId
   );
-  if (index === -1) return 'Arena';
+  if (index === -1) return t('arena.title');
   return (
     workspaces[index].name ||
     workspaces[index].executor ||
-    `Attempt ${index + 1}`
+    t('arena.workspace.attemptName', { index: index + 1 })
   );
 }
 
-function eventTitle(event: ArenaEvent, workspaces: ArenaWorkspaceSummary[]) {
+function eventTitle(
+  event: ArenaEvent,
+  workspaces: ArenaWorkspaceSummary[],
+  t: TFunction
+) {
   switch (event.kind) {
     case 'ask_all':
-      return 'Ask all';
+      return t('arena.activity.askAll');
     case 'workspace':
-      return `Message to ${workspaceName(workspaces, event.target_workspace_id)}`;
+      return t('arena.activity.messageTo', {
+        workspace: workspaceName(workspaces, event.target_workspace_id, t),
+      });
     case 'challenge':
-      return `${workspaceName(workspaces, event.target_workspace_id)} challenged ${workspaceName(workspaces, event.source_workspace_id)}`;
+      return t('arena.activity.challenge', {
+        target: workspaceName(workspaces, event.target_workspace_id, t),
+        source: workspaceName(workspaces, event.source_workspace_id, t),
+      });
     case 'synthesize':
-      return 'Synthesize';
+      return t('arena.activity.synthesize');
     case 'start_implementation':
-      return `Start implementation from ${workspaceName(workspaces, event.target_workspace_id)}`;
+      return t('arena.activity.startImplementation', {
+        workspace: workspaceName(workspaces, event.target_workspace_id, t),
+      });
     default:
-      return 'Arena activity';
+      return t('arena.activity.default');
   }
 }
 
 function ArenaActivity({ group }: { group: ArenaGroupResponse }) {
+  const { t } = useTranslation('common');
   if (group.events.length === 0) return null;
 
   const events = group.events.slice(-6).reverse();
 
   return (
     <div className="border-b border-zinc-200 bg-primary px-base py-half dark:border-zinc-800">
-      <div className="mb-half text-xs font-medium text-low">Arena Activity</div>
+      <div className="mb-half text-xs font-medium text-low">
+        {t('arena.activity.title')}
+      </div>
       <div className="flex flex-wrap gap-half">
         {events.map((event) => (
           <div
@@ -190,10 +225,10 @@ function ArenaActivity({ group }: { group: ArenaGroupResponse }) {
             className="max-w-[320px] rounded border border-zinc-200 bg-secondary px-half py-1 text-xs dark:border-zinc-800"
           >
             <div className="font-medium text-normal">
-              {eventTitle(event, group.workspaces)}
+              {eventTitle(event, group.workspaces, t)}
             </div>
             <div className="truncate text-low">
-              {event.prompt || 'No prompt'}
+              {event.prompt || t('arena.activity.noPrompt')}
             </div>
           </div>
         ))}
@@ -215,6 +250,7 @@ export function ArenaView({
   buildWorkspaceHref,
   onDissolved,
 }: ArenaViewProps) {
+  const { t } = useTranslation('common');
   const { data, isLoading, error } = useArenaGroup(groupId);
 
   const handleDissolved = () => {
@@ -228,13 +264,17 @@ export function ArenaView({
   if (error) {
     return (
       <div className="p-base text-sm text-error">
-        Failed to load arena group: {(error as Error).message}
+        {t('arena.errors.loadFailed', { message: (error as Error).message })}
       </div>
     );
   }
 
   if (isLoading || !data) {
-    return <div className="p-base text-sm text-low">Loading arena...</div>;
+    return (
+      <div className="p-base text-sm text-low">
+        {t('arena.workspace.loadingArena')}
+      </div>
+    );
   }
 
   const isDesignArena = data.mode === 'design';
@@ -273,7 +313,7 @@ export function ArenaView({
           {synthesisWorkspaces.length > 0 ? (
             <div className="max-h-[42%] min-h-[280px] border-t border-zinc-200 bg-secondary dark:border-zinc-800">
               <div className="px-base pt-half text-xs font-medium text-low">
-                Decision Memo
+                {t('arena.synthesis.decisionMemo')}
               </div>
               <div className="flex h-[calc(100%-1.75rem)] gap-base overflow-x-auto p-base pt-half">
                 {synthesisWorkspaces.map((ws) => (

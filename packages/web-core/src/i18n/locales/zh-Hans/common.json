@@ -32,6 +32,151 @@
   "language": {
     "browserDefault": "浏览器默认"
   },
+  "arena": {
+    "title": "AI Arena",
+    "attemptCount": "{{count}} 个尝试",
+    "memoCount": "{{count}} 份备忘录",
+    "headerTitle": "Arena / {{count}} 个尝试",
+    "headerSummary": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档",
+    "headerSummaryWithMemos": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档 / {{memos}} 份备忘录",
+    "modes": {
+      "design": "设计 Arena",
+      "implementation": "实现 Arena"
+    },
+    "lifecycle": {
+      "open": "进行中",
+      "closed": "已关闭",
+      "adopted": "已采用",
+      "implementationStarted": "已开始实现"
+    },
+    "status": {
+      "active": "活跃",
+      "running": "运行中",
+      "promoted": "已采用",
+      "archived": "已归档"
+    },
+    "actions": {
+      "open": "打开",
+      "close": "关闭",
+      "closing": "正在关闭...",
+      "dissolve": "解散",
+      "dissolving": "正在解散...",
+      "askAll": "询问全部",
+      "synthesize": "综合",
+      "challenge": "挑战",
+      "startImplementation": "开始实现",
+      "promote": "采用",
+      "promoting": "正在采用...",
+      "retry": "重试",
+      "retrying": "正在重试...",
+      "startArena": "启动 Arena",
+      "starting": "正在启动...",
+      "createMemo": "生成备忘录",
+      "bottom": "底部",
+      "addAttempt": "添加尝试 ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "打开 Arena",
+      "startArena": "启动 Arena",
+      "closeGroup": "关闭此 Arena 组",
+      "dissolveGroup": "解散此 Arena 组",
+      "promoteAttempt": "采用此尝试",
+      "retryAttempt": "重试此尝试",
+      "openWorkspaceDetail": "打开 {{name}} 详情",
+      "attemptExecutor": "尝试 {{index}} 的执行器",
+      "attemptVariant": "尝试 {{index}} 的变体",
+      "removeAttempt": "移除尝试 {{index}}"
+    },
+    "errors": {
+      "loadFailed": "加载 Arena 组失败：{{message}}",
+      "closeFailed": "关闭失败",
+      "dissolveFailed": "解散失败",
+      "askAllFailed": "询问全部失败",
+      "challengeFailed": "挑战失败",
+      "synthesizeFailed": "综合失败",
+      "startImplementationFailed": "开始实现失败",
+      "promoteFailed": "采用失败",
+      "retryFailed": "重试失败",
+      "createFailed": "创建 Arena 失败",
+      "retryUnknownExecutor": "无法重试：此尝试的原始执行器未知。",
+      "diffStream": "Diff 流错误：{{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "解散此 Arena？",
+      "dissolveMessage": "将归档全部 {{count}} 个尝试。它们的 worktree 会自动清理。此操作无法撤销。",
+      "promoteTitle": "采用此尝试？",
+      "promoteMessageWithSiblings": "这会合并此尝试的改动，并归档另外 {{count}} 个尝试。它们的 worktree 会自动清理。",
+      "promoteMessageSingle": "这会将此尝试标记为已采用，并继续标准的合并 / PR 流程。"
+    },
+    "activity": {
+      "title": "Arena 活动",
+      "askAll": "询问全部",
+      "messageTo": "发送给 {{workspace}}",
+      "challenge": "{{target}} 挑战了 {{source}}",
+      "synthesize": "综合",
+      "startImplementation": "从 {{workspace}} 开始实现",
+      "default": "Arena 活动",
+      "noPrompt": "无提示词"
+    },
+    "synthesis": {
+      "decisionMemo": "决策备忘录",
+      "defaultWorkspaceName": "Arena 综合",
+      "dialogTitle": "综合 Arena",
+      "dialogDescription": "选择生成决策备忘录时要包含的上下文。",
+      "instructionLabel": "综合指令",
+      "includeLabel": "包含",
+      "originalPrompt": "原始 Arena 提示词",
+      "attemptSummaries": "尝试摘要 ({{count}})",
+      "arenaActivity": "Arena 活动 ({{count}})",
+      "defaultPrompt": "将 Arena 中各个尝试综合成一份简洁的决策备忘录。保留分歧、取舍和未解决风险。"
+    },
+    "create": {
+      "titleDesign": "启动设计 Arena / {{count}} 个尝试",
+      "titleImplementation": "启动实现 Arena / {{count}} 个尝试",
+      "descriptionDesign": "让多个 agent 进行设计对话并相互比较。工作区彼此隔离，默认不会创建提交。",
+      "descriptionImplementation": "运行多个实现尝试，并比较它们的代码改动。",
+      "prompt": "提示词",
+      "promptPlaceholder": "描述每个 agent 应该做什么...",
+      "mode": "模式",
+      "modeDesign": "设计",
+      "modeImplementation": "实现",
+      "repository": "仓库",
+      "loadingRepositories": "加载中...",
+      "noRepositories": "没有仓库",
+      "loadedFrom": "来自本地仓库 / {{path}}",
+      "baseBranch": "基准分支",
+      "loadingBranches": "正在加载分支...",
+      "failedBranches": "加载分支失败",
+      "selectBranch": "选择分支",
+      "attempts": "尝试",
+      "variantPlaceholder": "变体（可选）",
+      "validation": {
+        "promptRequired": "提示词必填。",
+        "baseBranchRequired": "基准分支必填。",
+        "repositoryRequired": "请选择仓库。",
+        "minAttempts": "至少需要 {{count}} 个尝试。",
+        "maxAttempts": "最多允许 {{count}} 个尝试。"
+      }
+    },
+    "workspace": {
+      "workspace": "工作区",
+      "agent": "Agent",
+      "attemptName": "尝试 {{index}}",
+      "loadingArena": "正在加载 Arena...",
+      "loadingConversation": "正在加载对话...",
+      "waitingForChanges": "正在等待首次改动...",
+      "noFileChanges": "还没有文件改动。",
+      "fileCount": "{{count}} 个文件"
+    },
+    "pageActions": {
+      "askPlaceholder": "向每个尝试追问...",
+      "attemptsRunning": "Arena 尝试正在运行。",
+      "challengePrompt": "将你当前的回答与另一个尝试进行比较。指出分歧、更强的想法、风险，以及你会如何修改。"
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}} 个尝试（{{running}} 个运行中）"
+    }
+  },
   "conversation": {
     "plan": "计划",
     "output": "输出",

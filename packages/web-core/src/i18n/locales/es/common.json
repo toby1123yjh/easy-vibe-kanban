@@ -67,6 +67,151 @@
   "language": {
     "browserDefault": "Predeterminado del navegador"
   },
+  "arena": {
+    "title": "Arena IA",
+    "attemptCount": "{{count}} intentos",
+    "memoCount": "{{count}} memo(s)",
+    "headerTitle": "Arena / {{count}} intentos",
+    "headerSummary": "{{running}} en ejecución / {{promoted}} promovidos / {{archived}} archivados",
+    "headerSummaryWithMemos": "{{running}} en ejecución / {{promoted}} promovidos / {{archived}} archivados / {{memos}} memo(s)",
+    "modes": {
+      "design": "Arena de diseño",
+      "implementation": "Arena de implementación"
+    },
+    "lifecycle": {
+      "open": "Abierta",
+      "closed": "Cerrada",
+      "adopted": "Adoptada",
+      "implementationStarted": "Implementación iniciada"
+    },
+    "status": {
+      "active": "Activa",
+      "running": "En ejecución",
+      "promoted": "Promovida",
+      "archived": "Archivada"
+    },
+    "actions": {
+      "open": "Abrir",
+      "close": "Cerrar",
+      "closing": "Cerrando...",
+      "dissolve": "Disolver",
+      "dissolving": "Disolviendo...",
+      "askAll": "Preguntar a todos",
+      "synthesize": "Sintetizar",
+      "challenge": "Desafiar",
+      "startImplementation": "Iniciar implementación",
+      "promote": "Promover",
+      "promoting": "Promoviendo...",
+      "retry": "Reintentar",
+      "retrying": "Reintentando...",
+      "startArena": "Iniciar Arena",
+      "starting": "Iniciando...",
+      "createMemo": "Crear memo",
+      "bottom": "Final",
+      "addAttempt": "Agregar intento ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "Abrir Arena",
+      "startArena": "Iniciar Arena",
+      "closeGroup": "Cerrar este grupo Arena",
+      "dissolveGroup": "Disolver este grupo Arena",
+      "promoteAttempt": "Promover este intento",
+      "retryAttempt": "Reintentar este intento",
+      "openWorkspaceDetail": "Abrir detalles de {{name}}",
+      "attemptExecutor": "Ejecutor del intento {{index}}",
+      "attemptVariant": "Variante del intento {{index}}",
+      "removeAttempt": "Eliminar intento {{index}}"
+    },
+    "errors": {
+      "loadFailed": "Error al cargar el grupo Arena: {{message}}",
+      "closeFailed": "Error al cerrar",
+      "dissolveFailed": "Error al disolver",
+      "askAllFailed": "Error al preguntar a todos",
+      "challengeFailed": "Error al desafiar",
+      "synthesizeFailed": "Error al sintetizar",
+      "startImplementationFailed": "Error al iniciar implementación",
+      "promoteFailed": "Error al promover",
+      "retryFailed": "Error al reintentar",
+      "createFailed": "Error al crear Arena",
+      "retryUnknownExecutor": "No se puede reintentar: se desconoce el ejecutor original de este intento.",
+      "diffStream": "Error del flujo diff: {{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "¿Disolver esta Arena?",
+      "dissolveMessage": "Archiva los {{count}} intento(s). Sus worktrees se limpiarán automáticamente. Esta acción no se puede deshacer.",
+      "promoteTitle": "¿Promover este intento?",
+      "promoteMessageWithSiblings": "Esto fusionará los cambios de este intento y archivará los otros {{count}} intento(s). Sus worktrees se limpiarán automáticamente.",
+      "promoteMessageSingle": "Esto marcará el intento como promovido y continuará con el flujo estándar de merge / PR."
+    },
+    "activity": {
+      "title": "Actividad de Arena",
+      "askAll": "Preguntar a todos",
+      "messageTo": "Mensaje para {{workspace}}",
+      "challenge": "{{target}} desafió a {{source}}",
+      "synthesize": "Sintetizar",
+      "startImplementation": "Iniciar implementación desde {{workspace}}",
+      "default": "Actividad de Arena",
+      "noPrompt": "Sin prompt"
+    },
+    "synthesis": {
+      "decisionMemo": "Memo de decisión",
+      "defaultWorkspaceName": "Síntesis de Arena",
+      "dialogTitle": "Sintetizar Arena",
+      "dialogDescription": "Selecciona el contexto para el memo de decisión.",
+      "instructionLabel": "Instrucción de síntesis",
+      "includeLabel": "Incluir",
+      "originalPrompt": "Prompt original de Arena",
+      "attemptSummaries": "Resúmenes de intentos ({{count}})",
+      "arenaActivity": "Actividad de Arena ({{count}})",
+      "defaultPrompt": "Sintetiza los intentos de Arena en un memo de decisión conciso. Conserva desacuerdos, compromisos y riesgos abiertos."
+    },
+    "create": {
+      "titleDesign": "Iniciar Arena de diseño / {{count}} intentos",
+      "titleImplementation": "Iniciar Arena de implementación / {{count}} intentos",
+      "descriptionDesign": "Compara varios agentes como conversaciones de diseño. Los workspaces están aislados y no se crean commits por defecto.",
+      "descriptionImplementation": "Ejecuta varios intentos de implementación y compara sus cambios de código.",
+      "prompt": "Prompt",
+      "promptPlaceholder": "Describe qué debe hacer cada agente...",
+      "mode": "Modo",
+      "modeDesign": "Diseño",
+      "modeImplementation": "Implementación",
+      "repository": "Repositorio",
+      "loadingRepositories": "Cargando...",
+      "noRepositories": "Sin repositorios",
+      "loadedFrom": "Cargado desde repositorios locales / {{path}}",
+      "baseBranch": "Rama base",
+      "loadingBranches": "Cargando ramas...",
+      "failedBranches": "Error al cargar ramas",
+      "selectBranch": "Seleccionar rama",
+      "attempts": "Intentos",
+      "variantPlaceholder": "variante (opcional)",
+      "validation": {
+        "promptRequired": "El prompt es obligatorio.",
+        "baseBranchRequired": "La rama base es obligatoria.",
+        "repositoryRequired": "Elige un repositorio.",
+        "minAttempts": "Se requieren al menos {{count}} intentos.",
+        "maxAttempts": "Se permiten como máximo {{count}} intentos."
+      }
+    },
+    "workspace": {
+      "workspace": "Workspace",
+      "agent": "Agente",
+      "attemptName": "Intento {{index}}",
+      "loadingArena": "Cargando Arena...",
+      "loadingConversation": "Cargando conversación...",
+      "waitingForChanges": "Esperando los primeros cambios...",
+      "noFileChanges": "Aún no hay cambios de archivos.",
+      "fileCount": "{{count}} archivos"
+    },
+    "pageActions": {
+      "askPlaceholder": "Pregunta un seguimiento a cada intento...",
+      "attemptsRunning": "Los intentos de Arena están en ejecución.",
+      "challengePrompt": "Compara tu respuesta actual con el otro intento. Señala desacuerdos, ideas más fuertes, riesgos y qué cambiarías."
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}} intentos ({{running}} en ejecución)"
+    }
+  },
   "states": {
     "loading": "Cargando..."
   },

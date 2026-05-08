@@ -1,5 +1,6 @@
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@vibe/ui/components/Button';
 import { Checkbox } from '@vibe/ui/components/Checkbox';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -27,13 +28,13 @@ export type SynthesizeArenaDialogResult =
     }
   | { kind: 'canceled' };
 
-const DEFAULT_PROMPT =
-  'Synthesize the Arena attempts into a concise decision memo. Preserve disagreement, tradeoffs, and open risks.';
-
 const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
   ({ activityCount, attemptCount }) => {
     const modal = useModal();
-    const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+    const { t } = useTranslation('common');
+    const [prompt, setPrompt] = useState(() =>
+      t('arena.synthesis.defaultPrompt')
+    );
     const [options, setOptions] = useState<ArenaSynthesizeOptions>({
       include_original_prompt: true,
       include_attempt_summaries: true,
@@ -73,16 +74,16 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
       <Dialog open={modal.visible} onOpenChange={handleCancel}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>Synthesize Arena</DialogTitle>
+            <DialogTitle>{t('arena.synthesis.dialogTitle')}</DialogTitle>
             <DialogDescription className="text-left">
-              Select context for the decision memo.
+              {t('arena.synthesis.dialogDescription')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-base">
             <div className="space-y-half">
               <label className="text-xs font-medium text-low">
-                Synthesis instruction
+                {t('arena.synthesis.instructionLabel')}
               </label>
               <Textarea
                 value={prompt}
@@ -93,7 +94,9 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
             </div>
 
             <div className="space-y-half">
-              <div className="text-xs font-medium text-low">Include</div>
+              <div className="text-xs font-medium text-low">
+                {t('arena.synthesis.includeLabel')}
+              </div>
               <div className="space-y-half rounded border border-zinc-200 bg-secondary p-half dark:border-zinc-800">
                 <label className="flex items-center gap-half text-sm">
                   <Checkbox
@@ -102,7 +105,7 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
                       updateOption('include_original_prompt', checked)
                     }
                   />
-                  Original Arena prompt
+                  {t('arena.synthesis.originalPrompt')}
                 </label>
                 <label className="flex items-center gap-half text-sm">
                   <Checkbox
@@ -111,7 +114,9 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
                       updateOption('include_attempt_summaries', checked)
                     }
                   />
-                  Attempt summaries ({attemptCount})
+                  {t('arena.synthesis.attemptSummaries', {
+                    count: attemptCount,
+                  })}
                 </label>
                 <label className="flex items-center gap-half text-sm">
                   <Checkbox
@@ -121,7 +126,9 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
                       updateOption('include_activity', checked)
                     }
                   />
-                  Arena activity ({activityCount})
+                  {t('arena.synthesis.arenaActivity', {
+                    count: activityCount,
+                  })}
                 </label>
               </div>
             </div>
@@ -129,10 +136,10 @@ const SynthesizeArenaDialogImpl = create<SynthesizeArenaDialogProps>(
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={handleCancel}>
-              Cancel
+              {t('buttons.cancel')}
             </Button>
             <Button type="button" disabled={!canSubmit} onClick={handleConfirm}>
-              Create memo
+              {t('arena.actions.createMemo')}
             </Button>
           </DialogFooter>
         </DialogContent>

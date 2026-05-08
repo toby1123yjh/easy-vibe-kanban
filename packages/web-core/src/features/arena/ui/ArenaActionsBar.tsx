@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@vibe/ui/components/Button';
 import type { BaseCodingAgent } from 'shared/types';
 import { ConfirmDialog } from '@/shared/dialogs/shared/ConfirmDialog';
@@ -37,6 +38,7 @@ interface ArenaActionsBarProps {
  * action surfaced separately at the group level (not per-workspace).
  */
 export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
+  const { t } = useTranslation('common');
   const { promote, retry } = useArenaActions(group.id, group.issue_id);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -58,13 +60,15 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
   const handlePromote = async () => {
     setErrorMessage(null);
     const result = await ConfirmDialog.show({
-      title: 'Promote this attempt?',
+      title: t('arena.confirm.promoteTitle'),
       message:
         liveSiblings > 0
-          ? `This will merge the changes from this attempt and archive the other ${liveSiblings} attempt(s). Their worktrees will be cleaned up automatically.`
-          : 'This will mark the attempt as promoted and continue the standard merge / PR flow.',
-      confirmText: 'Promote',
-      cancelText: 'Cancel',
+          ? t('arena.confirm.promoteMessageWithSiblings', {
+              count: liveSiblings,
+            })
+          : t('arena.confirm.promoteMessageSingle'),
+      confirmText: t('arena.actions.promote'),
+      cancelText: t('buttons.cancel'),
       variant: 'destructive',
     });
     if (result !== 'confirmed') return;
@@ -72,16 +76,16 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
     try {
       await promote.mutateAsync({ workspaceId: workspace.workspace_id });
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Promote failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.promoteFailed')
+      );
     }
   };
 
   const handleRetry = async () => {
     setErrorMessage(null);
     if (!workspace.executor) {
-      setErrorMessage(
-        'Cannot retry: original executor is unknown for this attempt.'
-      );
+      setErrorMessage(t('arena.errors.retryUnknownExecutor'));
       return;
     }
 
@@ -108,7 +112,9 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
         payload,
       });
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Retry failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.retryFailed')
+      );
     }
   };
 
@@ -120,18 +126,22 @@ export function ArenaActionsBar({ group, workspace }: ArenaActionsBarProps) {
           variant="default"
           disabled={disabledForState}
           onClick={() => void handlePromote()}
-          aria-label="Promote this attempt"
+          aria-label={t('arena.aria.promoteAttempt')}
         >
-          {promote.isPending ? 'Promoting…' : 'Promote'}
+          {promote.isPending
+            ? t('arena.actions.promoting')
+            : t('arena.actions.promote')}
         </Button>
         <Button
           size="xs"
           variant="outline"
           disabled={disabledForState}
           onClick={() => void handleRetry()}
-          aria-label="Retry this attempt"
+          aria-label={t('arena.aria.retryAttempt')}
         >
-          {retry.isPending ? 'Retrying…' : 'Retry'}
+          {retry.isPending
+            ? t('arena.actions.retrying')
+            : t('arena.actions.retry')}
         </Button>
       </div>
       {errorMessage ? (

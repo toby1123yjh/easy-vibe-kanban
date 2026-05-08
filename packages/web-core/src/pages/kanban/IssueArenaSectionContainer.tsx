@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   arenaQueryKeys,
   useActiveArenaForIssue,
@@ -31,6 +32,7 @@ export function IssueArenaSectionContainer({
   const { projectId } = useParams({ strict: false });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useTranslation('common');
 
   const {
     data: activeArena,
@@ -78,19 +80,25 @@ export function IssueArenaSectionContainer({
       (ws) => ws.latest_execution_status === 'running'
     ).length;
     const modeLabel =
-      activeArena.mode === 'design' ? 'Design Arena' : 'Implementation Arena';
+      activeArena.mode === 'design'
+        ? t('arena.modes.design')
+        : t('arena.modes.implementation');
     return (
       <div className="my-half">
         <button
           type="button"
           onClick={() => goToArena(activeArena.id)}
           className="flex w-full items-center justify-between rounded border border-emerald-500/40 bg-emerald-500/5 px-base py-half text-sm hover:bg-emerald-500/10"
-          aria-label="Open arena"
+          aria-label={t('arena.aria.openArena')}
         >
           <span className="font-medium">
-            {modeLabel} / {total} attempts ({running} running)
+            {t('arena.issueSection.activeSummary', {
+              mode: modeLabel,
+              total,
+              running,
+            })}
           </span>
-          <span className="text-xs text-low">Open</span>
+          <span className="text-xs text-low">{t('arena.actions.open')}</span>
         </button>
       </div>
     );
@@ -102,10 +110,12 @@ export function IssueArenaSectionContainer({
         type="button"
         onClick={() => void handleStart()}
         className="flex w-full items-center justify-between rounded border border-zinc-200 px-base py-half text-sm hover:bg-secondary dark:border-zinc-800"
-        aria-label="Start Arena"
+        aria-label={t('arena.aria.startArena')}
       >
-        <span className="font-medium">AI Arena</span>
-        <span className="text-xs text-low">Start Arena</span>
+        <span className="font-medium">{t('arena.title')}</span>
+        <span className="text-xs text-low">
+          {t('arena.actions.startArena')}
+        </span>
       </button>
     </div>
   );

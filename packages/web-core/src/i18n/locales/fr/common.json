@@ -32,6 +32,151 @@
   "language": {
     "browserDefault": "Par défaut du navigateur"
   },
+  "arena": {
+    "title": "Arena IA",
+    "attemptCount": "{{count}} tentatives",
+    "memoCount": "{{count}} mémo(s)",
+    "headerTitle": "Arena / {{count}} tentatives",
+    "headerSummary": "{{running}} en cours / {{promoted}} promues / {{archived}} archivées",
+    "headerSummaryWithMemos": "{{running}} en cours / {{promoted}} promues / {{archived}} archivées / {{memos}} mémo(s)",
+    "modes": {
+      "design": "Arena de conception",
+      "implementation": "Arena d'implémentation"
+    },
+    "lifecycle": {
+      "open": "Ouverte",
+      "closed": "Fermée",
+      "adopted": "Adoptée",
+      "implementationStarted": "Implémentation démarrée"
+    },
+    "status": {
+      "active": "Active",
+      "running": "En cours",
+      "promoted": "Promue",
+      "archived": "Archivée"
+    },
+    "actions": {
+      "open": "Ouvrir",
+      "close": "Fermer",
+      "closing": "Fermeture...",
+      "dissolve": "Dissoudre",
+      "dissolving": "Dissolution...",
+      "askAll": "Demander à tous",
+      "synthesize": "Synthétiser",
+      "challenge": "Défier",
+      "startImplementation": "Démarrer l'implémentation",
+      "promote": "Promouvoir",
+      "promoting": "Promotion...",
+      "retry": "Réessayer",
+      "retrying": "Nouvel essai...",
+      "startArena": "Démarrer Arena",
+      "starting": "Démarrage...",
+      "createMemo": "Créer un mémo",
+      "bottom": "Bas",
+      "addAttempt": "Ajouter une tentative ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "Ouvrir l'Arena",
+      "startArena": "Démarrer Arena",
+      "closeGroup": "Fermer ce groupe Arena",
+      "dissolveGroup": "Dissoudre ce groupe Arena",
+      "promoteAttempt": "Promouvoir cette tentative",
+      "retryAttempt": "Réessayer cette tentative",
+      "openWorkspaceDetail": "Ouvrir les détails de {{name}}",
+      "attemptExecutor": "Exécuteur de la tentative {{index}}",
+      "attemptVariant": "Variante de la tentative {{index}}",
+      "removeAttempt": "Supprimer la tentative {{index}}"
+    },
+    "errors": {
+      "loadFailed": "Échec du chargement du groupe Arena : {{message}}",
+      "closeFailed": "Échec de la fermeture",
+      "dissolveFailed": "Échec de la dissolution",
+      "askAllFailed": "Échec de la demande à tous",
+      "challengeFailed": "Échec du défi",
+      "synthesizeFailed": "Échec de la synthèse",
+      "startImplementationFailed": "Échec du démarrage de l'implémentation",
+      "promoteFailed": "Échec de la promotion",
+      "retryFailed": "Échec du nouvel essai",
+      "createFailed": "Échec de la création de l'Arena",
+      "retryUnknownExecutor": "Impossible de réessayer : l'exécuteur d'origine de cette tentative est inconnu.",
+      "diffStream": "Erreur du flux de diff : {{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "Dissoudre cette Arena ?",
+      "dissolveMessage": "Archive les {{count}} tentative(s). Leurs worktrees seront nettoyés automatiquement. Cette action est irréversible.",
+      "promoteTitle": "Promouvoir cette tentative ?",
+      "promoteMessageWithSiblings": "Cela fusionnera les changements de cette tentative et archivera les {{count}} autre(s) tentative(s). Leurs worktrees seront nettoyés automatiquement.",
+      "promoteMessageSingle": "Cela marquera la tentative comme promue et poursuivra le flux standard de merge / PR."
+    },
+    "activity": {
+      "title": "Activité Arena",
+      "askAll": "Demander à tous",
+      "messageTo": "Message à {{workspace}}",
+      "challenge": "{{target}} a défié {{source}}",
+      "synthesize": "Synthétiser",
+      "startImplementation": "Démarrer l'implémentation depuis {{workspace}}",
+      "default": "Activité Arena",
+      "noPrompt": "Aucun prompt"
+    },
+    "synthesis": {
+      "decisionMemo": "Mémo de décision",
+      "defaultWorkspaceName": "Synthèse Arena",
+      "dialogTitle": "Synthétiser l'Arena",
+      "dialogDescription": "Sélectionnez le contexte du mémo de décision.",
+      "instructionLabel": "Instruction de synthèse",
+      "includeLabel": "Inclure",
+      "originalPrompt": "Prompt Arena d'origine",
+      "attemptSummaries": "Résumés des tentatives ({{count}})",
+      "arenaActivity": "Activité Arena ({{count}})",
+      "defaultPrompt": "Synthétisez les tentatives Arena en un mémo de décision concis. Conservez les désaccords, les compromis et les risques ouverts."
+    },
+    "create": {
+      "titleDesign": "Démarrer l'Arena de conception / {{count}} tentatives",
+      "titleImplementation": "Démarrer l'Arena d'implémentation / {{count}} tentatives",
+      "descriptionDesign": "Comparez plusieurs agents dans des conversations de conception. Les workspaces sont isolés et les commits ne sont pas créés par défaut.",
+      "descriptionImplementation": "Exécutez plusieurs tentatives d'implémentation et comparez leurs changements de code.",
+      "prompt": "Prompt",
+      "promptPlaceholder": "Décrivez ce que chaque agent doit faire...",
+      "mode": "Mode",
+      "modeDesign": "Conception",
+      "modeImplementation": "Implémentation",
+      "repository": "Dépôt",
+      "loadingRepositories": "Chargement...",
+      "noRepositories": "Aucun dépôt",
+      "loadedFrom": "Chargé depuis les dépôts locaux / {{path}}",
+      "baseBranch": "Branche de base",
+      "loadingBranches": "Chargement des branches...",
+      "failedBranches": "Échec du chargement des branches",
+      "selectBranch": "Sélectionner une branche",
+      "attempts": "Tentatives",
+      "variantPlaceholder": "variante (facultatif)",
+      "validation": {
+        "promptRequired": "Le prompt est requis.",
+        "baseBranchRequired": "La branche de base est requise.",
+        "repositoryRequired": "Choisissez un dépôt.",
+        "minAttempts": "Au moins {{count}} tentatives sont requises.",
+        "maxAttempts": "Au maximum {{count}} tentatives sont autorisées."
+      }
+    },
+    "workspace": {
+      "workspace": "Workspace",
+      "agent": "Agent",
+      "attemptName": "Tentative {{index}}",
+      "loadingArena": "Chargement de l'Arena...",
+      "loadingConversation": "Chargement de la conversation...",
+      "waitingForChanges": "En attente des premiers changements...",
+      "noFileChanges": "Aucun changement de fichier pour le moment.",
+      "fileCount": "{{count}} fichiers"
+    },
+    "pageActions": {
+      "askPlaceholder": "Demander un suivi à chaque tentative...",
+      "attemptsRunning": "Les tentatives Arena sont en cours.",
+      "challengePrompt": "Comparez votre réponse actuelle avec l'autre tentative. Signalez les désaccords, les meilleures idées, les risques et ce que vous changeriez."
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}} tentatives ({{running}} en cours)"
+    }
+  },
   "conversation": {
     "plan": "Plan",
     "output": "Sortie",

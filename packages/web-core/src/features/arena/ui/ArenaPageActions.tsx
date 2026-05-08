@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -28,11 +29,8 @@ function executorConfigForWorkspace(
   };
 }
 
-function workspaceLabel(workspace: ArenaWorkspaceSummary, index: number) {
-  return workspace.name || workspace.executor || `Attempt ${index + 1}`;
-}
-
 export function ArenaPageActions({ group }: ArenaPageActionsProps) {
+  const { t } = useTranslation('common');
   const [messageText, setMessageText] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { message, startImplementation } = useArenaActions(
@@ -54,6 +52,10 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
   const actionsDisabled =
     isRunning || isPending || attemptWorkspaces.length === 0;
   const trimmedMessage = messageText.trim();
+  const workspaceLabel = (workspace: ArenaWorkspaceSummary, index: number) =>
+    workspace.name ||
+    workspace.executor ||
+    t('arena.workspace.attemptName', { index: index + 1 });
 
   const handleAskAll = async () => {
     if (!trimmedMessage || actionsDisabled) return;
@@ -71,7 +73,9 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
       });
       setMessageText('');
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Ask all failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.askAllFailed')
+      );
     }
   };
 
@@ -88,13 +92,14 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
             source_workspace_id: source.workspace_id,
             responder_workspace_id: responder.workspace_id,
           },
-          prompt:
-            'Compare your current answer with the other attempt. Call out disagreements, stronger ideas, risks, and what you would change.',
+          prompt: t('arena.pageActions.challengePrompt'),
           executor_config: executorConfigForWorkspace(responder),
         });
       }
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Challenge failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.challengeFailed')
+      );
     }
   };
 
@@ -115,7 +120,9 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
         executor_config: executorConfigForWorkspace(attemptWorkspaces[0]),
       });
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Synthesize failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : t('arena.errors.synthesizeFailed')
+      );
     }
   };
 
@@ -133,7 +140,9 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
       });
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Start implementation failed'
+        err instanceof Error
+          ? err.message
+          : t('arena.errors.startImplementationFailed')
       );
     }
   };
@@ -149,7 +158,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
               setErrorMessage(null);
             }}
             rows={2}
-            placeholder="Ask every attempt a follow-up..."
+            placeholder={t('arena.pageActions.askPlaceholder')}
             className="min-h-16 font-ibm-plex-mono"
           />
         </div>
@@ -161,7 +170,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
             disabled={actionsDisabled || !trimmedMessage}
             onClick={() => void handleAskAll()}
           >
-            Ask all
+            {t('arena.actions.askAll')}
           </Button>
           <Button
             type="button"
@@ -170,7 +179,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
             disabled={actionsDisabled || group.workspaces.length < 2}
             onClick={() => void handleSynthesize()}
           >
-            Synthesize
+            {t('arena.actions.synthesize')}
           </Button>
         </div>
       </div>
@@ -191,7 +200,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
               disabled={actionsDisabled || attemptWorkspaces.length < 2}
               onClick={() => void handleChallengeFrom(workspace)}
             >
-              Challenge
+              {t('arena.actions.challenge')}
             </Button>
             <Button
               type="button"
@@ -200,14 +209,16 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
               disabled={actionsDisabled}
               onClick={() => void handleStartImplementation(workspace)}
             >
-              Start implementation
+              {t('arena.actions.startImplementation')}
             </Button>
           </div>
         ))}
       </div>
 
       {isRunning ? (
-        <p className="mt-half text-xs text-low">Arena attempts are running.</p>
+        <p className="mt-half text-xs text-low">
+          {t('arena.pageActions.attemptsRunning')}
+        </p>
       ) : null}
       {errorMessage ? (
         <p className="mt-half text-xs text-error" role="alert">

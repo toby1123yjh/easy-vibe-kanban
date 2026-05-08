@@ -37,6 +37,151 @@
   "language": {
     "browserDefault": "Browser Default"
   },
+  "arena": {
+    "title": "AI Arena",
+    "attemptCount": "{{count}} attempts",
+    "memoCount": "{{count}} memo(s)",
+    "headerTitle": "Arena / {{count}} attempts",
+    "headerSummary": "{{running}} running / {{promoted}} promoted / {{archived}} archived",
+    "headerSummaryWithMemos": "{{running}} running / {{promoted}} promoted / {{archived}} archived / {{memos}} memo(s)",
+    "modes": {
+      "design": "Design Arena",
+      "implementation": "Implementation Arena"
+    },
+    "lifecycle": {
+      "open": "Open",
+      "closed": "Closed",
+      "adopted": "Adopted",
+      "implementationStarted": "Implementation started"
+    },
+    "status": {
+      "active": "Active",
+      "running": "Running",
+      "promoted": "Promoted",
+      "archived": "Archived"
+    },
+    "actions": {
+      "open": "Open",
+      "close": "Close",
+      "closing": "Closing...",
+      "dissolve": "Dissolve",
+      "dissolving": "Dissolving...",
+      "askAll": "Ask all",
+      "synthesize": "Synthesize",
+      "challenge": "Challenge",
+      "startImplementation": "Start implementation",
+      "promote": "Promote",
+      "promoting": "Promoting...",
+      "retry": "Retry",
+      "retrying": "Retrying...",
+      "startArena": "Start Arena",
+      "starting": "Starting...",
+      "createMemo": "Create memo",
+      "bottom": "Bottom",
+      "addAttempt": "Add attempt ({{count}}/{{max}})"
+    },
+    "aria": {
+      "openArena": "Open arena",
+      "startArena": "Start Arena",
+      "closeGroup": "Close this arena group",
+      "dissolveGroup": "Dissolve this arena group",
+      "promoteAttempt": "Promote this attempt",
+      "retryAttempt": "Retry this attempt",
+      "openWorkspaceDetail": "Open {{name}} detail",
+      "attemptExecutor": "Attempt {{index}} executor",
+      "attemptVariant": "Attempt {{index}} variant",
+      "removeAttempt": "Remove attempt {{index}}"
+    },
+    "errors": {
+      "loadFailed": "Failed to load arena group: {{message}}",
+      "closeFailed": "Close failed",
+      "dissolveFailed": "Dissolve failed",
+      "askAllFailed": "Ask all failed",
+      "challengeFailed": "Challenge failed",
+      "synthesizeFailed": "Synthesize failed",
+      "startImplementationFailed": "Start implementation failed",
+      "promoteFailed": "Promote failed",
+      "retryFailed": "Retry failed",
+      "createFailed": "Failed to create arena",
+      "retryUnknownExecutor": "Cannot retry: original executor is unknown for this attempt.",
+      "diffStream": "Diff stream error: {{message}}"
+    },
+    "confirm": {
+      "dissolveTitle": "Dissolve this arena?",
+      "dissolveMessage": "Archives all {{count}} attempt(s). Their worktrees will be cleaned up automatically. This cannot be undone.",
+      "promoteTitle": "Promote this attempt?",
+      "promoteMessageWithSiblings": "This will merge the changes from this attempt and archive the other {{count}} attempt(s). Their worktrees will be cleaned up automatically.",
+      "promoteMessageSingle": "This will mark the attempt as promoted and continue the standard merge / PR flow."
+    },
+    "activity": {
+      "title": "Arena Activity",
+      "askAll": "Ask all",
+      "messageTo": "Message to {{workspace}}",
+      "challenge": "{{target}} challenged {{source}}",
+      "synthesize": "Synthesize",
+      "startImplementation": "Start implementation from {{workspace}}",
+      "default": "Arena activity",
+      "noPrompt": "No prompt"
+    },
+    "synthesis": {
+      "decisionMemo": "Decision Memo",
+      "defaultWorkspaceName": "Arena Synthesis",
+      "dialogTitle": "Synthesize Arena",
+      "dialogDescription": "Select context for the decision memo.",
+      "instructionLabel": "Synthesis instruction",
+      "includeLabel": "Include",
+      "originalPrompt": "Original Arena prompt",
+      "attemptSummaries": "Attempt summaries ({{count}})",
+      "arenaActivity": "Arena activity ({{count}})",
+      "defaultPrompt": "Synthesize the Arena attempts into a concise decision memo. Preserve disagreement, tradeoffs, and open risks."
+    },
+    "create": {
+      "titleDesign": "Start Design Arena / {{count}} attempts",
+      "titleImplementation": "Start Implementation Arena / {{count}} attempts",
+      "descriptionDesign": "Compare multiple agents as design conversations. Workspaces are isolated, and commits are not created by default.",
+      "descriptionImplementation": "Run multiple implementation attempts and compare their code changes.",
+      "prompt": "Prompt",
+      "promptPlaceholder": "Describe what each agent should do...",
+      "mode": "Mode",
+      "modeDesign": "Design",
+      "modeImplementation": "Implementation",
+      "repository": "Repository",
+      "loadingRepositories": "Loading...",
+      "noRepositories": "No repositories",
+      "loadedFrom": "Loaded from local repositories / {{path}}",
+      "baseBranch": "Base branch",
+      "loadingBranches": "Loading branches...",
+      "failedBranches": "Failed to load branches",
+      "selectBranch": "Select branch",
+      "attempts": "Attempts",
+      "variantPlaceholder": "variant (optional)",
+      "validation": {
+        "promptRequired": "Prompt is required.",
+        "baseBranchRequired": "Base branch is required.",
+        "repositoryRequired": "Pick a repository.",
+        "minAttempts": "At least {{count}} attempts are required.",
+        "maxAttempts": "At most {{count}} attempts are allowed."
+      }
+    },
+    "workspace": {
+      "workspace": "Workspace",
+      "agent": "Agent",
+      "attemptName": "Attempt {{index}}",
+      "loadingArena": "Loading arena...",
+      "loadingConversation": "Loading conversation...",
+      "waitingForChanges": "Waiting for first changes...",
+      "noFileChanges": "No file changes yet.",
+      "fileCount": "{{count}} files"
+    },
+    "pageActions": {
+      "askPlaceholder": "Ask every attempt a follow-up...",
+      "attemptsRunning": "Arena attempts are running.",
+      "challengePrompt": "Compare your current answer with the other attempt. Call out disagreements, stronger ideas, risks, and what you would change."
+    },
+    "issueSection": {
+      "activeSummary": "{{mode}} / {{total}} attempts ({{running}} running)"
+    }
+  },
   "conversation": {
     "plan": "Plan",
     "output": "Output",
