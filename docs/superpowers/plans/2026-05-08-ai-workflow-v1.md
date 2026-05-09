@@ -535,7 +535,7 @@ git commit -m "feat(workflow): add local workflow route surface"
 - Modify: `crates/server/src/routes/workflows.rs`
 - Modify: `crates/server/src/routes/local_remote.rs`
 
-- [ ] **Step 1: Write route tests or handler-level tests**
+- [x] **Step 1: Write route tests or handler-level tests**
 
 Cover:
 
@@ -545,13 +545,13 @@ Cover:
 - deleting system template returns 403
 - fallback endpoints return `{ "workflows": [...] }`, `{ "workflow_runs": [...] }`, `{ "node_executions": [...] }`
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `cargo test -p server workflow`
 
 Expected: FAIL before persistence logic exists.
 
-- [ ] **Step 3: Implement handlers**
+- [x] **Step 3: Implement handlers**
 
 Implement:
 
@@ -567,18 +567,22 @@ Implement:
 
 On server startup or first listing, ensure system template rows exist with stable UUIDs from `crates/workflow/src/templates.rs`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cargo test -p server workflow`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Verified with GitHub Actions Test run `25592127339` on `3eed4444072396d7a8d8ef809d0c48e83388ff87`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/server/src/routes/workflows.rs crates/server/src/routes/local_remote.rs
 git commit -m "feat(workflow): add workflow template API"
 ```
+
+Committed as `1b56e07b` and follow-up clippy fix `3eed4444`.
 
 ### Task 2.3: Implement Runner Store, Ready-Node Planner, and Events
 
