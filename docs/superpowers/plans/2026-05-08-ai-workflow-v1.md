@@ -655,7 +655,7 @@ Committed as `0b690648`.
 - Create: `crates/workflow/src/transform.rs`
 - Modify: `crates/workflow/src/lib.rs`
 
-- [ ] **Step 1: Write failing handler tests**
+- [x] **Step 1: Write failing handler tests**
 
 Cover:
 
@@ -668,28 +668,34 @@ Cover:
 - Human Gate returns paused state.
 - Arena returns awaiting arena state.
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `cargo test -p workflow handlers transform`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement handlers**
+Local attempt was blocked by the Windows/MSVC linker before workflow crate tests could run: `LINK : fatal error LNK1171: unable to load mspdb140.dll`.
+
+- [x] **Step 3: Implement handlers**
 
 Keep Agent and Arena side effects behind traits in `ports.rs`; pure handlers only compute state transitions.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cargo test -p workflow handlers transform`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Verified with GitHub Actions Test run `25592815794` on `85704d2a1a28d5145eb9050b830c2698068bd494`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/workflow/src/lib.rs crates/workflow/src/handlers.rs crates/workflow/src/transform.rs crates/workflow/src/ports.rs
 git commit -m "feat(workflow): add workflow node handlers"
 ```
+
+Committed as `85704d2a`.
 
 ### Task 2.5: Implement Server Runner Adapter for Workspace and Agent Nodes
 
