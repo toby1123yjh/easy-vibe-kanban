@@ -1,0 +1,992 @@
+use async_trait::async_trait;
+use db::models::{
+    execution_process::ExecutionProcessRunReason,
+    session::{CreateSession, Session},
+    workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
+    workspace::{Workspace, WorkspaceError},
+    workspace_repo::WorkspaceRepo,
+};
+use deployment::Deployment;
+use executors::{
+    actions::{
+        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
+    },
+    profile::{ExecutorConfig, ExecutorConfigs},
+};
+use serde_json::Value;
+use services::services::container::ContainerService;
+use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use thiserror::Error;
+use uuid::Uuid;
+use workflow::{
+    WorkflowGraph,
+    graph::{WorkflowEdge, WorkflowNode, WorkflowNodeKind},
+    handlers::{NodeHandlerContext, NodeHandlerStatus, UpstreamOutput, handle_pure_node},
+    planner::{
+        NodeExecutionSnapshot, NodeExecutionStatus as PlannerNodeExecutionStatus, RunSnapshot,
+    },
+    runner::WorkflowRunner,
+    validation::validate_graph,
+};
+
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    routes::workflows::{
+        TriggerWorkflowRequest, WorkflowNodeExecutionResponse, WorkflowRunResponse,
+        get_workflow_template,
+    },
+    workflow_runtime::workspace::main_workflow_branch_name,
+};
+
+#[derive(Debug, Error)]
+enum WorkflowRuntimeError {
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+    #[error("{0}")]
+    BadRequest(String),
+}
+
+impl From<WorkflowRuntimeError> for ApiError {
+    fn from(error: WorkflowRuntimeError) -> Self {
+        match error {
+            WorkflowRuntimeError::Database(err) => ApiError::Database(err),
+            WorkflowRuntimeError::BadRequest(message) => ApiError::BadRequest(message),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowWorkspaceRequest {
+    pub issue_id: Uuid,
+    pub run_id: Uuid,
+    pub existing_workspace_id: Option<Uuid>,
+    pub branch_name: String,
+}
+
+#[async_trait]
+pub trait WorkflowWorkspaceResolver: Send + Sync {
+    async fn create_or_bind_main_workspace(
+        &self,
+        request: WorkflowWorkspaceRequest,
+    ) -> Result<Uuid, ApiError>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentNodeRequest {
+    pub run_id: Uuid,
+    pub node_id: String,
+    pub workspace_id: Uuid,
+    pub prompt: String,
+    pub executor_config: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentNodeExecution {
+    Completed {
+        session_id: Uuid,
+        output_text: String,
+    },
+    Started {
+        session_id: Uuid,
+        output_text: Option<String>,
+    },
+}
+
+#[async_trait]
+pub trait WorkflowAgentExecutor: Send + Sync {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError>;
+}
+
+#[derive(Clone)]
+pub struct DeploymentWorkflowAgentExecutor {
+    deployment: DeploymentImpl,
+}
+
+impl DeploymentWorkflowAgentExecutor {
+    pub fn new(deployment: DeploymentImpl) -> Self {
+        Self { deployment }
+    }
+}
+
+#[async_trait]
+impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        let pool = &self.deployment.db().pool;
+        let workspace = Workspace::find_by_id(pool, request.workspace_id)
+            .await?
+            .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
+        let executor_config = executor_config_from_node(request.executor_config).await?;
+
+        self.deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+
+        let session = Session::create(
+            pool,
+            &CreateSession {
+                executor: Some(executor_config.profile_id().executor.to_string()),
+                name: Some(format!("Workflow {}", request.node_id)),
+            },
+            Uuid::new_v4(),
+            workspace.id,
+        )
+        .await?;
+
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let cleanup_action = self
+            .deployment
+            .container()
+            .cleanup_actions_for_repos(&repos);
+        let working_dir = session
+            .agent_working_dir
+            .as_ref()
+            .filter(|dir| !dir.is_empty())
+            .cloned();
+
+        let action = ExecutorAction::new(
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt: request.prompt,
+                selected_skills: None,
+                executor_config,
+                working_dir,
+            }),
+            cleanup_action.map(Box::new),
+        );
+
+        let execution_process = self
+            .deployment
+            .container()
+            .start_execution(
+                &workspace,
+                &session,
+                &action,
+                &ExecutionProcessRunReason::CodingAgent,
+            )
+            .await?;
+
+        Ok(AgentNodeExecution::Started {
+            session_id: session.id,
+            output_text: Some(format!(
+                "Started workflow agent execution {}",
+                execution_process.id
+            )),
+        })
+    }
+}
+
+pub async fn trigger_workflow_run<W, A>(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    request: TriggerWorkflowRequest,
+    workspace_resolver: &W,
+    agent_executor: &A,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+{
+    let workflow = get_workflow_template(pool, workflow_id).await?;
+    let graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+    validate_graph(&graph)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
+
+    let run_id = Uuid::new_v4();
+    let workspace_id = workspace_resolver
+        .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
+            issue_id: request.issue_id,
+            run_id,
+            existing_workspace_id: request.workspace_id,
+            branch_name: main_workflow_branch_name(request.issue_id, run_id),
+        })
+        .await?;
+
+    insert_workflow_run(pool, run_id, workflow_id, workspace_id, &request).await?;
+    initialize_node_executions(pool, run_id, &graph).await?;
+    drive_workflow_run(
+        pool,
+        run_id,
+        &graph,
+        workspace_id,
+        &request.input_text,
+        agent_executor,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn get_workflow_run_response(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, workflow_id, issue_id, workspace_id, trigger_source, input_text,
+               output_text, status, started_at, finished_at, error_text, created_at, updated_at
+        FROM workflow_runs
+        WHERE id = ?
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("Workflow run not found".to_string()))?;
+
+    let nodes = node_execution_responses(pool, run_id).await?;
+
+    Ok(WorkflowRunResponse {
+        id: row.try_get("id")?,
+        workflow_id: row.try_get("workflow_id")?,
+        issue_id: row.try_get("issue_id")?,
+        workspace_id: row.try_get("workspace_id")?,
+        trigger_source: row.try_get("trigger_source")?,
+        input_text: row.try_get("input_text")?,
+        output_text: row.try_get("output_text")?,
+        status: workflow_run_status_from_str(&row.try_get::<String, _>("status")?)?,
+        started_at: row.try_get("started_at")?,
+        finished_at: row.try_get("finished_at")?,
+        error_text: row.try_get("error_text")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        nodes,
+    })
+}
+
+async fn insert_workflow_run(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    workflow_id: Uuid,
+    workspace_id: Uuid,
+    request: &TriggerWorkflowRequest,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs
+            (id, workflow_id, issue_id, workspace_id, trigger_source, input_text, status, started_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'running', datetime('now', 'subsec'))
+        "#,
+    )
+    .bind(run_id)
+    .bind(workflow_id)
+    .bind(request.issue_id)
+    .bind(workspace_id)
+    .bind(&request.trigger_source)
+    .bind(&request.input_text)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn initialize_node_executions(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+) -> Result<(), ApiError> {
+    for node in &graph.nodes {
+        sqlx::query(
+            r#"
+            INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
+            VALUES (?, ?, ?, ?, 0, 'pending')
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(run_id)
+        .bind(&node.id)
+        .bind(node_kind_value(&node.kind))
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn drive_workflow_run<A>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+    workspace_id: Uuid,
+    run_input_text: &str,
+    agent_executor: &A,
+) -> Result<(), ApiError>
+where
+    A: WorkflowAgentExecutor,
+{
+    let runner = WorkflowRunner::from_graph(graph.clone());
+
+    loop {
+        let snapshot = load_run_snapshot(pool, run_id).await?;
+        if all_nodes_terminal(&snapshot) {
+            let output_text = final_run_output(pool, run_id, graph).await?;
+            update_run_status(
+                pool,
+                run_id,
+                WorkflowRunStatus::Succeeded,
+                output_text,
+                None,
+                true,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        let ready_plan = runner.ready_plan(&snapshot);
+        if ready_plan.ready_nodes.is_empty() {
+            return Ok(());
+        }
+
+        for ready_node in ready_plan.ready_nodes {
+            let Some(node) = graph
+                .nodes
+                .iter()
+                .find(|node| node.id == ready_node.node_id)
+            else {
+                continue;
+            };
+            let step = execute_ready_node(
+                pool,
+                run_id,
+                graph,
+                node,
+                workspace_id,
+                run_input_text,
+                agent_executor,
+            )
+            .await?;
+            if step == RunStep::Wait {
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunStep {
+    Continue,
+    Wait,
+}
+
+async fn execute_ready_node<A>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+    node: &WorkflowNode,
+    workspace_id: Uuid,
+    run_input_text: &str,
+    agent_executor: &A,
+) -> Result<RunStep, ApiError>
+where
+    A: WorkflowAgentExecutor,
+{
+    let context = node_context(pool, graph, run_id, node, run_input_text).await?;
+    match node.kind {
+        WorkflowNodeKind::Agent => {
+            let prompt = render_agent_prompt(node, &context);
+            mark_node_running(pool, run_id, &node.id, Some(&prompt)).await?;
+            match agent_executor
+                .run_agent(AgentNodeRequest {
+                    run_id,
+                    node_id: node.id.clone(),
+                    workspace_id,
+                    prompt,
+                    executor_config: node.data.executor_config.clone(),
+                })
+                .await
+            {
+                Ok(AgentNodeExecution::Completed {
+                    session_id,
+                    output_text,
+                }) => {
+                    mark_node_succeeded(
+                        pool,
+                        run_id,
+                        &node.id,
+                        Some(&output_text),
+                        Some(session_id),
+                    )
+                    .await?;
+                    Ok(RunStep::Continue)
+                }
+                Ok(AgentNodeExecution::Started {
+                    session_id,
+                    output_text,
+                }) => {
+                    update_node_execution(
+                        pool,
+                        run_id,
+                        &node.id,
+                        NodeExecutionUpdate {
+                            status: DbNodeExecutionStatus::Running,
+                            input_text: None,
+                            output_text: output_text.as_deref(),
+                            session_id: Some(session_id),
+                            error_text: None,
+                            finished: false,
+                        },
+                    )
+                    .await?;
+                    Ok(RunStep::Wait)
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    update_run_status(
+                        pool,
+                        run_id,
+                        WorkflowRunStatus::Failed,
+                        None,
+                        Some(&message),
+                        true,
+                    )
+                    .await?;
+                    Ok(RunStep::Wait)
+                }
+            }
+        }
+        _ => {
+            let input_text = context.upstream_text();
+            mark_node_running(pool, run_id, &node.id, Some(&input_text)).await?;
+            let outgoing_edges = outgoing_edges(graph, &node.id);
+            match handle_pure_node(node, &outgoing_edges, &context) {
+                Ok(outcome) => match outcome.status {
+                    NodeHandlerStatus::Succeeded => {
+                        mark_node_succeeded(
+                            pool,
+                            run_id,
+                            &node.id,
+                            outcome.output_text.as_deref(),
+                            None,
+                        )
+                        .await?;
+                        mark_skipped_targets(pool, run_id, &outcome.skipped_target_node_ids)
+                            .await?;
+                        Ok(RunStep::Continue)
+                    }
+                    NodeHandlerStatus::AwaitingHuman => {
+                        update_node_execution(
+                            pool,
+                            run_id,
+                            &node.id,
+                            NodeExecutionUpdate {
+                                status: DbNodeExecutionStatus::AwaitingHuman,
+                                input_text: outcome.prompt.as_deref(),
+                                output_text: None,
+                                session_id: None,
+                                error_text: None,
+                                finished: false,
+                            },
+                        )
+                        .await?;
+                        update_run_status(
+                            pool,
+                            run_id,
+                            WorkflowRunStatus::AwaitingHuman,
+                            None,
+                            None,
+                            false,
+                        )
+                        .await?;
+                        Ok(RunStep::Wait)
+                    }
+                    NodeHandlerStatus::AwaitingArena => {
+                        update_node_execution(
+                            pool,
+                            run_id,
+                            &node.id,
+                            NodeExecutionUpdate {
+                                status: DbNodeExecutionStatus::AwaitingArena,
+                                input_text: outcome.prompt.as_deref(),
+                                output_text: None,
+                                session_id: None,
+                                error_text: None,
+                                finished: false,
+                            },
+                        )
+                        .await?;
+                        update_run_status(
+                            pool,
+                            run_id,
+                            WorkflowRunStatus::AwaitingArena,
+                            None,
+                            None,
+                            false,
+                        )
+                        .await?;
+                        Ok(RunStep::Wait)
+                    }
+                },
+                Err(err) => {
+                    let message = err.to_string();
+                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    update_run_status(
+                        pool,
+                        run_id,
+                        WorkflowRunStatus::Failed,
+                        None,
+                        Some(&message),
+                        true,
+                    )
+                    .await?;
+                    Ok(RunStep::Wait)
+                }
+            }
+        }
+    }
+}
+
+async fn node_context(
+    pool: &SqlitePool,
+    graph: &WorkflowGraph,
+    run_id: Uuid,
+    node: &WorkflowNode,
+    run_input_text: &str,
+) -> Result<NodeHandlerContext, ApiError> {
+    let mut upstream_outputs = Vec::new();
+
+    for edge in graph.edges.iter().filter(|edge| edge.target == node.id) {
+        if let Some(output_text) = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            SELECT output_text
+            FROM node_executions
+            WHERE run_id = ? AND node_id = ? AND iteration = 0
+            "#,
+        )
+        .bind(run_id)
+        .bind(&edge.source)
+        .fetch_optional(pool)
+        .await?
+        .flatten()
+        {
+            upstream_outputs.push(UpstreamOutput {
+                node_id: edge.source.clone(),
+                output_text,
+            });
+        }
+    }
+
+    Ok(NodeHandlerContext::with_upstream_outputs(
+        run_input_text.to_string(),
+        upstream_outputs,
+    ))
+}
+
+fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
+    let upstream = context.upstream_text();
+    node.data
+        .prompt_template
+        .as_deref()
+        .unwrap_or("{{upstream}}")
+        .replace("{{input}}", &context.run_input_text)
+        .replace("{{run_input}}", &context.run_input_text)
+        .replace("{{upstream}}", &upstream)
+}
+
+fn outgoing_edges(graph: &WorkflowGraph, node_id: &str) -> Vec<WorkflowEdge> {
+    graph
+        .edges
+        .iter()
+        .filter(|edge| edge.source == node_id)
+        .cloned()
+        .collect()
+}
+
+async fn load_run_snapshot(pool: &SqlitePool, run_id: Uuid) -> Result<RunSnapshot, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT node_id, status, output_text, error_text
+        FROM node_executions
+        WHERE run_id = ?
+        ORDER BY rowid ASC
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    let nodes = rows
+        .iter()
+        .map(|row| {
+            Ok(NodeExecutionSnapshot {
+                node_id: row.try_get("node_id")?,
+                status: planner_status_from_str(&row.try_get::<String, _>("status")?)?,
+                output_text: row.try_get("output_text")?,
+                error_text: row.try_get("error_text")?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+
+    Ok(RunSnapshot {
+        run_id: run_id.to_string(),
+        nodes,
+    })
+}
+
+fn all_nodes_terminal(snapshot: &RunSnapshot) -> bool {
+    !snapshot.nodes.is_empty()
+        && snapshot.nodes.iter().all(|node| {
+            matches!(
+                node.status,
+                PlannerNodeExecutionStatus::Succeeded | PlannerNodeExecutionStatus::Skipped
+            )
+        })
+}
+
+async fn final_run_output(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+) -> Result<Option<String>, ApiError> {
+    for node in graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == WorkflowNodeKind::End)
+    {
+        let output = sqlx::query_scalar::<_, Option<String>>(
+            r#"
+            SELECT output_text
+            FROM node_executions
+            WHERE run_id = ? AND node_id = ? AND status = 'succeeded'
+            ORDER BY rowid ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(run_id)
+        .bind(&node.id)
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        if output.is_some() {
+            return Ok(output);
+        }
+    }
+
+    Ok(sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT output_text
+        FROM node_executions
+        WHERE run_id = ? AND status = 'succeeded'
+        ORDER BY rowid DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten())
+}
+
+async fn mark_node_running(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    input_text: Option<&str>,
+) -> Result<(), ApiError> {
+    update_node_execution(
+        pool,
+        run_id,
+        node_id,
+        NodeExecutionUpdate {
+            status: DbNodeExecutionStatus::Running,
+            input_text,
+            output_text: None,
+            session_id: None,
+            error_text: None,
+            finished: false,
+        },
+    )
+    .await
+}
+
+async fn mark_node_succeeded(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    output_text: Option<&str>,
+    session_id: Option<Uuid>,
+) -> Result<(), ApiError> {
+    update_node_execution(
+        pool,
+        run_id,
+        node_id,
+        NodeExecutionUpdate {
+            status: DbNodeExecutionStatus::Succeeded,
+            input_text: None,
+            output_text,
+            session_id,
+            error_text: None,
+            finished: true,
+        },
+    )
+    .await
+}
+
+async fn mark_node_failed(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    error_text: &str,
+) -> Result<(), ApiError> {
+    update_node_execution(
+        pool,
+        run_id,
+        node_id,
+        NodeExecutionUpdate {
+            status: DbNodeExecutionStatus::Failed,
+            input_text: None,
+            output_text: None,
+            session_id: None,
+            error_text: Some(error_text),
+            finished: true,
+        },
+    )
+    .await
+}
+
+async fn mark_skipped_targets(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_ids: &[String],
+) -> Result<(), ApiError> {
+    for node_id in node_ids {
+        sqlx::query(
+            r#"
+            UPDATE node_executions
+            SET status = 'skipped',
+                finished_at = datetime('now', 'subsec'),
+                updated_at = datetime('now', 'subsec')
+            WHERE run_id = ? AND node_id = ? AND iteration = 0 AND status = 'pending'
+            "#,
+        )
+        .bind(run_id)
+        .bind(node_id)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NodeExecutionUpdate<'a> {
+    status: DbNodeExecutionStatus,
+    input_text: Option<&'a str>,
+    output_text: Option<&'a str>,
+    session_id: Option<Uuid>,
+    error_text: Option<&'a str>,
+    finished: bool,
+}
+
+async fn update_node_execution(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    update: NodeExecutionUpdate<'_>,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        UPDATE node_executions
+        SET status = ?,
+            input_text = COALESCE(?, input_text),
+            output_text = COALESCE(?, output_text),
+            session_id = COALESCE(?, session_id),
+            error_text = ?,
+            started_at = COALESCE(started_at, datetime('now', 'subsec')),
+            finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
+            updated_at = datetime('now', 'subsec')
+        WHERE run_id = ? AND node_id = ? AND iteration = 0
+        "#,
+    )
+    .bind(node_status_value(update.status))
+    .bind(update.input_text)
+    .bind(update.output_text)
+    .bind(update.session_id)
+    .bind(update.error_text)
+    .bind(update.finished)
+    .bind(run_id)
+    .bind(node_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn update_run_status(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    status: WorkflowRunStatus,
+    output_text: Option<String>,
+    error_text: Option<&str>,
+    finished: bool,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        UPDATE workflow_runs
+        SET status = ?,
+            output_text = ?,
+            error_text = ?,
+            finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ?
+        "#,
+    )
+    .bind(run_status_value(status))
+    .bind(output_text)
+    .bind(error_text)
+    .bind(finished)
+    .bind(run_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn node_execution_responses(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<Vec<WorkflowNodeExecutionResponse>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, run_id, node_id, node_type, iteration, status, input_text, output_text,
+               session_id, arena_group_id, tokens_used, cost_estimate, started_at, finished_at,
+               error_text, created_at, updated_at
+        FROM node_executions
+        WHERE run_id = ?
+        ORDER BY rowid ASC
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(node_execution_response_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn node_execution_response_from_row(
+    row: &SqliteRow,
+) -> Result<WorkflowNodeExecutionResponse, WorkflowRuntimeError> {
+    Ok(WorkflowNodeExecutionResponse {
+        id: row.try_get("id")?,
+        run_id: row.try_get("run_id")?,
+        node_id: row.try_get("node_id")?,
+        node_type: row.try_get("node_type")?,
+        iteration: row.try_get("iteration")?,
+        status: node_execution_status_from_str(&row.try_get::<String, _>("status")?)?,
+        input_text: row.try_get("input_text")?,
+        output_text: row.try_get("output_text")?,
+        session_id: row.try_get("session_id")?,
+        arena_group_id: row.try_get("arena_group_id")?,
+        tokens_used: row.try_get("tokens_used")?,
+        cost_estimate: row.try_get("cost_estimate")?,
+        started_at: row.try_get("started_at")?,
+        finished_at: row.try_get("finished_at")?,
+        error_text: row.try_get("error_text")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+async fn executor_config_from_node(value: Option<Value>) -> Result<ExecutorConfig, ApiError> {
+    if let Some(value) = value {
+        return serde_json::from_value(value).map_err(|err| {
+            ApiError::BadRequest(format!("Invalid workflow agent executor config: {err}"))
+        });
+    }
+
+    let profile_id = ExecutorConfigs::get_cached()
+        .get_recommended_executor_profile()
+        .await
+        .map_err(|err| {
+            ApiError::BadRequest(format!(
+                "No available executor profile for workflow agent: {err}"
+            ))
+        })?;
+    Ok(ExecutorConfig::from(profile_id))
+}
+
+fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, WorkflowRuntimeError> {
+    match value {
+        "pending" => Ok(WorkflowRunStatus::Pending),
+        "running" => Ok(WorkflowRunStatus::Running),
+        "awaiting_human" => Ok(WorkflowRunStatus::AwaitingHuman),
+        "awaiting_arena" => Ok(WorkflowRunStatus::AwaitingArena),
+        "succeeded" => Ok(WorkflowRunStatus::Succeeded),
+        "failed" => Ok(WorkflowRunStatus::Failed),
+        "canceled" => Ok(WorkflowRunStatus::Canceled),
+        other => Err(WorkflowRuntimeError::BadRequest(format!(
+            "Unknown workflow run status `{other}`"
+        ))),
+    }
+}
+
+fn node_execution_status_from_str(
+    value: &str,
+) -> Result<DbNodeExecutionStatus, WorkflowRuntimeError> {
+    match value {
+        "pending" => Ok(DbNodeExecutionStatus::Pending),
+        "running" => Ok(DbNodeExecutionStatus::Running),
+        "awaiting_human" => Ok(DbNodeExecutionStatus::AwaitingHuman),
+        "awaiting_arena" => Ok(DbNodeExecutionStatus::AwaitingArena),
+        "succeeded" => Ok(DbNodeExecutionStatus::Succeeded),
+        "failed" => Ok(DbNodeExecutionStatus::Failed),
+        "skipped" => Ok(DbNodeExecutionStatus::Skipped),
+        other => Err(WorkflowRuntimeError::BadRequest(format!(
+            "Unknown node execution status `{other}`"
+        ))),
+    }
+}
+
+fn planner_status_from_str(
+    value: &str,
+) -> Result<PlannerNodeExecutionStatus, WorkflowRuntimeError> {
+    Ok(match node_execution_status_from_str(value)? {
+        DbNodeExecutionStatus::Pending => PlannerNodeExecutionStatus::Pending,
+        DbNodeExecutionStatus::Running => PlannerNodeExecutionStatus::Running,
+        DbNodeExecutionStatus::AwaitingHuman => PlannerNodeExecutionStatus::AwaitingHuman,
+        DbNodeExecutionStatus::AwaitingArena => PlannerNodeExecutionStatus::AwaitingArena,
+        DbNodeExecutionStatus::Succeeded => PlannerNodeExecutionStatus::Succeeded,
+        DbNodeExecutionStatus::Failed => PlannerNodeExecutionStatus::Failed,
+        DbNodeExecutionStatus::Skipped => PlannerNodeExecutionStatus::Skipped,
+    })
+}
+
+fn run_status_value(status: WorkflowRunStatus) -> &'static str {
+    match status {
+        WorkflowRunStatus::Pending => "pending",
+        WorkflowRunStatus::Running => "running",
+        WorkflowRunStatus::AwaitingHuman => "awaiting_human",
+        WorkflowRunStatus::AwaitingArena => "awaiting_arena",
+        WorkflowRunStatus::Succeeded => "succeeded",
+        WorkflowRunStatus::Failed => "failed",
+        WorkflowRunStatus::Canceled => "canceled",
+    }
+}
+
+fn node_status_value(status: DbNodeExecutionStatus) -> &'static str {
+    match status {
+        DbNodeExecutionStatus::Pending => "pending",
+        DbNodeExecutionStatus::Running => "running",
+        DbNodeExecutionStatus::AwaitingHuman => "awaiting_human",
+        DbNodeExecutionStatus::AwaitingArena => "awaiting_arena",
+        DbNodeExecutionStatus::Succeeded => "succeeded",
+        DbNodeExecutionStatus::Failed => "failed",
+        DbNodeExecutionStatus::Skipped => "skipped",
+    }
+}
+
+fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
+    match kind {
+        WorkflowNodeKind::Start => "start",
+        WorkflowNodeKind::End => "end",
+        WorkflowNodeKind::Agent => "agent",
+        WorkflowNodeKind::Condition => "condition",
+        WorkflowNodeKind::HumanGate => "human_gate",
+        WorkflowNodeKind::Transform => "transform",
+        WorkflowNodeKind::Arena => "arena",
+    }
+}

@@ -17,7 +17,16 @@ use ts_rs::TS;
 use uuid::Uuid;
 use workflow::{WorkflowGraph, templates::built_in_templates, validation::validate_graph};
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    workflow_runtime::{
+        runner::{
+            DeploymentWorkflowAgentExecutor, get_workflow_run_response, trigger_workflow_run,
+        },
+        workspace::DeploymentWorkflowWorkspaceResolver,
+    },
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkflowTemplateResponse {
@@ -710,14 +719,31 @@ fn txid() -> i64 {
 }
 
 async fn trigger_workflow(
-    Path(_workflow_id): Path<Uuid>,
-    Json(_request): Json<TriggerWorkflowRequest>,
-) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+    State(deployment): State<DeploymentImpl>,
+    Path(workflow_id): Path<Uuid>,
+    Json(request): Json<TriggerWorkflowRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowRunResponse>>, ApiError> {
+    let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let data = trigger_workflow_run(
+        &deployment.db().pool,
+        workflow_id,
+        request,
+        &workspace_resolver,
+        &agent_executor,
+    )
+    .await?;
+
+    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
-async fn get_workflow_run(Path(_run_id): Path<Uuid>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn get_workflow_run(
+    State(deployment): State<DeploymentImpl>,
+    Path(run_id): Path<Uuid>,
+) -> Result<ResponseJson<WorkflowRunResponse>, ApiError> {
+    Ok(ResponseJson(
+        get_workflow_run_response(&deployment.db().pool, run_id).await?,
+    ))
 }
 
 async fn cancel_workflow_run(Path(_run_id): Path<Uuid>) -> StatusCode {

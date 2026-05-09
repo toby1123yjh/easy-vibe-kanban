@@ -4,6 +4,7 @@ pub mod relay_pairing;
 pub mod routes;
 pub mod runtime;
 pub mod startup;
+pub mod workflow_runtime;
 
 // #[cfg(feature = "cloud")]
 // type DeploymentImpl = vibe_kanban_cloud::deployment::CloudDeployment;

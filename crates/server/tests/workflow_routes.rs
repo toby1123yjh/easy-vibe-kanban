@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use db::models::workflow::WorkflowSource;
 use serde_json::{Value, json};
 use server::{
@@ -8,6 +10,10 @@ use server::{
         WorkflowTemplateListResponse, WorkflowTemplateResponse, create_project_workflow,
         delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
         fallback_workflows_payload, list_project_workflows, update_workflow_template,
+    },
+    workflow_runtime::runner::{
+        AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowWorkspaceRequest,
+        WorkflowWorkspaceResolver, trigger_workflow_run,
     },
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -135,6 +141,29 @@ fn valid_graph_json() -> String {
     .to_string()
 }
 
+fn agent_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "agent",
+                "type": "agent",
+                "data": {
+                    "display_name": "Implementer",
+                    "prompt_template": "Implement this: {{upstream}}"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "agent", "type": "default" },
+            { "id": "e2", "source": "agent", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
 fn graph_without_start_json() -> String {
     json!({
         "version": 1,
@@ -147,6 +176,73 @@ fn graph_without_start_json() -> String {
         ]
     })
     .to_string()
+}
+
+#[derive(Debug)]
+struct FakeWorkspaceResolver {
+    workspace_id: Uuid,
+    requests: Mutex<Vec<WorkflowWorkspaceRequest>>,
+}
+
+impl FakeWorkspaceResolver {
+    fn new(workspace_id: Uuid) -> Self {
+        Self {
+            workspace_id,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<WorkflowWorkspaceRequest> {
+        self.requests.lock().expect("workspace requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowWorkspaceResolver for FakeWorkspaceResolver {
+    async fn create_or_bind_main_workspace(
+        &self,
+        request: WorkflowWorkspaceRequest,
+    ) -> Result<Uuid, ApiError> {
+        self.requests
+            .lock()
+            .expect("workspace requests")
+            .push(request.clone());
+
+        Ok(request.existing_workspace_id.unwrap_or(self.workspace_id))
+    }
+}
+
+#[derive(Debug)]
+struct FakeAgentExecutor {
+    session_id: Uuid,
+    output_text: String,
+    requests: Mutex<Vec<AgentNodeRequest>>,
+}
+
+impl FakeAgentExecutor {
+    fn new(session_id: Uuid, output_text: impl Into<String>) -> Self {
+        Self {
+            session_id,
+            output_text: output_text.into(),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<AgentNodeRequest> {
+        self.requests.lock().expect("agent requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowAgentExecutor for FakeAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        self.requests.lock().expect("agent requests").push(request);
+
+        Ok(AgentNodeExecution::Completed {
+            session_id: self.session_id,
+            output_text: self.output_text.clone(),
+        })
+    }
 }
 
 #[test]
@@ -359,6 +455,199 @@ async fn fallback_payloads_return_workflow_table_keys() {
     assert_payload_array_key(&workflows_payload, "workflows");
     assert_payload_array_key(&workflow_runs_payload, "workflow_runs");
     assert_payload_array_key(&node_executions_payload, "node_executions");
+}
+
+#[tokio::test]
+async fn workflow_runner_trigger_creates_run_workspace_and_node_executions() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent final output");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build workflow runner".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    assert_eq!(run.workflow_id, workflow_id);
+    assert_eq!(run.issue_id, issue_id);
+    assert_eq!(run.workspace_id, Some(workspace_id));
+    assert_eq!(run.nodes.len(), 3);
+    assert_eq!(
+        run.nodes
+            .iter()
+            .map(|node| node.node_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["start", "agent", "end"]
+    );
+
+    let workspace_requests = workspace.requests();
+    assert_eq!(workspace_requests.len(), 1);
+    assert_eq!(workspace_requests[0].existing_workspace_id, None);
+    assert_eq!(workspace_requests[0].issue_id, issue_id);
+    assert_eq!(workspace_requests[0].run_id, run.id);
+    assert_eq!(
+        workspace_requests[0].branch_name,
+        format!("vk/{issue_id}-wf-{}", short_run_id(run.id))
+    );
+
+    let run_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs")
+        .fetch_one(&pool)
+        .await
+        .expect("count workflow runs");
+    let node_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_executions")
+        .fetch_one(&pool)
+        .await
+        .expect("count node executions");
+    assert_eq!(run_count, 1);
+    assert_eq!(node_count, 3);
+}
+
+#[tokio::test]
+async fn workflow_runner_trigger_binds_existing_workspace() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let existing_workspace_id = Uuid::new_v4();
+    let fallback_workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(fallback_workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent final output");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: Some(existing_workspace_id),
+            trigger_source: "manual".to_string(),
+            input_text: "Use current worktree".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    assert_eq!(run.workspace_id, Some(existing_workspace_id));
+    assert_eq!(workspace.requests().len(), 1);
+    assert_eq!(
+        workspace.requests()[0].existing_workspace_id,
+        Some(existing_workspace_id)
+    );
+}
+
+#[tokio::test]
+async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_output() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "implemented feature");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Add workflow task orchestration".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    let agent_requests = agent.requests();
+    assert_eq!(agent_requests.len(), 1);
+    assert_eq!(agent_requests[0].run_id, run.id);
+    assert_eq!(agent_requests[0].node_id, "agent");
+    assert_eq!(agent_requests[0].workspace_id, workspace_id);
+    assert_eq!(
+        agent_requests[0].prompt,
+        "Implement this: Add workflow task orchestration"
+    );
+
+    let agent_node = run
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "agent")
+        .expect("agent node execution");
+    assert_eq!(agent_node.session_id, Some(session_id));
+    assert_eq!(
+        agent_node.output_text.as_deref(),
+        Some("implemented feature")
+    );
+    assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
+}
+
+fn short_run_id(run_id: Uuid) -> String {
+    run_id.simple().to_string()[..8].to_string()
 }
 
 fn assert_payload_array_key(payload: &Value, key: &str) {
