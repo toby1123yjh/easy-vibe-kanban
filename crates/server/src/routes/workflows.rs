@@ -12,6 +12,7 @@ use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 use workflow::{WorkflowGraph, templates::built_in_templates, validation::validate_graph};
@@ -157,6 +158,23 @@ struct NodeExecutionFallbackRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Error)]
+enum WorkflowRouteError {
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+    #[error("{0}")]
+    BadRequest(String),
+}
+
+impl From<WorkflowRouteError> for ApiError {
+    fn from(error: WorkflowRouteError) -> Self {
+        match error {
+            WorkflowRouteError::Database(err) => ApiError::Database(err),
+            WorkflowRouteError::BadRequest(message) => ApiError::BadRequest(message),
+        }
+    }
+}
+
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .route(
@@ -266,7 +284,10 @@ pub async fn list_project_workflows(
     .fetch_all(pool)
     .await?;
 
-    rows.iter().map(workflow_template_from_row).collect()
+    Ok(rows
+        .iter()
+        .map(workflow_template_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 pub async fn create_project_workflow(
@@ -414,7 +435,10 @@ async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateRes
     .fetch_all(pool)
     .await?;
 
-    rows.iter().map(workflow_template_from_row).collect()
+    Ok(rows
+        .iter()
+        .map(workflow_template_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 async fn workflow_by_id(
@@ -432,7 +456,7 @@ async fn workflow_by_id(
     .fetch_optional(pool)
     .await?;
 
-    row.as_ref().map(workflow_template_from_row).transpose()
+    Ok(row.as_ref().map(workflow_template_from_row).transpose()?)
 }
 
 async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
@@ -480,11 +504,12 @@ async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_graph_json(graph_json: &str) -> Result<(), ApiError> {
-    let graph: WorkflowGraph = serde_json::from_str(graph_json)
-        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+fn validate_graph_json(graph_json: &str) -> Result<(), WorkflowRouteError> {
+    let graph: WorkflowGraph = serde_json::from_str(graph_json).map_err(|err| {
+        WorkflowRouteError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
+    })?;
     validate_graph(&graph)
-        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
+        .map_err(|err| WorkflowRouteError::BadRequest(format!("Invalid workflow graph: {err}")))?;
     Ok(())
 }
 
@@ -500,7 +525,9 @@ async fn ensure_project_exists(pool: &SqlitePool, project_id: Uuid) -> Result<()
     Ok(())
 }
 
-fn workflow_template_from_row(row: &SqliteRow) -> Result<WorkflowTemplateResponse, ApiError> {
+fn workflow_template_from_row(
+    row: &SqliteRow,
+) -> Result<WorkflowTemplateResponse, WorkflowRouteError> {
     Ok(WorkflowTemplateResponse {
         id: row.try_get("id")?,
         source: workflow_source_from_str(&row.try_get::<String, _>("source")?)?,
@@ -513,7 +540,7 @@ fn workflow_template_from_row(row: &SqliteRow) -> Result<WorkflowTemplateRespons
     })
 }
 
-fn workflow_run_from_row(row: &SqliteRow) -> Result<WorkflowRunFallbackRow, ApiError> {
+fn workflow_run_from_row(row: &SqliteRow) -> Result<WorkflowRunFallbackRow, WorkflowRouteError> {
     Ok(WorkflowRunFallbackRow {
         id: row.try_get("id")?,
         workflow_id: row.try_get("workflow_id")?,
@@ -531,7 +558,9 @@ fn workflow_run_from_row(row: &SqliteRow) -> Result<WorkflowRunFallbackRow, ApiE
     })
 }
 
-fn node_execution_from_row(row: &SqliteRow) -> Result<NodeExecutionFallbackRow, ApiError> {
+fn node_execution_from_row(
+    row: &SqliteRow,
+) -> Result<NodeExecutionFallbackRow, WorkflowRouteError> {
     Ok(NodeExecutionFallbackRow {
         id: row.try_get("id")?,
         run_id: row.try_get("run_id")?,
@@ -597,7 +626,10 @@ async fn workflow_run_rows(
         }
     };
 
-    rows.iter().map(workflow_run_from_row).collect()
+    Ok(rows
+        .iter()
+        .map(workflow_run_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 async fn node_execution_rows(
@@ -627,20 +659,23 @@ async fn node_execution_rows(
         }
     };
 
-    rows.iter().map(node_execution_from_row).collect()
+    Ok(rows
+        .iter()
+        .map(node_execution_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
-fn workflow_source_from_str(value: &str) -> Result<WorkflowSource, ApiError> {
+fn workflow_source_from_str(value: &str) -> Result<WorkflowSource, WorkflowRouteError> {
     match value {
         "system" => Ok(WorkflowSource::System),
         "project" => Ok(WorkflowSource::Project),
-        other => Err(ApiError::BadRequest(format!(
+        other => Err(WorkflowRouteError::BadRequest(format!(
             "Unknown workflow source `{other}`"
         ))),
     }
 }
 
-fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, ApiError> {
+fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, WorkflowRouteError> {
     match value {
         "pending" => Ok(WorkflowRunStatus::Pending),
         "running" => Ok(WorkflowRunStatus::Running),
@@ -649,13 +684,13 @@ fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, ApiErr
         "succeeded" => Ok(WorkflowRunStatus::Succeeded),
         "failed" => Ok(WorkflowRunStatus::Failed),
         "canceled" => Ok(WorkflowRunStatus::Canceled),
-        other => Err(ApiError::BadRequest(format!(
+        other => Err(WorkflowRouteError::BadRequest(format!(
             "Unknown workflow run status `{other}`"
         ))),
     }
 }
 
-fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, ApiError> {
+fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, WorkflowRouteError> {
     match value {
         "pending" => Ok(NodeExecutionStatus::Pending),
         "running" => Ok(NodeExecutionStatus::Running),
@@ -664,7 +699,7 @@ fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, Ap
         "succeeded" => Ok(NodeExecutionStatus::Succeeded),
         "failed" => Ok(NodeExecutionStatus::Failed),
         "skipped" => Ok(NodeExecutionStatus::Skipped),
-        other => Err(ApiError::BadRequest(format!(
+        other => Err(WorkflowRouteError::BadRequest(format!(
             "Unknown node execution status `{other}`"
         ))),
     }
