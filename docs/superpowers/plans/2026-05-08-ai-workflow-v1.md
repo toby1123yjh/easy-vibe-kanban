@@ -593,7 +593,7 @@ Committed as `1b56e07b` and follow-up clippy fix `3eed4444`.
 - Create: `crates/workflow/src/ports.rs`
 - Modify: `crates/workflow/src/lib.rs`
 
-- [ ] **Step 1: Write planner tests**
+- [x] **Step 1: Write planner tests**
 
 Cover:
 
@@ -603,13 +603,15 @@ Cover:
 - Skipped branches unblock downstream only when graph semantics allow it.
 - Multiple Agent nodes ready on main worktree are serialized by planner output or runner lock.
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `cargo test -p workflow planner`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement planner and events**
+Local attempt was blocked by the Windows/MSVC linker before crate compile: `LINK : fatal error LNK1171: unable to load mspdb140.dll`.
+
+- [x] **Step 3: Implement planner and events**
 
 Add:
 
@@ -629,18 +631,22 @@ Event kinds:
 - `node_waiting_human`
 - `node_waiting_arena`
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cargo test -p workflow planner events`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Verified with GitHub Actions Test run `25592503074` on `0b6906482ff007e7dd6cf0d769df61625449a862`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/workflow/src/lib.rs crates/workflow/src/planner.rs crates/workflow/src/events.rs crates/workflow/src/runner.rs crates/workflow/src/ports.rs
 git commit -m "feat(workflow): plan ready workflow nodes"
 ```
+
+Committed as `0b690648`.
 
 ### Task 2.4: Implement Pure Node Handlers
 
