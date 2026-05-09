@@ -25,11 +25,12 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     workflow_runtime::{
+        arena::DeploymentWorkflowArenaCreator,
         runner::{
-            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, approve_human_node,
-            cancel_workflow_run_runtime, get_workflow_run_response, reject_human_node,
-            retry_workflow_node, subscribe_workflow_events, trigger_workflow_run,
-            workflow_event_history,
+            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller,
+            approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
+            reject_human_node, retry_workflow_node_with_arena, subscribe_workflow_events,
+            trigger_workflow_run_with_arena, workflow_event_history,
         },
         workspace::DeploymentWorkflowWorkspaceResolver,
     },
@@ -732,12 +733,14 @@ async fn trigger_workflow(
 ) -> Result<ResponseJson<MutationResponse<WorkflowRunResponse>>, ApiError> {
     let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let data = trigger_workflow_run(
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let data = trigger_workflow_run_with_arena(
         &deployment.db().pool,
         workflow_id,
         request,
         &workspace_resolver,
         &agent_executor,
+        &arena_creator,
     )
     .await?;
 
@@ -815,7 +818,15 @@ async fn retry_node(
     Path((run_id, node_id)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let run = retry_workflow_node(&deployment.db().pool, run_id, &node_id, &agent_executor).await?;
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let run = retry_workflow_node_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &node_id,
+        &agent_executor,
+        &arena_creator,
+    )
+    .await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -828,7 +839,15 @@ async fn approve_node(
     Path((run_id, node_id)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let run = approve_human_node(&deployment.db().pool, run_id, &node_id, &agent_executor).await?;
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let run = approve_human_node_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &node_id,
+        &agent_executor,
+        &arena_creator,
+    )
+    .await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),

@@ -11,11 +11,15 @@ use server::{
         delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
         fallback_workflows_payload, list_project_workflows, update_workflow_template,
     },
-    workflow_runtime::runner::{
-        AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
-        WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
-        cancel_workflow_run_runtime, recover_stale_workflow_runs, reject_human_node,
-        retry_workflow_node, trigger_workflow_run, workflow_event_history,
+    workflow_runtime::{
+        arena::{ArenaNodeExecution, ArenaNodeRequest, WorkflowArenaCreator},
+        runner::{
+            AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
+            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
+            cancel_workflow_run_runtime, recover_stale_workflow_runs, reject_human_node,
+            retry_workflow_node, trigger_workflow_run, trigger_workflow_run_with_arena,
+            workflow_event_history,
+        },
     },
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -194,6 +198,46 @@ fn human_gate_graph_json() -> String {
             { "id": "e1", "source": "start", "target": "gate", "type": "default" },
             { "id": "e2", "source": "gate", "target": "agent", "type": "default" },
             { "id": "e3", "source": "agent", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn arena_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "plan",
+                "type": "transform",
+                "data": {
+                    "display_name": "Plan",
+                    "mode": "template",
+                    "template": "Plan: {{input}}"
+                }
+            },
+            {
+                "id": "arena",
+                "type": "arena",
+                "data": {
+                    "display_name": "Arena implementation",
+                    "prompt_template": "Implement candidates from {{upstream}}",
+                    "attempts": [
+                        { "id": "a", "display_name": "Candidate A" },
+                        { "id": "b", "display_name": "Candidate B" },
+                        { "id": "c", "display_name": "Candidate C" }
+                    ],
+                    "promote_strategy": "manual",
+                    "apply_strategy": "diff_apply"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "plan", "type": "default" },
+            { "id": "e2", "source": "plan", "target": "arena", "type": "default" },
+            { "id": "e3", "source": "arena", "target": "end", "type": "arena_winner" }
         ]
     })
     .to_string()
@@ -450,6 +494,39 @@ impl WorkflowAgentExecutor for FailOnceAgentExecutor {
         Ok(AgentNodeExecution::Completed {
             session_id: self.session_id,
             output_text: self.output_text.clone(),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct FakeArenaCreator {
+    group_id: Uuid,
+    requests: Mutex<Vec<ArenaNodeRequest>>,
+}
+
+impl FakeArenaCreator {
+    fn new(group_id: Uuid) -> Self {
+        Self {
+            group_id,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<ArenaNodeRequest> {
+        self.requests.lock().expect("arena requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowArenaCreator for FakeArenaCreator {
+    async fn create_arena(
+        &self,
+        request: ArenaNodeRequest,
+    ) -> Result<ArenaNodeExecution, ApiError> {
+        self.requests.lock().expect("arena requests").push(request);
+
+        Ok(ArenaNodeExecution {
+            arena_group_id: self.group_id,
         })
     }
 }
@@ -930,6 +1007,119 @@ async fn workflow_human_gate_sets_run_awaiting_human() {
     assert_eq!(
         node_status(&run.nodes, "agent"),
         NodeExecutionStatus::Pending
+    );
+}
+
+#[tokio::test]
+async fn workflow_arena_node_creates_group_and_waits_for_winner() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let arena_group_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Arena Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(arena_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert arena workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent should not run");
+    let arena = FakeArenaCreator::new(arena_group_id);
+
+    let run = trigger_workflow_run_with_arena(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build draw-more workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+        &arena,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    assert_eq!(run.status, WorkflowRunStatus::AwaitingArena);
+    assert!(agent.requests().is_empty());
+    assert_eq!(
+        node_status(&run.nodes, "arena"),
+        NodeExecutionStatus::AwaitingArena
+    );
+    assert_eq!(node_status(&run.nodes, "end"), NodeExecutionStatus::Pending);
+
+    let arena_node = run
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "arena")
+        .expect("arena node execution");
+    assert_eq!(arena_node.arena_group_id, Some(arena_group_id));
+    assert_eq!(
+        arena_node.input_text.as_deref(),
+        Some("Implement candidates from Plan: Build draw-more workflow")
+    );
+
+    let arena_requests = arena.requests();
+    assert_eq!(arena_requests.len(), 1);
+    let request = &arena_requests[0];
+    assert_eq!(request.run_id, run.id);
+    assert_eq!(request.node_id, "arena");
+    assert_eq!(request.issue_id, issue_id);
+    assert_eq!(request.main_workspace_id, workspace_id);
+    assert_eq!(
+        request.prompt,
+        "Implement candidates from Plan: Build draw-more workflow"
+    );
+    assert_eq!(request.attempts.len(), 3);
+    assert_eq!(
+        request
+            .attempts
+            .iter()
+            .map(|attempt| attempt.branch_name.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            format!("vk/{issue_id}-wf-{}-arena-1", short_run_id(run.id)),
+            format!("vk/{issue_id}-wf-{}-arena-2", short_run_id(run.id)),
+            format!("vk/{issue_id}-wf-{}-arena-3", short_run_id(run.id)),
+        ]
+    );
+    assert_eq!(
+        request
+            .attempts
+            .iter()
+            .map(|attempt| attempt.prompt.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "Implement candidates from Plan: Build draw-more workflow",
+            "Implement candidates from Plan: Build draw-more workflow",
+            "Implement candidates from Plan: Build draw-more workflow"
+        ]
+    );
+    assert_eq!(
+        request
+            .attempts
+            .iter()
+            .map(|attempt| attempt.display_name.as_deref())
+            .collect::<Vec<_>>(),
+        vec![
+            Some("Candidate A"),
+            Some("Candidate B"),
+            Some("Candidate C")
+        ]
     );
 }
 

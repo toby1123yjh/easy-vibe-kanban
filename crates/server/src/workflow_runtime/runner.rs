@@ -40,7 +40,13 @@ use crate::{
         TriggerWorkflowRequest, WorkflowNodeExecutionResponse, WorkflowRunResponse,
         get_workflow_template,
     },
-    workflow_runtime::workspace::main_workflow_branch_name,
+    workflow_runtime::{
+        arena::{
+            ArenaNodeAttemptRequest, ArenaNodeExecution, ArenaNodeRequest,
+            NoopWorkflowArenaCreator, WorkflowArenaCreator,
+        },
+        workspace::{main_workflow_branch_name, short_run_id},
+    },
 };
 
 #[derive(Debug, Error)]
@@ -294,6 +300,31 @@ where
     W: WorkflowWorkspaceResolver,
     A: WorkflowAgentExecutor,
 {
+    let arena_creator = NoopWorkflowArenaCreator;
+    trigger_workflow_run_with_arena(
+        pool,
+        workflow_id,
+        request,
+        workspace_resolver,
+        agent_executor,
+        &arena_creator,
+    )
+    .await
+}
+
+pub async fn trigger_workflow_run_with_arena<W, A, R>(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    request: TriggerWorkflowRequest,
+    workspace_resolver: &W,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
     let workflow = get_workflow_template(pool, workflow_id).await?;
     let graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
@@ -316,9 +347,11 @@ where
         pool,
         run_id,
         &graph,
+        request.issue_id,
         workspace_id,
         &request.input_text,
         agent_executor,
+        arena_creator,
     )
     .await?;
 
@@ -371,6 +404,21 @@ pub async fn approve_human_node<A>(
 where
     A: WorkflowAgentExecutor,
 {
+    let arena_creator = NoopWorkflowArenaCreator;
+    approve_human_node_with_arena(pool, run_id, node_id, agent_executor, &arena_creator).await
+}
+
+pub async fn approve_human_node_with_arena<A, R>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
     let run = load_runtime_run(pool, run_id).await?;
     let node = run
         .graph
@@ -393,9 +441,11 @@ where
         pool,
         run_id,
         &run.graph,
+        run.issue_id,
         run.workspace_id,
         &run.input_text,
         agent_executor,
+        arena_creator,
     )
     .await?;
 
@@ -463,6 +513,21 @@ pub async fn retry_workflow_node<A>(
 where
     A: WorkflowAgentExecutor,
 {
+    let arena_creator = NoopWorkflowArenaCreator;
+    retry_workflow_node_with_arena(pool, run_id, node_id, agent_executor, &arena_creator).await
+}
+
+pub async fn retry_workflow_node_with_arena<A, R>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
     let run = load_runtime_run(pool, run_id).await?;
     let node = run
         .graph
@@ -487,9 +552,11 @@ where
         pool,
         run_id,
         &run.graph,
+        run.issue_id,
         run.workspace_id,
         &run.input_text,
         agent_executor,
+        arena_creator,
     )
     .await?;
 
@@ -531,6 +598,7 @@ pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiEr
 #[derive(Debug)]
 struct RuntimeRun {
     graph: WorkflowGraph,
+    issue_id: Uuid,
     workspace_id: Uuid,
     input_text: String,
 }
@@ -538,7 +606,7 @@ struct RuntimeRun {
 async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT wr.workflow_id, wr.workspace_id, wr.input_text, w.graph_json
+        SELECT wr.workflow_id, wr.issue_id, wr.workspace_id, wr.input_text, w.graph_json
         FROM workflow_runs wr
         JOIN workflows w ON w.id = wr.workflow_id
         WHERE wr.id = ?
@@ -557,6 +625,7 @@ async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun,
 
     Ok(RuntimeRun {
         graph,
+        issue_id: row.try_get("issue_id")?,
         workspace_id: row
             .try_get::<Option<Uuid>, _>("workspace_id")?
             .ok_or_else(|| ApiError::BadRequest("Workflow run has no workspace".to_string()))?,
@@ -615,16 +684,19 @@ async fn initialize_node_executions(
     Ok(())
 }
 
-async fn drive_workflow_run<A>(
+async fn drive_workflow_run<A, R>(
     pool: &SqlitePool,
     run_id: Uuid,
     graph: &WorkflowGraph,
+    issue_id: Uuid,
     workspace_id: Uuid,
     run_input_text: &str,
     agent_executor: &A,
+    arena_creator: &R,
 ) -> Result<(), ApiError>
 where
     A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
 {
     let runner = WorkflowRunner::from_graph(graph.clone());
 
@@ -662,9 +734,11 @@ where
                 run_id,
                 graph,
                 node,
+                issue_id,
                 workspace_id,
                 run_input_text,
                 agent_executor,
+                arena_creator,
             )
             .await?;
             if step == RunStep::Wait {
@@ -680,17 +754,20 @@ enum RunStep {
     Wait,
 }
 
-async fn execute_ready_node<A>(
+async fn execute_ready_node<A, R>(
     pool: &SqlitePool,
     run_id: Uuid,
     graph: &WorkflowGraph,
     node: &WorkflowNode,
+    issue_id: Uuid,
     workspace_id: Uuid,
     run_input_text: &str,
     agent_executor: &A,
+    arena_creator: &R,
 ) -> Result<RunStep, ApiError>
 where
     A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
 {
     let context = node_context(pool, graph, run_id, node, run_input_text).await?;
     match node.kind {
@@ -734,9 +811,68 @@ where
                             input_text: None,
                             output_text: output_text.as_deref(),
                             session_id: Some(session_id),
+                            arena_group_id: None,
                             error_text: None,
                             finished: false,
                         },
+                    )
+                    .await?;
+                    Ok(RunStep::Wait)
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_pending_nodes_skipped(pool, run_id).await?;
+                    update_run_status(
+                        pool,
+                        run_id,
+                        WorkflowRunStatus::Failed,
+                        None,
+                        Some(&message),
+                        true,
+                    )
+                    .await?;
+                    Ok(RunStep::Wait)
+                }
+            }
+        }
+        WorkflowNodeKind::Arena => {
+            let prompt = render_arena_prompt(node, &context);
+            mark_node_running(pool, run_id, &node.id, Some(&prompt)).await?;
+            match arena_creator
+                .create_arena(ArenaNodeRequest {
+                    run_id,
+                    node_id: node.id.clone(),
+                    issue_id,
+                    main_workspace_id: workspace_id,
+                    prompt: prompt.clone(),
+                    attempts: arena_attempt_requests(issue_id, run_id, node, &context, &prompt),
+                })
+                .await
+            {
+                Ok(ArenaNodeExecution { arena_group_id }) => {
+                    update_node_execution(
+                        pool,
+                        run_id,
+                        &node.id,
+                        NodeExecutionUpdate {
+                            status: DbNodeExecutionStatus::AwaitingArena,
+                            input_text: Some(&prompt),
+                            output_text: None,
+                            session_id: None,
+                            arena_group_id: Some(arena_group_id),
+                            error_text: None,
+                            finished: false,
+                        },
+                    )
+                    .await?;
+                    update_run_status(
+                        pool,
+                        run_id,
+                        WorkflowRunStatus::AwaitingArena,
+                        None,
+                        None,
+                        false,
                     )
                     .await?;
                     Ok(RunStep::Wait)
@@ -787,6 +923,7 @@ where
                                 input_text: outcome.prompt.as_deref(),
                                 output_text: None,
                                 session_id: None,
+                                arena_group_id: None,
                                 error_text: None,
                                 finished: false,
                             },
@@ -813,6 +950,7 @@ where
                                 input_text: outcome.prompt.as_deref(),
                                 output_text: None,
                                 session_id: None,
+                                arena_group_id: None,
                                 error_text: None,
                                 finished: false,
                             },
@@ -887,14 +1025,73 @@ async fn node_context(
 }
 
 fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
+    render_prompt_template(
+        node.data
+            .prompt_template
+            .as_deref()
+            .unwrap_or("{{upstream}}"),
+        context,
+    )
+}
+
+fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
+    render_prompt_template(
+        node.data
+            .prompt_template
+            .as_deref()
+            .unwrap_or("{{upstream}}"),
+        context,
+    )
+}
+
+fn render_prompt_template(template: &str, context: &NodeHandlerContext) -> String {
     let upstream = context.upstream_text();
-    node.data
-        .prompt_template
-        .as_deref()
-        .unwrap_or("{{upstream}}")
+    template
         .replace("{{input}}", &context.run_input_text)
         .replace("{{run_input}}", &context.run_input_text)
         .replace("{{upstream}}", &upstream)
+}
+
+fn arena_attempt_requests(
+    issue_id: Uuid,
+    run_id: Uuid,
+    node: &WorkflowNode,
+    context: &NodeHandlerContext,
+    fallback_prompt: &str,
+) -> Vec<ArenaNodeAttemptRequest> {
+    let attempts = node
+        .data
+        .attempts
+        .clone()
+        .filter(|attempts| !attempts.is_empty())
+        .unwrap_or_else(|| vec![Default::default(), Default::default()]);
+
+    attempts
+        .into_iter()
+        .enumerate()
+        .map(|(idx, attempt)| {
+            let prompt = attempt
+                .prompt_template
+                .as_deref()
+                .map(|template| render_prompt_template(template, context))
+                .unwrap_or_else(|| fallback_prompt.to_string());
+
+            ArenaNodeAttemptRequest {
+                attempt_id: attempt.id.clone(),
+                display_name: attempt.display_name.clone(),
+                branch_name: workflow_arena_branch_name(issue_id, run_id, idx + 1),
+                prompt,
+                executor_config: attempt.executor_config.clone(),
+            }
+        })
+        .collect()
+}
+
+fn workflow_arena_branch_name(issue_id: Uuid, run_id: Uuid, attempt_index: usize) -> String {
+    format!(
+        "vk/{issue_id}-wf-{}-arena-{attempt_index}",
+        short_run_id(run_id)
+    )
 }
 
 fn outgoing_edges(graph: &WorkflowGraph, node_id: &str) -> Vec<WorkflowEdge> {
@@ -1006,6 +1203,7 @@ async fn mark_node_running(
             input_text,
             output_text: None,
             session_id: None,
+            arena_group_id: None,
             error_text: None,
             finished: false,
         },
@@ -1029,6 +1227,7 @@ async fn mark_node_succeeded(
             input_text: None,
             output_text,
             session_id,
+            arena_group_id: None,
             error_text: None,
             finished: true,
         },
@@ -1051,6 +1250,7 @@ async fn mark_node_failed(
             input_text: None,
             output_text: None,
             session_id: None,
+            arena_group_id: None,
             error_text: Some(error_text),
             finished: true,
         },
@@ -1325,6 +1525,7 @@ struct NodeExecutionUpdate<'a> {
     input_text: Option<&'a str>,
     output_text: Option<&'a str>,
     session_id: Option<Uuid>,
+    arena_group_id: Option<Uuid>,
     error_text: Option<&'a str>,
     finished: bool,
 }
@@ -1342,6 +1543,7 @@ async fn update_node_execution(
             input_text = COALESCE(?, input_text),
             output_text = COALESCE(?, output_text),
             session_id = COALESCE(?, session_id),
+            arena_group_id = COALESCE(?, arena_group_id),
             error_text = ?,
             started_at = COALESCE(started_at, datetime('now', 'subsec')),
             finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
@@ -1353,6 +1555,7 @@ async fn update_node_execution(
     .bind(update.input_text)
     .bind(update.output_text)
     .bind(update.session_id)
+    .bind(update.arena_group_id)
     .bind(update.error_text)
     .bind(update.finished)
     .bind(run_id)
@@ -1430,6 +1633,7 @@ fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>
             "input_text": update.input_text,
             "output_text": update.output_text,
             "session_id": update.session_id,
+            "arena_group_id": update.arena_group_id,
             "error_text": update.error_text,
         }),
     );
@@ -1459,7 +1663,10 @@ fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>
         WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_waiting_arena(
             run_id.to_string(),
             node_id.to_string(),
-            json!({ "prompt": update.input_text }),
+            json!({
+                "prompt": update.input_text,
+                "arena_group_id": update.arena_group_id,
+            }),
         ));
     }
 }
