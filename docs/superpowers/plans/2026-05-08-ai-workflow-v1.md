@@ -931,12 +931,14 @@ pnpm --filter @vibe/web-core run check
 packages/web-core/node_modules/.bin/prettier.cmd --check src/features/workflow/model/workflowGraph.ts src/features/workflow/model/workflowNodeCatalog.ts src/features/workflow/index.ts src/features/workflow/model/workflowGraph.test.ts
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/web-core/package.json pnpm-lock.yaml packages/web-core/src/features/workflow
 git commit -m "feat(workflow): add workflow graph editor model"
 ```
+
+Result: committed as `d180304f`.
 
 ### Task 3.3: Build Template List and Editor Pages
 
