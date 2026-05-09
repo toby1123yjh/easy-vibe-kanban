@@ -949,10 +949,13 @@ Result: committed as `d180304f`.
 - Create: `packages/web-core/src/features/workflow/ui/WorkflowNodeInspector.tsx`
 - Create: `packages/web-core/src/features/workflow/ui/WorkflowValidationPanel.tsx`
 - Create: `packages/local-web/src/routes/_app.projects.$projectId_.workflows.tsx`
-- Create: `packages/local-web/src/routes/_app.projects.$projectId_.workflows.$workflowId.edit.tsx`
+- Create: `packages/local-web/src/routes/_app.projects.$projectId_.workflows_.$workflowId.edit.tsx`
 - Modify: `packages/web-core/src/shared/lib/routes/appNavigation.ts`
+- Modify: `packages/local-web/src/app/navigation/AppNavigation.ts`
+- Modify: `packages/local-web/src/routeTree.gen.ts`
+- Modify: `packages/remote-web/src/app/navigation/AppNavigation.ts`
 
-- [ ] **Step 1: Build editor shell**
+- [x] **Step 1: Build editor shell**
 
 Use layout:
 
@@ -964,7 +967,9 @@ Use layout:
 
 Use cards only for individual repeated items and inspector panels. Do not create a landing page.
 
-- [ ] **Step 2: Implement save/load**
+Result: implemented template list, editor toolbar, React Flow canvas, node library, inspector, and validation panel.
+
+- [x] **Step 2: Implement save/load**
 
 Rules:
 
@@ -973,16 +978,21 @@ Rules:
 - project templates can save name, description, graph JSON
 - validation calls backend before save or uses same constraints mirrored in frontend for immediate feedback
 
-- [ ] **Step 3: Run frontend checks**
+Result: implemented list/detail hooks integration, project template create/update, system template read-only mode, copy-to-project, and mirrored frontend validation.
+
+- [x] **Step 3: Run frontend checks**
 
 Run:
 
 ```bash
 pnpm --filter @vibe/web-core run check
 pnpm --filter @vibe/local-web run check
+pnpm --filter @vibe/remote-web run check
 ```
 
 Expected: PASS.
+
+Result: PASS. Also ran scoped Prettier checks for touched frontend files and `git diff --check` (only Windows LF/CRLF warnings).
 
 - [ ] **Step 4: Manual smoke test**
 
@@ -995,12 +1005,16 @@ Expected:
 - copy creates project template.
 - project template save persists and reloads graph.
 
-- [ ] **Step 5: Commit**
+Result: not run in this pass; backend-dependent smoke remains pending because local Rust backend execution is still blocked by the Windows toolchain issues recorded earlier.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add packages/web-core/src/features/workflow packages/web-core/src/shared/lib/routes/appNavigation.ts packages/local-web/src/routes/_app.projects.$projectId_.workflows.tsx packages/local-web/src/routes/_app.projects.$projectId_.workflows.$workflowId.edit.tsx
+git add packages/web-core/src/features/workflow packages/web-core/src/shared/lib/routes/appNavigation.ts packages/local-web/src/routes/_app.projects.$projectId_.workflows.tsx packages/local-web/src/routes/_app.projects.$projectId_.workflows_.$workflowId.edit.tsx packages/local-web/src/app/navigation/AppNavigation.ts packages/local-web/src/routeTree.gen.ts packages/remote-web/src/app/navigation/AppNavigation.ts
 git commit -m "feat(workflow): add workflow template editor"
 ```
+
+Result: committed in `feat(workflow): add workflow template editor`.
 
 ## Phase 4: Issue Entry Point, Run Canvas, Full Dashboard
 

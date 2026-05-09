@@ -172,6 +172,16 @@ function destinationToRemoteTarget(
         to: "/projects/$projectId",
         params: { projectId: destination.projectId },
       } as const;
+    case "project-workflows":
+      return {
+        to: "/projects/$projectId",
+        params: { projectId: destination.projectId },
+      } as const;
+    case "project-workflow-edit":
+      return {
+        to: "/projects/$projectId",
+        params: { projectId: destination.projectId },
+      } as const;
     case "project-issue":
       return {
         to: "/projects/$projectId/issues/$issueId",
@@ -245,6 +255,13 @@ export function createRemoteHostAppNavigation(hostId: string): AppNavigation {
     goToExport: (transition) => navigateTo({ kind: "export" }, transition),
     goToProject: (projectId, transition) =>
       navigateTo({ kind: "project", projectId }, transition),
+    goToProjectWorkflows: (projectId, transition) =>
+      navigateTo({ kind: "project-workflows", projectId }, transition),
+    goToProjectWorkflowEdit: (projectId, _workflowId, transition) =>
+      navigateTo(
+        { kind: "project-workflow-edit", projectId, workflowId: _workflowId },
+        transition,
+      ),
     goToProjectIssue: (projectId, issueId, transition) =>
       navigateTo({ kind: "project-issue", projectId, issueId }, transition),
     goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>
@@ -317,6 +334,13 @@ function createRemoteFallbackAppNavigation(): AppNavigation {
     goToExport: (transition) => navigateTo({ kind: "export" }, transition),
     goToProject: (projectId, transition) =>
       navigateTo({ kind: "project", projectId }, transition),
+    goToProjectWorkflows: (projectId, transition) =>
+      navigateTo({ kind: "project-workflows", projectId }, transition),
+    goToProjectWorkflowEdit: (projectId, _workflowId, transition) =>
+      navigateTo(
+        { kind: "project-workflow-edit", projectId, workflowId: _workflowId },
+        transition,
+      ),
     goToProjectIssue: (projectId, issueId, transition) =>
       navigateTo({ kind: "project-issue", projectId, issueId }, transition),
     goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>

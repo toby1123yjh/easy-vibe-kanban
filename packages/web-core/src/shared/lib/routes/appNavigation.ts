@@ -8,6 +8,8 @@ export type AppDestination =
   | { kind: 'workspace-vscode'; workspaceId: string; hostId?: string }
   | { kind: 'export' }
   | { kind: 'project'; projectId: string }
+  | { kind: 'project-workflows'; projectId: string }
+  | { kind: 'project-workflow-edit'; projectId: string; workflowId: string }
   | {
       kind: 'project-issue';
       projectId: string;
@@ -52,6 +54,15 @@ export interface AppNavigation {
   ): void;
   goToExport(transition?: NavigationTransition): void;
   goToProject(projectId: string, transition?: NavigationTransition): void;
+  goToProjectWorkflows(
+    projectId: string,
+    transition?: NavigationTransition
+  ): void;
+  goToProjectWorkflowEdit(
+    projectId: string,
+    workflowId: string,
+    transition?: NavigationTransition
+  ): void;
   goToProjectIssue(
     projectId: string,
     issueId: string,
@@ -78,6 +89,8 @@ export interface AppNavigation {
 
 type ProjectDestinationKind =
   | 'project'
+  | 'project-workflows'
+  | 'project-workflow-edit'
   | 'project-issue'
   | 'project-issue-workspace'
   | 'project-issue-workspace-create'
@@ -137,6 +150,8 @@ export function isProjectDestination(
 
   switch (destination.kind) {
     case 'project':
+    case 'project-workflows':
+    case 'project-workflow-edit':
     case 'project-issue':
     case 'project-issue-workspace':
     case 'project-issue-workspace-create':
@@ -247,6 +262,8 @@ export function resolveKanbanRouteState(
 
     switch (projectDestination.kind) {
       case 'project':
+      case 'project-workflows':
+      case 'project-workflow-edit':
         return 'closed';
       case 'project-issue':
         return 'issue';

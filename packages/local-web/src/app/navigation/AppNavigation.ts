@@ -80,6 +80,17 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
       const projectId = getPathParam(routeParams, 'projectId');
       return projectId ? { kind: 'project', projectId } : null;
     }
+    case '/_app/projects/$projectId_/workflows': {
+      const projectId = getPathParam(routeParams, 'projectId');
+      return projectId ? { kind: 'project-workflows', projectId } : null;
+    }
+    case '/_app/projects/$projectId_/workflows_/$workflowId/edit': {
+      const projectId = getPathParam(routeParams, 'projectId');
+      const workflowId = getPathParam(routeParams, 'workflowId');
+      return projectId && workflowId
+        ? { kind: 'project-workflow-edit', projectId, workflowId }
+        : null;
+    }
     case '/_app/projects/$projectId_/issues/$issueId': {
       const projectId = getPathParam(routeParams, 'projectId');
       const issueId = getPathParam(routeParams, 'issueId');
@@ -238,6 +249,19 @@ function destinationToLocalTarget(
         to: '/projects/$projectId',
         params: { projectId: destination.projectId },
       } as const;
+    case 'project-workflows':
+      return {
+        to: '/projects/$projectId/workflows',
+        params: { projectId: destination.projectId },
+      } as const;
+    case 'project-workflow-edit':
+      return {
+        to: '/projects/$projectId/workflows/$workflowId/edit',
+        params: {
+          projectId: destination.projectId,
+          workflowId: destination.workflowId,
+        },
+      } as const;
     case 'project-issue':
       return {
         to: '/projects/$projectId/issues/$issueId',
@@ -343,6 +367,13 @@ export function createLocalAppNavigation(): AppNavigation {
     goToExport: (transition) => navigateTo({ kind: 'export' }, transition),
     goToProject: (projectId, transition) =>
       navigateTo({ kind: 'project', projectId }, transition),
+    goToProjectWorkflows: (projectId, transition) =>
+      navigateTo({ kind: 'project-workflows', projectId }, transition),
+    goToProjectWorkflowEdit: (projectId, workflowId, transition) =>
+      navigateTo(
+        { kind: 'project-workflow-edit', projectId, workflowId },
+        transition
+      ),
     goToProjectIssue: (projectId, issueId, transition) =>
       navigateTo({ kind: 'project-issue', projectId, issueId }, transition),
     goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>
