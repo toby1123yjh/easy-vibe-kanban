@@ -17,6 +17,7 @@ git = { path = "../git" }
 git-host = { path = "../git-host" }
 db = { path = "../db" }
 services = { path = "../services" }
+workflow = { path = "../workflow" }
 worktree-manager = { path = "../worktree-manager" }
 workspace-manager = { path = "../workspace-manager" }
 embedded-ssh = { path = "../embedded-ssh" }

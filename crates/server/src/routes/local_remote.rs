@@ -42,7 +42,11 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::{DeploymentImpl, error::ApiError, routes::workspaces::create::create_workspace_record};
+use crate::{
+    DeploymentImpl,
+    error::ApiError,
+    routes::{workflows, workspaces::create::create_workspace_record},
+};
 
 const LOCAL_PROJECT_COLOR: &str = "210 80% 52%";
 
@@ -119,7 +123,7 @@ struct BulkUpdateIssuesRequest {
     updates: Vec<BulkUpdateIssueItem>,
 }
 
-pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
+pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .route("/v1/organizations", get(list_organizations))
         .route("/v1/organizations/{org_id}/members", get(list_members))
@@ -252,6 +256,7 @@ pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/arena/{group_id}/workspaces/{workspace_id}/retry",
             post(retry_arena_workspace),
         )
+        .merge(workflows::router(deployment))
 }
 
 fn local_user_id() -> Uuid {
