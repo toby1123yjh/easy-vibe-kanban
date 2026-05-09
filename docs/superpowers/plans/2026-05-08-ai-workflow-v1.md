@@ -890,9 +890,10 @@ Result: committed as `14fda327`.
 - Modify: `pnpm-lock.yaml`
 - Create: `packages/web-core/src/features/workflow/model/workflowGraph.ts`
 - Create: `packages/web-core/src/features/workflow/model/workflowNodeCatalog.ts`
+- Create: `packages/web-core/src/features/workflow/model/workflowGraph.test.ts`
 - Create: `packages/web-core/src/features/workflow/index.ts`
 
-- [ ] **Step 1: Add dependency**
+- [x] **Step 1: Add dependency**
 
 Run:
 
@@ -902,7 +903,7 @@ pnpm --filter @vibe/web-core add @xyflow/react
 
 Expected: `packages/web-core/package.json` and `pnpm-lock.yaml` update.
 
-- [ ] **Step 2: Implement TS graph helpers**
+- [x] **Step 2: Implement TS graph helpers**
 
 Add node catalog for:
 
@@ -916,11 +917,19 @@ Add node catalog for:
 
 Include default node data matching backend schema.
 
-- [ ] **Step 3: Run typecheck**
+- [x] **Step 3: Run typecheck**
 
 Run: `pnpm --filter @vibe/web-core run check`
 
 Expected: PASS.
+
+Result: PASS. Also verified the focused graph model test and scoped Prettier check:
+
+```bash
+pnpm dlx vitest run packages/web-core/src/features/workflow/model/workflowGraph.test.ts --root packages/web-core --pool forks
+pnpm --filter @vibe/web-core run check
+packages/web-core/node_modules/.bin/prettier.cmd --check src/features/workflow/model/workflowGraph.ts src/features/workflow/model/workflowNodeCatalog.ts src/features/workflow/index.ts src/features/workflow/model/workflowGraph.test.ts
+```
 
 - [ ] **Step 4: Commit**
 

@@ -57,6 +57,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.0",
     "click-to-react-component": "^1.1.2",
     "clsx": "^2.0.0",
