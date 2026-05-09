@@ -837,11 +837,11 @@ git commit -m "feat(workflow): add workflow pause resume and events"
 - Create: `packages/web-core/src/shared/hooks/useWorkflowRun.ts`
 - Create: `packages/web-core/src/shared/hooks/useWorkflowRunEvents.ts`
 
-- [ ] **Step 1: Write hook/API tests if local test harness exists**
+- [x] **Step 1: Write hook/API tests if local test harness exists**
 
 If there is no matching frontend unit harness, write type-level usage examples in the hook files and rely on `tsc` for this task.
 
-- [ ] **Step 2: Implement API wrapper**
+- [x] **Step 2: Implement API wrapper**
 
 Mirror the smaller style of `packages/web-core/src/shared/lib/arenaApi.ts`:
 
@@ -859,11 +859,20 @@ Mirror the smaller style of `packages/web-core/src/shared/lib/arenaApi.ts`:
 - `selectArenaWinner(runId, nodeId, payload)`
 - `eventsUrl(runId)`
 
-- [ ] **Step 3: Run typecheck**
+- [x] **Step 3: Run typecheck**
 
 Run: `pnpm --filter @vibe/web-core run check`
 
 Expected: PASS.
+
+Result: PASS. Also verified the four new files with Prettier directly:
+
+```bash
+pnpm --filter @vibe/web-core run check
+packages/web-core/node_modules/.bin/prettier.cmd --check src/shared/lib/workflowApi.ts src/shared/hooks/useWorkflowTemplates.ts src/shared/hooks/useWorkflowRun.ts src/shared/hooks/useWorkflowRunEvents.ts
+```
+
+Note: Full `pnpm --filter @vibe/web-core run format:check` still fails due existing unrelated formatting drift across the package, so this task used scoped formatting checks for the newly added files.
 
 - [ ] **Step 4: Commit**
 
