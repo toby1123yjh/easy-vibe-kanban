@@ -171,6 +171,12 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/fallback/issue_comment_reactions",
             get(fallback_issue_comment_reactions),
         )
+        .route("/v1/fallback/workflows", get(fallback_workflows))
+        .route("/v1/fallback/workflow_runs", get(fallback_workflow_runs))
+        .route(
+            "/v1/fallback/node_executions",
+            get(fallback_node_executions),
+        )
         .route("/v1/projects", post(create_project))
         .route("/v1/projects/bulk", post(bulk_update_projects))
         .route(
@@ -1428,6 +1434,38 @@ async fn fallback_issue_comment_reactions(
         list_issue_comment_reactions(&deployment.db().pool, issue_id).await?;
     Ok(ResponseJson(
         json!({ "issue_comment_reactions": issue_comment_reactions }),
+    ))
+}
+
+async fn fallback_workflows(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<workflows::FallbackWorkflowsQuery>,
+) -> Result<ResponseJson<Value>, ApiError> {
+    Ok(ResponseJson(
+        workflows::fallback_workflows_payload(&deployment.db().pool, query.project_id).await?,
+    ))
+}
+
+async fn fallback_workflow_runs(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<workflows::FallbackWorkflowRunsQuery>,
+) -> Result<ResponseJson<Value>, ApiError> {
+    Ok(ResponseJson(
+        workflows::fallback_workflow_runs_payload(
+            &deployment.db().pool,
+            query.issue_id,
+            query.workflow_id,
+        )
+        .await?,
+    ))
+}
+
+async fn fallback_node_executions(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<workflows::FallbackNodeExecutionsQuery>,
+) -> Result<ResponseJson<Value>, ApiError> {
+    Ok(ResponseJson(
+        workflows::fallback_node_executions_payload(&deployment.db().pool, query.run_id).await?,
     ))
 }
 
