@@ -706,7 +706,7 @@ Committed as `85704d2a`.
 - Modify: `crates/server/src/routes/workflows.rs`
 - Modify: `crates/server/src/lib.rs`
 
-- [ ] **Step 1: Write adapter tests with fake ports where possible**
+- [x] **Step 1: Write adapter tests with fake ports where possible**
 
 Cover:
 
@@ -716,13 +716,15 @@ Cover:
 - Agent node creates/uses a session in the main workflow workspace
 - Agent node stores `session_id` and final output
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `cargo test -p server workflow_runner`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement trigger and adapter**
+Note: Local `cargo test -p server workflow_runner` reached the known Windows/MSVC linker blocker (`LNK1171: unable to load mspdb140.dll`) after the failing tests were added, so RED was verified as blocked by local toolchain before implementation. Remote CI is the authoritative verification path for this branch.
+
+- [x] **Step 3: Implement trigger and adapter**
 
 Use existing workspace/session patterns from:
 
@@ -739,13 +741,15 @@ vk/<issue_id>-wf-<run_short_id>
 
 Agent prompt input comes from rendered upstream outputs. Agent nodes sharing the main worktree must not run concurrently in V1.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cargo test -p server workflow_runner`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Result: GitHub Actions Test run `25594619826` on `776020df` completed successfully.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/server/src/workflow_runtime crates/server/src/routes/workflows.rs crates/server/src/lib.rs
