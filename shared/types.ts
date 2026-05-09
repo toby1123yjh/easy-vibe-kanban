@@ -188,6 +188,30 @@ export type ArenaLifecycleStatus = "open" | "closed" | "adopted" | "implementati
 
 export type CreateArenaGroup = { issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, };
 
+export type WorkflowSource = "system" | "project";
+
+export type WorkflowRunStatus = "pending" | "running" | "awaiting_human" | "awaiting_arena" | "succeeded" | "failed" | "canceled";
+
+export type NodeExecutionStatus = "pending" | "running" | "awaiting_human" | "awaiting_arena" | "succeeded" | "failed" | "skipped";
+
+export type Workflow = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, created_at: string, updated_at: string, };
+
+export type WorkflowRun = { id: string, workflow_id: string, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+
+export type NodeExecution = { id: string, run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+
+export type CreateWorkflow = { source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, };
+
+export type UpdateWorkflow = { name: string | null, description: string | null, graph_json: string | null, };
+
+export type CreateWorkflowRun = { workflow_id: string, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
+
+export type UpdateWorkflowRunStatus = { status: WorkflowRunStatus, output_text: string | null, error_text: string | null, };
+
+export type CreateNodeExecution = { run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, };
+
+export type UpdateNodeExecution = { status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, error_text: string | null, };
+
 export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string | null, 
 /**
  * Optional per-attempt prompt override. Falls back to the
@@ -197,9 +221,15 @@ prompt?: string | null, };
 
 export type CreateArenaRequest = { project_id: string, base_branch: string, prompt: string, mode: ArenaMode, repos: Array<WorkspaceRepoInput>, attempts: Array<ArenaAttemptInput>, };
 
-export type ArenaWorkspaceSummary = { workspace_id: string, session_id: string | null, name: string | null, branch: string, arena_status: ArenaStatus, executor: string | null, variant: string | null, latest_execution_status: ExecutionProcessStatus | null, has_uncommitted_changes: boolean | null, };
+export type ArenaWorkspacePurpose = "attempt" | "synthesis";
 
-export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
+export type ArenaWorkspaceSummary = { workspace_id: string, session_id: string | null, name: string | null, branch: string, purpose: ArenaWorkspacePurpose, arena_status: ArenaStatus, executor: string | null, variant: string | null, latest_execution_status: ExecutionProcessStatus | null, has_uncommitted_changes: boolean | null, };
+
+export type ArenaEventKind = "ask_all" | "workspace" | "challenge" | "synthesize" | "start_implementation";
+
+export type ArenaEvent = { id: string, arena_group_id: string, kind: ArenaEventKind, prompt: string, source_workspace_id: string | null, target_workspace_id: string | null, synthesis_workspace_id: string | null, created_at: string, };
+
+export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, events: Array<ArenaEvent>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type PromoteArenaRequest = { workspace_id: string, };
 
@@ -215,9 +245,13 @@ export type CloseArenaResponse = { group_id: string, lifecycle_status: ArenaLife
 
 export type StartArenaImplementationRequest = { workspace_id: string, follow_up_prompt?: string | null, executor_config?: ExecutorConfig | null, };
 
-export type ArenaMessageTarget = { "type": "all" } | { "type": "workspace", workspace_id: string, } | { "type": "challenge", responder_workspace_id: string, source_workspace_id: string, } | { "type": "synthesize" };
+export type ArenaSynthesizeOptions = { include_original_prompt: boolean, include_attempt_summaries: boolean, include_activity: boolean, };
 
-export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, };
+export type ArenaMessageTarget = { "type": "all" } | { "type": "workspace", workspace_id: string, } | { "type": "challenge", responder_workspace_id: string, source_workspace_id: string, } | { "type": "synthesize", options: ArenaSynthesizeOptions, };
+
+export type ArenaWorkspaceExecutorConfig = { workspace_id: string, executor_config: ExecutorConfig, };
+
+export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, executor_configs: Array<ArenaWorkspaceExecutorConfig>, };
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
