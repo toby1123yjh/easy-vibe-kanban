@@ -1150,10 +1150,13 @@ Result: committed in `feat(workflow): add workflow run canvas`.
 ### Task 4.3: Build Full Dashboard Tab
 
 **Files:**
+- Modify: `packages/web-core/src/features/workflow/model/workflowRunView.ts`
+- Modify: `packages/web-core/src/features/workflow/model/workflowRunView.test.ts`
 - Create: `packages/web-core/src/features/workflow/ui/WorkflowRunDashboardTab.tsx`
 - Modify: `packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx`
+- Modify: `packages/web-core/src/features/workflow/index.ts`
 
-- [ ] **Step 1: Implement seven dashboard sections**
+- [x] **Step 1: Implement seven dashboard sections**
 
 Sections:
 
@@ -1165,20 +1168,28 @@ Sections:
 6. Agent Contribution: executor summary, step counts, durations, nullable token fields.
 7. Code Changes: link to main workflow workspace diff.
 
-- [ ] **Step 2: Add cancel and retry UI**
+Result: implemented `WorkflowRunDashboardTab` with run details, progress, steps timeline, selected step detail, decisions, agent contribution, and code changes sections. Current run response does not expose issue titles or arena attempt details, so those areas show ids/current node fields and explicit empty states.
+
+- [x] **Step 2: Add cancel and retry UI**
 
 Use existing button/icon patterns and `workflowApi.cancelRun` / `workflowApi.retry`.
 
-- [ ] **Step 3: Run checks**
+Result: wired cancel run, failed-step retry, and Human Gate approve/reject via `useWorkflowRunMutations`.
+
+- [x] **Step 3: Run checks**
 
 Run:
 
 ```bash
+pnpm dlx vitest run packages/web-core/src/features/workflow/model/workflowRunView.test.ts --root packages/web-core --pool forks
 pnpm --filter @vibe/web-core run check
 pnpm --filter @vibe/local-web run check
+pnpm --filter @vibe/remote-web run check
 ```
 
 Expected: PASS.
+
+Result: PASS. Also ran scoped Prettier checks for touched web-core files and `git diff --check` (only Windows LF/CRLF warnings).
 
 - [ ] **Step 4: Manual smoke test**
 
@@ -1191,12 +1202,16 @@ Expected:
 - Canvas tab does not overlap text on desktop or mobile width
 - approve/reject buttons call correct API
 
-- [ ] **Step 5: Commit**
+Result: not run locally in this pass; backend/dev smoke remains blocked by the local Windows Rust toolchain issue noted earlier.
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add packages/web-core/src/features/workflow/ui/WorkflowRunDashboardTab.tsx packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx
+git add packages/web-core/src/features/workflow/model/workflowRunView.ts packages/web-core/src/features/workflow/model/workflowRunView.test.ts packages/web-core/src/features/workflow/ui/WorkflowRunDashboardTab.tsx packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx packages/web-core/src/features/workflow/index.ts
 git commit -m "feat(workflow): add workflow run dashboard"
 ```
+
+Result: committed in `feat(workflow): add workflow run dashboard`.
 
 ## Phase 5: Arena Node Fan-Out, Manual Winner Selection, Diff Apply Backfill
 

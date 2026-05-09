@@ -3,6 +3,7 @@ import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowRunEvents } from '@/shared/hooks/useWorkflowRunEvents';
 import { getWorkflowRunStatusLabel } from '../model/workflowRunView';
 import { WorkflowRunCanvasTab } from './WorkflowRunCanvasTab';
+import { WorkflowRunDashboardTab } from './WorkflowRunDashboardTab';
 import { Activity, LayoutDashboard, Workflow } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 
@@ -103,9 +104,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
           <WorkflowRunCanvasTab projectId={projectId} run={run} />
         )}
         {activeTab === 'dashboard' && (
-          <div className="flex h-full items-center justify-center bg-primary p-base text-sm text-low">
-            Dashboard tab will be expanded in Phase 4.3.
-          </div>
+          <WorkflowRunDashboardTab projectId={projectId} run={run} />
         )}
       </main>
     </div>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowRunResponse } from 'shared/types';
 import {
+  buildWorkflowRunDashboardSummary,
+  formatWorkflowDuration,
   getNodeStatusTone,
   getWorkflowRunStatusLabel,
   selectWorkflowRunNode,
@@ -83,5 +85,43 @@ describe('workflow run view helpers', () => {
     expect(selectWorkflowRunNode(baseRun, 'review')?.node_id).toBe('review');
     expect(selectWorkflowRunNode(baseRun, 'missing')?.node_id).toBe('plan');
     expect(selectWorkflowRunNode(baseRun, null)?.node_id).toBe('plan');
+  });
+
+  it('summarizes progress, waiting work, and nullable contribution totals', () => {
+    const summary = buildWorkflowRunDashboardSummary({
+      ...baseRun,
+      nodes: [
+        {
+          ...baseRun.nodes[0],
+          tokens_used: 1200n,
+          cost_estimate: 0.42,
+        },
+        baseRun.nodes[1],
+        {
+          ...baseRun.nodes[0],
+          id: 'node-exec-3',
+          node_id: 'fix',
+          node_type: 'agent',
+          status: 'failed',
+          tokens_used: null,
+          cost_estimate: null,
+        },
+      ],
+    });
+
+    expect(summary.totalSteps).toBe(3);
+    expect(summary.completedSteps).toBe(1);
+    expect(summary.waitingSteps).toBe(1);
+    expect(summary.failedSteps).toBe(1);
+    expect(summary.progressPercent).toBe(33);
+    expect(summary.totalTokens).toBe(1200);
+    expect(summary.totalCostEstimate).toBe(0.42);
+  });
+
+  it('formats elapsed durations from timestamps', () => {
+    expect(
+      formatWorkflowDuration('2026-05-09T00:00:00Z', '2026-05-09T00:02:05Z')
+    ).toBe('2m 5s');
+    expect(formatWorkflowDuration(null, null)).toBe('Not started');
   });
 });
