@@ -8,18 +8,27 @@ use ts_rs::TS;
 #[test]
 fn workflow_route_dtos_export_stable_type_names() {
     let declarations = [
-        WorkflowTemplateResponse::decl(),
-        WorkflowTemplateListResponse::decl(),
-        CreateWorkflowRequest::decl(),
-        UpdateWorkflowRequest::decl(),
-        TriggerWorkflowRequest::decl(),
-        WorkflowRunResponse::decl(),
-        WorkflowNodeExecutionResponse::decl(),
-        WorkflowActionResponse::decl(),
+        ("WorkflowTemplateResponse", WorkflowTemplateResponse::decl()),
+        (
+            "WorkflowTemplateListResponse",
+            WorkflowTemplateListResponse::decl(),
+        ),
+        ("CreateWorkflowRequest", CreateWorkflowRequest::decl()),
+        ("UpdateWorkflowRequest", UpdateWorkflowRequest::decl()),
+        ("TriggerWorkflowRequest", TriggerWorkflowRequest::decl()),
+        ("WorkflowRunResponse", WorkflowRunResponse::decl()),
+        (
+            "WorkflowNodeExecutionResponse",
+            WorkflowNodeExecutionResponse::decl(),
+        ),
+        ("WorkflowActionResponse", WorkflowActionResponse::decl()),
     ];
 
-    for declaration in declarations {
-        assert!(declaration.contains("export type "));
+    for (name, declaration) in declarations {
+        assert!(
+            declaration.contains(name),
+            "{name} declaration should include its exported type name"
+        );
     }
 }
 

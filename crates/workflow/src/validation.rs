@@ -169,7 +169,7 @@ fn visit_for_cycle<'a>(
 
     if let Some(targets) = adjacency.get(node_id) {
         for target in targets {
-            visit_for_cycle(*target, adjacency, states)?;
+            visit_for_cycle(target, adjacency, states)?;
         }
     }
 
@@ -199,12 +199,11 @@ fn reachable_nodes<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::graph::{
         WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
         WorkflowNodeKind,
     };
-
-    use super::*;
 
     fn node(id: &str, kind: WorkflowNodeKind) -> WorkflowNode {
         WorkflowNode {
@@ -269,10 +268,7 @@ mod tests {
                 node("start-b", WorkflowNodeKind::Start),
                 node("end", WorkflowNodeKind::End),
             ],
-            vec![
-                edge("e1", "start-a", "end"),
-                edge("e2", "start-b", "end"),
-            ],
+            vec![edge("e1", "start-a", "end"), edge("e2", "start-b", "end")],
         );
 
         let err = validate_graph(&graph).unwrap_err();

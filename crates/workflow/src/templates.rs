@@ -1,14 +1,13 @@
 use crate::graph::{
     AgentOutputCapture, ArenaApplyStrategy, ArenaAttemptConfig, ArenaPromoteStrategy,
-    HumanGateAction, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode,
-    WorkflowNodeData, WorkflowNodeKind,
+    HumanGateAction, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
+    WorkflowNodeKind,
 };
 
 // Stable system template ids. These ids are persisted by workflow_runs.workflow_id.
 const PLAN_APPROVE_IMPLEMENT_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000001";
 const PLAN_ARENA_PICK_WINNER_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000002";
-const RESEARCH_ARCHITECT_IMPLEMENT_REVIEW_FIX_ID: &str =
-    "8f1f2f0c-0e58-4c7c-8dc1-000000000003";
+const RESEARCH_ARCHITECT_IMPLEMENT_REVIEW_FIX_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000003";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkflowTemplate {
@@ -289,9 +288,8 @@ fn arena_attempt(id: &str, display_name: &str) -> ArenaAttemptConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::validation::validate_graph;
-
     use super::*;
+    use crate::validation::validate_graph;
 
     #[test]
     fn built_in_templates_are_valid() {
