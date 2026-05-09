@@ -1081,11 +1081,14 @@ Result: committed in `feat(workflow): add issue workflow entry point`.
 ### Task 4.2: Build Run Page Canvas Tab
 
 **Files:**
+- Create: `packages/web-core/src/features/workflow/model/workflowRunView.ts`
+- Create: `packages/web-core/src/features/workflow/model/workflowRunView.test.ts`
 - Create: `packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx`
 - Create: `packages/web-core/src/features/workflow/ui/WorkflowRunCanvasTab.tsx`
+- Modify: `packages/web-core/src/features/workflow/index.ts`
 - Modify: `packages/local-web/src/routes/_app.projects.$projectId_.workflow-runs.$runId.tsx`
 
-- [ ] **Step 1: Implement route and page shell**
+- [x] **Step 1: Implement route and page shell**
 
 Page has tabs:
 
@@ -1094,7 +1097,9 @@ Page has tabs:
 
 Default tab can be Dashboard, but Canvas must be directly selectable.
 
-- [ ] **Step 2: Implement read-only run canvas**
+Result: replaced the local placeholder route with `WorkflowRunPage`, added compact run status header, direct Canvas/Dashboard tabs, and a Phase 4.3 dashboard placeholder.
+
+- [x] **Step 2: Implement read-only run canvas**
 
 Canvas displays:
 
@@ -1104,7 +1109,9 @@ Canvas displays:
 - Human Gate approve/reject controls when applicable
 - Arena open/pick-winner link when applicable
 
-- [ ] **Step 3: Connect event stream**
+Result: implemented a read-only React Flow canvas from the workflow template graph plus run node executions, status-colored nodes/edges, a selected node detail panel, Human Gate approve/reject actions, and an Arena group link/Phase 5 winner-control placeholder when run data exposes `arena_group_id`.
+
+- [x] **Step 3: Connect event stream**
 
 Use `useWorkflowRunEvents` to refresh run state on:
 
@@ -1115,23 +1122,30 @@ Use `useWorkflowRunEvents` to refresh run state on:
 - waiting human
 - waiting arena
 
-- [ ] **Step 4: Run checks**
+Result: connected `useWorkflowRunEvents` at the run page level while the run is active or waiting.
+
+- [x] **Step 4: Run checks**
 
 Run:
 
 ```bash
+pnpm dlx vitest run packages/web-core/src/features/workflow/model/workflowRunView.test.ts --root packages/web-core --pool forks
 pnpm --filter @vibe/web-core run check
 pnpm --filter @vibe/local-web run check
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+Result: PASS. Also ran scoped Prettier checks for the touched web-core and local-web files plus `git diff --check` (only Windows LF/CRLF warnings).
+
+- [x] **Step 5: Commit**
 
 ```bash
-git add packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx packages/web-core/src/features/workflow/ui/WorkflowRunCanvasTab.tsx packages/local-web/src/routes/_app.projects.$projectId_.workflow-runs.$runId.tsx
+git add packages/web-core/src/features/workflow/model/workflowRunView.ts packages/web-core/src/features/workflow/model/workflowRunView.test.ts packages/web-core/src/features/workflow/ui/WorkflowRunPage.tsx packages/web-core/src/features/workflow/ui/WorkflowRunCanvasTab.tsx packages/web-core/src/features/workflow/index.ts packages/local-web/src/routes/_app.projects.$projectId_.workflow-runs.$runId.tsx
 git commit -m "feat(workflow): add workflow run canvas"
 ```
+
+Result: committed in `feat(workflow): add workflow run canvas`.
 
 ### Task 4.3: Build Full Dashboard Tab
 
