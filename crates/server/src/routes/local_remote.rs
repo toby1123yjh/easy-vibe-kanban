@@ -2094,11 +2094,11 @@ fn is_synthesis_workspace(workspace: &DbWorkspace) -> bool {
     arena_workspace_purpose_from_name(workspace.name.as_deref()) == ArenaWorkspacePurpose::Synthesis
 }
 
-fn find_attempt_workspace_in_group<'a>(
-    workspaces: &'a [DbWorkspace],
+fn find_attempt_workspace_in_group(
+    workspaces: &[DbWorkspace],
     group_id: Uuid,
     workspace_id: Uuid,
-) -> Result<&'a DbWorkspace, ArenaGroupError> {
+) -> Result<&DbWorkspace, ArenaGroupError> {
     workspaces
         .iter()
         .find(|workspace| workspace.id == workspace_id && !is_synthesis_workspace(workspace))
