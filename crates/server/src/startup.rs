@@ -12,6 +12,7 @@ use utils::assets::asset_dir;
 
 use crate::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    workflow_runtime::runner::recover_stale_workflow_runs,
 };
 
 /// A running server instance. Callers can read the port, then call `serve()`
@@ -160,6 +161,9 @@ pub async fn initialize_deployment(
         .cleanup_orphan_executions()
         .await
         .map_err(DeploymentError::from)?;
+    recover_stale_workflow_runs(&deployment.db().pool)
+        .await
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
     deployment
         .container()
         .backfill_before_head_commits()

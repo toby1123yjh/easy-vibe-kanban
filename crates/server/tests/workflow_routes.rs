@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use db::models::workflow::WorkflowSource;
+use db::models::workflow::{NodeExecutionStatus, WorkflowRunStatus, WorkflowSource};
 use serde_json::{Value, json};
 use server::{
     error::ApiError,
@@ -12,8 +12,10 @@ use server::{
         fallback_workflows_payload, list_project_workflows, update_workflow_template,
     },
     workflow_runtime::runner::{
-        AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowWorkspaceRequest,
-        WorkflowWorkspaceResolver, trigger_workflow_run,
+        AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
+        WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
+        cancel_workflow_run_runtime, recover_stale_workflow_runs, reject_human_node,
+        retry_workflow_node, trigger_workflow_run, workflow_event_history,
     },
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -164,6 +166,145 @@ fn agent_graph_json() -> String {
     .to_string()
 }
 
+fn human_gate_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "gate",
+                "type": "human_gate",
+                "data": {
+                    "display_name": "Approve plan",
+                    "prompt_to_human": "Approve this plan?",
+                    "required_action": "approve_or_reject"
+                }
+            },
+            {
+                "id": "agent",
+                "type": "agent",
+                "data": {
+                    "display_name": "Implementer",
+                    "prompt_template": "After approval: {{upstream}}"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "gate", "type": "default" },
+            { "id": "e2", "source": "gate", "target": "agent", "type": "default" },
+            { "id": "e3", "source": "agent", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn failing_transform_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "transform",
+                "type": "transform",
+                "data": {
+                    "display_name": "Extract ticket",
+                    "mode": "regex_extract",
+                    "regex": "NO_MATCH-(\\d+)"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "transform", "type": "default" },
+            { "id": "e2", "source": "transform", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn fixed_transform_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "transform",
+                "type": "transform",
+                "data": {
+                    "display_name": "Summarize",
+                    "mode": "template",
+                    "template": "Fixed: {{input}}"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "transform", "type": "default" },
+            { "id": "e2", "source": "transform", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn failing_condition_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "condition",
+                "type": "condition",
+                "data": {
+                    "display_name": "Broken condition",
+                    "conditions": [
+                        {
+                            "input": "run_input",
+                            "operator": "regex",
+                            "value": "["
+                        }
+                    ]
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "condition", "type": "default" },
+            { "id": "e2", "source": "condition", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn fixed_condition_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "condition",
+                "type": "condition",
+                "data": {
+                    "display_name": "Fixed condition",
+                    "conditions": [
+                        {
+                            "input": "run_input",
+                            "operator": "contains",
+                            "value": "LGTM"
+                        }
+                    ]
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "condition", "type": "default" },
+            { "id": "e2", "source": "condition", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
 fn graph_without_start_json() -> String {
     json!({
         "version": 1,
@@ -242,6 +383,99 @@ impl WorkflowAgentExecutor for FakeAgentExecutor {
             session_id: self.session_id,
             output_text: self.output_text.clone(),
         })
+    }
+}
+
+#[derive(Debug)]
+struct StartedAgentExecutor {
+    session_id: Uuid,
+    requests: Mutex<Vec<AgentNodeRequest>>,
+}
+
+impl StartedAgentExecutor {
+    fn new(session_id: Uuid) -> Self {
+        Self {
+            session_id,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowAgentExecutor for StartedAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        self.requests.lock().expect("agent requests").push(request);
+
+        Ok(AgentNodeExecution::Started {
+            session_id: self.session_id,
+            output_text: Some("agent still running".to_string()),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct FailOnceAgentExecutor {
+    session_id: Uuid,
+    output_text: String,
+    remaining_failures: Mutex<usize>,
+    requests: Mutex<Vec<AgentNodeRequest>>,
+}
+
+impl FailOnceAgentExecutor {
+    fn new(session_id: Uuid, output_text: impl Into<String>) -> Self {
+        Self {
+            session_id,
+            output_text: output_text.into(),
+            remaining_failures: Mutex::new(1),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<AgentNodeRequest> {
+        self.requests.lock().expect("agent requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowAgentExecutor for FailOnceAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        self.requests.lock().expect("agent requests").push(request);
+
+        let mut remaining_failures = self.remaining_failures.lock().expect("remaining failures");
+        if *remaining_failures > 0 {
+            *remaining_failures -= 1;
+            return Err(ApiError::BadRequest("agent failed once".to_string()));
+        }
+
+        Ok(AgentNodeExecution::Completed {
+            session_id: self.session_id,
+            output_text: self.output_text.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+struct FakeRunCanceller {
+    stopped_sessions: Mutex<Vec<Uuid>>,
+}
+
+impl FakeRunCanceller {
+    fn stopped_sessions(&self) -> Vec<Uuid> {
+        self.stopped_sessions
+            .lock()
+            .expect("stopped sessions")
+            .clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowRunCanceller for FakeRunCanceller {
+    async fn cancel_session(&self, session_id: Uuid) -> Result<(), ApiError> {
+        self.stopped_sessions
+            .lock()
+            .expect("stopped sessions")
+            .push(session_id);
+        Ok(())
     }
 }
 
@@ -646,6 +880,565 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
 }
 
+#[tokio::test]
+async fn workflow_human_gate_sets_run_awaiting_human() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Human Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(human_gate_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert human workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "should not run yet");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build workflow approvals".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    assert_eq!(run.status, WorkflowRunStatus::AwaitingHuman);
+    assert!(agent.requests().is_empty());
+    assert_eq!(
+        node_status(&run.nodes, "gate"),
+        NodeExecutionStatus::AwaitingHuman
+    );
+    assert_eq!(
+        node_status(&run.nodes, "agent"),
+        NodeExecutionStatus::Pending
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_approve_resumes_downstream_nodes() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Human Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(human_gate_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert human workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "approved implementation");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Ship the plan".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    let resumed = approve_human_node(&pool, run.id, "gate", &agent)
+        .await
+        .expect("approve human gate");
+
+    assert_eq!(resumed.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(
+        node_status(&resumed.nodes, "gate"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&resumed.nodes, "agent"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(agent.requests().len(), 1);
+    assert_eq!(agent.requests()[0].prompt, "After approval: Ship the plan");
+    assert_eq!(
+        resumed.output_text.as_deref(),
+        Some("approved implementation")
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_reject_fails_run() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Human Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(human_gate_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert human workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "should not run");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Review before coding".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    let rejected = reject_human_node(&pool, run.id, "gate")
+        .await
+        .expect("reject human gate");
+
+    assert_eq!(rejected.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&rejected.nodes, "gate"),
+        NodeExecutionStatus::Failed
+    );
+    assert!(agent.requests().is_empty());
+    assert!(
+        rejected
+            .error_text
+            .as_deref()
+            .is_some_and(|message| message.contains("rejected"))
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_cancel_marks_run_canceled_and_stops_running_session() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = StartedAgentExecutor::new(session_id);
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Long-running task".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+    assert_eq!(run.status, WorkflowRunStatus::Running);
+
+    let canceller = FakeRunCanceller::default();
+    let canceled = cancel_workflow_run_runtime(&pool, run.id, &canceller)
+        .await
+        .expect("cancel workflow run");
+
+    assert_eq!(canceled.status, WorkflowRunStatus::Canceled);
+    assert_eq!(canceller.stopped_sessions(), vec![session_id]);
+    assert_eq!(
+        node_status(&canceled.nodes, "agent"),
+        NodeExecutionStatus::Failed
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_retry_failed_agent_node_resumes_without_rerunning_start() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FailOnceAgentExecutor::new(session_id, "retry succeeded");
+
+    let failed = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Retry just the agent".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+    assert_eq!(failed.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&failed.nodes, "start"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&failed.nodes, "agent"),
+        NodeExecutionStatus::Failed
+    );
+
+    let retried = retry_workflow_node(&pool, failed.id, "agent", &agent)
+        .await
+        .expect("retry agent node");
+
+    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(agent.requests().len(), 2);
+    assert_eq!(
+        node_status(&retried.nodes, "start"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&retried.nodes, "agent"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(retried.output_text.as_deref(), Some("retry succeeded"));
+}
+
+#[tokio::test]
+async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Transform Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(failing_transform_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert transform workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "unused");
+
+    let failed = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "No ticket here".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+    assert_eq!(failed.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&failed.nodes, "transform"),
+        NodeExecutionStatus::Failed
+    );
+
+    sqlx::query("UPDATE workflows SET graph_json = ? WHERE id = ?")
+        .bind(fixed_transform_graph_json())
+        .bind(workflow_id)
+        .execute(&pool)
+        .await
+        .expect("fix transform workflow");
+
+    let retried = retry_workflow_node(&pool, failed.id, "transform", &agent)
+        .await
+        .expect("retry transform node");
+
+    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(
+        retried.output_text.as_deref(),
+        Some("Fixed: No ticket here")
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_retry_failed_condition_node_uses_updated_graph() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Condition Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(failing_condition_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert condition workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "unused");
+
+    let failed = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "LGTM".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+    assert_eq!(failed.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&failed.nodes, "condition"),
+        NodeExecutionStatus::Failed
+    );
+
+    sqlx::query("UPDATE workflows SET graph_json = ? WHERE id = ?")
+        .bind(fixed_condition_graph_json())
+        .bind(workflow_id)
+        .execute(&pool)
+        .await
+        .expect("fix condition workflow");
+
+    let retried = retry_workflow_node(&pool, failed.id, "condition", &agent)
+        .await
+        .expect("retry condition node");
+
+    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(
+        node_status(&retried.nodes, "condition"),
+        NodeExecutionStatus::Succeeded
+    );
+}
+
+#[tokio::test]
+async fn workflow_human_recovery_marks_stale_running_nodes_failed() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let run_id = Uuid::new_v4();
+    let node_execution_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert workflow");
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs
+            (id, workflow_id, issue_id, workspace_id, trigger_source, input_text, status)
+        VALUES (?, ?, ?, NULL, 'manual', 'Recover this', 'running')
+        "#,
+    )
+    .bind(run_id)
+    .bind(workflow_id)
+    .bind(issue_id)
+    .execute(&pool)
+    .await
+    .expect("insert run");
+    sqlx::query(
+        r#"
+        INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
+        VALUES (?, ?, 'agent', 'agent', 0, 'running')
+        "#,
+    )
+    .bind(node_execution_id)
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("insert stale node");
+
+    let recovered = recover_stale_workflow_runs(&pool)
+        .await
+        .expect("recover stale workflow runs");
+    let run = server::workflow_runtime::runner::get_workflow_run_response(&pool, run_id)
+        .await
+        .expect("get recovered run");
+
+    assert_eq!(recovered, 1);
+    assert_eq!(run.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&run.nodes, "agent"),
+        NodeExecutionStatus::Failed
+    );
+    assert!(
+        run.error_text
+            .as_deref()
+            .is_some_and(|message| message.contains("recover"))
+    );
+}
+
+#[tokio::test]
+async fn workflow_events_records_run_and_node_status_changes() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Human Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(human_gate_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert human workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "approved implementation");
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Emit workflow events".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    approve_human_node(&pool, run.id, "gate", &agent)
+        .await
+        .expect("approve human gate");
+
+    let events = workflow_event_history(run.id);
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == workflow::WorkflowEventKind::RunStatus
+                && event.status.as_deref() == Some("awaiting_human"))
+    );
+    assert!(events.iter().any(
+        |event| event.kind == workflow::WorkflowEventKind::NodeWaitingHuman
+            && event.node_id.as_deref() == Some("gate")
+    ));
+    assert!(events.iter().any(
+        |event| event.kind == workflow::WorkflowEventKind::NodeStatus
+            && event.node_id.as_deref() == Some("agent")
+            && event.status.as_deref() == Some("succeeded")
+    ));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == workflow::WorkflowEventKind::RunStatus
+                && event.status.as_deref() == Some("succeeded"))
+    );
+}
+
 fn short_run_id(run_id: Uuid) -> String {
     run_id.simple().to_string()[..8].to_string()
 }
@@ -655,4 +1448,12 @@ fn assert_payload_array_key(payload: &Value, key: &str) {
         payload.get(key).and_then(Value::as_array).is_some(),
         "fallback payload should include an array at `{key}`"
     );
+}
+
+fn node_status(nodes: &[WorkflowNodeExecutionResponse], node_id: &str) -> NodeExecutionStatus {
+    nodes
+        .iter()
+        .find(|node| node.node_id == node_id)
+        .unwrap_or_else(|| panic!("missing node execution `{node_id}`"))
+        .status
 }

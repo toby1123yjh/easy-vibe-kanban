@@ -761,8 +761,11 @@ git commit -m "feat(workflow): run workflow agent nodes"
 **Files:**
 - Modify: `crates/server/src/routes/workflows.rs`
 - Modify: `crates/server/src/workflow_runtime/runner.rs`
+- Modify: `crates/server/src/startup.rs`
+- Modify: `crates/server/src/main.rs`
+- Modify: `crates/server/tests/workflow_routes.rs`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 Cover:
 
@@ -774,13 +777,25 @@ Cover:
 - startup recovery marks stale `running` nodes failed/recoverable.
 - SSE emits run/node status changes.
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
-Run: `cargo test -p server workflow_human workflow_events`
+Run:
+
+```bash
+cargo test -p server workflow_human --test workflow_routes
+cargo test -p server workflow_events --test workflow_routes
+```
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement route actions**
+Note: Local cargo verification is blocked before project compilation by the Windows/MSVC toolchain:
+
+- `link.exe`: `LINK : fatal error LNK1171: unable to load mspdb140.dll`
+- `rust-lld`: missing Windows SDK import libs such as `kernel32.lib`
+
+Remote GitHub Actions is the authoritative verification path for this task.
+
+- [x] **Step 3: Implement route actions**
 
 Implement:
 
@@ -794,14 +809,21 @@ Use Axum SSE and `tokio::sync::broadcast` for state/output events.
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test -p server workflow_human workflow_events`
+Run:
+
+```bash
+cargo test -p server workflow_human --test workflow_routes
+cargo test -p server workflow_events --test workflow_routes
+```
 
 Expected: PASS.
+
+Result: Pending remote GitHub Actions verification because local Rust linking fails before compiling the server crate.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/server/src/routes/workflows.rs crates/server/src/workflow_runtime/runner.rs
+git add crates/server/src/routes/workflows.rs crates/server/src/workflow_runtime/runner.rs crates/server/src/startup.rs crates/server/src/main.rs crates/server/tests/workflow_routes.rs docs/superpowers/plans/2026-05-08-ai-workflow-v1.md
 git commit -m "feat(workflow): add workflow pause resume and events"
 ```
 

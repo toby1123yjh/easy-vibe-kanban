@@ -1,14 +1,18 @@
 use api_types::{DeleteResponse, MutationResponse};
 use axum::{
-    Json, Router,
+    BoxError, Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    response::Json as ResponseJson,
+    response::{
+        Json as ResponseJson, Sse,
+        sse::{Event, KeepAlive},
+    },
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use db::models::workflow::{NodeExecutionStatus, WorkflowRunStatus, WorkflowSource};
 use deployment::Deployment;
+use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
@@ -22,7 +26,10 @@ use crate::{
     error::ApiError,
     workflow_runtime::{
         runner::{
-            DeploymentWorkflowAgentExecutor, get_workflow_run_response, trigger_workflow_run,
+            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, approve_human_node,
+            cancel_workflow_run_runtime, get_workflow_run_response, reject_human_node,
+            retry_workflow_node, subscribe_workflow_events, trigger_workflow_run,
+            workflow_event_history,
         },
         workspace::DeploymentWorkflowWorkspaceResolver,
     },
@@ -746,26 +753,123 @@ async fn get_workflow_run(
     ))
 }
 
-async fn cancel_workflow_run(Path(_run_id): Path<Uuid>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn cancel_workflow_run(
+    State(deployment): State<DeploymentImpl>,
+    Path(run_id): Path<Uuid>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let canceller = DeploymentWorkflowRunCanceller::new(deployment.clone());
+    let run = cancel_workflow_run_runtime(&deployment.db().pool, run_id, &canceller).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, None),
+        txid: txid(),
+    }))
 }
 
-async fn workflow_run_events(Path(_run_id): Path<Uuid>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn workflow_run_events(
+    State(deployment): State<DeploymentImpl>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, BoxError>>>, ApiError> {
+    get_workflow_run_response(&deployment.db().pool, run_id).await?;
+
+    let run_id_string = run_id.to_string();
+    let receiver = subscribe_workflow_events();
+    let history_events = workflow_event_history(run_id);
+    let last_history_sequence = history_events
+        .iter()
+        .map(|event| event.sequence)
+        .max()
+        .unwrap_or_default();
+    let history = stream::iter(
+        history_events
+            .into_iter()
+            .map(|event| Ok::<Event, BoxError>(workflow_event_to_sse_event(event))),
+    );
+    let live = stream::unfold(
+        (run_id_string, receiver, last_history_sequence),
+        |(run_id_string, mut receiver, last_history_sequence)| async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(event)
+                        if event.run_id == run_id_string
+                            && event.sequence > last_history_sequence =>
+                    {
+                        return Some((
+                            Ok::<Event, BoxError>(workflow_event_to_sse_event(event)),
+                            (run_id_string, receiver, last_history_sequence),
+                        ));
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+                }
+            }
+        },
+    );
+
+    Ok(Sse::new(history.chain(live)).keep_alive(KeepAlive::default()))
 }
 
-async fn retry_node(Path((_run_id, _node_id)): Path<(Uuid, String)>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn retry_node(
+    State(deployment): State<DeploymentImpl>,
+    Path((run_id, node_id)): Path<(Uuid, String)>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let run = retry_workflow_node(&deployment.db().pool, run_id, &node_id, &agent_executor).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, Some(node_id)),
+        txid: txid(),
+    }))
 }
 
-async fn approve_node(Path((_run_id, _node_id)): Path<(Uuid, String)>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn approve_node(
+    State(deployment): State<DeploymentImpl>,
+    Path((run_id, node_id)): Path<(Uuid, String)>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let run = approve_human_node(&deployment.db().pool, run_id, &node_id, &agent_executor).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, Some(node_id)),
+        txid: txid(),
+    }))
 }
 
-async fn reject_node(Path((_run_id, _node_id)): Path<(Uuid, String)>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn reject_node(
+    State(deployment): State<DeploymentImpl>,
+    Path((run_id, node_id)): Path<(Uuid, String)>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let run = reject_human_node(&deployment.db().pool, run_id, &node_id).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, Some(node_id)),
+        txid: txid(),
+    }))
 }
 
 async fn select_arena_winner(Path((_run_id, _node_id)): Path<(Uuid, String)>) -> StatusCode {
     StatusCode::NOT_IMPLEMENTED
+}
+
+fn workflow_action_response(
+    run: &WorkflowRunResponse,
+    node_id: Option<String>,
+) -> WorkflowActionResponse {
+    WorkflowActionResponse {
+        run_id: run.id,
+        node_id,
+        status: run.status,
+    }
+}
+
+fn workflow_event_to_sse_event(event: workflow::WorkflowEvent) -> Event {
+    let event_name = serde_json::to_string(&event.kind)
+        .ok()
+        .and_then(|value| serde_json::from_str::<String>(&value).ok())
+        .unwrap_or_else(|| "workflow_event".to_string());
+    let id = event.sequence.to_string();
+    let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+
+    Event::default().id(id).event(event_name).data(data)
 }

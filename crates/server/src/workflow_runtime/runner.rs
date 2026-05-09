@@ -1,6 +1,8 @@
+use std::sync::{LazyLock, Mutex};
+
 use async_trait::async_trait;
 use db::models::{
-    execution_process::ExecutionProcessRunReason,
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
     session::{CreateSession, Session},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError},
@@ -13,13 +15,15 @@ use executors::{
     },
     profile::{ExecutorConfig, ExecutorConfigs},
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use services::services::container::ContainerService;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 use workflow::{
     WorkflowGraph,
+    events::WorkflowEvent,
     graph::{WorkflowEdge, WorkflowNode, WorkflowNodeKind},
     handlers::{NodeHandlerContext, NodeHandlerStatus, UpstreamOutput, handle_pure_node},
     planner::{
@@ -96,6 +100,109 @@ pub enum AgentNodeExecution {
 #[async_trait]
 pub trait WorkflowAgentExecutor: Send + Sync {
     async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError>;
+}
+
+#[async_trait]
+pub trait WorkflowRunCanceller: Send + Sync {
+    async fn cancel_session(&self, session_id: Uuid) -> Result<(), ApiError>;
+}
+
+#[derive(Clone)]
+pub struct DeploymentWorkflowRunCanceller {
+    deployment: DeploymentImpl,
+}
+
+impl DeploymentWorkflowRunCanceller {
+    pub fn new(deployment: DeploymentImpl) -> Self {
+        Self { deployment }
+    }
+}
+
+#[async_trait]
+impl WorkflowRunCanceller for DeploymentWorkflowRunCanceller {
+    async fn cancel_session(&self, session_id: Uuid) -> Result<(), ApiError> {
+        let processes =
+            ExecutionProcess::find_by_session_id(&self.deployment.db().pool, session_id, false)
+                .await?;
+        for process in processes
+            .iter()
+            .filter(|process| process.status == ExecutionProcessStatus::Running)
+        {
+            self.deployment
+                .container()
+                .stop_execution(process, ExecutionProcessStatus::Killed)
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
+static WORKFLOW_EVENT_HUB: LazyLock<WorkflowRuntimeEventHub> =
+    LazyLock::new(WorkflowRuntimeEventHub::new);
+
+const MAX_WORKFLOW_EVENT_HISTORY: usize = 4096;
+
+#[derive(Debug)]
+struct WorkflowRuntimeEventHub {
+    inner: Mutex<WorkflowRuntimeEventHubInner>,
+    sender: broadcast::Sender<WorkflowEvent>,
+}
+
+#[derive(Debug, Default)]
+struct WorkflowRuntimeEventHubInner {
+    next_sequence: u64,
+    events: Vec<WorkflowEvent>,
+}
+
+impl WorkflowRuntimeEventHub {
+    fn new() -> Self {
+        let (sender, _) = broadcast::channel(1024);
+        Self {
+            inner: Mutex::new(WorkflowRuntimeEventHubInner::default()),
+            sender,
+        }
+    }
+
+    fn publish(&self, mut event: WorkflowEvent) -> WorkflowEvent {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        inner.next_sequence += 1;
+        event.sequence = inner.next_sequence;
+        inner.events.push(event.clone());
+        if inner.events.len() > MAX_WORKFLOW_EVENT_HISTORY {
+            let excess = inner.events.len() - MAX_WORKFLOW_EVENT_HISTORY;
+            inner.events.drain(0..excess);
+        }
+        let _ = self.sender.send(event.clone());
+        event
+    }
+
+    fn history(&self, run_id: Uuid) -> Vec<WorkflowEvent> {
+        let run_id = run_id.to_string();
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .events
+            .iter()
+            .filter(|event| event.run_id == run_id)
+            .cloned()
+            .collect()
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<WorkflowEvent> {
+        self.sender.subscribe()
+    }
+}
+
+pub fn workflow_event_history(run_id: Uuid) -> Vec<WorkflowEvent> {
+    WORKFLOW_EVENT_HUB.history(run_id)
+}
+
+pub fn subscribe_workflow_events() -> broadcast::Receiver<WorkflowEvent> {
+    WORKFLOW_EVENT_HUB.subscribe()
 }
 
 #[derive(Clone)]
@@ -255,6 +362,208 @@ pub async fn get_workflow_run_response(
     })
 }
 
+pub async fn approve_human_node<A>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    agent_executor: &A,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+{
+    let run = load_runtime_run(pool, run_id).await?;
+    let node = run
+        .graph
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    if node.kind != WorkflowNodeKind::HumanGate {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` is not a human gate"
+        )));
+    }
+    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman).await?;
+
+    let context = node_context(pool, &run.graph, run_id, node, &run.input_text).await?;
+    let approval_output = context.upstream_text();
+    mark_node_succeeded(pool, run_id, node_id, Some(&approval_output), None).await?;
+    update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
+    drive_workflow_run(
+        pool,
+        run_id,
+        &run.graph,
+        run.workspace_id,
+        &run.input_text,
+        agent_executor,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn reject_human_node(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+) -> Result<WorkflowRunResponse, ApiError> {
+    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman).await?;
+
+    let message = "Human gate rejected";
+    mark_node_failed(pool, run_id, node_id, message).await?;
+    mark_pending_nodes_skipped(pool, run_id).await?;
+    update_run_status(
+        pool,
+        run_id,
+        WorkflowRunStatus::Failed,
+        None,
+        Some(message),
+        true,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn cancel_workflow_run_runtime<C>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    canceller: &C,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    C: WorkflowRunCanceller,
+{
+    ensure_run_exists(pool, run_id).await?;
+    let session_ids = running_node_session_ids(pool, run_id).await?;
+    for session_id in session_ids {
+        canceller.cancel_session(session_id).await?;
+    }
+
+    fail_active_nodes(pool, run_id, "Workflow run canceled").await?;
+    mark_pending_nodes_skipped(pool, run_id).await?;
+    update_run_status(
+        pool,
+        run_id,
+        WorkflowRunStatus::Canceled,
+        None,
+        Some("Workflow run canceled"),
+        true,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn retry_workflow_node<A>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    agent_executor: &A,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+{
+    let run = load_runtime_run(pool, run_id).await?;
+    let node = run
+        .graph
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    if !matches!(
+        node.kind,
+        WorkflowNodeKind::Agent | WorkflowNodeKind::Condition | WorkflowNodeKind::Transform
+    ) {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` cannot be retried"
+        )));
+    }
+    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::Failed).await?;
+
+    reset_node_for_retry(pool, run_id, node_id).await?;
+    reset_downstream_skipped_nodes(pool, run_id, &run.graph, node_id).await?;
+    update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
+    drive_workflow_run(
+        pool,
+        run_id,
+        &run.graph,
+        run.workspace_id,
+        &run.input_text,
+        agent_executor,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT run_id
+        FROM node_executions
+        WHERE status = 'running'
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut recovered = 0;
+    for row in rows {
+        let run_id: Uuid = row.try_get("run_id")?;
+        let message =
+            "Workflow run was interrupted while nodes were running; retry failed nodes to recover";
+        fail_nodes_with_status(pool, run_id, &[DbNodeExecutionStatus::Running], message).await?;
+        update_run_status(
+            pool,
+            run_id,
+            WorkflowRunStatus::Failed,
+            None,
+            Some(message),
+            true,
+        )
+        .await?;
+        recovered += 1;
+    }
+
+    Ok(recovered)
+}
+
+#[derive(Debug)]
+struct RuntimeRun {
+    graph: WorkflowGraph,
+    workspace_id: Uuid,
+    input_text: String,
+}
+
+async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun, ApiError> {
+    let row = sqlx::query(
+        r#"
+        SELECT wr.workflow_id, wr.workspace_id, wr.input_text, w.graph_json
+        FROM workflow_runs wr
+        JOIN workflows w ON w.id = wr.workflow_id
+        WHERE wr.id = ?
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("Workflow run not found".to_string()))?;
+
+    let graph_json: String = row.try_get("graph_json")?;
+    let graph: WorkflowGraph = serde_json::from_str(&graph_json)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+    validate_graph(&graph)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
+
+    Ok(RuntimeRun {
+        graph,
+        workspace_id: row
+            .try_get::<Option<Uuid>, _>("workspace_id")?
+            .ok_or_else(|| ApiError::BadRequest("Workflow run has no workspace".to_string()))?,
+        input_text: row.try_get("input_text")?,
+    })
+}
+
 async fn insert_workflow_run(
     pool: &SqlitePool,
     run_id: Uuid,
@@ -277,6 +586,8 @@ async fn insert_workflow_run(
     .bind(&request.input_text)
     .execute(pool)
     .await?;
+
+    emit_run_status(run_id, WorkflowRunStatus::Running, None, None);
 
     Ok(())
 }
@@ -433,6 +744,7 @@ where
                 Err(err) => {
                     let message = err.to_string();
                     mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_pending_nodes_skipped(pool, run_id).await?;
                     update_run_status(
                         pool,
                         run_id,
@@ -521,6 +833,7 @@ where
                 Err(err) => {
                     let message = err.to_string();
                     mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_pending_nodes_skipped(pool, run_id).await?;
                     update_run_status(
                         pool,
                         run_id,
@@ -751,7 +1064,7 @@ async fn mark_skipped_targets(
     node_ids: &[String],
 ) -> Result<(), ApiError> {
     for node_id in node_ids {
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             UPDATE node_executions
             SET status = 'skipped',
@@ -764,9 +1077,246 @@ async fn mark_skipped_targets(
         .bind(node_id)
         .execute(pool)
         .await?;
+        if result.rows_affected() > 0 {
+            emit_node_status(
+                run_id,
+                node_id,
+                DbNodeExecutionStatus::Skipped,
+                json!({ "status": "skipped" }),
+            );
+        }
     }
 
     Ok(())
+}
+
+async fn ensure_run_exists(pool: &SqlitePool, run_id: Uuid) -> Result<(), ApiError> {
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs WHERE id = ?")
+        .bind(run_id)
+        .fetch_one(pool)
+        .await?;
+    if count == 0 {
+        return Err(ApiError::BadRequest("Workflow run not found".to_string()));
+    }
+
+    Ok(())
+}
+
+async fn ensure_node_status(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    expected: DbNodeExecutionStatus,
+) -> Result<(), ApiError> {
+    let status = sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT status
+        FROM node_executions
+        WHERE run_id = ? AND node_id = ? AND iteration = 0
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    let actual = node_execution_status_from_str(&status)?;
+    if actual != expected {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` must be `{}` but is `{}`",
+            node_status_value(expected),
+            node_status_value(actual)
+        )));
+    }
+
+    Ok(())
+}
+
+async fn running_node_session_ids(pool: &SqlitePool, run_id: Uuid) -> Result<Vec<Uuid>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT session_id
+        FROM node_executions
+        WHERE run_id = ? AND status = 'running' AND session_id IS NOT NULL
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(|row| row.try_get("session_id"))
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+async fn fail_active_nodes(pool: &SqlitePool, run_id: Uuid, message: &str) -> Result<(), ApiError> {
+    fail_nodes_with_status(
+        pool,
+        run_id,
+        &[
+            DbNodeExecutionStatus::Running,
+            DbNodeExecutionStatus::AwaitingHuman,
+            DbNodeExecutionStatus::AwaitingArena,
+        ],
+        message,
+    )
+    .await
+}
+
+async fn fail_nodes_with_status(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    statuses: &[DbNodeExecutionStatus],
+    message: &str,
+) -> Result<(), ApiError> {
+    for status in statuses {
+        let rows = sqlx::query(
+            r#"
+            SELECT node_id
+            FROM node_executions
+            WHERE run_id = ? AND status = ?
+            "#,
+        )
+        .bind(run_id)
+        .bind(node_status_value(*status))
+        .fetch_all(pool)
+        .await?;
+
+        for row in rows {
+            let node_id: String = row.try_get("node_id")?;
+            mark_node_failed(pool, run_id, &node_id, message).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn mark_pending_nodes_skipped(pool: &SqlitePool, run_id: Uuid) -> Result<(), ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT node_id
+        FROM node_executions
+        WHERE run_id = ? AND status = 'pending'
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    let node_ids = rows
+        .iter()
+        .map(|row| row.try_get("node_id"))
+        .collect::<Result<Vec<String>, _>>()?;
+    mark_skipped_targets(pool, run_id, &node_ids).await
+}
+
+async fn reset_node_for_retry(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+) -> Result<(), ApiError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE node_executions
+        SET status = 'pending',
+            input_text = NULL,
+            output_text = NULL,
+            session_id = NULL,
+            arena_group_id = NULL,
+            tokens_used = NULL,
+            cost_estimate = NULL,
+            started_at = NULL,
+            finished_at = NULL,
+            error_text = NULL,
+            updated_at = datetime('now', 'subsec')
+        WHERE run_id = ? AND node_id = ? AND iteration = 0
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() > 0 {
+        emit_node_status(
+            run_id,
+            node_id,
+            DbNodeExecutionStatus::Pending,
+            json!({ "status": "pending", "retry": true }),
+        );
+    }
+
+    Ok(())
+}
+
+async fn reset_downstream_skipped_nodes(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+    node_id: &str,
+) -> Result<(), ApiError> {
+    for downstream_id in downstream_node_ids(graph, node_id) {
+        let result = sqlx::query(
+            r#"
+            UPDATE node_executions
+            SET status = 'pending',
+                input_text = NULL,
+                output_text = NULL,
+                session_id = NULL,
+                arena_group_id = NULL,
+                tokens_used = NULL,
+                cost_estimate = NULL,
+                started_at = NULL,
+                finished_at = NULL,
+                error_text = NULL,
+                updated_at = datetime('now', 'subsec')
+            WHERE run_id = ? AND node_id = ? AND iteration = 0 AND status = 'skipped'
+            "#,
+        )
+        .bind(run_id)
+        .bind(&downstream_id)
+        .execute(pool)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            emit_node_status(
+                run_id,
+                &downstream_id,
+                DbNodeExecutionStatus::Pending,
+                json!({ "status": "pending", "retry": true }),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn downstream_node_ids(graph: &WorkflowGraph, node_id: &str) -> Vec<String> {
+    let mut downstream = Vec::new();
+    let mut stack = graph
+        .edges
+        .iter()
+        .filter(|edge| edge.source == node_id)
+        .map(|edge| edge.target.clone())
+        .collect::<Vec<_>>();
+
+    while let Some(next) = stack.pop() {
+        if downstream.contains(&next) {
+            continue;
+        }
+        stack.extend(
+            graph
+                .edges
+                .iter()
+                .filter(|edge| edge.source == next)
+                .map(|edge| edge.target.clone()),
+        );
+        downstream.push(next);
+    }
+
+    downstream
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -785,7 +1335,7 @@ async fn update_node_execution(
     node_id: &str,
     update: NodeExecutionUpdate<'_>,
 ) -> Result<(), ApiError> {
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         UPDATE node_executions
         SET status = ?,
@@ -810,6 +1360,10 @@ async fn update_node_execution(
     .execute(pool)
     .await?;
 
+    if result.rows_affected() > 0 {
+        emit_node_update(run_id, node_id, update);
+    }
+
     Ok(())
 }
 
@@ -821,13 +1375,13 @@ async fn update_run_status(
     error_text: Option<&str>,
     finished: bool,
 ) -> Result<(), ApiError> {
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         UPDATE workflow_runs
         SET status = ?,
             output_text = ?,
             error_text = ?,
-            finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
+            finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE NULL END,
             updated_at = datetime('now', 'subsec')
         WHERE id = ?
         "#,
@@ -840,7 +1394,83 @@ async fn update_run_status(
     .execute(pool)
     .await?;
 
+    if result.rows_affected() > 0 {
+        emit_run_status(run_id, status, output_text.as_deref(), error_text);
+    }
+
     Ok(())
+}
+
+fn emit_run_status(
+    run_id: Uuid,
+    status: WorkflowRunStatus,
+    output_text: Option<&str>,
+    error_text: Option<&str>,
+) {
+    let status_value = run_status_value(status);
+    WORKFLOW_EVENT_HUB.publish(WorkflowEvent::run_status(
+        run_id.to_string(),
+        status_value,
+        json!({
+            "status": status_value,
+            "output_text": output_text,
+            "error_text": error_text,
+        }),
+    ));
+}
+
+fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>) {
+    let status_value = node_status_value(update.status);
+    emit_node_status(
+        run_id,
+        node_id,
+        update.status,
+        json!({
+            "status": status_value,
+            "input_text": update.input_text,
+            "output_text": update.output_text,
+            "session_id": update.session_id,
+            "error_text": update.error_text,
+        }),
+    );
+
+    if let Some(output_text) = update.output_text {
+        WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_output(
+            run_id.to_string(),
+            node_id.to_string(),
+            json!({ "output_text": output_text }),
+        ));
+    }
+    if let Some(error_text) = update.error_text {
+        WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_error(
+            run_id.to_string(),
+            node_id.to_string(),
+            json!({ "error_text": error_text }),
+        ));
+    }
+    if update.status == DbNodeExecutionStatus::AwaitingHuman {
+        WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_waiting_human(
+            run_id.to_string(),
+            node_id.to_string(),
+            json!({ "prompt": update.input_text }),
+        ));
+    }
+    if update.status == DbNodeExecutionStatus::AwaitingArena {
+        WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_waiting_arena(
+            run_id.to_string(),
+            node_id.to_string(),
+            json!({ "prompt": update.input_text }),
+        ));
+    }
+}
+
+fn emit_node_status(run_id: Uuid, node_id: &str, status: DbNodeExecutionStatus, payload: Value) {
+    WORKFLOW_EVENT_HUB.publish(WorkflowEvent::node_status(
+        run_id.to_string(),
+        node_id.to_string(),
+        node_status_value(status),
+        payload,
+    ));
 }
 
 async fn node_execution_responses(

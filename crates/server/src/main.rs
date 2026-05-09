@@ -3,6 +3,7 @@ use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    workflow_runtime::runner::recover_stale_workflow_runs,
 };
 use services::services::container::ContainerService;
 use sqlx::Error as SqlxError;
@@ -76,6 +77,9 @@ async fn main() -> Result<(), VibeKanbanError> {
         .cleanup_orphan_executions()
         .await
         .map_err(DeploymentError::from)?;
+    recover_stale_workflow_runs(&deployment.db().pool)
+        .await
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
     deployment
         .container()
         .backfill_before_head_commits()
