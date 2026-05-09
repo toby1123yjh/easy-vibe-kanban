@@ -874,12 +874,14 @@ packages/web-core/node_modules/.bin/prettier.cmd --check src/shared/lib/workflow
 
 Note: Full `pnpm --filter @vibe/web-core run format:check` still fails due existing unrelated formatting drift across the package, so this task used scoped formatting checks for the newly added files.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/web-core/src/shared/lib/workflowApi.ts packages/web-core/src/shared/hooks/useWorkflowTemplates.ts packages/web-core/src/shared/hooks/useWorkflowRun.ts packages/web-core/src/shared/hooks/useWorkflowRunEvents.ts
 git commit -m "feat(workflow): add frontend workflow API hooks"
 ```
+
+Result: committed as `14fda327`.
 
 ### Task 3.2: Add React Flow Dependency and Graph Model
 
