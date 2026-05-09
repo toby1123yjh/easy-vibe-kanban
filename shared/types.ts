@@ -253,6 +253,22 @@ export type ArenaWorkspaceExecutorConfig = { workspace_id: string, executor_conf
 
 export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, executor_configs: Array<ArenaWorkspaceExecutorConfig>, };
 
+export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, created_at: string, updated_at: string, };
+
+export type WorkflowTemplateListResponse = { workflows: Array<WorkflowTemplateResponse>, };
+
+export type CreateWorkflowRequest = { name: string, description: string | null, graph_json: string, };
+
+export type UpdateWorkflowRequest = { name: string | null, description: string | null, graph_json: string | null, };
+
+export type TriggerWorkflowRequest = { issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
+
+export type WorkflowRunResponse = { id: string, workflow_id: string, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, };
+
+export type WorkflowNodeExecutionResponse = { id: string, run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+
+export type WorkflowActionResponse = { run_id: string, node_id: string | null, status: WorkflowRunStatus, };
+
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
