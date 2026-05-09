@@ -1021,12 +1021,19 @@ Result: committed in `feat(workflow): add workflow template editor`.
 ### Task 4.1: Add Issue Detail Workflow Entry
 
 **Files:**
+- Create: `packages/web-core/src/features/workflow/model/issueWorkflow.ts`
+- Create: `packages/web-core/src/features/workflow/model/issueWorkflow.test.ts`
 - Create: `packages/web-core/src/features/workflow/ui/RunWorkflowDialog.tsx`
 - Create: `packages/web-core/src/pages/kanban/IssueWorkflowSectionContainer.tsx`
+- Create: `packages/local-web/src/routes/_app.projects.$projectId_.workflow-runs.$runId.tsx`
 - Modify: `packages/web-core/src/pages/kanban/KanbanIssuePanelContainer.tsx`
 - Modify: `packages/web-core/src/shared/lib/routes/appNavigation.ts`
+- Modify: `packages/web-core/src/features/workflow/index.ts`
+- Modify: `packages/local-web/src/app/navigation/AppNavigation.ts`
+- Modify: `packages/local-web/src/routeTree.gen.ts`
+- Modify: `packages/remote-web/src/app/navigation/AppNavigation.ts`
 
-- [ ] **Step 1: Implement dialog**
+- [x] **Step 1: Implement dialog**
 
 Dialog fields:
 
@@ -1035,7 +1042,9 @@ Dialog fields:
 - main repo/branch selection using existing project/workspace defaults where available
 - start button
 
-- [ ] **Step 2: Trigger run and navigate**
+Result: implemented a compact issue panel workflow entry and `RunWorkflowDialog`. The current backend trigger type only accepts `workspace_id`, so the dialog supports existing main workspace selection or backend-created workflow workspace; repo/branch are not sent until the backend API supports them.
+
+- [x] **Step 2: Trigger run and navigate**
 
 After `workflowApi.trigger`, navigate to:
 
@@ -1043,23 +1052,31 @@ After `workflowApi.trigger`, navigate to:
 /projects/:projectId/workflow-runs/:runId
 ```
 
-- [ ] **Step 3: Run frontend checks**
+Result: added `goToProjectWorkflowRun` navigation and a minimal local run route placeholder so the post-trigger path resolves. Phase 4.2 will replace the placeholder with the run canvas/dashboard page.
+
+- [x] **Step 3: Run frontend checks**
 
 Run:
 
 ```bash
+pnpm dlx vitest run packages/web-core/src/features/workflow/model/issueWorkflow.test.ts --root packages/web-core --pool forks
 pnpm --filter @vibe/web-core run check
 pnpm --filter @vibe/local-web run check
+pnpm --filter @vibe/remote-web run check
 ```
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+Result: PASS. Also ran scoped Prettier checks for touched frontend files and `git diff --check` (only Windows LF/CRLF warnings). Attempted full `pnpm run format`, but it stopped in `backend:format` because `cargo` is not available on PATH in the current PowerShell environment.
+
+- [x] **Step 4: Commit**
 
 ```bash
-git add packages/web-core/src/features/workflow/ui/RunWorkflowDialog.tsx packages/web-core/src/pages/kanban/IssueWorkflowSectionContainer.tsx packages/web-core/src/pages/kanban/KanbanIssuePanelContainer.tsx packages/web-core/src/shared/lib/routes/appNavigation.ts
+git add packages/web-core/src/features/workflow/model/issueWorkflow.ts packages/web-core/src/features/workflow/model/issueWorkflow.test.ts packages/web-core/src/features/workflow/ui/RunWorkflowDialog.tsx packages/web-core/src/pages/kanban/IssueWorkflowSectionContainer.tsx packages/web-core/src/pages/kanban/KanbanIssuePanelContainer.tsx packages/web-core/src/shared/lib/routes/appNavigation.ts packages/web-core/src/features/workflow/index.ts packages/local-web/src/app/navigation/AppNavigation.ts packages/local-web/src/routeTree.gen.ts packages/local-web/src/routes/_app.projects.$projectId_.workflow-runs.$runId.tsx packages/remote-web/src/app/navigation/AppNavigation.ts
 git commit -m "feat(workflow): add issue workflow entry point"
 ```
+
+Result: committed in `feat(workflow): add issue workflow entry point`.
 
 ### Task 4.2: Build Run Page Canvas Tab
 

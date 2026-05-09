@@ -21,6 +21,7 @@ import { IssueSubIssuesSectionContainer } from './IssueSubIssuesSectionContainer
 import { IssueRelationshipsSectionContainer } from './IssueRelationshipsSectionContainer';
 import { IssueWorkspacesSectionContainer } from './IssueWorkspacesSectionContainer';
 import { IssueArenaSectionContainer } from './IssueArenaSectionContainer';
+import { IssueWorkflowSectionContainer } from './IssueWorkflowSectionContainer';
 import {
   KanbanIssuePanel,
   type IssueFormData,
@@ -1112,6 +1113,11 @@ export function KanbanIssuePanelContainer({
       )}
       renderWorkspacesSection={(issueId) => (
         <>
+          <IssueWorkflowSectionContainer
+            issueId={issueId}
+            issueTitle={displayData.title}
+            issueDescription={displayData.description}
+          />
           <IssueArenaSectionContainer issueId={issueId} />
           <IssueWorkspacesSectionContainer issueId={issueId} />
         </>

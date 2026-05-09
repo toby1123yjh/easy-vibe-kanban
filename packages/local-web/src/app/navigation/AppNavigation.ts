@@ -91,6 +91,13 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
         ? { kind: 'project-workflow-edit', projectId, workflowId }
         : null;
     }
+    case '/_app/projects/$projectId_/workflow-runs/$runId': {
+      const projectId = getPathParam(routeParams, 'projectId');
+      const runId = getPathParam(routeParams, 'runId');
+      return projectId && runId
+        ? { kind: 'project-workflow-run', projectId, runId }
+        : null;
+    }
     case '/_app/projects/$projectId_/issues/$issueId': {
       const projectId = getPathParam(routeParams, 'projectId');
       const issueId = getPathParam(routeParams, 'issueId');
@@ -262,6 +269,14 @@ function destinationToLocalTarget(
           workflowId: destination.workflowId,
         },
       } as const;
+    case 'project-workflow-run':
+      return {
+        to: '/projects/$projectId/workflow-runs/$runId',
+        params: {
+          projectId: destination.projectId,
+          runId: destination.runId,
+        },
+      } as const;
     case 'project-issue':
       return {
         to: '/projects/$projectId/issues/$issueId',
@@ -372,6 +387,11 @@ export function createLocalAppNavigation(): AppNavigation {
     goToProjectWorkflowEdit: (projectId, workflowId, transition) =>
       navigateTo(
         { kind: 'project-workflow-edit', projectId, workflowId },
+        transition
+      ),
+    goToProjectWorkflowRun: (projectId, runId, transition) =>
+      navigateTo(
+        { kind: 'project-workflow-run', projectId, runId },
         transition
       ),
     goToProjectIssue: (projectId, issueId, transition) =>

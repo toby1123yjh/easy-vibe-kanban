@@ -182,6 +182,11 @@ function destinationToRemoteTarget(
         to: "/projects/$projectId",
         params: { projectId: destination.projectId },
       } as const;
+    case "project-workflow-run":
+      return {
+        to: "/projects/$projectId",
+        params: { projectId: destination.projectId },
+      } as const;
     case "project-issue":
       return {
         to: "/projects/$projectId/issues/$issueId",
@@ -262,6 +267,11 @@ export function createRemoteHostAppNavigation(hostId: string): AppNavigation {
         { kind: "project-workflow-edit", projectId, workflowId: _workflowId },
         transition,
       ),
+    goToProjectWorkflowRun: (projectId, _runId, transition) =>
+      navigateTo(
+        { kind: "project-workflow-run", projectId, runId: _runId },
+        transition,
+      ),
     goToProjectIssue: (projectId, issueId, transition) =>
       navigateTo({ kind: "project-issue", projectId, issueId }, transition),
     goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>
@@ -339,6 +349,11 @@ function createRemoteFallbackAppNavigation(): AppNavigation {
     goToProjectWorkflowEdit: (projectId, _workflowId, transition) =>
       navigateTo(
         { kind: "project-workflow-edit", projectId, workflowId: _workflowId },
+        transition,
+      ),
+    goToProjectWorkflowRun: (projectId, _runId, transition) =>
+      navigateTo(
+        { kind: "project-workflow-run", projectId, runId: _runId },
         transition,
       ),
     goToProjectIssue: (projectId, issueId, transition) =>

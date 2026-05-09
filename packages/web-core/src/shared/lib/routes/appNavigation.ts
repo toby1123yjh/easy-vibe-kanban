@@ -10,6 +10,7 @@ export type AppDestination =
   | { kind: 'project'; projectId: string }
   | { kind: 'project-workflows'; projectId: string }
   | { kind: 'project-workflow-edit'; projectId: string; workflowId: string }
+  | { kind: 'project-workflow-run'; projectId: string; runId: string }
   | {
       kind: 'project-issue';
       projectId: string;
@@ -63,6 +64,11 @@ export interface AppNavigation {
     workflowId: string,
     transition?: NavigationTransition
   ): void;
+  goToProjectWorkflowRun(
+    projectId: string,
+    runId: string,
+    transition?: NavigationTransition
+  ): void;
   goToProjectIssue(
     projectId: string,
     issueId: string,
@@ -91,6 +97,7 @@ type ProjectDestinationKind =
   | 'project'
   | 'project-workflows'
   | 'project-workflow-edit'
+  | 'project-workflow-run'
   | 'project-issue'
   | 'project-issue-workspace'
   | 'project-issue-workspace-create'
@@ -152,6 +159,7 @@ export function isProjectDestination(
     case 'project':
     case 'project-workflows':
     case 'project-workflow-edit':
+    case 'project-workflow-run':
     case 'project-issue':
     case 'project-issue-workspace':
     case 'project-issue-workspace-create':
@@ -264,6 +272,7 @@ export function resolveKanbanRouteState(
       case 'project':
       case 'project-workflows':
       case 'project-workflow-edit':
+      case 'project-workflow-run':
         return 'closed';
       case 'project-issue':
         return 'issue';
