@@ -1688,7 +1688,7 @@ async fn update_run_status(
         "#,
     )
     .bind(run_status_value(status))
-    .bind(output_text)
+    .bind(output_text.as_deref())
     .bind(error_text)
     .bind(finished)
     .bind(run_id)
