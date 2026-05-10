@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
@@ -20,10 +20,23 @@ import {
   Code,
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 
 export interface WorkflowRunDashboardTabProps {
   projectId: string;
   run: WorkflowRunResponse;
+}
+
+function getDefaultSelectedNodeId(run: WorkflowRunResponse): string | null {
+  const actionableNode = run.nodes.find(
+    (node) =>
+      node.status === 'awaiting_arena' ||
+      node.status === 'awaiting_human' ||
+      node.status === 'failed' ||
+      node.status === 'running'
+  );
+
+  return actionableNode?.node_id ?? run.nodes[0]?.node_id ?? null;
 }
 
 export function WorkflowRunDashboardTab({
@@ -37,8 +50,19 @@ export function WorkflowRunDashboardTab({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
-    run.nodes.length > 0 ? run.nodes[0].node_id : null
+    getDefaultSelectedNodeId(run)
   );
+
+  useEffect(() => {
+    if (
+      selectedNodeId &&
+      run.nodes.some((node) => node.node_id === selectedNodeId)
+    ) {
+      return;
+    }
+
+    setSelectedNodeId(getDefaultSelectedNodeId(run));
+  }, [run, selectedNodeId]);
 
   const selectedNode =
     run.nodes.find((n) => n.node_id === selectedNodeId) || null;
@@ -344,6 +368,16 @@ export function WorkflowRunDashboardTab({
                   </button>
                 </div>
               )}
+
+              {selectedNode.status === 'awaiting_arena' && (
+                <WorkflowArenaWinnerPanel
+                  arenaGroupId={selectedNode.arena_group_id}
+                  issueId={run.issue_id}
+                  nodeId={selectedNode.node_id}
+                  projectId={projectId}
+                  runId={run.id}
+                />
+              )}
             </div>
           )}
         </section>
@@ -414,10 +448,23 @@ export function WorkflowRunDashboardTab({
                         {node.arena_group_id && (
                           <div>
                             Arena Group:{' '}
-                            <span className="text-high">
+                            <a
+                              className="inline-flex items-center gap-1 text-brand hover:underline"
+                              href={`/projects/${projectId}/issues/${run.issue_id}/arena/${node.arena_group_id}`}
+                            >
                               {node.arena_group_id}
-                            </span>
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
                           </div>
+                        )}
+                        {node.status === 'awaiting_arena' && (
+                          <button
+                            type="button"
+                            className="text-brand hover:underline"
+                            onClick={() => setSelectedNodeId(node.node_id)}
+                          >
+                            Pick winner
+                          </button>
                         )}
                         {node.output_text && (
                           <div>

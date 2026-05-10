@@ -4,6 +4,10 @@ import type {
   WorkflowRunResponse,
   WorkflowRunStatus,
 } from 'shared/types';
+import type {
+  ArenaGroupResponse,
+  ArenaWorkspaceSummary,
+} from '@/shared/lib/arenaApi';
 
 export function getWorkflowRunStatusLabel(status: WorkflowRunStatus): string {
   switch (status) {
@@ -145,4 +149,63 @@ export function formatWorkflowDuration(
     return `${minutes}m ${seconds}s`;
   }
   return `${seconds}s`;
+}
+
+export interface ArenaWinnerOption {
+  workspaceId: string;
+  label: string;
+  branch: string;
+  executorLabel: string;
+  arenaStatusLabel: string;
+  executionStatusLabel: string;
+  hasUncommittedChanges: boolean | null;
+  isSelectable: boolean;
+  isPromoted: boolean;
+}
+
+function formatStatus(value: string | null | undefined, fallback: string) {
+  return value ? value.replace(/_/g, ' ') : fallback;
+}
+
+function arenaWinnerLabel(workspace: ArenaWorkspaceSummary, index: number) {
+  return workspace.name || workspace.executor || `Attempt ${index + 1}`;
+}
+
+function arenaWinnerExecutorLabel(workspace: ArenaWorkspaceSummary) {
+  const parts = [workspace.executor, workspace.variant].filter(Boolean);
+  return parts.length > 0 ? parts.join(' / ') : 'Unknown executor';
+}
+
+export function buildArenaWinnerOptions(
+  group: ArenaGroupResponse | null | undefined
+): ArenaWinnerOption[] {
+  if (!group) return [];
+
+  const groupAlreadyPromoted = group.promoted_workspace_id !== null;
+
+  return group.workspaces
+    .filter((workspace) => workspace.purpose === 'attempt')
+    .map((workspace, index) => {
+      const isPromoted =
+        group.promoted_workspace_id === workspace.workspace_id ||
+        workspace.arena_status === 'promoted';
+      const executionStatus = workspace.latest_execution_status;
+      const isExecutionFinished = executionStatus === 'completed';
+      const isSelectable =
+        !groupAlreadyPromoted &&
+        workspace.arena_status === 'active' &&
+        isExecutionFinished;
+
+      return {
+        workspaceId: workspace.workspace_id,
+        label: arenaWinnerLabel(workspace, index),
+        branch: workspace.branch,
+        executorLabel: arenaWinnerExecutorLabel(workspace),
+        arenaStatusLabel: formatStatus(workspace.arena_status, 'unknown'),
+        executionStatusLabel: formatStatus(executionStatus, 'not started'),
+        hasUncommittedChanges: workspace.has_uncommitted_changes,
+        isSelectable,
+        isPromoted,
+      };
+    });
 }

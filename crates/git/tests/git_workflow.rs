@@ -311,6 +311,37 @@ fn worktree_diff_respects_path_filter() {
 }
 
 #[test]
+fn diff_patch_applies_uncommitted_and_untracked_changes() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    let winner_path = td.path().join("winner");
+    let s = GitService::new();
+
+    write_file(&repo_path, "file.txt", "base\n");
+    let _ = s.commit(&repo_path, "baseline").unwrap();
+    create_branch(&repo_path, "winner");
+    s.add_worktree(&repo_path, &winner_path, "winner", false)
+        .unwrap();
+
+    write_file(&winner_path, "file.txt", "winner\n");
+    write_file(&winner_path, "new.txt", "new file\n");
+
+    let base_commit = s.get_base_commit(&winner_path, "winner", "main").unwrap();
+    let patch = s.get_diff_patch(&winner_path, &base_commit).unwrap();
+
+    assert!(!patch.is_empty());
+    s.apply_patch(&repo_path, &patch).unwrap();
+    assert_eq!(
+        fs::read_to_string(repo_path.join("file.txt")).unwrap(),
+        "winner\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo_path.join("new.txt")).unwrap(),
+        "new file\n"
+    );
+}
+
+#[test]
 fn get_branch_oid_nonexistent_errors() {
     let td = TempDir::new().unwrap();
     let repo_path = init_repo_main(&td);

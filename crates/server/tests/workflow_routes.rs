@@ -5,20 +5,24 @@ use serde_json::{Value, json};
 use server::{
     error::ApiError,
     routes::workflows::{
-        CreateWorkflowRequest, TriggerWorkflowRequest, UpdateWorkflowRequest,
-        WorkflowActionResponse, WorkflowNodeExecutionResponse, WorkflowRunResponse,
-        WorkflowTemplateListResponse, WorkflowTemplateResponse, create_project_workflow,
-        delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
-        fallback_workflows_payload, list_project_workflows, update_workflow_template,
+        CreateWorkflowRequest, SelectArenaWinnerRequest, TriggerWorkflowRequest,
+        UpdateWorkflowRequest, WorkflowActionResponse, WorkflowNodeExecutionResponse,
+        WorkflowRunResponse, WorkflowTemplateListResponse, WorkflowTemplateResponse,
+        create_project_workflow, delete_workflow_template, fallback_node_executions_payload,
+        fallback_workflow_runs_payload, fallback_workflows_payload, list_project_workflows,
+        update_workflow_template,
     },
     workflow_runtime::{
-        arena::{ArenaNodeExecution, ArenaNodeRequest, WorkflowArenaCreator},
+        arena::{
+            ArenaNodeExecution, ArenaNodeRequest, ArenaWinnerExecution, ArenaWinnerRequest,
+            WorkflowArenaCreator, WorkflowArenaWinnerApplier,
+        },
         runner::{
             AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
             WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
             cancel_workflow_run_runtime, recover_stale_workflow_runs, reject_human_node,
-            retry_workflow_node, trigger_workflow_run, trigger_workflow_run_with_arena,
-            workflow_event_history,
+            retry_workflow_node, select_arena_winner_with_arena, trigger_workflow_run,
+            trigger_workflow_run_with_arena, workflow_event_history,
         },
     },
 };
@@ -531,6 +535,47 @@ impl WorkflowArenaCreator for FakeArenaCreator {
     }
 }
 
+#[derive(Debug)]
+struct FakeArenaWinnerApplier {
+    result: Mutex<Result<String, String>>,
+    requests: Mutex<Vec<ArenaWinnerRequest>>,
+}
+
+impl FakeArenaWinnerApplier {
+    fn succeeds(output_text: impl Into<String>) -> Self {
+        Self {
+            result: Mutex::new(Ok(output_text.into())),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn fails(message: impl Into<String>) -> Self {
+        Self {
+            result: Mutex::new(Err(message.into())),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<ArenaWinnerRequest> {
+        self.requests.lock().expect("winner requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowArenaWinnerApplier for FakeArenaWinnerApplier {
+    async fn apply_winner(
+        &self,
+        request: ArenaWinnerRequest,
+    ) -> Result<ArenaWinnerExecution, ApiError> {
+        self.requests.lock().expect("winner requests").push(request);
+
+        match self.result.lock().expect("winner result").clone() {
+            Ok(output_text) => Ok(ArenaWinnerExecution { output_text }),
+            Err(message) => Err(ApiError::BadRequest(message)),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct FakeRunCanceller {
     stopped_sessions: Mutex<Vec<Uuid>>,
@@ -567,6 +612,7 @@ fn workflow_route_dtos_export_stable_type_names() {
         ("CreateWorkflowRequest", CreateWorkflowRequest::decl()),
         ("UpdateWorkflowRequest", UpdateWorkflowRequest::decl()),
         ("TriggerWorkflowRequest", TriggerWorkflowRequest::decl()),
+        ("SelectArenaWinnerRequest", SelectArenaWinnerRequest::decl()),
         ("WorkflowRunResponse", WorkflowRunResponse::decl()),
         (
             "WorkflowNodeExecutionResponse",
@@ -1121,6 +1167,250 @@ async fn workflow_arena_node_creates_group_and_waits_for_winner() {
             Some("Candidate C")
         ]
     );
+}
+
+#[tokio::test]
+async fn workflow_arena_winner_selection_applies_winner_and_resumes_downstream_nodes() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let winner_workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let arena_group_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Arena Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(arena_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert arena workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent should not run");
+    let arena = FakeArenaCreator::new(arena_group_id);
+    let winner = FakeArenaWinnerApplier::succeeds("Winner applied from Candidate B");
+
+    let awaiting = trigger_workflow_run_with_arena(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build draw-more workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+        &arena,
+    )
+    .await
+    .expect("trigger workflow run");
+    assert_eq!(awaiting.status, WorkflowRunStatus::AwaitingArena);
+
+    let completed = select_arena_winner_with_arena(
+        &pool,
+        awaiting.id,
+        "arena",
+        winner_workspace_id,
+        &agent,
+        &arena,
+        &winner,
+    )
+    .await
+    .expect("select arena winner");
+
+    assert_eq!(completed.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(
+        node_status(&completed.nodes, "arena"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&completed.nodes, "end"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        completed.output_text.as_deref(),
+        Some("Winner applied from Candidate B")
+    );
+
+    let arena_node = completed
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "arena")
+        .expect("arena node execution");
+    assert_eq!(
+        arena_node.output_text.as_deref(),
+        Some("Winner applied from Candidate B")
+    );
+
+    let requests = winner.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].run_id, awaiting.id);
+    assert_eq!(requests[0].node_id, "arena");
+    assert_eq!(requests[0].arena_group_id, arena_group_id);
+    assert_eq!(requests[0].main_workspace_id, workspace_id);
+    assert_eq!(requests[0].winner_workspace_id, winner_workspace_id);
+}
+
+#[tokio::test]
+async fn workflow_arena_winner_apply_failure_fails_run_with_conflict_text() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let winner_workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let arena_group_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Arena Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(arena_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert arena workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent should not run");
+    let arena = FakeArenaCreator::new(arena_group_id);
+    let winner = FakeArenaWinnerApplier::fails("winner diff conflict in src/main.rs");
+
+    let awaiting = trigger_workflow_run_with_arena(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build draw-more workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+        &arena,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    let failed = select_arena_winner_with_arena(
+        &pool,
+        awaiting.id,
+        "arena",
+        winner_workspace_id,
+        &agent,
+        &arena,
+        &winner,
+    )
+    .await
+    .expect("select arena winner reports failed run");
+
+    assert_eq!(failed.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&failed.nodes, "arena"),
+        NodeExecutionStatus::Failed
+    );
+    assert_eq!(
+        node_status(&failed.nodes, "end"),
+        NodeExecutionStatus::Skipped
+    );
+    assert!(
+        failed
+            .error_text
+            .as_deref()
+            .is_some_and(|message| message.contains("winner diff conflict"))
+    );
+}
+
+#[tokio::test]
+async fn workflow_arena_winner_selection_requires_awaiting_arena_node() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let winner_workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let arena_group_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Arena Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(arena_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert arena workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent should not run");
+    let arena = FakeArenaCreator::new(arena_group_id);
+    let winner = FakeArenaWinnerApplier::succeeds("Winner should not apply");
+
+    let awaiting = trigger_workflow_run_with_arena(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Build draw-more workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+        &arena,
+    )
+    .await
+    .expect("trigger workflow run");
+    sqlx::query(
+        r#"
+        UPDATE node_executions
+        SET status = 'succeeded'
+        WHERE run_id = ? AND node_id = 'arena'
+        "#,
+    )
+    .bind(awaiting.id)
+    .execute(&pool)
+    .await
+    .expect("force arena node succeeded");
+
+    let result = select_arena_winner_with_arena(
+        &pool,
+        awaiting.id,
+        "arena",
+        winner_workspace_id,
+        &agent,
+        &arena,
+        &winner,
+    )
+    .await;
+
+    assert!(
+        result
+            .expect_err("winner selection should require awaiting_arena")
+            .to_string()
+            .contains("must be `awaiting_arena`")
+    );
+    assert!(winner.requests().is_empty());
 }
 
 #[tokio::test]

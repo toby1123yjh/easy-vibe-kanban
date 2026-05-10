@@ -83,6 +83,7 @@ fn generate_types_content() -> String {
         server::routes::workflows::CreateWorkflowRequest::decl(),
         server::routes::workflows::UpdateWorkflowRequest::decl(),
         server::routes::workflows::TriggerWorkflowRequest::decl(),
+        server::routes::workflows::SelectArenaWinnerRequest::decl(),
         server::routes::workflows::WorkflowRunResponse::decl(),
         server::routes::workflows::WorkflowNodeExecutionResponse::decl(),
         server::routes::workflows::WorkflowActionResponse::decl(),

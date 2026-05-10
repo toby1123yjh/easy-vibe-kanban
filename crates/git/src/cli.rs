@@ -227,6 +227,78 @@ impl GitCli {
         Ok(Self::parse_name_status(&out))
     }
 
+    /// Return a binary-safe patch for all worktree changes against a base commit.
+    /// This mirrors `diff_status`: it uses a temporary index so untracked files are
+    /// included without mutating the real worktree index.
+    pub fn diff_patch(
+        &self,
+        worktree_path: &Path,
+        base_commit: &Commit,
+    ) -> Result<Vec<u8>, GitCliError> {
+        let tmp_dir = tempfile::TempDir::new()
+            .map_err(|e| GitCliError::CommandFailed(format!("temp dir create failed: {e}")))?;
+        let tmp_index = tmp_dir.path().join("index");
+        let envs = vec![(
+            OsString::from("GIT_INDEX_FILE"),
+            tmp_index.as_os_str().to_os_string(),
+        )];
+
+        let _ = self.git_with_env(worktree_path, ["read-tree", "HEAD"], &envs)?;
+
+        let status = self.get_worktree_status(worktree_path)?;
+        let mut paths_to_add: Vec<Vec<u8>> = Vec::new();
+        for entry in status.entries {
+            paths_to_add.push(entry.path);
+            if let Some(orig) = entry.orig_path {
+                paths_to_add.push(orig);
+            }
+        }
+        if !paths_to_add.is_empty() {
+            paths_to_add.extend(
+                Self::get_default_pathspec_excludes()
+                    .iter()
+                    .map(|s| s.as_encoded_bytes().to_vec()),
+            );
+            let mut input = Vec::new();
+            for path in paths_to_add {
+                input.extend_from_slice(&path);
+                input.push(0);
+            }
+            let args = vec![
+                OsString::from("add"),
+                OsString::from("-A"),
+                OsString::from("--pathspec-from-file=-"),
+                OsString::from("--pathspec-file-nul"),
+            ];
+            self.git_with_stdin(worktree_path, args, Some(&envs), &input)?;
+        }
+
+        let args: Vec<OsString> = vec![
+            "-c".into(),
+            "core.quotepath=false".into(),
+            "diff".into(),
+            "--cached".into(),
+            "--binary".into(),
+            OsString::from(base_commit.to_string()),
+        ];
+        self.git_impl(worktree_path, args, Some(&envs), None)
+    }
+
+    /// Apply a patch to the worktree without staging it.
+    pub fn apply_patch(&self, worktree_path: &Path, patch: &[u8]) -> Result<(), GitCliError> {
+        if patch.is_empty() {
+            return Ok(());
+        }
+
+        self.git_with_stdin(
+            worktree_path,
+            ["apply", "--binary", "--whitespace=nowarn"],
+            None,
+            patch,
+        )?;
+        Ok(())
+    }
+
     /// Return `git status --porcelain` parsed into a structured summary
     pub fn get_worktree_status(&self, worktree_path: &Path) -> Result<WorktreeStatus, GitCliError> {
         // Using -z for NUL-separated output which correctly handles paths with special chars.

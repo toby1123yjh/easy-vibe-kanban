@@ -23,7 +23,6 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  ExternalLink,
   Swords,
   User,
 } from 'lucide-react';
@@ -49,6 +48,7 @@ import {
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
+import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -183,6 +183,27 @@ export function WorkflowRunCanvasTab({
     ReactFlowNode<RunNodeData, WorkflowNodeKind>
   >([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<ReactFlowEdge>([]);
+
+  useEffect(() => {
+    if (
+      selectedNodeId &&
+      run.nodes.some((node) => node.node_id === selectedNodeId)
+    ) {
+      return;
+    }
+
+    const activeNode = run.nodes.find(
+      (node) =>
+        node.status === 'awaiting_arena' ||
+        node.status === 'awaiting_human' ||
+        node.status === 'failed' ||
+        node.status === 'running'
+    );
+
+    if (activeNode) {
+      setSelectedNodeId(activeNode.node_id);
+    }
+  }, [run.nodes, selectedNodeId]);
 
   const graph = useMemo(
     () => (template ? parseWorkflowGraph(template.graph_json) : null),
@@ -351,11 +372,6 @@ function NodeDetailPanel({
   selectedExecution,
   selectedNodeId,
 }: NodeDetailPanelProps) {
-  const arenaHref =
-    selectedExecution?.arena_group_id != null
-      ? `/projects/${projectId}/issues/${run.issue_id}/arena/${selectedExecution.arena_group_id}`
-      : null;
-
   return (
     <aside className="flex max-h-[45%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
       <div className="border-b border-secondary p-base">
@@ -418,28 +434,13 @@ function NodeDetailPanel({
             ) : null}
 
             {selectedExecution.status === 'awaiting_arena' ? (
-              <div className="space-y-half rounded border border-warning/50 bg-warning/10 p-half">
-                <h4 className="text-sm font-semibold text-warning">
-                  Arena selection required
-                </h4>
-                <p className="text-xs text-high">
-                  Select a winner in the arena view. Workflow winner controls
-                  are completed in Phase 5.
-                </p>
-                {arenaHref ? (
-                  <a
-                    className="inline-flex min-h-8 items-center gap-half rounded border border-secondary bg-panel px-half py-1 text-xs font-medium text-brand hover:bg-secondary"
-                    href={arenaHref}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    View arena group
-                  </a>
-                ) : (
-                  <p className="text-xs text-low">
-                    Arena group link is not available yet.
-                  </p>
-                )}
-              </div>
+              <WorkflowArenaWinnerPanel
+                arenaGroupId={selectedExecution.arena_group_id}
+                issueId={run.issue_id}
+                nodeId={selectedExecution.node_id}
+                projectId={projectId}
+                runId={run.id}
+              />
             ) : null}
 
             {actionError ? (

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowRunResponse } from 'shared/types';
+import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
 import {
+  buildArenaWinnerOptions,
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
@@ -64,6 +66,61 @@ const baseRun = {
   ],
 } satisfies WorkflowRunResponse;
 
+const baseArenaGroup = {
+  id: 'arena-1',
+  issue_id: 'issue-1',
+  project_id: 'project-1',
+  prompt: 'Build three approaches',
+  base_branch: 'main',
+  mode: 'implementation',
+  lifecycle_status: 'open',
+  promoted_workspace_id: null,
+  implementation_workspace_id: null,
+  promoted_at: null,
+  closed_at: null,
+  created_at: '2026-05-09T00:00:00Z',
+  updated_at: '2026-05-09T00:00:00Z',
+  events: [],
+  workspaces: [
+    {
+      workspace_id: 'workspace-1',
+      session_id: 'session-1',
+      name: 'Attempt Alpha',
+      branch: 'vk/issue-wf-arena-1',
+      purpose: 'attempt',
+      arena_status: 'active',
+      executor: 'codex',
+      variant: 'gpt-5.4',
+      latest_execution_status: 'completed',
+      has_uncommitted_changes: true,
+    },
+    {
+      workspace_id: 'workspace-2',
+      session_id: null,
+      name: null,
+      branch: 'vk/issue-wf-synthesis',
+      purpose: 'synthesis',
+      arena_status: 'active',
+      executor: 'codex',
+      variant: null,
+      latest_execution_status: 'completed',
+      has_uncommitted_changes: true,
+    },
+    {
+      workspace_id: 'workspace-3',
+      session_id: 'session-3',
+      name: null,
+      branch: 'vk/issue-wf-arena-3',
+      purpose: 'attempt',
+      arena_status: 'archived',
+      executor: null,
+      variant: null,
+      latest_execution_status: 'failed',
+      has_uncommitted_changes: false,
+    },
+  ],
+} satisfies ArenaGroupResponse;
+
 describe('workflow run view helpers', () => {
   it('formats run statuses for compact UI labels', () => {
     expect(getWorkflowRunStatusLabel('awaiting_human')).toBe(
@@ -123,5 +180,77 @@ describe('workflow run view helpers', () => {
       formatWorkflowDuration('2026-05-09T00:00:00Z', '2026-05-09T00:02:05Z')
     ).toBe('2m 5s');
     expect(formatWorkflowDuration(null, null)).toBe('Not started');
+  });
+
+  it('builds winner options from arena attempt workspaces only', () => {
+    const options = buildArenaWinnerOptions(baseArenaGroup);
+
+    expect(options.map((option) => option.workspaceId)).toEqual([
+      'workspace-1',
+      'workspace-3',
+    ]);
+    expect(options[0]).toMatchObject({
+      label: 'Attempt Alpha',
+      executorLabel: 'codex / gpt-5.4',
+      executionStatusLabel: 'completed',
+      isSelectable: true,
+      isPromoted: false,
+    });
+    expect(options[1]).toMatchObject({
+      label: 'Attempt 2',
+      executorLabel: 'Unknown executor',
+      executionStatusLabel: 'failed',
+      isSelectable: false,
+      isPromoted: false,
+    });
+  });
+
+  it('marks winner options unavailable after promotion or while running', () => {
+    const options = buildArenaWinnerOptions({
+      ...baseArenaGroup,
+      promoted_workspace_id: 'workspace-1',
+      workspaces: [
+        {
+          ...baseArenaGroup.workspaces[0],
+          arena_status: 'promoted',
+        },
+        {
+          ...baseArenaGroup.workspaces[2],
+          workspace_id: 'workspace-4',
+          arena_status: 'active',
+          latest_execution_status: 'running',
+        },
+      ],
+    });
+
+    expect(options).toHaveLength(2);
+    expect(options[0]).toMatchObject({
+      workspaceId: 'workspace-1',
+      isSelectable: false,
+      isPromoted: true,
+    });
+    expect(options[1]).toMatchObject({
+      workspaceId: 'workspace-4',
+      isSelectable: false,
+      isPromoted: false,
+      executionStatusLabel: 'running',
+    });
+  });
+
+  it('requires an attempt to complete before it can be selected', () => {
+    const options = buildArenaWinnerOptions({
+      ...baseArenaGroup,
+      workspaces: [
+        {
+          ...baseArenaGroup.workspaces[0],
+          latest_execution_status: null,
+        },
+      ],
+    });
+
+    expect(options[0]).toMatchObject({
+      executionStatusLabel: 'not started',
+      isSelectable: false,
+    });
   });
 });

@@ -42,8 +42,9 @@ use crate::{
     },
     workflow_runtime::{
         arena::{
-            ArenaNodeAttemptRequest, ArenaNodeExecution, ArenaNodeRequest,
-            NoopWorkflowArenaCreator, WorkflowArenaCreator,
+            ArenaNodeAttemptRequest, ArenaNodeExecution, ArenaNodeRequest, ArenaWinnerExecution,
+            ArenaWinnerRequest, NoopWorkflowArenaCreator, WorkflowArenaCreator,
+            WorkflowArenaWinnerApplier,
         },
         workspace::{main_workflow_branch_name, short_run_id},
     },
@@ -448,6 +449,79 @@ where
         arena_creator,
     )
     .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
+pub async fn select_arena_winner_with_arena<A, R, W>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    winner_workspace_id: Uuid,
+    agent_executor: &A,
+    arena_creator: &R,
+    winner_applier: &W,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+    W: WorkflowArenaWinnerApplier,
+{
+    let run = load_runtime_run(pool, run_id).await?;
+    let node = run
+        .graph
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    if node.kind != WorkflowNodeKind::Arena {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` is not an arena node"
+        )));
+    }
+    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingArena).await?;
+    let arena_group_id = arena_group_id_for_node(pool, run_id, node_id).await?;
+
+    match winner_applier
+        .apply_winner(ArenaWinnerRequest {
+            run_id,
+            node_id: node_id.to_string(),
+            arena_group_id,
+            main_workspace_id: run.workspace_id,
+            winner_workspace_id,
+        })
+        .await
+    {
+        Ok(ArenaWinnerExecution { output_text }) => {
+            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None).await?;
+            update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
+            drive_workflow_run(
+                pool,
+                run_id,
+                &run.graph,
+                run.issue_id,
+                run.workspace_id,
+                &run.input_text,
+                agent_executor,
+                arena_creator,
+            )
+            .await?;
+        }
+        Err(err) => {
+            let message = format!("{err}; winner workspace: {winner_workspace_id}");
+            mark_node_failed(pool, run_id, node_id, &message).await?;
+            mark_pending_nodes_skipped(pool, run_id).await?;
+            update_run_status(
+                pool,
+                run_id,
+                WorkflowRunStatus::Failed,
+                None,
+                Some(&message),
+                true,
+            )
+            .await?;
+        }
+    }
 
     get_workflow_run_response(pool, run_id).await
 }
@@ -1331,6 +1405,30 @@ async fn ensure_node_status(
     }
 
     Ok(())
+}
+
+async fn arena_group_id_for_node(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+) -> Result<Uuid, ApiError> {
+    sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"
+        SELECT arena_group_id
+        FROM node_executions
+        WHERE run_id = ? AND node_id = ? AND iteration = 0
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "Workflow arena node `{node_id}` has no arena group"
+        ))
+    })
 }
 
 async fn running_node_session_ids(pool: &SqlitePool, run_id: Uuid) -> Result<Vec<Uuid>, ApiError> {

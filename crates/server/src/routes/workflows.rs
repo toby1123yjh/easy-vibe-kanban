@@ -2,7 +2,6 @@ use api_types::{DeleteResponse, MutationResponse};
 use axum::{
     BoxError, Json, Router,
     extract::{Path, State},
-    http::StatusCode,
     response::{
         Json as ResponseJson, Sse,
         sse::{Event, KeepAlive},
@@ -25,12 +24,12 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     workflow_runtime::{
-        arena::DeploymentWorkflowArenaCreator,
+        arena::{DeploymentWorkflowArenaCreator, DeploymentWorkflowArenaWinnerApplier},
         runner::{
             DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller,
             approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
-            reject_human_node, retry_workflow_node_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_with_arena, workflow_event_history,
+            reject_human_node, retry_workflow_node_with_arena, select_arena_winner_with_arena,
+            subscribe_workflow_events, trigger_workflow_run_with_arena, workflow_event_history,
         },
         workspace::DeploymentWorkflowWorkspaceResolver,
     },
@@ -73,6 +72,11 @@ pub struct TriggerWorkflowRequest {
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
     pub input_text: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct SelectArenaWinnerRequest {
+    pub workspace_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -867,8 +871,29 @@ async fn reject_node(
     }))
 }
 
-async fn select_arena_winner(Path((_run_id, _node_id)): Path<(Uuid, String)>) -> StatusCode {
-    StatusCode::NOT_IMPLEMENTED
+async fn select_arena_winner(
+    State(deployment): State<DeploymentImpl>,
+    Path((run_id, node_id)): Path<(Uuid, String)>,
+    Json(request): Json<SelectArenaWinnerRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let winner_applier = DeploymentWorkflowArenaWinnerApplier::new(deployment.clone());
+    let run = select_arena_winner_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &node_id,
+        request.workspace_id,
+        &agent_executor,
+        &arena_creator,
+        &winner_applier,
+    )
+    .await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, Some(node_id)),
+        txid: txid(),
+    }))
 }
 
 fn workflow_action_response(

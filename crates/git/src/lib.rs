@@ -371,6 +371,24 @@ impl GitService {
         Ok(entries.into_iter().map(|e| e.path).collect())
     }
 
+    /// Return a raw binary-safe patch for all worktree changes against a base commit.
+    pub fn get_diff_patch(
+        &self,
+        worktree_path: &Path,
+        base_commit: &Commit,
+    ) -> Result<Vec<u8>, GitServiceError> {
+        GitCli::new()
+            .diff_patch(worktree_path, base_commit)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git diff failed: {e}")))
+    }
+
+    /// Apply a raw patch to a worktree without staging the result.
+    pub fn apply_patch(&self, worktree_path: &Path, patch: &[u8]) -> Result<(), GitServiceError> {
+        GitCli::new()
+            .apply_patch(worktree_path, patch)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git apply failed: {e}")))
+    }
+
     /// Extract file path from a Diff (for indexing and ConversationPatch)
     pub fn diff_path(diff: &Diff) -> String {
         diff.new_path

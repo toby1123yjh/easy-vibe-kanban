@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use db::models::{
-    arena_group::{ArenaGroup, ArenaMode, ArenaStatus, CreateArenaGroup},
+    arena_group::{ArenaGroup, ArenaGroupError, ArenaMode, ArenaStatus, CreateArenaGroup},
     requests::WorkspaceRepoInput,
     workspace::{CreateWorkspace, Workspace, WorkspaceError},
     workspace_repo::WorkspaceRepo,
@@ -40,10 +42,32 @@ pub struct ArenaNodeExecution {
     pub arena_group_id: Uuid,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArenaWinnerRequest {
+    pub run_id: Uuid,
+    pub node_id: String,
+    pub arena_group_id: Uuid,
+    pub main_workspace_id: Uuid,
+    pub winner_workspace_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArenaWinnerExecution {
+    pub output_text: String,
+}
+
 #[async_trait]
 pub trait WorkflowArenaCreator: Send + Sync {
     async fn create_arena(&self, request: ArenaNodeRequest)
     -> Result<ArenaNodeExecution, ApiError>;
+}
+
+#[async_trait]
+pub trait WorkflowArenaWinnerApplier: Send + Sync {
+    async fn apply_winner(
+        &self,
+        request: ArenaWinnerRequest,
+    ) -> Result<ArenaWinnerExecution, ApiError>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +103,27 @@ impl WorkflowArenaCreator for DeploymentWorkflowArenaCreator {
         request: ArenaNodeRequest,
     ) -> Result<ArenaNodeExecution, ApiError> {
         create_deployment_arena(&self.deployment, request).await
+    }
+}
+
+#[derive(Clone)]
+pub struct DeploymentWorkflowArenaWinnerApplier {
+    deployment: DeploymentImpl,
+}
+
+impl DeploymentWorkflowArenaWinnerApplier {
+    pub fn new(deployment: DeploymentImpl) -> Self {
+        Self { deployment }
+    }
+}
+
+#[async_trait]
+impl WorkflowArenaWinnerApplier for DeploymentWorkflowArenaWinnerApplier {
+    async fn apply_winner(
+        &self,
+        request: ArenaWinnerRequest,
+    ) -> Result<ArenaWinnerExecution, ApiError> {
+        apply_deployment_arena_winner(&self.deployment, request).await
     }
 }
 
@@ -280,4 +325,175 @@ async fn insert_workspace_link(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+async fn apply_deployment_arena_winner(
+    deployment: &DeploymentImpl,
+    request: ArenaWinnerRequest,
+) -> Result<ArenaWinnerExecution, ApiError> {
+    let pool = &deployment.db().pool;
+    let group = ArenaGroup::find_by_id(pool, request.arena_group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    if group.promoted_workspace_id.is_some() {
+        return Err(ApiError::from(ArenaGroupError::AlreadyPromoted {
+            group_id: group.id,
+        }));
+    }
+    let main_workspace = Workspace::find_by_id(pool, request.main_workspace_id)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
+    let winner_workspace = Workspace::find_by_id(pool, request.winner_workspace_id)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
+
+    if winner_workspace.arena_group_id != Some(request.arena_group_id) {
+        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
+            group_id: request.arena_group_id,
+            workspace_id: request.winner_workspace_id,
+        }));
+    }
+
+    let main_root = deployment
+        .container()
+        .ensure_container_exists(&main_workspace)
+        .await?;
+    let winner_root = deployment
+        .container()
+        .ensure_container_exists(&winner_workspace)
+        .await?;
+    let main_root = std::path::PathBuf::from(main_root);
+    let winner_root = std::path::PathBuf::from(winner_root);
+
+    let main_repos =
+        WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, main_workspace.id).await?;
+    let winner_repos =
+        WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, winner_workspace.id)
+            .await?;
+    let winner_by_repo_id = winner_repos
+        .iter()
+        .map(|repo| (repo.repo.id, repo))
+        .collect::<HashMap<_, _>>();
+
+    let mut changed_files = 0usize;
+    let mut changed_repos = Vec::new();
+
+    for main_repo in &main_repos {
+        let winner_repo = winner_by_repo_id.get(&main_repo.repo.id).ok_or_else(|| {
+            ApiError::BadRequest(format!(
+                "Winner workspace {} is missing repository {}",
+                winner_workspace.id, main_repo.repo.name
+            ))
+        })?;
+        let main_repo_path = main_root.join(&main_repo.repo.name);
+        let winner_repo_path = winner_root.join(&winner_repo.repo.name);
+        let base_commit = deployment.git().get_base_commit(
+            &winner_repo_path,
+            &winner_workspace.branch,
+            &winner_repo.target_branch,
+        )?;
+        let file_paths = deployment
+            .git()
+            .get_diff_file_paths(&winner_repo_path, &base_commit)?;
+        let patch = deployment
+            .git()
+            .get_diff_patch(&winner_repo_path, &base_commit)?;
+
+        if patch.is_empty() {
+            continue;
+        }
+
+        deployment.git().apply_patch(&main_repo_path, &patch)?;
+        changed_files += file_paths.len();
+        changed_repos.push(main_repo.repo.name.clone());
+    }
+
+    mark_arena_winner(pool, request.arena_group_id, request.winner_workspace_id).await?;
+
+    let winner_summary = latest_workspace_summary_text(pool, request.winner_workspace_id)
+        .await?
+        .unwrap_or_else(|| {
+            format!(
+                "Selected arena winner workspace {}",
+                request.winner_workspace_id
+            )
+        });
+    let diff_summary = if changed_repos.is_empty() {
+        "No file changes were applied from the winner workspace.".to_string()
+    } else {
+        format!(
+            "Applied {changed_files} changed file(s) from {}.",
+            changed_repos.join(", ")
+        )
+    };
+    let output_text = if winner_summary.trim().is_empty() {
+        diff_summary
+    } else {
+        format!("{winner_summary}\n\n{diff_summary}")
+    };
+
+    deployment
+        .track_if_analytics_allowed(
+            "workflow_arena_winner_applied",
+            serde_json::json!({
+                "arena_group_id": request.arena_group_id.to_string(),
+                "winner_workspace_id": request.winner_workspace_id.to_string(),
+                "run_id": request.run_id.to_string(),
+                "node_id": request.node_id,
+                "changed_files": changed_files,
+            }),
+        )
+        .await;
+
+    Ok(ArenaWinnerExecution { output_text })
+}
+
+async fn mark_arena_winner(
+    pool: &SqlitePool,
+    arena_group_id: Uuid,
+    winner_workspace_id: Uuid,
+) -> Result<(), ApiError> {
+    let siblings = Workspace::find_by_arena_group_id(pool, arena_group_id).await?;
+    if !siblings
+        .iter()
+        .any(|workspace| workspace.id == winner_workspace_id)
+    {
+        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
+            group_id: arena_group_id,
+            workspace_id: winner_workspace_id,
+        }));
+    }
+
+    Workspace::set_arena_status(pool, winner_workspace_id, ArenaStatus::Promoted).await?;
+    ArenaGroup::set_promoted(pool, arena_group_id, winner_workspace_id).await?;
+    for sibling in siblings {
+        if sibling.id == winner_workspace_id {
+            continue;
+        }
+        Workspace::set_arena_status(pool, sibling.id, ArenaStatus::Archived).await?;
+        Workspace::set_archived(pool, sibling.id, true).await?;
+    }
+
+    Ok(())
+}
+
+async fn latest_workspace_summary_text(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Option<String>, ApiError> {
+    Ok(sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT cat.summary
+        FROM coding_agent_turns cat
+        JOIN execution_processes ep ON ep.id = cat.execution_process_id
+        JOIN sessions s ON s.id = ep.session_id
+        WHERE s.workspace_id = ?
+          AND cat.summary IS NOT NULL
+        ORDER BY ep.created_at DESC, cat.updated_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await?)
 }
