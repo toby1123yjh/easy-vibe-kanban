@@ -758,6 +758,7 @@ async fn initialize_node_executions(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive_workflow_run<A, R>(
     pool: &SqlitePool,
     run_id: Uuid,
@@ -828,6 +829,7 @@ enum RunStep {
     Wait,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_ready_node<A, R>(
     pool: &SqlitePool,
     run_id: Uuid,
