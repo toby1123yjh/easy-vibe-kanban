@@ -71,7 +71,87 @@ export function validateWorkflowGraph(
     }
   }
 
+  const adjacency = buildAdjacency(graph);
+  const cycleNodeId = findCycleNode(adjacency);
+  if (cycleNodeId) {
+    issues.push({
+      type: 'error',
+      message: `Workflow contains a cycle at ${cycleNodeId}`,
+    });
+  }
+
+  if (startNodes.length === 1) {
+    const reachable = findReachableNodes(startNodes[0].id, adjacency);
+    for (const node of nodes) {
+      if (node.type !== 'start' && !reachable.has(node.id)) {
+        issues.push({
+          type: 'error',
+          message: `Unreachable node: ${node.id}`,
+        });
+      }
+    }
+  }
+
   return issues;
+}
+
+function buildAdjacency(graph: WorkflowGraph): Map<string, string[]> {
+  const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const adjacency = new Map<string, string[]>();
+  for (const node of graph.nodes) {
+    adjacency.set(node.id, []);
+  }
+
+  for (const edge of graph.edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+      continue;
+    }
+    adjacency.get(edge.source)?.push(edge.target);
+  }
+
+  return adjacency;
+}
+
+function findCycleNode(adjacency: Map<string, string[]>): string | null {
+  const states = new Map<string, 'visiting' | 'visited'>();
+
+  const visit = (nodeId: string): string | null => {
+    const state = states.get(nodeId);
+    if (state === 'visiting') return nodeId;
+    if (state === 'visited') return null;
+
+    states.set(nodeId, 'visiting');
+    for (const target of adjacency.get(nodeId) ?? []) {
+      const cycleNodeId = visit(target);
+      if (cycleNodeId) return cycleNodeId;
+    }
+    states.set(nodeId, 'visited');
+    return null;
+  };
+
+  for (const nodeId of adjacency.keys()) {
+    const cycleNodeId = visit(nodeId);
+    if (cycleNodeId) return cycleNodeId;
+  }
+
+  return null;
+}
+
+function findReachableNodes(
+  startNodeId: string,
+  adjacency: Map<string, string[]>
+): Set<string> {
+  const reachable = new Set<string>();
+  const queue = [startNodeId];
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    if (!nodeId || reachable.has(nodeId)) continue;
+    reachable.add(nodeId);
+    queue.push(...(adjacency.get(nodeId) ?? []));
+  }
+
+  return reachable;
 }
 
 export function WorkflowValidationPanel({
