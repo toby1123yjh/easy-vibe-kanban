@@ -28,6 +28,7 @@ import {
   useKanbanFilters,
   PRIORITY_ORDER,
 } from '../model/hooks/useKanbanFilters';
+import { getKanbanProjectHeaderActions } from '../model/kanbanProjectActions';
 import {
   bulkUpdateIssues,
   type BulkUpdateIssueItem,
@@ -68,6 +69,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
+import { Workflow } from 'lucide-react';
 import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTagDropdownContainer';
 import type { IssuePriority } from 'shared/remote-types';
 import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
@@ -160,6 +162,10 @@ export function KanbanContainer() {
 
   // Get project name by finding the project matching current projectId
   const projectName = projects.find((p) => p.id === projectId)?.name ?? '';
+  const projectHeaderActions = useMemo(
+    () => getKanbanProjectHeaderActions(projectId),
+    [projectId]
+  );
 
   const selectedKanbanIssueId = routeState.issueId;
   const issueComposerKey = useMemo(
@@ -905,6 +911,21 @@ export function KanbanContainer() {
           <h2 className={cn('text-2xl font-medium', isMobile && 'text-lg')}>
             {projectName}
           </h2>
+
+          {projectHeaderActions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              onClick={() =>
+                appNavigation.goToProjectWorkflows(action.destination.projectId)
+              }
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-sm border border-secondary bg-primary px-2 text-xs font-medium text-normal transition-colors hover:border-brand hover:text-high"
+              aria-label={`Open ${action.label}`}
+            >
+              <Workflow className="h-3.5 w-3.5" />
+              <span>{action.label}</span>
+            </button>
+          ))}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
