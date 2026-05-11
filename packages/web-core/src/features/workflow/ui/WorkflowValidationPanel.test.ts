@@ -21,6 +21,7 @@ describe('workflow graph validation panel helpers', () => {
 
     expect(validateWorkflowGraph(graph)).toContainEqual({
       type: 'error',
+      nodeId: 'agent',
       message: 'Unreachable node: agent',
     });
   });
@@ -52,7 +53,32 @@ describe('workflow graph validation panel helpers', () => {
 
     expect(validateWorkflowGraph(graph)).toContainEqual({
       type: 'error',
+      nodeId: 'start',
       message: 'Workflow contains a cycle at start',
+    });
+  });
+
+  it('attaches node ids to edge validation issues when possible', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        { id: 'start', type: 'start', data: { display_name: 'Start' } },
+        { id: 'end', type: 'end', data: { display_name: 'End' } },
+      ],
+      edges: [
+        {
+          id: 'start-start',
+          source: 'start',
+          target: 'start',
+          type: 'default',
+        },
+      ],
+    };
+
+    expect(validateWorkflowGraph(graph)).toContainEqual({
+      type: 'error',
+      nodeId: 'start',
+      message: 'Self-edge found on node start',
     });
   });
 });

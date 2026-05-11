@@ -181,7 +181,7 @@ describe('workflow graph model', () => {
       id: 'review-approve',
       source: 'review',
       target: 'ship',
-      type: 'smoothstep',
+      type: 'workflow',
       data: { workflowType: 'approval' },
       label: 'Approve',
     });
@@ -205,6 +205,25 @@ describe('workflow graph model', () => {
     );
 
     expect(graph.edges[0].type).toBe('rejection');
+  });
+
+  it('drops React Flow node UI data when converting back to workflow graph', () => {
+    const graph = fromReactFlowGraph(
+      [
+        {
+          id: 'agent-1',
+          type: 'agent',
+          data: {
+            display_name: 'Agent',
+            __validationIssues: [{ message: 'UI only' }],
+          },
+          position: { x: 120, y: 80 },
+        },
+      ],
+      []
+    );
+
+    expect(graph.nodes[0].data).toEqual({ display_name: 'Agent' });
   });
 
   it('maps condition branch names to selected edge targets', () => {

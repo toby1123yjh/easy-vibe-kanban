@@ -381,6 +381,7 @@ export function WorkflowTemplateEditorPage({
             <ReactFlowProvider>
               <WorkflowCanvas
                 graph={graph}
+                validationIssues={validationIssues}
                 readOnly={readOnly}
                 onChange={handleGraphChange}
                 onSelectionChange={(selection) => {

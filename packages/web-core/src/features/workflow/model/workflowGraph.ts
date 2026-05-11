@@ -39,7 +39,7 @@ export type WorkflowEdgeKind =
   | 'rejection'
   | 'arena_winner';
 
-export const WORKFLOW_REACT_FLOW_EDGE_TYPE = 'smoothstep';
+export const WORKFLOW_REACT_FLOW_EDGE_TYPE = 'workflow';
 
 const WORKFLOW_EDGE_KINDS: readonly WorkflowEdgeKind[] = [
   'default',
@@ -355,7 +355,7 @@ export function fromReactFlowGraph(
     nodes: nodes.map((node) => ({
       id: node.id,
       type: node.type,
-      data: node.data,
+      data: stripWorkflowNodeUiData(node.data),
       position: node.position,
     })),
     edges: edges.map((edge) => ({
@@ -365,4 +365,10 @@ export function fromReactFlowGraph(
       type: getWorkflowTypeFromReactFlowEdge(edge),
     })),
   };
+}
+
+function stripWorkflowNodeUiData(data: WorkflowNodeData): WorkflowNodeData {
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => !key.startsWith('__'))
+  ) as WorkflowNodeData;
 }

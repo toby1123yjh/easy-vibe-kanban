@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { ReactFlowProvider } from '@xyflow/react';
-import './style.css';
+import { useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { ReactFlowProvider } from "@xyflow/react";
+import "./style.css";
 import {
   WORKFLOW_GRAPH_VERSION,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
@@ -14,81 +14,90 @@ import {
   type WorkflowGraph,
   type WorkflowNodeKind,
   type WorkflowNodePosition,
-} from '../../../../packages/web-core/src/features/workflow/model/workflowGraph';
-import { WorkflowCanvas } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowCanvas';
-import { WorkflowEdgeInspector } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector';
+} from "../../../../packages/web-core/src/features/workflow/model/workflowGraph";
+import { WorkflowCanvas } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowCanvas";
+import { WorkflowEdgeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector";
+import type { ValidationIssue } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel";
 
 const initialGraph: WorkflowGraph = {
   version: WORKFLOW_GRAPH_VERSION,
   nodes: [
     {
-      id: 'start',
-      type: 'start',
-      data: { display_name: 'Start' },
+      id: "start",
+      type: "start",
+      data: { display_name: "Start" },
       position: { x: 40, y: 140 },
     },
     {
-      id: 'condition',
-      type: 'condition',
+      id: "condition",
+      type: "condition",
       data: {
-        display_name: 'Condition',
-        joiner: 'and',
+        display_name: "Condition",
+        joiner: "and",
         conditions: [
           {
-            input: 'run_input',
-            operator: 'contains',
-            value: 'ship',
+            input: "run_input",
+            operator: "contains",
+            value: "ship",
           },
         ],
         branches: [
-          { name: 'true', target_node_id: 'yes' },
-          { name: 'false', target_node_id: 'no' },
+          { name: "true", target_node_id: "yes" },
+          { name: "false", target_node_id: "no" },
         ],
       },
       position: { x: 280, y: 140 },
     },
     {
-      id: 'yes',
-      type: 'agent',
-      data: { display_name: 'Yes path', role_template_id: 'reviewer' },
+      id: "yes",
+      type: "agent",
+      data: { display_name: "Yes path", role_template_id: "reviewer" },
       position: { x: 540, y: 40 },
     },
     {
-      id: 'no',
-      type: 'agent',
-      data: { display_name: 'No path', role_template_id: 'fixer' },
+      id: "no",
+      type: "agent",
+      data: { display_name: "No path", role_template_id: "fixer" },
       position: { x: 540, y: 240 },
     },
     {
-      id: 'end',
-      type: 'end',
-      data: { display_name: 'End' },
+      id: "end",
+      type: "end",
+      data: { display_name: "End" },
       position: { x: 820, y: 140 },
     },
   ],
   edges: [
     {
-      id: 'start-condition',
-      source: 'start',
-      target: 'condition',
-      type: 'default',
+      id: "start-condition",
+      source: "start",
+      target: "condition",
+      type: "default",
     },
     {
-      id: 'condition-yes',
-      source: 'condition',
-      target: 'yes',
-      type: 'condition_branch',
+      id: "condition-yes",
+      source: "condition",
+      target: "yes",
+      type: "condition_branch",
     },
     {
-      id: 'condition-no',
-      source: 'condition',
-      target: 'no',
-      type: 'condition_branch',
+      id: "condition-no",
+      source: "condition",
+      target: "no",
+      type: "condition_branch",
     },
-    { id: 'yes-end', source: 'yes', target: 'end', type: 'default' },
-    { id: 'no-end', source: 'no', target: 'end', type: 'default' },
+    { id: "yes-end", source: "yes", target: "end", type: "default" },
+    { id: "no-end", source: "no", target: "end", type: "default" },
   ],
 };
+
+const canvasValidationIssues: ValidationIssue[] = [
+  {
+    type: "warning",
+    nodeId: "condition",
+    message: "Condition needs a fallback route",
+  },
+];
 
 function PaletteButton({ kind }: { kind: WorkflowNodeKind }) {
   return (
@@ -97,7 +106,7 @@ function PaletteButton({ kind }: { kind: WorkflowNodeKind }) {
       draggable
       onDragStart={(event) => {
         event.dataTransfer.setData(WORKFLOW_NODE_DRAG_DATA_TYPE, kind);
-        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.effectAllowed = "copy";
       }}
     >
       Agent
@@ -111,26 +120,26 @@ function WorkflowCanvasHarness() {
 
   const selectedEdge = useMemo(
     () => graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
-    [graph, selectedEdgeId]
+    [graph, selectedEdgeId],
   );
   const selectedEdgeConditionBranchName = useMemo(
     () =>
       selectedEdge
         ? getConditionBranchNameForEdge(graph, selectedEdge.id)
         : null,
-    [graph, selectedEdge]
+    [graph, selectedEdge],
   );
   const selectedEdgeConditionBranchNames = useMemo(
     () =>
       selectedEdge
         ? getConditionBranchNamesForEdge(graph, selectedEdge.id)
         : [],
-    [graph, selectedEdge]
+    [graph, selectedEdge],
   );
 
   const handleNodeDrop = (
     kind: WorkflowNodeKind,
-    position: WorkflowNodePosition
+    position: WorkflowNodePosition,
   ) => {
     const node = createWorkflowNode(kind, { position });
     setGraph((current) => ({
@@ -141,17 +150,17 @@ function WorkflowCanvasHarness() {
 
   const handleEdgeChange = (
     edgeId: string,
-    updates: Partial<Pick<WorkflowEdge, 'type'>>
+    updates: Partial<Pick<WorkflowEdge, "type">>,
   ) => {
     setGraph((current) => {
       let nextGraph: WorkflowGraph = {
         ...current,
         edges: current.edges.map((edge) =>
-          edge.id === edgeId ? { ...edge, ...updates } : edge
+          edge.id === edgeId ? { ...edge, ...updates } : edge,
         ),
       };
 
-      if (updates.type === 'condition_branch') {
+      if (updates.type === "condition_branch") {
         const branchName =
           getConditionBranchNameForEdge(nextGraph, edgeId) ??
           getConditionBranchNamesForEdge(nextGraph, edgeId)[0];
@@ -159,7 +168,7 @@ function WorkflowCanvasHarness() {
           nextGraph = setConditionBranchTargetForEdge(
             nextGraph,
             edgeId,
-            branchName
+            branchName,
           );
         }
       } else if (updates.type) {
@@ -176,7 +185,7 @@ function WorkflowCanvasHarness() {
         <PaletteButton kind="agent" />
         <button
           data-testid="select-condition-edge"
-          onClick={() => setSelectedEdgeId('condition-yes')}
+          onClick={() => setSelectedEdgeId("condition-yes")}
         >
           Select condition edge
         </button>
@@ -185,6 +194,7 @@ function WorkflowCanvasHarness() {
         <ReactFlowProvider>
           <WorkflowCanvas
             graph={graph}
+            validationIssues={canvasValidationIssues}
             onChange={setGraph}
             onNodeDrop={handleNodeDrop}
             onSelectionChange={(selection) => {
@@ -204,7 +214,7 @@ function WorkflowCanvasHarness() {
           onChange={handleEdgeChange}
           onConditionBranchChange={(edgeId, branchName) => {
             setGraph((current) =>
-              setConditionBranchTargetForEdge(current, edgeId, branchName)
+              setConditionBranchTargetForEdge(current, edgeId, branchName),
             );
           }}
         />
@@ -214,4 +224,4 @@ function WorkflowCanvasHarness() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<WorkflowCanvasHarness />);
+createRoot(document.getElementById("root")!).render(<WorkflowCanvasHarness />);

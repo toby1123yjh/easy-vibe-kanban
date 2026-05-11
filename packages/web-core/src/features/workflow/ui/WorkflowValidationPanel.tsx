@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export interface ValidationIssue {
   type: 'error' | 'warning';
+  nodeId?: string;
   message: string;
 }
 
@@ -54,18 +55,21 @@ export function validateWorkflowGraph(
     if (edge.source === edge.target) {
       issues.push({
         type: 'error',
+        nodeId: edge.source,
         message: `Self-edge found on node ${edge.source}`,
       });
     }
     if (!nodeIds.has(edge.source)) {
       issues.push({
         type: 'error',
+        nodeId: edge.source,
         message: `Edge source node missing: ${edge.source}`,
       });
     }
     if (!nodeIds.has(edge.target)) {
       issues.push({
         type: 'error',
+        nodeId: edge.target,
         message: `Edge target node missing: ${edge.target}`,
       });
     }
@@ -76,6 +80,7 @@ export function validateWorkflowGraph(
   if (cycleNodeId) {
     issues.push({
       type: 'error',
+      nodeId: cycleNodeId,
       message: `Workflow contains a cycle at ${cycleNodeId}`,
     });
   }
@@ -86,6 +91,7 @@ export function validateWorkflowGraph(
       if (node.type !== 'start' && !reachable.has(node.id)) {
         issues.push({
           type: 'error',
+          nodeId: node.id,
           message: `Unreachable node: ${node.id}`,
         });
       }
