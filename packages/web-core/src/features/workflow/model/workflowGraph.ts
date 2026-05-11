@@ -39,6 +39,23 @@ export type WorkflowEdgeKind =
   | 'rejection'
   | 'arena_winner';
 
+export const WORKFLOW_REACT_FLOW_EDGE_TYPE = 'smoothstep';
+
+const WORKFLOW_EDGE_KINDS: readonly WorkflowEdgeKind[] = [
+  'default',
+  'condition_branch',
+  'approval',
+  'rejection',
+  'arena_winner',
+];
+
+export function isWorkflowEdgeKind(value: unknown): value is WorkflowEdgeKind {
+  return (
+    typeof value === 'string' &&
+    WORKFLOW_EDGE_KINDS.includes(value as WorkflowEdgeKind)
+  );
+}
+
 export type OutputCaptureMode = 'last_message' | 'full_text' | 'diff_summary';
 export type PromoteStrategy = 'manual';
 export type ApplyStrategy = 'diff_apply';
@@ -107,9 +124,129 @@ export interface WorkflowGraph {
   edges: WorkflowEdge[];
 }
 
+export interface ReactFlowWorkflowEdgeData extends Record<string, unknown> {
+  workflowType: WorkflowEdgeKind;
+}
+
 export interface WorkflowNodePosition {
   x: number;
   y: number;
+}
+
+function getConditionBranchContext(
+  graph: WorkflowGraph,
+  edgeId: string
+): { edge: WorkflowEdge; sourceNode: WorkflowNode } | null {
+  const edge = graph.edges.find((candidate) => candidate.id === edgeId);
+  if (!edge) return null;
+
+  const sourceNode = graph.nodes.find((node) => node.id === edge.source);
+  if (!sourceNode || sourceNode.type !== 'condition') return null;
+
+  return { edge, sourceNode };
+}
+
+export function getConditionBranchNamesForEdge(
+  graph: WorkflowGraph,
+  edgeId: string
+): string[] {
+  const context = getConditionBranchContext(graph, edgeId);
+  if (!context) return [];
+
+  return (context.sourceNode.data.branches ?? [])
+    .map((branch) => branch.name)
+    .filter((name): name is string => Boolean(name));
+}
+
+export function getConditionBranchNameForEdge(
+  graph: WorkflowGraph,
+  edgeId: string
+): string | null {
+  const context = getConditionBranchContext(graph, edgeId);
+  if (!context) return null;
+
+  const branch = context.sourceNode.data.branches?.find(
+    (candidate) => candidate.target_node_id === context.edge.target
+  );
+  return branch?.name ?? null;
+}
+
+function clearBranchTarget(branch: WorkflowConditionBranch) {
+  const next = { ...branch };
+  delete next.target_node_id;
+  return next;
+}
+
+export function setConditionBranchTargetForEdge(
+  graph: WorkflowGraph,
+  edgeId: string,
+  branchName: string
+): WorkflowGraph {
+  const context = getConditionBranchContext(graph, edgeId);
+  if (!context) return graph;
+
+  const branches = context.sourceNode.data.branches ?? [];
+  const nextBranches = branches.map((branch) => {
+    if (branch.name === branchName) {
+      return { ...branch, target_node_id: context.edge.target };
+    }
+    if (branch.target_node_id === context.edge.target) {
+      return clearBranchTarget(branch);
+    }
+    return branch;
+  });
+
+  if (!nextBranches.some((branch) => branch.name === branchName)) {
+    nextBranches.push({
+      name: branchName,
+      target_node_id: context.edge.target,
+    });
+  }
+
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === context.sourceNode.id
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              branches: nextBranches,
+            },
+          }
+        : node
+    ),
+  };
+}
+
+export function clearConditionBranchTargetForEdge(
+  graph: WorkflowGraph,
+  edgeId: string
+): WorkflowGraph {
+  const context = getConditionBranchContext(graph, edgeId);
+  if (!context) return graph;
+
+  const branches = context.sourceNode.data.branches ?? [];
+  const nextBranches = branches.map((branch) =>
+    branch.target_node_id === context.edge.target
+      ? clearBranchTarget(branch)
+      : branch
+  );
+
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === context.sourceNode.id
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              branches: nextBranches,
+            },
+          }
+        : node
+    ),
+  };
 }
 
 export function createDefaultWorkflowGraph(): WorkflowGraph {
@@ -183,14 +320,30 @@ export function toReactFlowNodes(
   }));
 }
 
-export function toReactFlowEdges(graph: WorkflowGraph): ReactFlowEdge[] {
+export function toReactFlowEdges(
+  graph: WorkflowGraph
+): ReactFlowEdge<ReactFlowWorkflowEdgeData>[] {
   return graph.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    type: edge.type,
+    type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
+    data: { workflowType: edge.type },
     label: getWorkflowEdgeLabel(edge.type),
   }));
+}
+
+function getWorkflowTypeFromReactFlowEdge(
+  edge: ReactFlowEdge
+): WorkflowEdgeKind {
+  const data = edge.data as Partial<ReactFlowWorkflowEdgeData> | undefined;
+  if (isWorkflowEdgeKind(data?.workflowType)) {
+    return data.workflowType;
+  }
+  if (isWorkflowEdgeKind(edge.type)) {
+    return edge.type;
+  }
+  return 'default';
 }
 
 export function fromReactFlowGraph(
@@ -209,7 +362,7 @@ export function fromReactFlowGraph(
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: (edge.type as WorkflowEdgeKind) ?? 'default',
+      type: getWorkflowTypeFromReactFlowEdge(edge),
     })),
   };
 }

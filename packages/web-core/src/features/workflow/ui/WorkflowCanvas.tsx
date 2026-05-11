@@ -24,10 +24,12 @@ import {
   toReactFlowEdges,
   fromReactFlowGraph,
   isWorkflowNodeKind,
+  WORKFLOW_REACT_FLOW_EDGE_TYPE,
   type WorkflowGraph,
   type WorkflowNodeKind,
   type WorkflowNodeData,
   type WorkflowNodePosition,
+  type ReactFlowWorkflowEdgeData,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
 import {
@@ -40,8 +42,13 @@ export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
   readOnly?: boolean;
   onChange?: (graph: WorkflowGraph) => void;
-  onSelectionChange?: (selectedNodeId: string | null) => void;
+  onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
   onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
+}
+
+export interface WorkflowCanvasSelection {
+  nodeId: string | null;
+  edgeId: string | null;
 }
 
 interface BaseNodeProps {
@@ -118,7 +125,9 @@ export function WorkflowCanvas({
   const [nodes, setNodes] = useNodesState<
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
   >([]);
-  const [edges, setEdges] = useEdgesState<ReactFlowEdge>([]);
+  const [edges, setEdges] = useEdgesState<
+    ReactFlowEdge<ReactFlowWorkflowEdgeData>
+  >([]);
   const { screenToFlowPosition } = useReactFlow();
 
   // Sync incoming graph to internal state
@@ -146,7 +155,7 @@ export function WorkflowCanvas({
   const reportChange = useCallback(
     (
       newNodes: ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[],
-      newEdges: ReactFlowEdge[]
+      newEdges: ReactFlowEdge<ReactFlowWorkflowEdgeData>[]
     ) => {
       if (readOnly || !onChange) return;
       onChange(fromReactFlowGraph(newNodes, newEdges));
@@ -172,7 +181,7 @@ export function WorkflowCanvas({
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange<ReactFlowEdge>[]) => {
+    (changes: EdgeChange<ReactFlowEdge<ReactFlowWorkflowEdgeData>>[]) => {
       if (readOnly) return;
       setEdges((currentEdges) => {
         const next = applyEdgeChanges(changes, currentEdges);
@@ -194,10 +203,11 @@ export function WorkflowCanvas({
               connection.source && connection.target
                 ? `${connection.source}-${connection.target}`
                 : undefined,
-            type: 'default',
+            type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
+            data: { workflowType: 'default' },
           },
           currentEdges
-        );
+        ) as ReactFlowEdge<ReactFlowWorkflowEdgeData>[];
         reportChange(nodes, next);
         return next;
       });
@@ -206,11 +216,20 @@ export function WorkflowCanvas({
   );
 
   const onSelectionChangeReactFlow = useCallback(
-    ({ nodes: selectedNodes }: { nodes: ReactFlowNode[] }) => {
+    ({
+      nodes: selectedNodes,
+      edges: selectedEdges,
+    }: {
+      nodes: ReactFlowNode[];
+      edges: ReactFlowEdge[];
+    }) => {
       if (onSelectionChange) {
-        onSelectionChange(
-          selectedNodes.length === 1 ? selectedNodes[0].id : null
-        );
+        const hasSingleNode = selectedNodes.length === 1;
+        const hasSingleEdge = selectedEdges.length === 1;
+        onSelectionChange({
+          nodeId: hasSingleNode && !hasSingleEdge ? selectedNodes[0].id : null,
+          edgeId: hasSingleEdge && !hasSingleNode ? selectedEdges[0].id : null,
+        });
       }
     },
     [onSelectionChange]

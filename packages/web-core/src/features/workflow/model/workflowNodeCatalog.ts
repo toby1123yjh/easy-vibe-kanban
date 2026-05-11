@@ -50,7 +50,7 @@ export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
           value: '',
         },
       ],
-      branches: [{ name: 'Matched' }, { name: 'Fallback' }],
+      branches: [{ name: 'true' }, { name: 'false' }],
     },
   },
   {

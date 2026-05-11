@@ -4,9 +4,14 @@ import {
   useWorkflowTemplateMutations,
 } from '@/shared/hooks/useWorkflowTemplates';
 import {
+  clearConditionBranchTargetForEdge,
   createDefaultWorkflowGraph,
   createWorkflowNode,
+  getConditionBranchNameForEdge,
+  getConditionBranchNamesForEdge,
+  setConditionBranchTargetForEdge,
   type WorkflowGraph,
+  type WorkflowEdge,
   type WorkflowNodeKind,
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
@@ -14,6 +19,7 @@ import {
 import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
+import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import {
   WorkflowValidationPanel,
@@ -48,6 +54,7 @@ export function WorkflowTemplateEditorPage({
 
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [graphParseError, setGraphParseError] = useState<string | null>(null);
@@ -117,6 +124,7 @@ export function WorkflowTemplateEditorPage({
       nodes: [...graph.nodes, newNode],
     });
     setSelectedNodeId(newNode.id);
+    setSelectedEdgeId(null);
   };
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {
@@ -139,9 +147,67 @@ export function WorkflowTemplateEditorPage({
     });
   };
 
+  const handleEdgeChange = (
+    edgeId: string,
+    updates: Partial<Pick<WorkflowEdge, 'type'>>
+  ) => {
+    if (!graph || readOnly) return;
+    let nextGraph: WorkflowGraph = {
+      ...graph,
+      edges: graph.edges.map((edge) =>
+        edge.id === edgeId ? { ...edge, ...updates } : edge
+      ),
+    };
+
+    if (updates.type === 'condition_branch') {
+      const branchName =
+        getConditionBranchNameForEdge(nextGraph, edgeId) ??
+        getConditionBranchNamesForEdge(nextGraph, edgeId)[0];
+      if (branchName) {
+        nextGraph = setConditionBranchTargetForEdge(
+          nextGraph,
+          edgeId,
+          branchName
+        );
+      }
+    } else if (updates.type) {
+      nextGraph = clearConditionBranchTargetForEdge(nextGraph, edgeId);
+    }
+
+    setValidationTouched(false);
+    setGraph(nextGraph);
+  };
+
+  const handleConditionBranchChange = (edgeId: string, branchName: string) => {
+    if (!graph || readOnly) return;
+    setValidationTouched(false);
+    setGraph(setConditionBranchTargetForEdge(graph, edgeId, branchName));
+  };
+
   const selectedNode = useMemo(
     () => graph?.nodes.find((n) => n.id === selectedNodeId) ?? null,
     [graph, selectedNodeId]
+  );
+
+  const selectedEdge = useMemo(
+    () => graph?.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
+    [graph, selectedEdgeId]
+  );
+
+  const selectedEdgeConditionBranchName = useMemo(
+    () =>
+      graph && selectedEdge
+        ? getConditionBranchNameForEdge(graph, selectedEdge.id)
+        : null,
+    [graph, selectedEdge]
+  );
+
+  const selectedEdgeConditionBranchNames = useMemo(
+    () =>
+      graph && selectedEdge
+        ? getConditionBranchNamesForEdge(graph, selectedEdge.id)
+        : [],
+    [graph, selectedEdge]
   );
 
   if (isLoading) {
@@ -317,7 +383,10 @@ export function WorkflowTemplateEditorPage({
                 graph={graph}
                 readOnly={readOnly}
                 onChange={handleGraphChange}
-                onSelectionChange={setSelectedNodeId}
+                onSelectionChange={(selection) => {
+                  setSelectedNodeId(selection.nodeId);
+                  setSelectedEdgeId(selection.edgeId);
+                }}
                 onNodeDrop={handleAddNode}
               />
             </ReactFlowProvider>
@@ -327,11 +396,23 @@ export function WorkflowTemplateEditorPage({
 
         {/* Inspector */}
         <div className="w-80 shrink-0 border-l border-secondary bg-panel">
-          <WorkflowNodeInspector
-            node={selectedNode}
-            readOnly={readOnly}
-            onChange={handleNodeChange}
-          />
+          {selectedEdge ? (
+            <WorkflowEdgeInspector
+              edge={selectedEdge}
+              nodes={graph.nodes}
+              conditionBranchName={selectedEdgeConditionBranchName}
+              conditionBranchNames={selectedEdgeConditionBranchNames}
+              readOnly={readOnly}
+              onChange={handleEdgeChange}
+              onConditionBranchChange={handleConditionBranchChange}
+            />
+          ) : (
+            <WorkflowNodeInspector
+              node={selectedNode}
+              readOnly={readOnly}
+              onChange={handleNodeChange}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -1,0 +1,131 @@
+import { ArrowDown, GitBranch } from 'lucide-react';
+import type {
+  WorkflowEdge,
+  WorkflowEdgeKind,
+  WorkflowNode,
+} from '../model/workflowGraph';
+import { getWorkflowEdgeKindOptions } from '../model/workflowPresentation';
+
+export interface WorkflowEdgeInspectorProps {
+  edge: WorkflowEdge | null;
+  nodes: WorkflowNode[];
+  conditionBranchName?: string | null;
+  conditionBranchNames?: string[];
+  readOnly?: boolean;
+  onChange?: (edgeId: string, updates: Partial<WorkflowEdge>) => void;
+  onConditionBranchChange?: (edgeId: string, branchName: string) => void;
+}
+
+function getNodeLabel(nodes: WorkflowNode[], nodeId: string): string {
+  const node = nodes.find((candidate) => candidate.id === nodeId);
+  return String(node?.data.display_name || nodeId);
+}
+
+export function WorkflowEdgeInspector({
+  edge,
+  nodes,
+  conditionBranchName,
+  conditionBranchNames = [],
+  readOnly,
+  onChange,
+  onConditionBranchChange,
+}: WorkflowEdgeInspectorProps) {
+  if (!edge) {
+    return (
+      <div className="flex h-full items-center justify-center p-base text-center text-low text-sm">
+        Select an edge to inspect
+      </div>
+    );
+  }
+
+  const edgeKindOptions = getWorkflowEdgeKindOptions();
+  const selectedOption = edgeKindOptions.find(
+    (option) => option.value === edge.type
+  );
+  const sourceLabel = getNodeLabel(nodes, edge.source);
+  const targetLabel = getNodeLabel(nodes, edge.target);
+
+  const handleTypeChange = (value: WorkflowEdgeKind) => {
+    if (readOnly || !onChange) return;
+    onChange(edge.id, { type: value });
+  };
+
+  const handleConditionBranchChange = (branchName: string) => {
+    if (readOnly || !onConditionBranchChange) return;
+    onConditionBranchChange(edge.id, branchName);
+  };
+
+  return (
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-sm">
+      <div className="mb-2 flex items-center gap-2 border-b border-secondary pb-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/20">
+          <GitBranch className="h-4 w-4 text-high" />
+        </div>
+        <span className="font-semibold text-high">Edge Properties</span>
+      </div>
+
+      <div className="rounded border border-secondary bg-primary/40 p-3">
+        <div className="truncate text-sm font-semibold text-high">
+          {sourceLabel}
+        </div>
+        <div className="flex h-8 items-center">
+          <ArrowDown className="h-4 w-4 text-low" />
+        </div>
+        <div className="truncate text-sm font-semibold text-high">
+          {targetLabel}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="font-semibold text-high">Route Type</label>
+        <select
+          className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
+          value={edge.type}
+          onChange={(event) =>
+            handleTypeChange(event.target.value as WorkflowEdgeKind)
+          }
+          disabled={readOnly}
+        >
+          {edgeKindOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {selectedOption ? (
+          <p className="text-xs text-low">{selectedOption.description}</p>
+        ) : null}
+      </div>
+
+      {edge.type === 'condition_branch' && conditionBranchNames.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <label className="font-semibold text-high">Condition Branch</label>
+          <select
+            className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
+            value={conditionBranchName ?? ''}
+            onChange={(event) =>
+              handleConditionBranchChange(event.target.value)
+            }
+            disabled={readOnly}
+          >
+            <option value="" disabled>
+              Select branch
+            </option>
+            {conditionBranchNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1">
+        <label className="font-semibold text-high">Edge ID</label>
+        <div className="truncate rounded border border-secondary bg-primary px-2 py-1 text-xs text-low">
+          {edge.id}
+        </div>
+      </div>
+    </div>
+  );
+}

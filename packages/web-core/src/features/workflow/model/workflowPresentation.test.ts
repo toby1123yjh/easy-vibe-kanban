@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getWorkflowEdgeKindOptions,
   getWorkflowEdgeLabel,
   getWorkflowNodeKindLabel,
   getWorkflowNodeSummary,
@@ -29,5 +30,35 @@ describe('workflow presentation helpers', () => {
     expect(getWorkflowEdgeLabel('approval')).toBe('Approve');
     expect(getWorkflowEdgeLabel('rejection')).toBe('Reject');
     expect(getWorkflowEdgeLabel('arena_winner')).toBe('Winner');
+  });
+
+  it('returns ordered edge kind options for the edge inspector', () => {
+    expect(getWorkflowEdgeKindOptions()).toEqual([
+      {
+        value: 'default',
+        label: 'Default',
+        description: 'Continue to the next node.',
+      },
+      {
+        value: 'condition_branch',
+        label: 'Condition',
+        description: 'Route through a conditional branch.',
+      },
+      {
+        value: 'approval',
+        label: 'Approve',
+        description: 'Continue after a human approval.',
+      },
+      {
+        value: 'rejection',
+        label: 'Reject',
+        description: 'Route after a human rejection.',
+      },
+      {
+        value: 'arena_winner',
+        label: 'Winner',
+        description: 'Promote the winning arena attempt.',
+      },
+    ]);
   });
 });
