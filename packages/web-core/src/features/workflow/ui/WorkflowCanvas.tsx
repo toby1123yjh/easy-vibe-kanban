@@ -30,6 +30,11 @@ import {
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
+import {
+  getWorkflowNodeKindLabel,
+  getWorkflowNodeSummary,
+} from '../model/workflowPresentation';
+import { getWorkflowNodeIcon } from './workflowNodeIcons';
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
@@ -42,20 +47,53 @@ export interface WorkflowCanvasProps {
 interface BaseNodeProps {
   data: WorkflowNodeData;
   type?: WorkflowNodeKind;
+  selected?: boolean;
 }
 
-const BaseNode = ({ data, type }: BaseNodeProps) => (
-  <div className="relative min-w-[120px] rounded border-2 border-secondary bg-panel px-4 py-2 text-sm shadow-sm">
-    {type !== 'start' ? <Handle type="target" position={Position.Top} /> : null}
-    <div className="font-semibold text-high">
-      {data.display_name || type || 'Node'}
+const BaseNode = ({ data, type, selected }: BaseNodeProps) => {
+  const nodeKind = type ?? 'agent';
+  const Icon = getWorkflowNodeIcon(nodeKind);
+
+  return (
+    <div
+      className={`relative min-w-[160px] rounded-lg border bg-panel shadow-sm transition-all ${
+        selected
+          ? 'border-brand ring-1 ring-brand'
+          : 'border-secondary hover:border-brand hover:shadow-md'
+      }`}
+    >
+      {type !== 'start' ? (
+        <Handle
+          type="target"
+          position={Position.Top}
+          className="h-3 w-3 border-2 border-panel bg-low"
+        />
+      ) : null}
+
+      <div className="flex items-center gap-2 border-b border-secondary/50 bg-secondary/20 px-3 py-2">
+        <Icon className="h-4 w-4 text-low" />
+        <div className="truncate text-sm font-semibold text-high">
+          {data.display_name || type || 'Node'}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1 px-3 py-2 text-xs text-low">
+        <div className="truncate">{getWorkflowNodeSummary(nodeKind, data)}</div>
+        <div className="text-[10px] uppercase tracking-normal text-low">
+          {getWorkflowNodeKindLabel(nodeKind)}
+        </div>
+      </div>
+
+      {type !== 'end' ? (
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          className="h-3 w-3 border-2 border-panel bg-low"
+        />
+      ) : null}
     </div>
-    <div className="text-xs text-low">{type}</div>
-    {type !== 'end' ? (
-      <Handle type="source" position={Position.Bottom} />
-    ) : null}
-  </div>
-);
+  );
+};
 
 const nodeTypes = {
   start: BaseNode,

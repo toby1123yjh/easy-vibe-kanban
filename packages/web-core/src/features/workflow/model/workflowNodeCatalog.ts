@@ -7,6 +7,11 @@ export interface CatalogEntry {
   defaultData: WorkflowNodeData;
 }
 
+export interface WorkflowNodeCatalogSection {
+  label: string;
+  entries: CatalogEntry[];
+}
+
 export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
   {
     type: 'start',
@@ -102,4 +107,22 @@ export function createDefaultNodeData(
   }
   // Deep clone to prevent mutating catalog defaults
   return JSON.parse(JSON.stringify(entry.defaultData)) as WorkflowNodeData;
+}
+
+export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
+  const entryByType = new Map(
+    WORKFLOW_NODE_CATALOG.map((entry) => [entry.type, entry])
+  );
+  const sections: Array<{ label: string; types: WorkflowNodeKind[] }> = [
+    { label: 'Entry', types: ['start', 'end'] },
+    { label: 'AI', types: ['agent', 'arena'] },
+    { label: 'Control', types: ['condition', 'human_gate', 'transform'] },
+  ];
+
+  return sections.map((section) => ({
+    label: section.label,
+    entries: section.types
+      .map((type) => entryByType.get(type))
+      .filter((entry): entry is CatalogEntry => Boolean(entry)),
+  }));
 }

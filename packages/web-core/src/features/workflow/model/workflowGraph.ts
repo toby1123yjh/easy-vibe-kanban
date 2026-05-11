@@ -3,6 +3,7 @@ import type {
   Edge as ReactFlowEdge,
 } from '@xyflow/react';
 import { createDefaultNodeData } from './workflowNodeCatalog';
+import { getWorkflowEdgeLabel } from './workflowPresentation';
 
 export const WORKFLOW_GRAPH_VERSION = 1;
 
@@ -188,6 +189,7 @@ export function toReactFlowEdges(graph: WorkflowGraph): ReactFlowEdge[] {
     source: edge.source,
     target: edge.target,
     type: edge.type,
+    label: getWorkflowEdgeLabel(edge.type),
   }));
 }
 

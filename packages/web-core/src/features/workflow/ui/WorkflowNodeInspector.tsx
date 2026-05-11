@@ -1,4 +1,6 @@
 import type { WorkflowNode, WorkflowNodeData } from '../model/workflowGraph';
+import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
+import { getWorkflowNodeIcon } from './workflowNodeIcons';
 
 export interface WorkflowNodeInspectorProps {
   node: WorkflowNode | null;
@@ -25,9 +27,19 @@ export function WorkflowNodeInspector({
   };
 
   const { data, type } = node;
+  const Icon = getWorkflowNodeIcon(type);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4 text-sm">
+      <div className="mb-2 flex items-center gap-2 border-b border-secondary pb-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/20">
+          <Icon className="h-4 w-4 text-high" />
+        </div>
+        <span className="font-semibold text-high">
+          {getWorkflowNodeKindLabel(type)} Properties
+        </span>
+      </div>
+
       <div className="flex flex-col gap-1">
         <label className="font-semibold text-high">Display Name</label>
         <input

@@ -11,7 +11,7 @@ import {
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
-import { WORKFLOW_NODE_CATALOG } from '../model/workflowNodeCatalog';
+import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
@@ -27,9 +27,10 @@ import {
   Copy,
   Plus,
   CheckCircle2,
-  Play,
+  Play as PlayIcon,
 } from 'lucide-react';
 import { ReactFlowProvider } from '@xyflow/react';
+import { getWorkflowNodeIcon } from './workflowNodeIcons';
 
 export interface WorkflowTemplateEditorPageProps {
   projectId: string;
@@ -162,6 +163,7 @@ export function WorkflowTemplateEditorPage({
 
   const validationIssues = validateWorkflowGraph(graph);
   const isValid = validationIssues.length === 0 && !graphParseError;
+  const nodeCatalogSections = getWorkflowNodeCatalogSections();
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -215,7 +217,7 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
             aria-label="Run workflow test"
           >
-            <Play className="h-4 w-4" />
+            <PlayIcon className="h-4 w-4" />
             Run test
           </Button>
           {isSystem ? (
@@ -263,31 +265,46 @@ export function WorkflowTemplateEditorPage({
         {/* Node Library */}
         <div className="w-64 shrink-0 overflow-y-auto border-r border-secondary bg-panel p-4">
           <h3 className="mb-4 font-semibold text-high">Nodes</h3>
-          <div className="flex flex-col gap-2">
-            {WORKFLOW_NODE_CATALOG.map((entry) => (
-              <button
-                key={entry.type}
-                className="flex cursor-grab items-center justify-between rounded border border-secondary bg-primary p-2 text-left hover:border-brand active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => handleAddNode(entry.type)}
-                draggable={!readOnly}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(
-                    WORKFLOW_NODE_DRAG_DATA_TYPE,
-                    entry.type
-                  );
-                  event.dataTransfer.effectAllowed = 'copy';
-                }}
-                disabled={readOnly}
-                title={entry.description}
-              >
-                <div>
-                  <div className="text-sm font-medium text-high">
-                    {entry.label}
-                  </div>
-                  <div className="text-xs text-low">{entry.description}</div>
+          <div className="flex flex-col gap-4">
+            {nodeCatalogSections.map((section) => (
+              <div key={section.label} className="flex flex-col gap-2">
+                <div className="px-1 text-[11px] font-semibold uppercase tracking-normal text-low">
+                  {section.label}
                 </div>
-                <Plus className="h-4 w-4 text-low" />
-              </button>
+                {section.entries.map((entry) => {
+                  const Icon = getWorkflowNodeIcon(entry.type);
+                  return (
+                    <button
+                      key={entry.type}
+                      className="group flex cursor-grab items-center gap-3 rounded border border-secondary bg-panel p-3 text-left transition-colors hover:border-brand active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => handleAddNode(entry.type)}
+                      draggable={!readOnly}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData(
+                          WORKFLOW_NODE_DRAG_DATA_TYPE,
+                          entry.type
+                        );
+                        event.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      disabled={readOnly}
+                      title={entry.description}
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/20">
+                        <Icon className="h-4 w-4 text-high" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-high">
+                          {entry.label}
+                        </div>
+                        <div className="text-xs text-low">
+                          {entry.description}
+                        </div>
+                      </div>
+                      <Plus className="h-4 w-4 shrink-0 text-low opacity-0 transition-opacity group-hover:opacity-100" />
+                    </button>
+                  );
+                })}
+              </div>
             ))}
           </div>
         </div>
