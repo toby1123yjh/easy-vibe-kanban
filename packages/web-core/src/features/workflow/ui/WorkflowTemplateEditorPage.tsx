@@ -8,6 +8,8 @@ import {
   createWorkflowNode,
   type WorkflowGraph,
   type WorkflowNodeKind,
+  type WorkflowNodePosition,
+  WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
 import { WORKFLOW_NODE_CATALOG } from '../model/workflowNodeCatalog';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -103,13 +105,17 @@ export function WorkflowTemplateEditorPage({
     navigation.goToProjectWorkflows(projectId);
   };
 
-  const handleAddNode = (kind: WorkflowNodeKind) => {
+  const handleAddNode = (
+    kind: WorkflowNodeKind,
+    position?: WorkflowNodePosition
+  ) => {
     if (!graph || readOnly) return;
-    const newNode = createWorkflowNode(kind);
+    const newNode = createWorkflowNode(kind, { position });
     setGraph({
       ...graph,
       nodes: [...graph.nodes, newNode],
     });
+    setSelectedNodeId(newNode.id);
   };
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {
@@ -261,8 +267,16 @@ export function WorkflowTemplateEditorPage({
             {WORKFLOW_NODE_CATALOG.map((entry) => (
               <button
                 key={entry.type}
-                className="flex items-center justify-between rounded border border-secondary bg-primary p-2 text-left hover:border-brand disabled:opacity-50"
+                className="flex cursor-grab items-center justify-between rounded border border-secondary bg-primary p-2 text-left hover:border-brand active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => handleAddNode(entry.type)}
+                draggable={!readOnly}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(
+                    WORKFLOW_NODE_DRAG_DATA_TYPE,
+                    entry.type
+                  );
+                  event.dataTransfer.effectAllowed = 'copy';
+                }}
                 disabled={readOnly}
                 title={entry.description}
               >
@@ -287,6 +301,7 @@ export function WorkflowTemplateEditorPage({
                 readOnly={readOnly}
                 onChange={handleGraphChange}
                 onSelectionChange={setSelectedNodeId}
+                onNodeDrop={handleAddNode}
               />
             </ReactFlowProvider>
           </div>

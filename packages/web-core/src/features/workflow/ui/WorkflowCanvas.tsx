@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, type DragEvent } from 'react';
 import {
   ReactFlow,
   Background,
@@ -11,6 +11,7 @@ import {
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
+  useReactFlow,
   type Connection,
   type Edge as ReactFlowEdge,
   type Node as ReactFlowNode,
@@ -22,9 +23,12 @@ import {
   toReactFlowNodes,
   toReactFlowEdges,
   fromReactFlowGraph,
+  isWorkflowNodeKind,
   type WorkflowGraph,
   type WorkflowNodeKind,
   type WorkflowNodeData,
+  type WorkflowNodePosition,
+  WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
 
 export interface WorkflowCanvasProps {
@@ -32,6 +36,7 @@ export interface WorkflowCanvasProps {
   readOnly?: boolean;
   onChange?: (graph: WorkflowGraph) => void;
   onSelectionChange?: (selectedNodeId: string | null) => void;
+  onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
 }
 
 interface BaseNodeProps {
@@ -67,11 +72,13 @@ export function WorkflowCanvas({
   readOnly = false,
   onChange,
   onSelectionChange,
+  onNodeDrop,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes] = useNodesState<
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
   >([]);
   const [edges, setEdges] = useEdgesState<ReactFlowEdge>([]);
+  const { screenToFlowPosition } = useReactFlow();
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -168,6 +175,34 @@ export function WorkflowCanvas({
     [onSelectionChange]
   );
 
+  const onDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (readOnly) return;
+      if (!event.dataTransfer.types.includes(WORKFLOW_NODE_DRAG_DATA_TYPE)) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    [readOnly]
+  );
+
+  const onDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (readOnly || !onNodeDrop) return;
+
+      const nodeKind = event.dataTransfer.getData(WORKFLOW_NODE_DRAG_DATA_TYPE);
+      if (!isWorkflowNodeKind(nodeKind)) return;
+
+      event.preventDefault();
+      onNodeDrop(
+        nodeKind,
+        screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      );
+    },
+    [onNodeDrop, readOnly, screenToFlowPosition]
+  );
+
   return (
     <div className="h-full w-full bg-primary">
       <ReactFlow
@@ -178,6 +213,8 @@ export function WorkflowCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChangeReactFlow}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         elementsSelectable={true}

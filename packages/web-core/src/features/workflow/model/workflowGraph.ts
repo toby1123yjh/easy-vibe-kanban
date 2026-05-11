@@ -15,6 +15,22 @@ export type WorkflowNodeKind =
   | 'transform'
   | 'arena';
 
+export const WORKFLOW_NODE_DRAG_DATA_TYPE = 'application/x-vibe-workflow-node';
+
+const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
+  'start',
+  'end',
+  'agent',
+  'condition',
+  'human_gate',
+  'transform',
+  'arena',
+];
+
+export function isWorkflowNodeKind(value: string): value is WorkflowNodeKind {
+  return WORKFLOW_NODE_KINDS.includes(value as WorkflowNodeKind);
+}
+
 export type WorkflowEdgeKind =
   | 'default'
   | 'condition_branch'
@@ -74,6 +90,7 @@ export interface WorkflowNode {
   id: string;
   type: WorkflowNodeKind;
   data: WorkflowNodeData;
+  position?: WorkflowNodePosition;
 }
 
 export interface WorkflowEdge {
@@ -87,6 +104,11 @@ export interface WorkflowGraph {
   version: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+}
+
+export interface WorkflowNodePosition {
+  x: number;
+  y: number;
 }
 
 export function createDefaultWorkflowGraph(): WorkflowGraph {
@@ -117,7 +139,11 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
 
 export function createWorkflowNode(
   kind: WorkflowNodeKind,
-  options?: { id?: string; data?: Partial<WorkflowNodeData> }
+  options?: {
+    id?: string;
+    data?: Partial<WorkflowNodeData>;
+    position?: WorkflowNodePosition;
+  }
 ): WorkflowNode {
   return {
     id: options?.id ?? `${kind}-${crypto.randomUUID().slice(0, 8)}`,
@@ -126,6 +152,7 @@ export function createWorkflowNode(
       ...createDefaultNodeData(kind),
       ...(options?.data ?? {}),
     },
+    ...(options?.position ? { position: options.position } : {}),
   };
 }
 
@@ -151,7 +178,7 @@ export function toReactFlowNodes(
     id: node.id,
     type: node.type,
     data: node.data,
-    position: positions?.[node.id] ?? { x: 0, y: 0 },
+    position: node.position ?? positions?.[node.id] ?? { x: 0, y: 0 },
   }));
 }
 
@@ -174,6 +201,7 @@ export function fromReactFlowGraph(
       id: node.id,
       type: node.type,
       data: node.data,
+      position: node.position,
     })),
     edges: edges.map((edge) => ({
       id: edge.id,

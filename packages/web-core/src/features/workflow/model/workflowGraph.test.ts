@@ -3,6 +3,7 @@ import {
   WORKFLOW_GRAPH_VERSION,
   createDefaultWorkflowGraph,
   createWorkflowNode,
+  fromReactFlowGraph,
   toReactFlowNodes,
 } from './workflowGraph';
 import {
@@ -120,5 +121,39 @@ describe('workflow graph model', () => {
       data: agent.data,
       position: { x: 0, y: 0 },
     });
+  });
+
+  it('preserves workflow node positions through React Flow conversion', () => {
+    const agent = createWorkflowNode('agent', {
+      id: 'agent-1',
+      position: { x: 320, y: 180 },
+    });
+
+    const flowNodes = toReactFlowNodes(
+      {
+        version: WORKFLOW_GRAPH_VERSION,
+        nodes: [agent],
+        edges: [],
+      },
+      {
+        'agent-1': { x: 20, y: 20 },
+      }
+    );
+
+    expect(flowNodes[0].position).toEqual({ x: 320, y: 180 });
+
+    const graph = fromReactFlowGraph(
+      [
+        {
+          id: 'agent-1',
+          type: 'agent',
+          data: agent.data,
+          position: { x: 480, y: 260 },
+        },
+      ],
+      []
+    );
+
+    expect(graph.nodes[0].position).toEqual({ x: 480, y: 260 });
   });
 });
