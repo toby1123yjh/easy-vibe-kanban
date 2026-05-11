@@ -200,6 +200,33 @@ jobs:
             "node scripts/check-unused-i18n-keys.mjs" \
             "./scripts/check-legacy-frontend-paths.sh"
 
+  workflow-playwright-checks:
+    needs: changes
+    if: always() && (needs.changes.outputs.frontend == 'true' || needs.changes.result == 'skipped')
+    runs-on: *runner_label
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run workflow canvas Playwright checks
+        run: pnpm run workflow:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   backend-schema-checks:
     needs: changes
     if: always() && (needs.changes.outputs.backend == 'true' || needs.changes.result == 'skipped')
