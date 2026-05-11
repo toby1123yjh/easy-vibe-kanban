@@ -67,6 +67,9 @@ const nodeTypes = {
   arena: BaseNode,
 };
 
+export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
+export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
+
 export function WorkflowCanvas({
   graph,
   readOnly = false,
@@ -218,9 +221,12 @@ export function WorkflowCanvas({
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         elementsSelectable={true}
+        snapToGrid
+        snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
+        deleteKeyCode={readOnly ? null : WORKFLOW_CANVAS_DELETE_KEYS}
         fitView
       >
-        <Background />
+        <Background gap={WORKFLOW_CANVAS_SNAP_GRID[0]} />
         <Controls />
         <MiniMap zoomable pannable className="bg-panel" />
       </ReactFlow>
