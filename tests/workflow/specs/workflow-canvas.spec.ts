@@ -155,6 +155,44 @@ test("moves an existing workflow node by dragging it on the canvas", async ({
   expect(pageErrors).toEqual([]);
 });
 
+test("connects workflow nodes by dragging between visible handles", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const before = await readGraph(page);
+  const yesNode = await waitForWorkflowNodeVisible(page, "yes");
+  const noNode = await waitForWorkflowNodeVisible(page, "no");
+  const sourceHandle = yesNode.locator(".react-flow__handle-right.source");
+  const targetHandle = noNode.locator(".react-flow__handle-left.target");
+  const sourceBox = await sourceHandle.boundingBox();
+  const targetBox = await targetHandle.boundingBox();
+  expect(sourceBox).toBeTruthy();
+  expect(targetBox).toBeTruthy();
+
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    targetBox!.x + targetBox!.width / 2,
+    targetBox!.y + targetBox!.height / 2,
+    { steps: 16 },
+  );
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      return graph.edges.length;
+    })
+    .toBe(before.edges.length + 1);
+
+  const graph = await readGraph(page);
+  expect(graph.edges.some((edge) => edge.id === "yes-no")).toBe(true);
+});
+
 test("renders professional workflow node chrome and validation markers", async ({
   page,
 }) => {
@@ -215,6 +253,43 @@ test("selects a node and keeps the minimap on a visible canvas surface", async (
     .locator(".react-flow__minimap")
     .evaluate((minimap) => getComputedStyle(minimap).backgroundColor);
   expect(minimapBackground).not.toBe("rgb(255, 255, 255)");
+});
+
+test("opens a node configuration dialog from a single canvas click", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await clickWorkflowNode(page, "condition");
+  await expect(page.getByTestId("node-dialog")).toContainText(
+    "Condition Properties",
+  );
+});
+
+test("customizes condition branches from the node configuration dialog", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await clickWorkflowNode(page, "condition");
+  await page
+    .getByTestId("node-dialog")
+    .getByRole("button", { name: "Add branch" })
+    .click();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      const condition = graph.nodes.find((node) => node.id === "condition") as
+        | undefined
+        | {
+            data?: {
+              branches?: Array<{ name?: string; target_node_id?: string }>;
+            };
+          };
+      return condition?.data?.branches?.length;
+    })
+    .toBe(3);
 });
 
 test("opens a node configuration dialog from the canvas", async ({ page }) => {

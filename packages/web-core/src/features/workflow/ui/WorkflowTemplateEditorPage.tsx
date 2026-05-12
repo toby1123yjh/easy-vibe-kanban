@@ -133,6 +133,7 @@ export function WorkflowTemplateEditorPage({
     });
     setSelectedNodeId(newNode.id);
     setSelectedEdgeId(null);
+    setOpenNodeDialogId(newNode.id);
   };
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {

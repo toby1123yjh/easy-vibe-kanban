@@ -233,10 +233,12 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
         let executor_config = executor_config_from_node(request.executor_config).await?;
 
-        self.deployment
+        let container_ref = self
+            .deployment
             .container()
             .ensure_container_exists(&workspace)
             .await?;
+        let workspace = workspace_after_container_ensure(workspace, container_ref);
 
         let session = Session::create(
             pool,
@@ -289,6 +291,11 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             )),
         })
     }
+}
+
+fn workspace_after_container_ensure(mut workspace: Workspace, container_ref: String) -> Workspace {
+    workspace.container_ref = Some(container_ref);
+    workspace
 }
 
 pub async fn trigger_workflow_run<W, A>(
@@ -1950,5 +1957,42 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
         WorkflowNodeKind::HumanGate => "human_gate",
         WorkflowNodeKind::Transform => "transform",
         WorkflowNodeKind::Arena => "arena",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use db::models::arena_group::ArenaStatus;
+
+    #[test]
+    fn workspace_after_container_ensure_carries_container_ref_for_execution_start() {
+        let now = Utc::now();
+        let workspace = Workspace {
+            id: Uuid::new_v4(),
+            task_id: None,
+            container_ref: None,
+            branch: "main".to_string(),
+            setup_completed_at: None,
+            created_at: now,
+            updated_at: now,
+            archived: false,
+            pinned: false,
+            name: Some("Workflow".to_string()),
+            worktree_deleted: false,
+            arena_group_id: None,
+            arena_status: ArenaStatus::Active,
+        };
+
+        let workspace_id = workspace.id;
+        let updated =
+            workspace_after_container_ensure(workspace, "C:/tmp/workflow-workspace".to_string());
+
+        assert_eq!(updated.id, workspace_id);
+        assert_eq!(
+            updated.container_ref.as_deref(),
+            Some("C:/tmp/workflow-workspace")
+        );
     }
 }

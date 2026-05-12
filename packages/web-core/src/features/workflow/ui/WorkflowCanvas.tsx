@@ -115,7 +115,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <Handle
           type="target"
           position={Position.Left}
-          className="h-3 w-3 border-2 border-panel bg-low transition-colors hover:bg-brand"
+          className="h-4 w-4 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand"
         />
       ) : null}
 
@@ -206,7 +206,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <Handle
           type="source"
           position={Position.Right}
-          className="h-3 w-3 border-2 border-panel bg-low transition-colors hover:bg-brand"
+          className="h-4 w-4 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand"
         />
       ) : null}
     </div>
@@ -606,9 +606,16 @@ export function WorkflowCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChangeReactFlow}
-        onNodeClick={(_, node) =>
-          applySelection({ nodeId: node.id, edgeId: null })
-        }
+        onNodeClick={(event, node) => {
+          applySelection({ nodeId: node.id, edgeId: null });
+          if (
+            event.target instanceof Element &&
+            event.target.closest('.react-flow__handle')
+          ) {
+            return;
+          }
+          onNodeOpen?.(node.id);
+        }}
         onNodeDoubleClick={(_, node) => {
           applySelection({ nodeId: node.id, edgeId: null });
           onNodeOpen?.(node.id);

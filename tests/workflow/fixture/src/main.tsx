@@ -192,6 +192,20 @@ function WorkflowCanvasHarness() {
     });
   };
 
+  const handleNodeChange = (
+    nodeId: string,
+    dataUpdates: Partial<WorkflowGraph["nodes"][number]["data"]>,
+  ) => {
+    setGraph((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, ...dataUpdates } }
+          : node,
+      ),
+    }));
+  };
+
   return (
     <main>
       <aside>
@@ -224,7 +238,7 @@ function WorkflowCanvasHarness() {
         </ReactFlowProvider>
       </section>
       <section data-testid="node-inspector">
-        <WorkflowNodeInspector node={selectedNode} onChange={() => {}} />
+        <WorkflowNodeInspector node={selectedNode} onChange={handleNodeChange} />
       </section>
       <section data-testid="edge-inspector">
         <WorkflowEdgeInspector
@@ -242,7 +256,7 @@ function WorkflowCanvasHarness() {
       </section>
       {dialogNode ? (
         <section data-testid="node-dialog">
-          <WorkflowNodeInspector node={dialogNode} onChange={() => {}} />
+          <WorkflowNodeInspector node={dialogNode} onChange={handleNodeChange} />
         </section>
       ) : null}
       <pre data-testid="graph-json">{JSON.stringify(graph, null, 2)}</pre>
