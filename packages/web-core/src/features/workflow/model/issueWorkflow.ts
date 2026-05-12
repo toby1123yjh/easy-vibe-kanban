@@ -1,3 +1,6 @@
+import type { CreateWorkflowRequest } from 'shared/types';
+import { createDefaultWorkflowGraph } from './workflowGraph';
+
 export function buildWorkflowRunInput({
   title,
   description,
@@ -9,6 +12,22 @@ export function buildWorkflowRunInput({
     return `${title}\n\n${description}`;
   }
   return title;
+}
+
+export function buildIssueWorkflowDraft({
+  title,
+}: {
+  title: string;
+  description?: string | null;
+}): CreateWorkflowRequest {
+  const issueTitle = title.trim() || 'Untitled task';
+
+  return {
+    name: `Workflow for ${issueTitle}`,
+    description:
+      'Design the automation steps for this issue before starting a workflow run.',
+    graph_json: JSON.stringify(createDefaultWorkflowGraph()),
+  };
 }
 
 export const WORKFLOW_RUN_REPOSITORY_ERROR_MESSAGE =

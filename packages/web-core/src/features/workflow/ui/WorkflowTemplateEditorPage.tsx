@@ -345,7 +345,7 @@ export function WorkflowTemplateEditorPage({
         {/* Node Library */}
         <div className="relative z-10 w-64 shrink-0 overflow-y-auto border-r border-secondary bg-panel p-4 shadow-[8px_0_18px_rgba(15,23,42,0.06)]">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-low">
-            Nodes
+            Steps
           </h3>
           <div className="flex flex-col gap-4">
             {nodeCatalogSections.map((section) => (
@@ -454,13 +454,13 @@ export function WorkflowTemplateEditorPage({
             <DialogHeader className="space-y-half">
               <DialogTitle>
                 {dialogNode
-                  ? `${dialogNode.data.display_name || 'Node'} configuration`
-                  : 'Node configuration'}
+                  ? `${dialogNode.data.display_name || 'Step'} configuration`
+                  : 'Step configuration'}
               </DialogTitle>
               <DialogDescription>
                 {dialogNode
-                  ? `Edit ${dialogNode.type.replace('_', ' ')} node settings.`
-                  : 'Edit node settings.'}
+                  ? `Edit ${dialogNode.type.replace('_', ' ')} step settings.`
+                  : 'Edit step settings.'}
               </DialogDescription>
             </DialogHeader>
           </div>

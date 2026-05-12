@@ -48,10 +48,10 @@ export function WorkflowNodeInspector({
         </div>
         <div className="flex flex-col">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-low">
-            Node
+            Step
           </span>
           <span className="text-sm font-semibold text-high">
-            {getWorkflowNodeKindLabel(type)} Properties
+            {getWorkflowNodeKindLabel(type)} Step
           </span>
         </div>
       </div>

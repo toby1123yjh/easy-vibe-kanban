@@ -243,7 +243,7 @@ test("selects a node and keeps the minimap on a visible canvas surface", async (
 
   await clickWorkflowNode(page, "condition");
   await expect(page.getByTestId("node-inspector")).toContainText(
-    "Condition Properties",
+    "Condition Step",
   );
   await expect(
     page.getByTestId("node-inspector").locator("input").first(),
@@ -262,7 +262,7 @@ test("opens a node configuration dialog from a single canvas click", async ({
 
   await clickWorkflowNode(page, "condition");
   await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Properties",
+    "Condition Step",
   );
 });
 
@@ -297,7 +297,7 @@ test("opens a node configuration dialog from the canvas", async ({ page }) => {
 
   await doubleClickWorkflowNode(page, "condition");
   await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Properties",
+    "Condition Step",
   );
 });
 
@@ -308,7 +308,7 @@ test("opens a node configuration dialog in read-only mode", async ({
 
   await doubleClickWorkflowNode(page, "condition");
   await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Properties",
+    "Condition Step",
   );
 });
 
