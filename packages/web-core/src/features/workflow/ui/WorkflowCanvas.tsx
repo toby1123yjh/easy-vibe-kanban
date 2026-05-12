@@ -9,6 +9,7 @@ import {
   ReactFlow,
   BaseEdge,
   Background,
+  BackgroundVariant,
   Controls,
   EdgeLabelRenderer,
   Handle,
@@ -628,17 +629,19 @@ export function WorkflowCanvas({
         className="workflow-canvas bg-primary"
       >
         <Background
+          variant={BackgroundVariant.Dots}
           gap={WORKFLOW_CANVAS_SNAP_GRID[0]}
-          color="rgba(120, 113, 108, 0.35)"
+          size={1.5}
+          color="hsl(var(--low) / 0.15)"
         />
-        <Controls className="rounded border border-secondary bg-panel shadow-sm" />
+        <Controls className="rounded-lg border border-secondary bg-panel/90 shadow-sm backdrop-blur" />
         <MiniMap
           zoomable
           pannable
           nodeColor="#f97316"
           maskColor="rgba(15, 23, 42, 0.16)"
           style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
-          className="rounded border border-secondary shadow-sm"
+          className="overflow-hidden rounded-lg border border-secondary shadow-sm"
         />
       </ReactFlow>
     </div>

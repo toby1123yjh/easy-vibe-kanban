@@ -252,18 +252,18 @@ export function WorkflowTemplateEditorPage({
           <Button
             variant="outline"
             onClick={handleBack}
-            className="p-2"
+            className="flex h-9 w-9 items-center justify-center p-0 transition-colors hover:bg-secondary/20"
             aria-label="Back to workflows"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-0.5">
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={readOnly}
-              className="bg-transparent text-lg font-semibold text-high outline-none disabled:opacity-50"
+              className="bg-transparent text-base font-semibold text-high outline-none transition-colors hover:text-brand focus:text-brand disabled:opacity-50"
               placeholder="Workflow Name"
             />
             <input
@@ -271,7 +271,7 @@ export function WorkflowTemplateEditorPage({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={readOnly}
-              className="mt-1 min-w-[280px] bg-transparent text-xs text-low outline-none disabled:opacity-50"
+              className="min-w-[280px] bg-transparent text-xs text-low outline-none transition-colors focus:text-high disabled:opacity-50"
               placeholder="Description"
             />
             {isSystem && (
@@ -342,12 +342,14 @@ export function WorkflowTemplateEditorPage({
 
       <div className="flex flex-1 overflow-hidden">
         {/* Node Library */}
-        <div className="w-64 shrink-0 overflow-y-auto border-r border-secondary bg-panel p-4">
-          <h3 className="mb-4 font-semibold text-high">Nodes</h3>
+        <div className="relative z-10 w-64 shrink-0 overflow-y-auto border-r border-secondary bg-panel p-4 shadow-[8px_0_18px_rgba(15,23,42,0.06)]">
+          <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-low">
+            Nodes
+          </h3>
           <div className="flex flex-col gap-4">
             {nodeCatalogSections.map((section) => (
               <div key={section.label} className="flex flex-col gap-2">
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-normal text-low">
+                <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-low/60">
                   {section.label}
                 </div>
                 {section.entries.map((entry) => {
@@ -355,7 +357,7 @@ export function WorkflowTemplateEditorPage({
                   return (
                     <button
                       key={entry.type}
-                      className="group flex cursor-grab items-center gap-3 rounded border border-secondary bg-panel p-3 text-left transition-colors hover:border-brand active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+                      className="group flex cursor-grab items-center gap-3 rounded-lg border border-secondary bg-panel p-2.5 text-left transition-all hover:bg-secondary/5 hover:border-brand hover:shadow-sm active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => handleAddNode(entry.type)}
                       draggable={!readOnly}
                       onDragStart={(event) => {
@@ -368,18 +370,18 @@ export function WorkflowTemplateEditorPage({
                       disabled={readOnly}
                       title={entry.description}
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/20">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/40 bg-secondary/20 shadow-sm">
                         <Icon className="h-4 w-4 text-high" />
                       </div>
                       <div className="flex-1">
-                        <div className="text-sm font-medium text-high">
+                        <div className="text-[13px] font-medium leading-tight text-high">
                           {entry.label}
                         </div>
-                        <div className="text-xs text-low">
+                        <div className="mt-0.5 text-[11px] text-low">
                           {entry.description}
                         </div>
                       </div>
-                      <Plus className="h-4 w-4 shrink-0 text-low opacity-0 transition-opacity group-hover:opacity-100" />
+                      <Plus className="h-4 w-4 shrink-0 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
                     </button>
                   );
                 })}
@@ -414,7 +416,7 @@ export function WorkflowTemplateEditorPage({
         </div>
 
         {/* Inspector */}
-        <div className="w-80 shrink-0 border-l border-secondary bg-panel">
+        <div className="relative z-10 w-80 shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]">
           {selectedEdge ? (
             <WorkflowEdgeInspector
               edge={selectedEdge}

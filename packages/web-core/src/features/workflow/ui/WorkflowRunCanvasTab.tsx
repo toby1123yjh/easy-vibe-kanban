@@ -7,6 +7,7 @@ import {
 } from 'react';
 import {
   Background,
+  BackgroundVariant,
   Controls,
   Handle,
   MiniMap,
@@ -80,6 +81,14 @@ const toneClassMap: Record<StatusTone, string> = {
   warning: 'border-warning bg-warning/10 text-high',
 };
 
+const statusDotClassMap: Record<StatusTone, string> = {
+  neutral: 'bg-low',
+  active: 'bg-brand',
+  success: 'bg-success',
+  danger: 'bg-error',
+  warning: 'bg-warning',
+};
+
 const edgeStrokeByTone: Record<StatusTone, string> = {
   neutral: 'hsl(var(--border))',
   active: 'hsl(var(--brand))',
@@ -92,28 +101,45 @@ function RunNode({ data }: { data: RunNodeData }) {
   const status = data.execution?.status ?? 'pending';
   const tone = data.execution ? getNodeStatusTone(status) : 'neutral';
   const type = data.nodeType;
+  const isRunning = status === 'running';
+  const isWaiting = status === 'awaiting_human' || status === 'awaiting_arena';
 
   return (
     <div
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'relative min-w-[150px] cursor-pointer rounded border-2 px-4 py-3 shadow-sm transition-all',
+        'relative min-w-[170px] cursor-pointer overflow-hidden rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
         toneClassMap[tone],
         data.isSelected
-          ? 'ring-2 ring-high ring-offset-2 ring-offset-primary'
+          ? 'shadow-md ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
           : ''
       )}
     >
+      {isRunning ? (
+        <div className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
+      ) : null}
+      {isWaiting ? (
+        <div className="absolute inset-y-0 left-0 w-1 bg-warning" />
+      ) : null}
+      <span
+        className={cn(
+          'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
+          statusDotClassMap[tone],
+          isRunning ? 'animate-pulse' : ''
+        )}
+      />
       {type !== 'start' ? (
         <Handle type="target" position={Position.Top} className="opacity-0" />
       ) : null}
-      <div className="flex items-center gap-half">
-        {statusIconMap[status]}
+      <div className="flex items-center gap-3 pr-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/60 bg-primary/70 shadow-sm">
+          {statusIconMap[status]}
+        </div>
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-semibold">
             {data.display_name || type || 'Node'}
           </span>
-          <span className="text-xs uppercase opacity-80">
+          <span className="text-[10px] font-semibold uppercase tracking-wider opacity-80">
             {getNodeStatusLabel(status)}
           </span>
         </div>
@@ -247,7 +273,8 @@ export function WorkflowRunCanvasTab({
           animated: sourceExecution?.status === 'running',
           style: {
             stroke: active ? edgeStrokeByTone[tone] : edgeStrokeByTone.neutral,
-            strokeWidth: active ? 2 : 1,
+            strokeWidth: active ? 3 : 2,
+            transition: 'stroke 0.3s ease, stroke-width 0.3s ease',
           },
         };
       })
@@ -340,12 +367,16 @@ export function WorkflowRunCanvasTab({
           elementsSelectable={true}
           fitView
         >
-          <Background />
-          <Controls className="rounded border border-secondary bg-panel shadow-sm" />
+          <Background
+            variant={BackgroundVariant.Dots}
+            size={1.5}
+            color="hsl(var(--low) / 0.15)"
+          />
+          <Controls className="rounded-lg border border-secondary bg-panel/90 shadow-sm backdrop-blur" />
           <MiniMap
             maskColor="rgba(15, 23, 42, 0.16)"
             style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
-            className="rounded border border-secondary shadow-sm"
+            className="overflow-hidden rounded-lg border border-secondary shadow-sm"
           />
         </ReactFlow>
       </div>
