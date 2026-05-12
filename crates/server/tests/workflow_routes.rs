@@ -1084,11 +1084,11 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
         .find(|node| node.node_id == "agent")
         .expect("agent node execution");
     assert_eq!(agent_node.session_id, Some(session_id));
+    assert_eq!(agent_node.execution_process_id, Some(execution_process_id));
     assert_eq!(
-        agent_node.execution_process_id,
-        Some(execution_process_id)
+        agent_node.output_text.as_deref(),
+        Some("implemented feature")
     );
-    assert_eq!(agent_node.output_text.as_deref(), Some("implemented feature"));
     assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
 }
 

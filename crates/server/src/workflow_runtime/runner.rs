@@ -473,15 +473,7 @@ where
 
     let context = node_context(pool, &run.graph, run_id, node, &run.input_text).await?;
     let approval_output = context.upstream_text();
-    mark_node_succeeded(
-        pool,
-        run_id,
-        node_id,
-        Some(&approval_output),
-        None,
-        None,
-    )
-    .await?;
+    mark_node_succeeded(pool, run_id, node_id, Some(&approval_output), None, None).await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
     drive_workflow_run(
         pool,
@@ -538,8 +530,7 @@ where
         .await
     {
         Ok(ArenaWinnerExecution { output_text }) => {
-            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None, None)
-                .await?;
+            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None, None).await?;
             update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
             drive_workflow_run(
                 pool,
