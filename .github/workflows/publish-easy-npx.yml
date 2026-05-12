@@ -153,11 +153,26 @@ jobs:
         run: |
           set -euo pipefail
           cd npx-cli
+          set +e
           npm publish "${{ steps.pack.outputs.package-file }}" \
             --provenance \
             --access public \
             --tag "${{ inputs.npm_tag }}" \
-            --registry https://registry.npmjs.org/
+            --registry https://registry.npmjs.org/ 2>&1 | tee publish.log
+          publish_status=${PIPESTATUS[0]}
+          set -e
+
+          if [[ "$publish_status" -ne 0 ]]; then
+            if grep -q "TLOG_CREATE_ENTRY_ERROR" publish.log; then
+              echo "Provenance transparency log entry already exists; retrying publish without provenance."
+              npm publish "${{ steps.pack.outputs.package-file }}" \
+                --access public \
+                --tag "${{ inputs.npm_tag }}" \
+                --registry https://registry.npmjs.org/
+            else
+              exit "$publish_status"
+            fi
+          fi
 
       - name: Dry-run npm publish
         if: inputs.publish_mode == 'dry-run'
