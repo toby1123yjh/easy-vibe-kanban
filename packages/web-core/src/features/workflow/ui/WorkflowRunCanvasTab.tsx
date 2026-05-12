@@ -37,6 +37,7 @@ import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
 import {
+  buildAgentSessionRows,
   getNodeStatusLabel,
   getNodeStatusTone,
   selectWorkflowRunNode,
@@ -50,6 +51,7 @@ import {
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
+import { WorkflowAgentSessionsList } from './WorkflowAgentSessionsList';
 import { WORKFLOW_CANVAS_MINIMAP_BACKGROUND } from './WorkflowCanvas';
 
 export interface WorkflowRunCanvasTabProps {
@@ -419,6 +421,11 @@ function NodeDetailPanel({
   selectedExecution,
   selectedNodeId,
 }: NodeDetailPanelProps) {
+  const agentSessionRows = buildAgentSessionRows(run, selectedNodeId);
+  const workspaceHref = run.workspace_id
+    ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
+    : null;
+
   return (
     <aside className="flex max-h-[45%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:w-80 lg:border-l lg:border-t-0">
       <div className="border-b border-secondary p-base">
@@ -494,6 +501,14 @@ function NodeDetailPanel({
               <p className="text-xs text-error" role="alert">
                 {actionError}
               </p>
+            ) : null}
+
+            {selectedExecution.node_type === 'agent' ? (
+              <WorkflowAgentSessionsList
+                compact
+                rows={agentSessionRows}
+                workspaceHref={workspaceHref}
+              />
             ) : null}
 
             <DetailBlock title="Input" value={selectedExecution.input_text} />

@@ -14,6 +14,12 @@ export type SessionSelection =
   | { mode: 'existing'; sessionId: string }
   | { mode: 'new' };
 
+function getRequestedSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  return new URLSearchParams(window.location.search).get('session_id');
+}
+
 interface UseWorkspaceSessionsResult {
   sessions: Session[];
   selectedSession: Session | undefined;
@@ -55,12 +61,19 @@ export function useWorkspaceSessions(
   useEffect(() => {
     const workspaceChanged = prevWorkspaceIdRef.current !== workspaceId;
     prevWorkspaceIdRef.current = workspaceId;
+    const requestedSessionId = getRequestedSessionId();
 
     if (sessions.length > 0) {
-      // Sessions are ordered by most recently used, so first is the most recently used
-      // Always select first session when sessions are available for this workspace
-      // Only preserve new session mode within the same workspace
+      // Workflow run links can request a specific session; otherwise sessions
+      // are ordered by most recent use, so the first session is the default.
+      // Only preserve new session mode within the same workspace.
       setSelection((prev) => {
+        if (
+          requestedSessionId &&
+          sessions.some((session) => session.id === requestedSessionId)
+        ) {
+          return { mode: 'existing', sessionId: requestedSessionId };
+        }
         if (prev?.mode === 'new' && !workspaceChanged) return prev;
         return { mode: 'existing', sessionId: sessions[0].id };
       });

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkflowRunResponse } from 'shared/types';
+import type {
+  WorkflowNodeExecutionResponse,
+  WorkflowRunResponse,
+} from 'shared/types';
 import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
 import {
+  buildAgentSessionRows,
+  buildWorkspaceSessionHref,
   buildArenaWinnerOptions,
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
@@ -9,6 +14,20 @@ import {
   getWorkflowRunStatusLabel,
   selectWorkflowRunNode,
 } from './workflowRunView';
+
+type NodeExecutionWithProcess = WorkflowNodeExecutionResponse & {
+  execution_process_id?: string | null;
+};
+
+function withExecutionProcess(
+  node: WorkflowNodeExecutionResponse,
+  executionProcessId: string | null
+): WorkflowNodeExecutionResponse {
+  return {
+    ...node,
+    execution_process_id: executionProcessId,
+  } as NodeExecutionWithProcess;
+}
 
 const baseRun = {
   id: 'run-1',
@@ -252,5 +271,75 @@ describe('workflow run view helpers', () => {
       executionStatusLabel: 'not started',
       isSelectable: false,
     });
+  });
+
+  it('builds an Agent Sessions list for the selected node only', () => {
+    const rows = buildAgentSessionRows(
+      {
+        ...baseRun,
+        nodes: [
+          withExecutionProcess(
+            {
+              ...baseRun.nodes[0],
+              id: 'node-exec-plan',
+              node_id: 'plan',
+              node_type: 'agent',
+              session_id: 'session-plan',
+              output_text: 'Plan output',
+              started_at: '2026-05-09T00:00:00Z',
+              finished_at: '2026-05-09T00:02:05Z',
+            },
+            'process-plan'
+          ),
+          withExecutionProcess(
+            {
+              ...baseRun.nodes[0],
+              id: 'node-exec-implement',
+              node_id: 'implement',
+              node_type: 'agent',
+              session_id: 'session-implement',
+              output_text: 'Implementation output',
+            },
+            'process-implement'
+          ),
+          baseRun.nodes[1],
+        ],
+      },
+      'plan'
+    );
+
+    expect(rows).toEqual([
+      {
+        runId: 'run-1',
+        runLabel: 'run-1',
+        nodeId: 'plan',
+        sessionId: 'session-plan',
+        executionProcessId: 'process-plan',
+        statusLabel: 'succeeded',
+        startedLabel: '2026-05-09T00:00:00Z',
+        durationLabel: '2m 5s',
+        outputPreview: 'Plan output',
+      },
+    ]);
+  });
+
+  it('builds workspace links that select a specific Session', () => {
+    expect(
+      buildWorkspaceSessionHref(
+        '/projects/project-1/issues/issue-1/workspaces/workspace-1',
+        'session 1'
+      )
+    ).toBe(
+      '/projects/project-1/issues/issue-1/workspaces/workspace-1?session_id=session%201'
+    );
+
+    expect(
+      buildWorkspaceSessionHref(
+        '/projects/project-1/issues/issue-1/workspaces/workspace-1?panel=chat#bottom',
+        'session-2'
+      )
+    ).toBe(
+      '/projects/project-1/issues/issue-1/workspaces/workspace-1?panel=chat&session_id=session-2#bottom'
+    );
   });
 });

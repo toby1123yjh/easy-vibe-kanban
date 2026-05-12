@@ -97,10 +97,12 @@ pub struct AgentNodeRequest {
 pub enum AgentNodeExecution {
     Completed {
         session_id: Uuid,
+        execution_process_id: Uuid,
         output_text: String,
     },
     Started {
         session_id: Uuid,
+        execution_process_id: Uuid,
         output_text: Option<String>,
     },
 }
@@ -285,6 +287,7 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
 
         Ok(AgentNodeExecution::Started {
             session_id: session.id,
+            execution_process_id: execution_process.id,
             output_text: Some(format!(
                 "Started workflow agent execution {}",
                 execution_process.id
@@ -470,7 +473,15 @@ where
 
     let context = node_context(pool, &run.graph, run_id, node, &run.input_text).await?;
     let approval_output = context.upstream_text();
-    mark_node_succeeded(pool, run_id, node_id, Some(&approval_output), None).await?;
+    mark_node_succeeded(
+        pool,
+        run_id,
+        node_id,
+        Some(&approval_output),
+        None,
+        None,
+    )
+    .await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
     drive_workflow_run(
         pool,
@@ -527,7 +538,8 @@ where
         .await
     {
         Ok(ArenaWinnerExecution { output_text }) => {
-            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None).await?;
+            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None, None)
+                .await?;
             update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
             drive_workflow_run(
                 pool,
@@ -896,6 +908,7 @@ where
             {
                 Ok(AgentNodeExecution::Completed {
                     session_id,
+                    execution_process_id,
                     output_text,
                 }) => {
                     mark_node_succeeded(
@@ -904,12 +917,14 @@ where
                         &node.id,
                         Some(&output_text),
                         Some(session_id),
+                        Some(execution_process_id),
                     )
                     .await?;
                     Ok(RunStep::Continue)
                 }
                 Ok(AgentNodeExecution::Started {
                     session_id,
+                    execution_process_id,
                     output_text,
                 }) => {
                     update_node_execution(
@@ -921,6 +936,7 @@ where
                             input_text: None,
                             output_text: output_text.as_deref(),
                             session_id: Some(session_id),
+                            execution_process_id: Some(execution_process_id),
                             arena_group_id: None,
                             error_text: None,
                             finished: false,
@@ -970,6 +986,7 @@ where
                             input_text: Some(&prompt),
                             output_text: None,
                             session_id: None,
+                            execution_process_id: None,
                             arena_group_id: Some(arena_group_id),
                             error_text: None,
                             finished: false,
@@ -1017,6 +1034,7 @@ where
                             &node.id,
                             outcome.output_text.as_deref(),
                             None,
+                            None,
                         )
                         .await?;
                         mark_skipped_targets(pool, run_id, &outcome.skipped_target_node_ids)
@@ -1033,6 +1051,7 @@ where
                                 input_text: outcome.prompt.as_deref(),
                                 output_text: None,
                                 session_id: None,
+                                execution_process_id: None,
                                 arena_group_id: None,
                                 error_text: None,
                                 finished: false,
@@ -1060,6 +1079,7 @@ where
                                 input_text: outcome.prompt.as_deref(),
                                 output_text: None,
                                 session_id: None,
+                                execution_process_id: None,
                                 arena_group_id: None,
                                 error_text: None,
                                 finished: false,
@@ -1313,6 +1333,7 @@ async fn mark_node_running(
             input_text,
             output_text: None,
             session_id: None,
+            execution_process_id: None,
             arena_group_id: None,
             error_text: None,
             finished: false,
@@ -1327,6 +1348,7 @@ async fn mark_node_succeeded(
     node_id: &str,
     output_text: Option<&str>,
     session_id: Option<Uuid>,
+    execution_process_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     update_node_execution(
         pool,
@@ -1337,6 +1359,7 @@ async fn mark_node_succeeded(
             input_text: None,
             output_text,
             session_id,
+            execution_process_id,
             arena_group_id: None,
             error_text: None,
             finished: true,
@@ -1360,6 +1383,7 @@ async fn mark_node_failed(
             input_text: None,
             output_text: None,
             session_id: None,
+            execution_process_id: None,
             arena_group_id: None,
             error_text: Some(error_text),
             finished: true,
@@ -1558,6 +1582,7 @@ async fn reset_node_for_retry(
             input_text = NULL,
             output_text = NULL,
             session_id = NULL,
+            execution_process_id = NULL,
             arena_group_id = NULL,
             tokens_used = NULL,
             cost_estimate = NULL,
@@ -1599,6 +1624,7 @@ async fn reset_downstream_skipped_nodes(
                 input_text = NULL,
                 output_text = NULL,
                 session_id = NULL,
+                execution_process_id = NULL,
                 arena_group_id = NULL,
                 tokens_used = NULL,
                 cost_estimate = NULL,
@@ -1659,6 +1685,7 @@ struct NodeExecutionUpdate<'a> {
     input_text: Option<&'a str>,
     output_text: Option<&'a str>,
     session_id: Option<Uuid>,
+    execution_process_id: Option<Uuid>,
     arena_group_id: Option<Uuid>,
     error_text: Option<&'a str>,
     finished: bool,
@@ -1677,6 +1704,7 @@ async fn update_node_execution(
             input_text = COALESCE(?, input_text),
             output_text = COALESCE(?, output_text),
             session_id = COALESCE(?, session_id),
+            execution_process_id = COALESCE(?, execution_process_id),
             arena_group_id = COALESCE(?, arena_group_id),
             error_text = ?,
             started_at = COALESCE(started_at, datetime('now', 'subsec')),
@@ -1689,6 +1717,7 @@ async fn update_node_execution(
     .bind(update.input_text)
     .bind(update.output_text)
     .bind(update.session_id)
+    .bind(update.execution_process_id)
     .bind(update.arena_group_id)
     .bind(update.error_text)
     .bind(update.finished)
@@ -1767,6 +1796,7 @@ fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>
             "input_text": update.input_text,
             "output_text": update.output_text,
             "session_id": update.session_id,
+            "execution_process_id": update.execution_process_id,
             "arena_group_id": update.arena_group_id,
             "error_text": update.error_text,
         }),
@@ -1821,8 +1851,8 @@ async fn node_execution_responses(
     let rows = sqlx::query(
         r#"
         SELECT id, run_id, node_id, node_type, iteration, status, input_text, output_text,
-               session_id, arena_group_id, tokens_used, cost_estimate, started_at, finished_at,
-               error_text, created_at, updated_at
+               session_id, execution_process_id, arena_group_id, tokens_used, cost_estimate,
+               started_at, finished_at, error_text, created_at, updated_at
         FROM node_executions
         WHERE run_id = ?
         ORDER BY rowid ASC
@@ -1851,6 +1881,7 @@ fn node_execution_response_from_row(
         input_text: row.try_get("input_text")?,
         output_text: row.try_get("output_text")?,
         session_id: row.try_get("session_id")?,
+        execution_process_id: row.try_get("execution_process_id")?,
         arena_group_id: row.try_get("arena_group_id")?,
         tokens_used: row.try_get("tokens_used")?,
         cost_estimate: row.try_get("cost_estimate")?,

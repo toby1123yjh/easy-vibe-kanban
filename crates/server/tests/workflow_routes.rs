@@ -90,6 +90,7 @@ async fn setup_workflow_pool() -> SqlitePool {
             input_text     TEXT,
             output_text    TEXT,
             session_id     BLOB,
+            execution_process_id BLOB,
             arena_group_id BLOB,
             tokens_used    INTEGER,
             cost_estimate  REAL,
@@ -404,14 +405,24 @@ impl WorkflowWorkspaceResolver for FakeWorkspaceResolver {
 #[derive(Debug)]
 struct FakeAgentExecutor {
     session_id: Uuid,
+    execution_process_id: Uuid,
     output_text: String,
     requests: Mutex<Vec<AgentNodeRequest>>,
 }
 
 impl FakeAgentExecutor {
     fn new(session_id: Uuid, output_text: impl Into<String>) -> Self {
+        Self::with_execution_process(session_id, Uuid::new_v4(), output_text)
+    }
+
+    fn with_execution_process(
+        session_id: Uuid,
+        execution_process_id: Uuid,
+        output_text: impl Into<String>,
+    ) -> Self {
         Self {
             session_id,
+            execution_process_id,
             output_text: output_text.into(),
             requests: Mutex::new(Vec::new()),
         }
@@ -429,6 +440,7 @@ impl WorkflowAgentExecutor for FakeAgentExecutor {
 
         Ok(AgentNodeExecution::Completed {
             session_id: self.session_id,
+            execution_process_id: self.execution_process_id,
             output_text: self.output_text.clone(),
         })
     }
@@ -437,6 +449,7 @@ impl WorkflowAgentExecutor for FakeAgentExecutor {
 #[derive(Debug)]
 struct StartedAgentExecutor {
     session_id: Uuid,
+    execution_process_id: Uuid,
     requests: Mutex<Vec<AgentNodeRequest>>,
 }
 
@@ -444,6 +457,7 @@ impl StartedAgentExecutor {
     fn new(session_id: Uuid) -> Self {
         Self {
             session_id,
+            execution_process_id: Uuid::new_v4(),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -456,6 +470,7 @@ impl WorkflowAgentExecutor for StartedAgentExecutor {
 
         Ok(AgentNodeExecution::Started {
             session_id: self.session_id,
+            execution_process_id: self.execution_process_id,
             output_text: Some("agent still running".to_string()),
         })
     }
@@ -497,6 +512,7 @@ impl WorkflowAgentExecutor for FailOnceAgentExecutor {
 
         Ok(AgentNodeExecution::Completed {
             session_id: self.session_id,
+            execution_process_id: Uuid::new_v4(),
             output_text: self.output_text.clone(),
         })
     }
@@ -1014,6 +1030,7 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     let workflow_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
+    let execution_process_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
 
     sqlx::query(
@@ -1030,7 +1047,11 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     .expect("insert agent workflow");
 
     let workspace = FakeWorkspaceResolver::new(workspace_id);
-    let agent = FakeAgentExecutor::new(session_id, "implemented feature");
+    let agent = FakeAgentExecutor::with_execution_process(
+        session_id,
+        execution_process_id,
+        "implemented feature",
+    );
 
     let run = trigger_workflow_run(
         &pool,
@@ -1064,9 +1085,10 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
         .expect("agent node execution");
     assert_eq!(agent_node.session_id, Some(session_id));
     assert_eq!(
-        agent_node.output_text.as_deref(),
-        Some("implemented feature")
+        agent_node.execution_process_id,
+        Some(execution_process_id)
     );
+    assert_eq!(agent_node.output_text.as_deref(), Some("implemented feature"));
     assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
 }
 

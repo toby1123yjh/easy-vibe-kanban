@@ -4,6 +4,8 @@ import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import {
+  buildAgentSessionRows,
+  buildWorkspaceSessionHref,
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
@@ -21,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
+import { WorkflowAgentSessionsList } from './WorkflowAgentSessionsList';
 
 export interface WorkflowRunDashboardTabProps {
   projectId: string;
@@ -66,6 +69,10 @@ export function WorkflowRunDashboardTab({
 
   const selectedNode =
     run.nodes.find((n) => n.node_id === selectedNodeId) || null;
+  const selectedAgentSessionRows = buildAgentSessionRows(run, selectedNodeId);
+  const workflowWorkspaceHref = run.workspace_id
+    ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
+    : null;
 
   const handleCancelRun = async () => {
     setActionError(null);
@@ -204,79 +211,85 @@ export function WorkflowRunDashboardTab({
             {run.nodes.length === 0 ? (
               <div className="text-xs text-low">No steps executed yet.</div>
             ) : (
-              run.nodes.map((node) => (
-                <div
-                  key={node.id}
-                  className={cn(
-                    'flex items-center justify-between rounded border p-2 cursor-pointer transition-colors text-xs',
-                    selectedNodeId === node.node_id
-                      ? 'border-brand bg-secondary'
-                      : 'border-secondary bg-primary hover:border-low'
-                  )}
-                  onClick={() => setSelectedNodeId(node.node_id)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={cn(
-                        'flex h-6 w-6 items-center justify-center rounded-full text-white',
-                        getToneBgClass(getNodeStatusTone(node.status))
-                      )}
-                    >
-                      {node.status === 'succeeded' ? (
-                        <Check className="h-3 w-3" />
-                      ) : node.status === 'failed' ? (
-                        <X className="h-3 w-3" />
-                      ) : node.status === 'running' ? (
-                        <RefreshCcw className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Clock className="h-3 w-3" />
+              run.nodes.map((node) => {
+                const nodeSessionHref = buildWorkspaceSessionHref(
+                  workflowWorkspaceHref,
+                  node.session_id
+                );
+
+                return (
+                  <div
+                    key={node.id}
+                    className={cn(
+                      'flex items-center justify-between rounded border p-2 cursor-pointer transition-colors text-xs',
+                      selectedNodeId === node.node_id
+                        ? 'border-brand bg-secondary'
+                        : 'border-secondary bg-primary hover:border-low'
+                    )}
+                    onClick={() => setSelectedNodeId(node.node_id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded-full text-white',
+                          getToneBgClass(getNodeStatusTone(node.status))
+                        )}
+                      >
+                        {node.status === 'succeeded' ? (
+                          <Check className="h-3 w-3" />
+                        ) : node.status === 'failed' ? (
+                          <X className="h-3 w-3" />
+                        ) : node.status === 'running' ? (
+                          <RefreshCcw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Clock className="h-3 w-3" />
+                        )}
+                      </div>
+                      <span className="font-medium text-high">
+                        {node.node_id}
+                      </span>
+                      <span
+                        className={cn(
+                          'text-[10px] px-1.5 py-0.5 rounded bg-primary',
+                          getToneTextClass(getNodeStatusTone(node.status))
+                        )}
+                      >
+                        {getNodeStatusLabel(node.status)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-low">
+                      {nodeSessionHref ? (
+                        <a
+                          href={nodeSessionHref}
+                          className="flex items-center gap-1 hover:text-brand"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <ExternalLink className="h-3 w-3" /> Session
+                        </a>
+                      ) : null}
+                      <span>
+                        {formatWorkflowDuration(
+                          node.started_at,
+                          node.finished_at
+                        )}
+                      </span>
+                      {node.status === 'failed' && (
+                        <button
+                          className="rounded p-1 text-high hover:bg-secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleRetryNode(node.node_id);
+                          }}
+                          disabled={mutations.isRetrying}
+                          title="Retry step"
+                        >
+                          <RefreshCcw className="h-3 w-3" />
+                        </button>
                       )}
                     </div>
-                    <span className="font-medium text-high">
-                      {node.node_id}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-[10px] px-1.5 py-0.5 rounded bg-primary',
-                        getToneTextClass(getNodeStatusTone(node.status))
-                      )}
-                    >
-                      {getNodeStatusLabel(node.status)}
-                    </span>
                   </div>
-                  <div className="flex items-center gap-3 text-low">
-                    {node.session_id && (
-                      <a
-                        href={`/sessions/${node.session_id}`}
-                        className="flex items-center gap-1 hover:text-brand"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Session
-                      </a>
-                    )}
-                    <span>
-                      {formatWorkflowDuration(
-                        node.started_at,
-                        node.finished_at
-                      )}
-                    </span>
-                    {node.status === 'failed' && (
-                      <button
-                        className="rounded p-1 text-high hover:bg-secondary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleRetryNode(node.node_id);
-                        }}
-                        disabled={mutations.isRetrying}
-                        title="Retry step"
-                      >
-                        <RefreshCcw className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
@@ -321,6 +334,13 @@ export function WorkflowRunDashboardTab({
                 <p className="text-xs text-error" role="alert">
                   {actionError}
                 </p>
+              ) : null}
+
+              {selectedNode.node_type === 'agent' ? (
+                <WorkflowAgentSessionsList
+                  rows={selectedAgentSessionRows}
+                  workspaceHref={workflowWorkspaceHref}
+                />
               ) : null}
 
               <div>

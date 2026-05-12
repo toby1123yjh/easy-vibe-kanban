@@ -151,6 +151,66 @@ export function formatWorkflowDuration(
   return `${seconds}s`;
 }
 
+type WorkflowNodeExecutionWithProcess = WorkflowNodeExecutionResponse & {
+  execution_process_id?: string | null;
+};
+
+export interface AgentSessionRow {
+  runId: string;
+  runLabel: string;
+  nodeId: string;
+  sessionId: string | null;
+  executionProcessId: string | null;
+  statusLabel: string;
+  startedLabel: string;
+  durationLabel: string;
+  outputPreview: string;
+}
+
+export function getNodeExecutionProcessId(
+  node: WorkflowNodeExecutionResponse
+): string | null {
+  return (
+    (node as WorkflowNodeExecutionWithProcess).execution_process_id ?? null
+  );
+}
+
+export function buildWorkspaceSessionHref(
+  workspaceHref: string | null | undefined,
+  sessionId: string | null | undefined
+): string | null {
+  if (!workspaceHref || !sessionId) return null;
+
+  const [pathAndQuery, hash] = workspaceHref.split('#');
+  const separator = pathAndQuery.includes('?') ? '&' : '?';
+  const nextHref = `${pathAndQuery}${separator}session_id=${encodeURIComponent(
+    sessionId
+  )}`;
+
+  return hash ? `${nextHref}#${hash}` : nextHref;
+}
+
+export function buildAgentSessionRows(
+  run: WorkflowRunResponse,
+  nodeId: string | null
+): AgentSessionRow[] {
+  if (!nodeId) return [];
+
+  return run.nodes
+    .filter((node) => node.node_id === nodeId && node.node_type === 'agent')
+    .map((node) => ({
+      runId: run.id,
+      runLabel: run.id,
+      nodeId: node.node_id,
+      sessionId: node.session_id,
+      executionProcessId: getNodeExecutionProcessId(node),
+      statusLabel: getNodeStatusLabel(node.status),
+      startedLabel: node.started_at ?? 'Not started',
+      durationLabel: formatWorkflowDuration(node.started_at, node.finished_at),
+      outputPreview: node.output_text ?? 'No output yet',
+    }));
+}
+
 export interface ArenaWinnerOption {
   workspaceId: string;
   label: string;

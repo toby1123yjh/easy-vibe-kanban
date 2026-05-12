@@ -1,7 +1,9 @@
 import { zodValidator } from '@tanstack/zod-adapter';
 import { z } from 'zod';
 
-export const projectSearchSchema = z.object({});
+export const projectSearchSchema = z.object({
+  session_id: z.string().optional(),
+});
 
 export type ProjectSearch = z.infer<typeof projectSearchSchema>;
 

@@ -108,6 +108,7 @@ pub struct WorkflowNodeExecutionResponse {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,
     pub cost_estimate: Option<f64>,
@@ -169,6 +170,7 @@ struct NodeExecutionFallbackRow {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,
     pub cost_estimate: Option<f64>,
@@ -592,6 +594,7 @@ fn node_execution_from_row(
         input_text: row.try_get("input_text")?,
         output_text: row.try_get("output_text")?,
         session_id: row.try_get("session_id")?,
+        execution_process_id: row.try_get("execution_process_id")?,
         arena_group_id: row.try_get("arena_group_id")?,
         tokens_used: row.try_get("tokens_used")?,
         cost_estimate: row.try_get("cost_estimate")?,
@@ -659,8 +662,8 @@ async fn node_execution_rows(
 ) -> Result<Vec<NodeExecutionFallbackRow>, ApiError> {
     let select = r#"
         SELECT id, run_id, node_id, node_type, iteration, status, input_text, output_text,
-               session_id, arena_group_id, tokens_used, cost_estimate, started_at, finished_at,
-               error_text, created_at, updated_at
+               session_id, execution_process_id, arena_group_id, tokens_used, cost_estimate,
+               started_at, finished_at, error_text, created_at, updated_at
         FROM node_executions
     "#;
 
