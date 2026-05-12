@@ -112,6 +112,9 @@ test("adds a workflow node by dragging from the palette to the canvas", async ({
 test("moves an existing workflow node by dragging it on the canvas", async ({
   page,
 }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
   await page.goto("/");
 
   const before = await readGraph(page);
@@ -142,6 +145,8 @@ test("moves an existing workflow node by dragging it on the canvas", async ({
       x: Math.round(beforeCondition!.position!.x),
       y: Math.round(beforeCondition!.position!.y),
     });
+
+  expect(pageErrors).toEqual([]);
 });
 
 test("renders professional workflow node chrome and validation markers", async ({

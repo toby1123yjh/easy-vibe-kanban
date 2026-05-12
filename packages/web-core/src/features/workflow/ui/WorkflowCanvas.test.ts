@@ -5,6 +5,8 @@ import {
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
+  hasGraphAffectingEdgeChanges,
+  hasGraphAffectingNodeChanges,
 } from './WorkflowCanvas';
 
 describe('workflow canvas interaction settings', () => {
@@ -35,5 +37,15 @@ describe('workflow canvas interaction settings', () => {
         { type: 'remove', id: 'agent-end' },
       ])
     ).toEqual([{ type: 'select', id: 'agent-end', selected: true }]);
+  });
+
+  it('only persists graph-affecting canvas changes', () => {
+    expect(
+      hasGraphAffectingNodeChanges([{ type: 'select' }, { type: 'dimensions' }])
+    ).toBe(false);
+    expect(hasGraphAffectingNodeChanges([{ type: 'position' }])).toBe(true);
+
+    expect(hasGraphAffectingEdgeChanges([{ type: 'select' }])).toBe(false);
+    expect(hasGraphAffectingEdgeChanges([{ type: 'remove' }])).toBe(true);
   });
 });
