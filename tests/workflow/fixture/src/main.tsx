@@ -17,6 +17,7 @@ import {
 } from "../../../../packages/web-core/src/features/workflow/model/workflowGraph";
 import { WorkflowCanvas } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowCanvas";
 import { WorkflowEdgeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector";
+import { WorkflowNodeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector";
 import type { ValidationIssue } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel";
 
 const initialGraph: WorkflowGraph = {
@@ -116,11 +117,21 @@ function PaletteButton({ kind }: { kind: WorkflowNodeKind }) {
 
 function WorkflowCanvasHarness() {
   const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [openNodeDialogId, setOpenNodeDialogId] = useState<string | null>(null);
 
+  const selectedNode = useMemo(
+    () => graph.nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [graph, selectedNodeId],
+  );
   const selectedEdge = useMemo(
     () => graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [graph, selectedEdgeId],
+  );
+  const dialogNode = useMemo(
+    () => graph.nodes.find((node) => node.id === openNodeDialogId) ?? null,
+    [graph, openNodeDialogId],
   );
   const selectedEdgeConditionBranchName = useMemo(
     () =>
@@ -198,12 +209,19 @@ function WorkflowCanvasHarness() {
             onChange={setGraph}
             onNodeDrop={handleNodeDrop}
             onSelectionChange={(selection) => {
-              if (selection.edgeId) {
-                setSelectedEdgeId(selection.edgeId);
-              }
+              setSelectedNodeId(selection.nodeId);
+              setSelectedEdgeId(selection.edgeId);
+            }}
+            onNodeOpen={(nodeId) => {
+              setSelectedNodeId(nodeId);
+              setSelectedEdgeId(null);
+              setOpenNodeDialogId(nodeId);
             }}
           />
         </ReactFlowProvider>
+      </section>
+      <section data-testid="node-inspector">
+        <WorkflowNodeInspector node={selectedNode} onChange={() => {}} />
       </section>
       <section data-testid="edge-inspector">
         <WorkflowEdgeInspector
@@ -219,6 +237,11 @@ function WorkflowCanvasHarness() {
           }}
         />
       </section>
+      {dialogNode ? (
+        <section data-testid="node-dialog">
+          <WorkflowNodeInspector node={dialogNode} onChange={() => {}} />
+        </section>
+      ) : null}
       <pre data-testid="graph-json">{JSON.stringify(graph, null, 2)}</pre>
     </main>
   );

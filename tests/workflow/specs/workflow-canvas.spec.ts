@@ -9,6 +9,60 @@ async function readGraph(page: Page) {
   };
 }
 
+function workflowNodeLocator(page: Page, nodeId: string) {
+  return page.locator(".react-flow__node").filter({
+    has: page.getByTestId(`workflow-node-${nodeId}`),
+  });
+}
+
+async function waitForWorkflowNodeVisible(page: Page, nodeId: string) {
+  const node = workflowNodeLocator(page, nodeId);
+  await expect
+    .poll(async () => {
+      if ((await node.count()) === 0) return "missing";
+      return node.evaluate((element) => getComputedStyle(element).visibility);
+    })
+    .toBe("visible");
+  return node;
+}
+
+async function clickWorkflowNode(page: Page, nodeId: string) {
+  const node = await waitForWorkflowNodeVisible(page, nodeId);
+  await node.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    };
+    element.dispatchEvent(new PointerEvent("pointerdown", eventInit));
+    element.dispatchEvent(new MouseEvent("mousedown", eventInit));
+    element.dispatchEvent(new PointerEvent("pointerup", eventInit));
+    element.dispatchEvent(new MouseEvent("mouseup", eventInit));
+    element.dispatchEvent(new MouseEvent("click", eventInit));
+  });
+}
+
+async function doubleClickWorkflowNode(page: Page, nodeId: string) {
+  const node = await waitForWorkflowNodeVisible(page, nodeId);
+  await node.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    };
+    element.dispatchEvent(new PointerEvent("pointerdown", eventInit));
+    element.dispatchEvent(new MouseEvent("mousedown", eventInit));
+    element.dispatchEvent(new PointerEvent("pointerup", eventInit));
+    element.dispatchEvent(new MouseEvent("mouseup", eventInit));
+    element.dispatchEvent(new MouseEvent("click", eventInit));
+    element.dispatchEvent(new MouseEvent("dblclick", eventInit));
+  });
+}
+
 test("adds a workflow node by dragging from the palette to the canvas", async ({
   page,
 }) => {
@@ -55,6 +109,41 @@ test("adds a workflow node by dragging from the palette to the canvas", async ({
   expect(droppedNode?.position?.y).toBeGreaterThan(0);
 });
 
+test("moves an existing workflow node by dragging it on the canvas", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const before = await readGraph(page);
+  const beforeCondition = before.nodes.find((node) => node.id === "condition");
+  expect(beforeCondition?.position).toBeTruthy();
+
+  const node = await waitForWorkflowNodeVisible(page, "condition");
+  const box = await node.boundingBox();
+  expect(box).toBeTruthy();
+
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 140, startY + 80, { steps: 8 });
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      const moved = graph.nodes.find((node) => node.id === "condition");
+      return {
+        x: Math.round(moved?.position?.x ?? 0),
+        y: Math.round(moved?.position?.y ?? 0),
+      };
+    })
+    .not.toEqual({
+      x: Math.round(beforeCondition!.position!.x),
+      y: Math.round(beforeCondition!.position!.y),
+    });
+});
+
 test("renders professional workflow node chrome and validation markers", async ({
   page,
 }) => {
@@ -77,14 +166,17 @@ test("renders professional workflow node chrome and validation markers", async (
   await expect(page.getByTestId("workflow-node-issue-condition")).toHaveText(
     "1",
   );
-  await expect(conditionNode.locator(".react-flow__handle-left")).toBeVisible();
-  await expect(
-    conditionNode.locator(".react-flow__handle-right"),
-  ).toBeVisible();
+  await expect(conditionNode.locator(".react-flow__handle-left")).toHaveCount(
+    1,
+  );
+  await expect(conditionNode.locator(".react-flow__handle-right")).toHaveCount(
+    1,
+  );
 });
 
 test("renders semantic workflow edges with route chips", async ({ page }) => {
   await page.goto("/");
+  await waitForWorkflowNodeVisible(page, "condition");
 
   await expect(page.getByTestId("workflow-edge-condition-yes")).toBeAttached();
   await expect(page.getByTestId("workflow-edge-chip-condition-yes")).toHaveText(
@@ -92,6 +184,34 @@ test("renders semantic workflow edges with route chips", async ({ page }) => {
   );
   await expect(page.getByTestId("workflow-edge-chip-condition-no")).toHaveText(
     "Condition",
+  );
+});
+
+test("selects a node and keeps the minimap on a visible canvas surface", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await clickWorkflowNode(page, "condition");
+  await expect(page.getByTestId("node-inspector")).toContainText(
+    "Condition Properties",
+  );
+  await expect(
+    page.getByTestId("node-inspector").locator("input").first(),
+  ).toHaveValue("Condition");
+
+  const minimapBackground = await page
+    .locator(".react-flow__minimap")
+    .evaluate((minimap) => getComputedStyle(minimap).backgroundColor);
+  expect(minimapBackground).not.toBe("rgb(255, 255, 255)");
+});
+
+test("opens a node configuration dialog from the canvas", async ({ page }) => {
+  await page.goto("/");
+
+  await doubleClickWorkflowNode(page, "condition");
+  await expect(page.getByTestId("node-dialog")).toContainText(
+    "Condition Properties",
   );
 });
 

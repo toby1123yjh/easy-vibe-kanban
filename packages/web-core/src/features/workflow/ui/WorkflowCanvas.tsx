@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, type DragEvent } from 'react';
 import {
   ReactFlow,
   BaseEdge,
@@ -55,6 +55,7 @@ export interface WorkflowCanvasProps {
   onChange?: (graph: WorkflowGraph) => void;
   onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
   onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
+  onNodeOpen?: (nodeId: string) => void;
 }
 
 export interface WorkflowCanvasSelection {
@@ -93,8 +94,9 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   return (
     <div
       data-testid={`workflow-node-${id}`}
+      style={{ pointerEvents: 'all' }}
       className={cn(
-        'relative min-w-[220px] max-w-[260px] overflow-visible rounded-lg border bg-panel shadow-sm transition-all duration-150',
+        'relative min-w-[220px] max-w-[260px] cursor-grab overflow-visible rounded-lg border bg-panel shadow-sm transition-all duration-150 active:cursor-grabbing',
         selected
           ? 'border-brand shadow-md ring-2 ring-brand/20'
           : issueCount > 0
@@ -217,7 +219,39 @@ const nodeTypes = {
 export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
 export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
+export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND =
+  'color-mix(in srgb, hsl(var(--bg-primary, 0 0% 100%)) 86%, hsl(var(--text-high, 0 0% 5%)) 14%)';
+export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
+  'select',
+  'dimensions',
+] as const;
+export const WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES = ['select'] as const;
 const EMPTY_VALIDATION_ISSUES: ValidationIssue[] = [];
+
+type ReadOnlyNodeChangeType =
+  (typeof WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES)[number];
+type ReadOnlyEdgeChangeType =
+  (typeof WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES)[number];
+
+export function filterReadOnlyNodeChanges<
+  TNode extends ReactFlowNode = ReactFlowNode,
+>(changes: NodeChange<TNode>[]): NodeChange<TNode>[] {
+  return changes.filter((change) =>
+    (WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES as readonly string[]).includes(
+      change.type as ReadOnlyNodeChangeType
+    )
+  );
+}
+
+export function filterReadOnlyEdgeChanges<
+  TEdge extends ReactFlowEdge = ReactFlowEdge,
+>(changes: EdgeChange<TEdge>[]): EdgeChange<TEdge>[] {
+  return changes.filter((change) =>
+    (WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES as readonly string[]).includes(
+      change.type as ReadOnlyEdgeChangeType
+    )
+  );
+}
 
 const WorkflowEdge = ({
   id,
@@ -291,6 +325,7 @@ export function WorkflowCanvas({
   onChange,
   onSelectionChange,
   onNodeDrop,
+  onNodeOpen,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes] = useNodesState<
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
@@ -299,6 +334,10 @@ export function WorkflowCanvas({
     ReactFlowEdge<ReactFlowWorkflowEdgeData>
   >([]);
   const { screenToFlowPosition } = useReactFlow();
+  const lastSelectionRef = useRef<WorkflowCanvasSelection>({
+    nodeId: null,
+    edgeId: null,
+  });
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -349,13 +388,18 @@ export function WorkflowCanvas({
     (
       changes: NodeChange<ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>>[]
     ) => {
-      if (readOnly) return;
+      const appliedChanges = readOnly
+        ? filterReadOnlyNodeChanges(changes)
+        : changes;
+      if (appliedChanges.length === 0) return;
       setNodes((currentNodes) => {
-        const next = applyNodeChanges(changes, currentNodes) as ReactFlowNode<
-          WorkflowNodeData,
-          WorkflowNodeKind
-        >[];
-        reportChange(next, edges);
+        const next = applyNodeChanges(
+          appliedChanges,
+          currentNodes
+        ) as ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[];
+        if (!readOnly) {
+          reportChange(next, edges);
+        }
         return next;
       });
     },
@@ -364,14 +408,53 @@ export function WorkflowCanvas({
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange<ReactFlowEdge<ReactFlowWorkflowEdgeData>>[]) => {
-      if (readOnly) return;
+      const appliedChanges = readOnly
+        ? filterReadOnlyEdgeChanges(changes)
+        : changes;
+      if (appliedChanges.length === 0) return;
       setEdges((currentEdges) => {
-        const next = applyEdgeChanges(changes, currentEdges);
-        reportChange(nodes, next);
+        const next = applyEdgeChanges(appliedChanges, currentEdges);
+        if (!readOnly) {
+          reportChange(nodes, next);
+        }
         return next;
       });
     },
     [readOnly, nodes, reportChange, setEdges]
+  );
+
+  const emitSelectionChange = useCallback(
+    (selection: WorkflowCanvasSelection) => {
+      const lastSelection = lastSelectionRef.current;
+      if (
+        lastSelection.nodeId === selection.nodeId &&
+        lastSelection.edgeId === selection.edgeId
+      ) {
+        return;
+      }
+      lastSelectionRef.current = selection;
+      onSelectionChange?.(selection);
+    },
+    [onSelectionChange]
+  );
+
+  const applySelection = useCallback(
+    (selection: WorkflowCanvasSelection) => {
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => ({
+          ...node,
+          selected: selection.nodeId === node.id,
+        }))
+      );
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => ({
+          ...edge,
+          selected: selection.edgeId === edge.id,
+        }))
+      );
+      emitSelectionChange(selection);
+    },
+    [emitSelectionChange, setEdges, setNodes]
   );
 
   const onConnect = useCallback(
@@ -405,16 +488,17 @@ export function WorkflowCanvas({
       nodes: ReactFlowNode[];
       edges: ReactFlowEdge[];
     }) => {
-      if (onSelectionChange) {
-        const hasSingleNode = selectedNodes.length === 1;
-        const hasSingleEdge = selectedEdges.length === 1;
-        onSelectionChange({
-          nodeId: hasSingleNode && !hasSingleEdge ? selectedNodes[0].id : null,
-          edgeId: hasSingleEdge && !hasSingleNode ? selectedEdges[0].id : null,
-        });
+      const hasSingleNode = selectedNodes.length === 1;
+      const hasSingleEdge = selectedEdges.length === 1;
+      if (!hasSingleNode && !hasSingleEdge) {
+        return;
       }
+      emitSelectionChange({
+        nodeId: hasSingleNode && !hasSingleEdge ? selectedNodes[0].id : null,
+        edgeId: hasSingleEdge && !hasSingleNode ? selectedEdges[0].id : null,
+      });
     },
-    [onSelectionChange]
+    [emitSelectionChange]
   );
 
   const onDragOver = useCallback(
@@ -456,6 +540,17 @@ export function WorkflowCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChangeReactFlow}
+        onNodeClick={(_, node) =>
+          applySelection({ nodeId: node.id, edgeId: null })
+        }
+        onNodeDoubleClick={(_, node) => {
+          applySelection({ nodeId: node.id, edgeId: null });
+          onNodeOpen?.(node.id);
+        }}
+        onEdgeClick={(_, edge) =>
+          applySelection({ nodeId: null, edgeId: edge.id })
+        }
+        onPaneClick={() => applySelection({ nodeId: null, edgeId: null })}
         onDragOver={onDragOver}
         onDrop={onDrop}
         nodesDraggable={!readOnly}
@@ -476,8 +571,9 @@ export function WorkflowCanvas({
           zoomable
           pannable
           nodeColor="#f97316"
-          maskColor="rgba(0, 0, 0, 0.06)"
-          className="rounded border border-secondary bg-panel shadow-sm"
+          maskColor="rgba(15, 23, 42, 0.16)"
+          style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
+          className="rounded border border-secondary shadow-sm"
         />
       </ReactFlow>
     </div>

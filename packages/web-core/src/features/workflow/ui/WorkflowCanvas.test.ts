@@ -3,6 +3,8 @@ import {
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_TYPE,
   WORKFLOW_CANVAS_SNAP_GRID,
+  filterReadOnlyEdgeChanges,
+  filterReadOnlyNodeChanges,
 } from './WorkflowCanvas';
 
 describe('workflow canvas interaction settings', () => {
@@ -16,5 +18,22 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses a custom semantic edge renderer', () => {
     expect(WORKFLOW_CANVAS_EDGE_TYPE).toBe('workflow');
+  });
+
+  it('keeps selection changes in read-only mode while blocking graph edits', () => {
+    expect(
+      filterReadOnlyNodeChanges([
+        { type: 'select', id: 'agent', selected: true },
+        { type: 'position', id: 'agent', position: { x: 20, y: 20 } },
+        { type: 'remove', id: 'agent' },
+      ])
+    ).toEqual([{ type: 'select', id: 'agent', selected: true }]);
+
+    expect(
+      filterReadOnlyEdgeChanges([
+        { type: 'select', id: 'agent-end', selected: true },
+        { type: 'remove', id: 'agent-end' },
+      ])
+    ).toEqual([{ type: 'select', id: 'agent-end', selected: true }]);
   });
 });

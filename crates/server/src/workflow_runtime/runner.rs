@@ -71,6 +71,7 @@ impl From<WorkflowRuntimeError> for ApiError {
 pub struct WorkflowWorkspaceRequest {
     pub issue_id: Uuid,
     pub run_id: Uuid,
+    pub project_id: Option<Uuid>,
     pub existing_workspace_id: Option<Uuid>,
     pub branch_name: String,
 }
@@ -333,10 +334,14 @@ where
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
 
     let run_id = Uuid::new_v4();
+    let project_id = workflow
+        .project_id
+        .or(resolve_issue_project_id(pool, request.issue_id).await?);
     let workspace_id = workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
             issue_id: request.issue_id,
             run_id,
+            project_id,
             existing_workspace_id: request.workspace_id,
             branch_name: main_workflow_branch_name(request.issue_id, run_id),
         })
@@ -357,6 +362,26 @@ where
     .await?;
 
     get_workflow_run_response(pool, run_id).await
+}
+
+async fn resolve_issue_project_id(
+    pool: &SqlitePool,
+    issue_id: Uuid,
+) -> Result<Option<Uuid>, ApiError> {
+    let has_local_issues: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'local_issues'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if has_local_issues == 0 {
+        return Ok(None);
+    }
+
+    Ok(sqlx::query_scalar("SELECT project_id FROM local_issues WHERE id = ?")
+        .bind(issue_id)
+        .fetch_optional(pool)
+        .await?)
 }
 
 pub async fn get_workflow_run_response(

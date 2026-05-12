@@ -27,6 +27,13 @@ import {
 } from './WorkflowValidationPanel';
 import { Button } from '@vibe/ui/components/Button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@vibe/ui/components/Dialog';
+import {
   Loader2,
   ArrowLeft,
   Save,
@@ -55,6 +62,7 @@ export function WorkflowTemplateEditorPage({
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [openNodeDialogId, setOpenNodeDialogId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [graphParseError, setGraphParseError] = useState<string | null>(null);
@@ -192,6 +200,11 @@ export function WorkflowTemplateEditorPage({
   const selectedEdge = useMemo(
     () => graph?.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [graph, selectedEdgeId]
+  );
+
+  const dialogNode = useMemo(
+    () => graph?.nodes.find((node) => node.id === openNodeDialogId) ?? null,
+    [graph, openNodeDialogId]
   );
 
   const selectedEdgeConditionBranchName = useMemo(
@@ -389,6 +402,11 @@ export function WorkflowTemplateEditorPage({
                   setSelectedEdgeId(selection.edgeId);
                 }}
                 onNodeDrop={handleAddNode}
+                onNodeOpen={(nodeId) => {
+                  setSelectedNodeId(nodeId);
+                  setSelectedEdgeId(null);
+                  setOpenNodeDialogId(nodeId);
+                }}
               />
             </ReactFlowProvider>
           </div>
@@ -416,6 +434,42 @@ export function WorkflowTemplateEditorPage({
           )}
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(dialogNode)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenNodeDialogId(null);
+          }
+        }}
+      >
+        <DialogContent
+          data-testid="workflow-node-dialog"
+          className="flex max-h-[82vh] max-w-[520px] flex-col p-0"
+        >
+          <div className="border-b border-secondary px-5 py-4">
+            <DialogHeader className="space-y-half">
+              <DialogTitle>
+                {dialogNode
+                  ? `${dialogNode.data.display_name || 'Node'} configuration`
+                  : 'Node configuration'}
+              </DialogTitle>
+              <DialogDescription>
+                {dialogNode
+                  ? `Edit ${dialogNode.type.replace('_', ' ')} node settings.`
+                  : 'Edit node settings.'}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <WorkflowNodeInspector
+              node={dialogNode}
+              readOnly={readOnly}
+              onChange={handleNodeChange}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

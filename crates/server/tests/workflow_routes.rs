@@ -872,6 +872,7 @@ async fn workflow_runner_trigger_creates_run_workspace_and_node_executions() {
     assert_eq!(workspace_requests[0].existing_workspace_id, None);
     assert_eq!(workspace_requests[0].issue_id, issue_id);
     assert_eq!(workspace_requests[0].run_id, run.id);
+    assert_eq!(workspace_requests[0].project_id, Some(project_id));
     assert_eq!(
         workspace_requests[0].branch_name,
         format!("vk/{issue_id}-wf-{}", short_run_id(run.id))
@@ -887,6 +888,71 @@ async fn workflow_runner_trigger_creates_run_workspace_and_node_executions() {
         .expect("count node executions");
     assert_eq!(run_count, 1);
     assert_eq!(node_count, 3);
+}
+
+#[tokio::test]
+async fn workflow_runner_resolves_project_id_from_local_issue_for_system_workflow() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE local_issues (
+            id BLOB PRIMARY KEY,
+            project_id BLOB NOT NULL
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("create local issues");
+
+    sqlx::query("INSERT INTO local_issues (id, project_id) VALUES (?, ?)")
+        .bind(issue_id)
+        .bind(project_id)
+        .execute(&pool)
+        .await
+        .expect("insert local issue");
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'system', NULL, 'System Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert system agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "agent final output");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run system workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger system workflow run");
+
+    assert_eq!(run.workspace_id, Some(workspace_id));
+    let workspace_requests = workspace.requests();
+    assert_eq!(workspace_requests.len(), 1);
+    assert_eq!(workspace_requests[0].project_id, Some(project_id));
 }
 
 #[tokio::test]
@@ -933,6 +999,7 @@ async fn workflow_runner_trigger_binds_existing_workspace() {
 
     assert_eq!(run.workspace_id, Some(existing_workspace_id));
     assert_eq!(workspace.requests().len(), 1);
+    assert_eq!(workspace.requests()[0].project_id, Some(project_id));
     assert_eq!(
         workspace.requests()[0].existing_workspace_id,
         Some(existing_workspace_id)

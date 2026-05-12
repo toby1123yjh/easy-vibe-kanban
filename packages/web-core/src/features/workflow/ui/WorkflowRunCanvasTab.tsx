@@ -49,6 +49,7 @@ import {
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
+import { WORKFLOW_CANVAS_MINIMAP_BACKGROUND } from './WorkflowCanvas';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -94,8 +95,9 @@ function RunNode({ data }: { data: RunNodeData }) {
 
   return (
     <div
+      style={{ pointerEvents: 'all' }}
       className={cn(
-        'relative min-w-[150px] rounded border-2 px-4 py-3 shadow-sm transition-all',
+        'relative min-w-[150px] cursor-pointer rounded border-2 px-4 py-3 shadow-sm transition-all',
         toneClassMap[tone],
         data.isSelected
           ? 'ring-2 ring-high ring-offset-2 ring-offset-primary'
@@ -264,6 +266,14 @@ export function WorkflowRunCanvasTab({
     []
   );
 
+  const handleNodeClick = useCallback(
+    (_event: unknown, node: ReactFlowNode<RunNodeData, WorkflowNodeKind>) => {
+      setActionError(null);
+      setSelectedNodeId(node.id);
+    },
+    []
+  );
+
   const handleApprove = async () => {
     if (!selectedExecution) return;
     setActionError(null);
@@ -323,14 +333,20 @@ export function WorkflowRunCanvasTab({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onSelectionChange={onSelectionChange}
+          onNodeClick={handleNodeClick}
+          onPaneClick={() => setSelectedNodeId(null)}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={true}
           fitView
         >
           <Background />
-          <Controls />
-          <MiniMap className="bg-panel" />
+          <Controls className="rounded border border-secondary bg-panel shadow-sm" />
+          <MiniMap
+            maskColor="rgba(15, 23, 42, 0.16)"
+            style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
+            className="rounded border border-secondary shadow-sm"
+          />
         </ReactFlow>
       </div>
 

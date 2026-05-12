@@ -1,6 +1,10 @@
 use async_trait::async_trait;
-use db::models::workspace::{CreateWorkspace, Workspace, WorkspaceError};
+use db::models::{
+    workspace::{CreateWorkspace, Workspace, WorkspaceError},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+};
 use deployment::Deployment;
+use sqlx::Row;
 use uuid::Uuid;
 
 use super::runner::{WorkflowWorkspaceRequest, WorkflowWorkspaceResolver};
@@ -22,6 +26,48 @@ pub struct DeploymentWorkflowWorkspaceResolver {
 impl DeploymentWorkflowWorkspaceResolver {
     pub fn new(deployment: DeploymentImpl) -> Self {
         Self { deployment }
+    }
+
+    async fn project_workspace_repos(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Vec<CreateWorkspaceRepo>, ApiError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT r.id AS repo_id, r.path, r.default_target_branch
+            FROM repos r
+            JOIN project_repos pr ON pr.repo_id = r.id
+            WHERE pr.project_id = ?
+            ORDER BY r.display_name ASC
+            "#,
+        )
+        .bind(project_id)
+        .fetch_all(&self.deployment.db().pool)
+        .await?;
+
+        let repos = rows
+            .into_iter()
+            .map(|row| {
+                let repo_id: Uuid = row.get("repo_id");
+                let path: String = row.get("path");
+                let default_target_branch: Option<String> = row.get("default_target_branch");
+                let target_branch = default_target_branch
+                    .filter(|branch| !branch.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        self.deployment
+                            .git()
+                            .get_current_branch(std::path::Path::new(&path))
+                            .unwrap_or_else(|_| "main".to_string())
+                    });
+
+                CreateWorkspaceRepo {
+                    repo_id,
+                    target_branch,
+                }
+            })
+            .collect();
+
+        Ok(repos)
     }
 }
 
@@ -45,6 +91,19 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
             return Ok(workspace_id);
         }
 
+        let project_id = request.project_id.ok_or_else(|| {
+            ApiError::BadRequest(
+                "Workflow workspace creation requires a project with repositories. Select an existing workspace instead."
+                    .to_string(),
+            )
+        })?;
+        let repos = self.project_workspace_repos(project_id).await?;
+        if repos.is_empty() {
+            return Err(ApiError::BadRequest(
+                "Project has no repositories configured for workflow runs.".to_string(),
+            ));
+        }
+
         let workspace_id = Uuid::new_v4();
         let workspace = Workspace::create(
             pool,
@@ -55,6 +114,7 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
             workspace_id,
         )
         .await?;
+        WorkspaceRepo::create_many(pool, workspace.id, &repos).await?;
 
         Ok(workspace.id)
     }
