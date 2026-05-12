@@ -385,10 +385,12 @@ async fn resolve_issue_project_id(
         return Ok(None);
     }
 
-    Ok(sqlx::query_scalar("SELECT project_id FROM local_issues WHERE id = ?")
-        .bind(issue_id)
-        .fetch_optional(pool)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT project_id FROM local_issues WHERE id = ?")
+            .bind(issue_id)
+            .fetch_optional(pool)
+            .await?,
+    )
 }
 
 pub async fn get_workflow_run_response(
@@ -1962,9 +1964,10 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::Utc;
     use db::models::arena_group::ArenaStatus;
+
+    use super::*;
 
     #[test]
     fn workspace_after_container_ensure_carries_container_ref_for_execution_start() {
