@@ -116,6 +116,8 @@ function PaletteButton({ kind }: { kind: WorkflowNodeKind }) {
 }
 
 function WorkflowCanvasHarness() {
+  const readOnly =
+    new URLSearchParams(window.location.search).get("readonly") === "1";
   const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -206,6 +208,7 @@ function WorkflowCanvasHarness() {
           <WorkflowCanvas
             graph={graph}
             validationIssues={canvasValidationIssues}
+            readOnly={readOnly}
             onChange={setGraph}
             onNodeDrop={handleNodeDrop}
             onSelectionChange={(selection) => {

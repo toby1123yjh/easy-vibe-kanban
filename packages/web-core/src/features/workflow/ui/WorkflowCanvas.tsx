@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, type DragEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type DragEvent,
+  type MouseEvent,
+} from 'react';
 import {
   ReactFlow,
   BaseEdge,
@@ -70,15 +76,6 @@ interface BaseNodeProps {
   selected?: boolean;
 }
 
-const getNodeOpenHandler = (
-  data: WorkflowNodeData
-): ((nodeId: string) => void) | null => {
-  const handler = data.__onOpen;
-  return typeof handler === 'function'
-    ? (handler as (nodeId: string) => void)
-    : null;
-};
-
 const ROUTE_HINT_CLASSES: Record<string, string> = {
   brand: 'border-brand/30 bg-brand/10 text-brand',
   success: 'border-success/30 bg-success/10 text-success',
@@ -99,17 +96,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const routeHints = getWorkflowNodeRouteHints(nodeKind, data);
   const validationIssues = getValidationIssues(data);
   const issueCount = validationIssues.length;
-  const openNode = getNodeOpenHandler(data);
 
   return (
     <div
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
-      onDoubleClick={(event) => {
-        if (!openNode) return;
-        event.stopPropagation();
-        openNode(id);
-      }}
       className={cn(
         'relative min-w-[220px] max-w-[260px] cursor-grab overflow-visible rounded-lg border bg-panel shadow-sm transition-all duration-150 active:cursor-grabbing',
         selected
@@ -235,10 +226,11 @@ export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
 export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
 export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND =
-  'color-mix(in srgb, hsl(var(--bg-primary, 0 0% 100%)) 86%, hsl(var(--text-high, 0 0% 5%)) 14%)';
+  'hsl(var(--bg-panel, 0 0% 89%))';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
   'dimensions',
+  'position',
 ] as const;
 export const WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES = ['select'] as const;
 const EMPTY_VALIDATION_ISSUES: ValidationIssue[] = [];
@@ -382,7 +374,6 @@ export function WorkflowCanvas({
     []
   );
   const edgesRef = useRef<ReactFlowEdge<ReactFlowWorkflowEdgeData>[]>([]);
-  const onNodeOpenRef = useRef(onNodeOpen);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -391,14 +382,6 @@ export function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
-
-  useEffect(() => {
-    onNodeOpenRef.current = onNodeOpen;
-  }, [onNodeOpen]);
-
-  const openNodeFromNode = useCallback((nodeId: string) => {
-    onNodeOpenRef.current?.(nodeId);
-  }, []);
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -426,7 +409,6 @@ export function WorkflowCanvas({
         data: {
           ...n.data,
           __validationIssues: issuesByNodeId.get(n.id) ?? [],
-          __onOpen: openNodeFromNode,
         },
         position: positionMap.get(n.id) ?? n.position,
       }));
@@ -436,7 +418,7 @@ export function WorkflowCanvas({
     const nextEdges = toReactFlowEdges(graph);
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-  }, [graph, setNodes, setEdges, validationIssues, openNodeFromNode]);
+  }, [graph, setNodes, setEdges, validationIssues]);
 
   // Bubble up changes
   const reportChange = useCallback(
@@ -521,6 +503,23 @@ export function WorkflowCanvas({
     [emitSelectionChange, setEdges, setNodes]
   );
 
+  const onCanvasDoubleClickCapture = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!onNodeOpen) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const nodeElement = target.closest('.react-flow__node[data-id]');
+      const nodeId = nodeElement?.getAttribute('data-id');
+      if (!nodeId) return;
+
+      event.stopPropagation();
+      applySelection({ nodeId, edgeId: null });
+      onNodeOpen(nodeId);
+    },
+    [applySelection, onNodeOpen]
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (readOnly) return;
@@ -593,7 +592,10 @@ export function WorkflowCanvas({
   );
 
   return (
-    <div className="h-full w-full bg-primary">
+    <div
+      className="h-full w-full bg-primary"
+      onDoubleClickCapture={onCanvasDoubleClickCapture}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -616,7 +618,7 @@ export function WorkflowCanvas({
         onPaneClick={() => applySelection({ nodeId: null, edgeId: null })}
         onDragOver={onDragOver}
         onDrop={onDrop}
-        nodesDraggable={!readOnly}
+        nodesDraggable
         nodesConnectable={!readOnly}
         elementsSelectable={true}
         snapToGrid

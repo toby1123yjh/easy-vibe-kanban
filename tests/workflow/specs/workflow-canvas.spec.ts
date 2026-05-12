@@ -63,6 +63,12 @@ async function doubleClickWorkflowNode(page: Page, nodeId: string) {
   });
 }
 
+async function getWorkflowNodeTransform(page: Page, nodeId: string) {
+  return waitForWorkflowNodeVisible(page, nodeId).then((node) =>
+    node.evaluate((element) => getComputedStyle(element).transform),
+  );
+}
+
 test("adds a workflow node by dragging from the palette to the canvas", async ({
   page,
 }) => {
@@ -218,6 +224,51 @@ test("opens a node configuration dialog from the canvas", async ({ page }) => {
   await expect(page.getByTestId("node-dialog")).toContainText(
     "Condition Properties",
   );
+});
+
+test("opens a node configuration dialog in read-only mode", async ({
+  page,
+}) => {
+  await page.goto("/?readonly=1");
+
+  await doubleClickWorkflowNode(page, "condition");
+  await expect(page.getByTestId("node-dialog")).toContainText(
+    "Condition Properties",
+  );
+});
+
+test("allows read-only nodes to move visually without persisting the graph", async ({
+  page,
+}) => {
+  await page.goto("/?readonly=1");
+
+  const beforeGraph = await readGraph(page);
+  const beforeCondition = beforeGraph.nodes.find(
+    (node) => node.id === "condition",
+  );
+  expect(beforeCondition?.position).toBeTruthy();
+
+  const beforeTransform = await getWorkflowNodeTransform(page, "condition");
+  const node = await waitForWorkflowNodeVisible(page, "condition");
+  const box = await node.boundingBox();
+  expect(box).toBeTruthy();
+
+  const startX = box!.x + box!.width / 2;
+  const startY = box!.y + box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 120, startY + 60, { steps: 8 });
+  await page.mouse.up();
+
+  await expect
+    .poll(() => getWorkflowNodeTransform(page, "condition"))
+    .not.toBe(beforeTransform);
+
+  const afterGraph = await readGraph(page);
+  const afterCondition = afterGraph.nodes.find(
+    (node) => node.id === "condition",
+  );
+  expect(afterCondition?.position).toEqual(beforeCondition?.position);
 });
 
 test("edits condition branch routing from the edge inspector", async ({

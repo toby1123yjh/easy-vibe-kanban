@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_TYPE,
+  WORKFLOW_CANVAS_MINIMAP_BACKGROUND,
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
@@ -29,7 +30,10 @@ describe('workflow canvas interaction settings', () => {
         { type: 'position', id: 'agent', position: { x: 20, y: 20 } },
         { type: 'remove', id: 'agent' },
       ])
-    ).toEqual([{ type: 'select', id: 'agent', selected: true }]);
+    ).toEqual([
+      { type: 'select', id: 'agent', selected: true },
+      { type: 'position', id: 'agent', position: { x: 20, y: 20 } },
+    ]);
 
     expect(
       filterReadOnlyEdgeChanges([
@@ -47,5 +51,11 @@ describe('workflow canvas interaction settings', () => {
 
     expect(hasGraphAffectingEdgeChanges([{ type: 'select' }])).toBe(false);
     expect(hasGraphAffectingEdgeChanges([{ type: 'remove' }])).toBe(true);
+  });
+
+  it('uses a stable non-white minimap background token', () => {
+    expect(WORKFLOW_CANVAS_MINIMAP_BACKGROUND).toBe(
+      'hsl(var(--bg-panel, 0 0% 89%))'
+    );
   });
 });

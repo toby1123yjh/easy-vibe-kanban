@@ -15,7 +15,10 @@ import { defineModal } from '@/shared/lib/modals';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowTemplates } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
-import { buildWorkflowRunInput } from '../model/issueWorkflow';
+import {
+  buildWorkflowRunInput,
+  getWorkflowRunErrorMessage,
+} from '../model/issueWorkflow';
 
 const CREATE_WORKFLOW_WORKSPACE_VALUE = '__create_workflow_workspace__';
 
@@ -117,9 +120,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
         modal.hide();
         navigation.goToProjectWorkflowRun(projectId, run.id);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : 'Failed to start workflow run.'
-        );
+        setError(getWorkflowRunErrorMessage(err));
       }
     };
 
