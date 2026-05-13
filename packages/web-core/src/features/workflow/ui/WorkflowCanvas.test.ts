@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  WORKFLOW_CANVAS_CONNECTION_LINE_TYPE,
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_TYPE,
   WORKFLOW_CANVAS_MINIMAP_BACKGROUND,
@@ -21,6 +22,10 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses a custom semantic edge renderer', () => {
     expect(WORKFLOW_CANVAS_EDGE_TYPE).toBe('workflow');
+  });
+
+  it('uses a smooth step connection preview while dragging wires', () => {
+    expect(WORKFLOW_CANVAS_CONNECTION_LINE_TYPE).toBe('smoothstep');
   });
 
   it('keeps selection changes in read-only mode while blocking graph edits', () => {

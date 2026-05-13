@@ -134,9 +134,9 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>Run workflow</DialogTitle>
+            <DialogTitle>Run existing workflow</DialogTitle>
             <DialogDescription>
-              Start a workflow run for this issue.
+              Select a saved canvas and start a run for this issue.
             </DialogDescription>
           </DialogHeader>
 
@@ -243,7 +243,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                Start workflow
+                Start run
               </Button>
             </DialogFooter>
           </form>

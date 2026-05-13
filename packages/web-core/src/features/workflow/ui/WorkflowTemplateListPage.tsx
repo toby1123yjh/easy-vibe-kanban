@@ -68,7 +68,7 @@ export function WorkflowTemplateListPage({
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          Create Workflow
+          New canvas
         </Button>
       </div>
 
@@ -87,10 +87,10 @@ export function WorkflowTemplateListPage({
               <GitBranch className="h-5 w-5 text-brand" />
             </div>
             <h2 className="text-base font-semibold text-high">
-              No workflows yet
+              No workflow canvases yet
             </h2>
             <p className="mt-1 text-sm text-low">
-              Create a blank workflow for this project.
+              Start from a blank canvas for this project.
             </p>
             <Button
               onClick={handleCreate}
@@ -102,7 +102,7 @@ export function WorkflowTemplateListPage({
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              Create Blank Workflow
+              Create canvas
             </Button>
           </div>
         </div>
@@ -141,6 +141,7 @@ export function WorkflowTemplateListPage({
                 <span>
                   Updated {new Date(template.updated_at).toLocaleDateString()}
                 </span>
+                <span className="text-brand">Open canvas</span>
                 <ArrowRight className="h-4 w-4 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
               </div>
             </button>

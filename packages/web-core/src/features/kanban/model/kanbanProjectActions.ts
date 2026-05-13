@@ -12,7 +12,7 @@ export function getKanbanProjectHeaderActions(
   return [
     {
       id: 'workflows',
-      label: 'Workflows',
+      label: 'Workflow canvas',
       destination: {
         kind: 'project-workflows',
         projectId,

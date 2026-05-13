@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ISSUE_WORKFLOW_ENTRY_COPY,
   buildIssueWorkflowDraft,
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
 } from './issueWorkflow';
 
 describe('issue workflow helpers', () => {
+  it('presents the issue workflow entry as canvas-first', () => {
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionLabel).toBe('Open canvas');
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionAriaLabel).toBe(
+      'Open workflow canvas'
+    );
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Run existing');
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionAriaLabel).toBe(
+      'Run existing workflow'
+    );
+  });
+
   it('builds default run input from issue title and description', () => {
     expect(
       buildWorkflowRunInput({

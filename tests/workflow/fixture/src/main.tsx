@@ -17,6 +17,7 @@ import {
 } from "../../../../packages/web-core/src/features/workflow/model/workflowGraph";
 import { WorkflowCanvas } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowCanvas";
 import { WorkflowEdgeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector";
+import { IssueWorkflowEntryCard } from "../../../../packages/web-core/src/features/workflow/ui/IssueWorkflowEntryCard";
 import { WorkflowNodeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector";
 import type { ValidationIssue } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel";
 
@@ -238,7 +239,10 @@ function WorkflowCanvasHarness() {
         </ReactFlowProvider>
       </section>
       <section data-testid="node-inspector">
-        <WorkflowNodeInspector node={selectedNode} onChange={handleNodeChange} />
+        <WorkflowNodeInspector
+          node={selectedNode}
+          onChange={handleNodeChange}
+        />
       </section>
       <section data-testid="edge-inspector">
         <WorkflowEdgeInspector
@@ -256,7 +260,10 @@ function WorkflowCanvasHarness() {
       </section>
       {dialogNode ? (
         <section data-testid="node-dialog">
-          <WorkflowNodeInspector node={dialogNode} onChange={handleNodeChange} />
+          <WorkflowNodeInspector
+            node={dialogNode}
+            onChange={handleNodeChange}
+          />
         </section>
       ) : null}
       <pre data-testid="graph-json">{JSON.stringify(graph, null, 2)}</pre>
@@ -264,4 +271,24 @@ function WorkflowCanvasHarness() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<WorkflowCanvasHarness />);
+function WorkflowEntryHarness() {
+  const [lastAction, setLastAction] = useState("none");
+
+  return (
+    <main>
+      <IssueWorkflowEntryCard
+        isCreating={false}
+        error={null}
+        onOpenCanvas={() => setLastAction("open-canvas")}
+        onRunExisting={() => setLastAction("run-existing")}
+      />
+      <output data-testid="workflow-entry-action">{lastAction}</output>
+    </main>
+  );
+}
+
+const mode = new URLSearchParams(window.location.search).get("mode");
+
+createRoot(document.getElementById("root")!).render(
+  mode === "entry" ? <WorkflowEntryHarness /> : <WorkflowCanvasHarness />,
+);

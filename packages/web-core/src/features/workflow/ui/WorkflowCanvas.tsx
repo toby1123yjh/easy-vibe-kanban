@@ -15,10 +15,12 @@ import {
   Handle,
   MiniMap,
   Position,
+  ConnectionLineType,
   getSmoothStepPath,
   useNodesState,
   useEdgesState,
   addEdge,
+  reconnectEdge,
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
@@ -226,6 +228,8 @@ const nodeTypes = {
 export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
 export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
+export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
+  ConnectionLineType.SmoothStep;
 export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND =
   'hsl(var(--bg-panel, 0 0% 89%))';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
@@ -543,6 +547,22 @@ export function WorkflowCanvas({
     [readOnly, reportChange, setEdges]
   );
 
+  const onReconnect = useCallback(
+    (
+      oldEdge: ReactFlowEdge<ReactFlowWorkflowEdgeData>,
+      newConnection: Connection
+    ) => {
+      if (readOnly) return;
+      const next = reconnectEdge(oldEdge, newConnection, edgesRef.current, {
+        shouldReplaceId: false,
+      }) as ReactFlowEdge<ReactFlowWorkflowEdgeData>[];
+      edgesRef.current = next;
+      setEdges(next);
+      reportChange(nodesRef.current, next);
+    },
+    [readOnly, reportChange, setEdges]
+  );
+
   const onSelectionChangeReactFlow = useCallback(
     ({
       nodes: selectedNodes,
@@ -605,6 +625,7 @@ export function WorkflowCanvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         onSelectionChange={onSelectionChangeReactFlow}
         onNodeClick={(event, node) => {
           applySelection({ nodeId: node.id, edgeId: null });
@@ -628,7 +649,10 @@ export function WorkflowCanvas({
         onDrop={onDrop}
         nodesDraggable
         nodesConnectable={!readOnly}
+        edgesReconnectable={!readOnly}
+        reconnectRadius={16}
         elementsSelectable={true}
+        connectionLineType={WORKFLOW_CANVAS_CONNECTION_LINE_TYPE}
         snapToGrid
         snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
         deleteKeyCode={readOnly ? null : WORKFLOW_CANVAS_DELETE_KEYS}

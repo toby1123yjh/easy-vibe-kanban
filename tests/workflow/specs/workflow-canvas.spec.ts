@@ -193,6 +193,103 @@ test("connects workflow nodes by dragging between visible handles", async ({
   expect(graph.edges.some((edge) => edge.id === "yes-no")).toBe(true);
 });
 
+test("uses a smooth step preview path while stretching a new connection", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const yesNode = await waitForWorkflowNodeVisible(page, "yes");
+  const sourceHandle = yesNode.locator(".react-flow__handle-right.source");
+  const sourceBox = await sourceHandle.boundingBox();
+  expect(sourceBox).toBeTruthy();
+
+  const startX = sourceBox!.x + sourceBox!.width / 2;
+  const startY = sourceBox!.y + sourceBox!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 160, startY + 90, { steps: 8 });
+
+  const connectionPath = await page
+    .locator(".react-flow__connection-path")
+    .getAttribute("d");
+  expect(connectionPath).toBeTruthy();
+  expect(connectionPath).not.toContain("C");
+  expect(connectionPath).toContain("L");
+
+  await page.mouse.up();
+});
+
+test("reconnects an existing workflow edge by dragging an endpoint", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForWorkflowNodeVisible(page, "condition");
+  await waitForWorkflowNodeVisible(page, "no");
+
+  const edgeTargetUpdater = page
+    .getByTestId("rf__edge-condition-yes")
+    .locator(".react-flow__edgeupdater-target");
+  const noTargetHandle = workflowNodeLocator(page, "no").locator(
+    ".react-flow__handle-left.target",
+  );
+
+  const updaterBox = await edgeTargetUpdater.boundingBox();
+  const targetBox = await noTargetHandle.boundingBox();
+  expect(updaterBox).toBeTruthy();
+  expect(targetBox).toBeTruthy();
+
+  await page.mouse.move(
+    updaterBox!.x + updaterBox!.width / 2,
+    updaterBox!.y + updaterBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    targetBox!.x + targetBox!.width / 2,
+    targetBox!.y + targetBox!.height / 2,
+    { steps: 16 },
+  );
+  await page.mouse.up();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      return graph.edges.find((edge) => edge.id === "condition-yes")?.target;
+    })
+    .toBe("no");
+});
+
+test("presents the workflow entry as canvas-first before running", async ({
+  page,
+}) => {
+  await page.goto("/?mode=entry");
+
+  const openCanvas = page.getByRole("button", {
+    name: "Open workflow canvas",
+  });
+  const runExisting = page.getByRole("button", {
+    name: "Run existing workflow",
+  });
+
+  await expect(openCanvas).toBeVisible();
+  await expect(runExisting).toBeVisible();
+
+  const openBox = await openCanvas.boundingBox();
+  const runBox = await runExisting.boundingBox();
+  expect(openBox).toBeTruthy();
+  expect(runBox).toBeTruthy();
+  expect(openBox!.width).toBeGreaterThan(runBox!.width);
+
+  await openCanvas.click();
+  await expect(page.getByTestId("workflow-entry-action")).toHaveText(
+    "open-canvas",
+  );
+
+  await runExisting.click();
+  await expect(page.getByTestId("workflow-entry-action")).toHaveText(
+    "run-existing",
+  );
+});
+
 test("renders professional workflow node chrome and validation markers", async ({
   page,
 }) => {
@@ -261,9 +358,7 @@ test("opens a node configuration dialog from a single canvas click", async ({
   await page.goto("/");
 
   await clickWorkflowNode(page, "condition");
-  await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Step",
-  );
+  await expect(page.getByTestId("node-dialog")).toContainText("Condition Step");
 });
 
 test("customizes condition branches from the node configuration dialog", async ({
@@ -296,9 +391,7 @@ test("opens a node configuration dialog from the canvas", async ({ page }) => {
   await page.goto("/");
 
   await doubleClickWorkflowNode(page, "condition");
-  await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Step",
-  );
+  await expect(page.getByTestId("node-dialog")).toContainText("Condition Step");
 });
 
 test("opens a node configuration dialog in read-only mode", async ({
@@ -307,9 +400,7 @@ test("opens a node configuration dialog in read-only mode", async ({
   await page.goto("/?readonly=1");
 
   await doubleClickWorkflowNode(page, "condition");
-  await expect(page.getByTestId("node-dialog")).toContainText(
-    "Condition Step",
-  );
+  await expect(page.getByTestId("node-dialog")).toContainText("Condition Step");
 });
 
 test("allows read-only nodes to move visually without persisting the graph", async ({

@@ -1,6 +1,15 @@
 import type { CreateWorkflowRequest } from 'shared/types';
 import { createDefaultWorkflowGraph } from './workflowGraph';
 
+export const ISSUE_WORKFLOW_ENTRY_COPY = {
+  title: 'AI workflow',
+  subtitle: 'Canvas draft first',
+  primaryActionLabel: 'Open canvas',
+  primaryActionAriaLabel: 'Open workflow canvas',
+  secondaryActionLabel: 'Run existing',
+  secondaryActionAriaLabel: 'Run existing workflow',
+};
+
 export function buildWorkflowRunInput({
   title,
   description,
