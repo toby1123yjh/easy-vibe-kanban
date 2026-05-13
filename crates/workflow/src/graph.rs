@@ -19,7 +19,11 @@ pub struct WorkflowNode {
 pub struct WorkflowEdge {
     pub id: String,
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_handle: Option<String>,
     pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_handle: Option<String>,
     #[serde(rename = "type")]
     pub kind: WorkflowEdgeKind,
 }
@@ -189,5 +193,51 @@ mod tests {
 
         assert_eq!(graph.version, 1);
         assert_eq!(graph.nodes.len(), 2);
+    }
+
+    #[test]
+    fn parses_edges_with_optional_handles() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "version": 2,
+            "nodes": [
+                { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+                { "id": "agent", "type": "agent", "data": { "display_name": "Agent" } }
+            ],
+            "edges": [
+                {
+                    "id": "e1",
+                    "source": "start",
+                    "source_handle": "output",
+                    "target": "agent",
+                    "target_handle": "input",
+                    "type": "default"
+                }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            graph.edges[0].source_handle.as_deref(),
+            Some("output")
+        );
+        assert_eq!(graph.edges[0].target_handle.as_deref(), Some("input"));
+    }
+
+    #[test]
+    fn parses_legacy_edges_without_handles() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "nodes": [
+                { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+                { "id": "end", "type": "end", "data": { "display_name": "End" } }
+            ],
+            "edges": [
+                { "id": "e1", "source": "start", "target": "end", "type": "default" }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(graph.edges[0].source_handle, None);
+        assert_eq!(graph.edges[0].target_handle, None);
     }
 }

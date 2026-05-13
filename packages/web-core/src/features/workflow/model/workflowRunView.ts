@@ -8,6 +8,7 @@ import type {
   ArenaGroupResponse,
   ArenaWorkspaceSummary,
 } from '@/shared/lib/arenaApi';
+import type { WorkflowGraph } from './workflowGraph';
 
 export function getWorkflowRunStatusLabel(status: WorkflowRunStatus): string {
   switch (status) {
@@ -209,6 +210,58 @@ export function buildAgentSessionRows(
       durationLabel: formatWorkflowDuration(node.started_at, node.finished_at),
       outputPreview: node.output_text ?? 'No output yet',
     }));
+}
+
+export interface WorkflowNodeDebugView {
+  nodeId: string;
+  promptTemplate: string | null;
+  renderedPrompt: string | null;
+  rawInput: string | null;
+  outputText: string | null;
+  errorText: string | null;
+  sessionId: string | null;
+  executionProcessId: string | null;
+  upstreamOutputs: Array<{ nodeId: string; outputText: string }>;
+}
+
+export function buildWorkflowNodeDebugView({
+  graph,
+  nodeId,
+  run,
+}: {
+  graph: WorkflowGraph;
+  nodeId: string;
+  run: WorkflowRunResponse;
+}): WorkflowNodeDebugView | null {
+  const graphNode = graph.nodes.find((node) => node.id === nodeId);
+  const execution = run.nodes.find((node) => node.node_id === nodeId);
+  if (!graphNode || !execution) return null;
+
+  const upstreamOutputs = graph.edges
+    .filter((edge) => edge.target === nodeId)
+    .map((edge) => {
+      const upstream = run.nodes.find(
+        (candidate) => candidate.node_id === edge.source
+      );
+      return upstream?.output_text
+        ? { nodeId: edge.source, outputText: upstream.output_text }
+        : null;
+    })
+    .filter((item): item is { nodeId: string; outputText: string } =>
+      Boolean(item)
+    );
+
+  return {
+    nodeId,
+    promptTemplate: graphNode.data.prompt_template ?? null,
+    renderedPrompt: execution.input_text,
+    rawInput: run.input_text,
+    outputText: execution.output_text,
+    errorText: execution.error_text,
+    sessionId: execution.session_id,
+    executionProcessId: getNodeExecutionProcessId(execution),
+    upstreamOutputs,
+  };
 }
 
 export interface ArenaWinnerOption {

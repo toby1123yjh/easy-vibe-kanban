@@ -5,7 +5,14 @@ async function readGraph(page: Page) {
   expect(text).toBeTruthy();
   return JSON.parse(text!) as {
     nodes: Array<{ id: string; position?: { x: number; y: number } }>;
-    edges: Array<{ id: string; type: string }>;
+    edges: Array<{
+      id: string;
+      source?: string;
+      source_handle?: string;
+      target?: string;
+      target_handle?: string;
+      type: string;
+    }>;
   };
 }
 
@@ -61,6 +68,13 @@ async function doubleClickWorkflowNode(page: Page, nodeId: string) {
     element.dispatchEvent(new MouseEvent("click", eventInit));
     element.dispatchEvent(new MouseEvent("dblclick", eventInit));
   });
+}
+
+async function doubleClickWorkflowRunNode(page: Page, nodeId: string) {
+  const node = page.getByTestId(`workflow-run-node-${nodeId}`);
+
+  await expect(node).toBeVisible();
+  await node.dblclick();
 }
 
 async function getWorkflowNodeTransform(page: Page, nodeId: string) {
@@ -190,7 +204,29 @@ test("connects workflow nodes by dragging between visible handles", async ({
     .toBe(before.edges.length + 1);
 
   const graph = await readGraph(page);
-  expect(graph.edges.some((edge) => edge.id === "yes-no")).toBe(true);
+  const edge = graph.edges.find((candidate) => candidate.id === "yes-no");
+  expect(edge).toMatchObject({
+    source: "yes",
+    source_handle: "output-right",
+    target: "no",
+    target_handle: "input-left",
+  });
+});
+
+test("loads legacy workflow graphs and assigns default handles", async ({
+  page,
+}) => {
+  await page.goto("/?legacy=1");
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      return graph.edges[0];
+    })
+    .toMatchObject({
+      source_handle: "output-right",
+      target_handle: "input-left",
+    });
 });
 
 test("uses a smooth step preview path while stretching a new connection", async ({
@@ -256,6 +292,16 @@ test("reconnects an existing workflow edge by dragging an endpoint", async ({
       return graph.edges.find((edge) => edge.id === "condition-yes")?.target;
     })
     .toBe("no");
+
+  const graph = await readGraph(page);
+  expect(graph.edges.find((edge) => edge.id === "condition-yes")).toMatchObject(
+    {
+      source: "condition",
+      source_handle: "output-right",
+      target: "no",
+      target_handle: "input-left",
+    },
+  );
 });
 
 test("presents the workflow entry as canvas-first before running", async ({
@@ -290,6 +336,66 @@ test("presents the workflow entry as canvas-first before running", async ({
   );
 });
 
+test("opens a node conversation panel when double-clicking a run agent node", async ({
+  page,
+}) => {
+  await page.goto("/?mode=run-canvas");
+
+  await doubleClickWorkflowRunNode(page, "yes");
+
+  await expect(page).toHaveURL(/\/\?mode=run-canvas$/);
+  await expect(
+    page.getByTestId("workflow-node-conversation-panel"),
+  ).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Conversation" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByTestId("workflow-node-session-id")).toContainText(
+    "session-agent",
+  );
+  await expect(
+    page.getByTestId("workflow-node-conversation-panel"),
+  ).toContainText("process-agent");
+  await expect(
+    page.getByTestId("workflow-node-conversation-panel"),
+  ).toContainText("input");
+  await expect(
+    page.getByTestId("workflow-node-conversation-panel"),
+  ).toContainText("done");
+});
+
+test("shows runtime input output and rendered prompt for a run node", async ({
+  page,
+}) => {
+  await page.goto("/?mode=run-canvas");
+
+  await doubleClickWorkflowRunNode(page, "yes");
+  await page.getByRole("tab", { name: "Input / Output" }).click();
+
+  const panel = page.getByTestId("workflow-node-debug-panel");
+  await expect(panel).toContainText("Rendered Prompt");
+  await expect(panel).toContainText("Review {{input}} and {{upstream}}");
+  await expect(panel).toContainText("input");
+  await expect(panel).toContainText("done");
+  await expect(panel).toContainText("session-agent");
+  await expect(panel).toContainText("process-agent");
+});
+
+test("keeps an agent step session surface inside the run canvas", async ({
+  page,
+}) => {
+  await page.goto("/?mode=run-canvas");
+
+  await doubleClickWorkflowRunNode(page, "yes");
+
+  const panel = page.getByTestId("workflow-node-session-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("session-agent");
+  await expect(panel).toContainText("process-agent");
+  await expect(page).toHaveURL(/\/\?mode=run-canvas$/);
+});
+
 test("renders professional workflow node chrome and validation markers", async ({
   page,
 }) => {
@@ -312,12 +418,13 @@ test("renders professional workflow node chrome and validation markers", async (
   await expect(page.getByTestId("workflow-node-issue-condition")).toHaveText(
     "1",
   );
-  await expect(conditionNode.locator(".react-flow__handle-left")).toHaveCount(
-    1,
-  );
-  await expect(conditionNode.locator(".react-flow__handle-right")).toHaveCount(
-    1,
-  );
+  await expect(conditionNode.locator(".react-flow__handle")).toHaveCount(8);
+  await expect(
+    conditionNode.locator(".react-flow__handle-left.target"),
+  ).toHaveCount(1);
+  await expect(
+    conditionNode.locator(".react-flow__handle-right.source"),
+  ).toHaveCount(1);
 });
 
 test("renders semantic workflow edges with route chips", async ({ page }) => {
@@ -331,6 +438,55 @@ test("renders semantic workflow edges with route chips", async ({ page }) => {
   await expect(page.getByTestId("workflow-edge-chip-condition-no")).toHaveText(
     "Condition",
   );
+});
+
+test("inserts a workflow node from an edge midpoint action", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForWorkflowNodeVisible(page, "start");
+  await expect(page.getByTestId("workflow-edge-start-condition")).toBeAttached();
+
+  await page.getByTestId("workflow-edge-insert-start-condition").click();
+  await page.getByRole("menuitem", { name: "Agent Step" }).click();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      return {
+        nodeCount: graph.nodes.length,
+        hasInsertedAgent: graph.nodes.some((node) =>
+          node.id.startsWith("agent-"),
+        ),
+        hasOriginalEdge: graph.edges.some(
+          (edge) => edge.id === "start-condition",
+        ),
+      };
+    })
+    .toEqual({
+      nodeCount: 6,
+      hasInsertedAgent: true,
+      hasOriginalEdge: false,
+    });
+});
+
+test("adds a workflow node from quick add search", async ({ page }) => {
+  await page.goto("/");
+
+  const before = await readGraph(page);
+  await page.keyboard.press("ControlOrMeta+K");
+  await page
+    .getByRole("dialog", { name: "Add workflow step" })
+    .getByRole("textbox")
+    .fill("agent");
+  await page.getByRole("option", { name: "Agent Step" }).click();
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      return graph.nodes.length;
+    })
+    .toBe(before.nodes.length + 1);
 });
 
 test("selects a node and keeps the minimap on a visible canvas surface", async ({
@@ -359,6 +515,44 @@ test("opens a node configuration dialog from a single canvas click", async ({
 
   await clickWorkflowNode(page, "condition");
   await expect(page.getByTestId("node-dialog")).toContainText("Condition Step");
+});
+
+test("keeps agent output capture out of the user-facing node dialog", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await clickWorkflowNode(page, "yes");
+
+  const dialog = page.getByTestId("node-dialog");
+  await expect(dialog).toContainText("Agent Step");
+  await expect(dialog).toContainText("Role Template ID");
+  await expect(dialog).toContainText("Prompt Template");
+  await expect(dialog).not.toContainText("Output Capture");
+  await expect(dialog.getByRole("combobox")).toHaveCount(0);
+});
+
+test("edits agent configuration through the node dialog", async ({ page }) => {
+  await page.goto("/");
+
+  await clickWorkflowNode(page, "yes");
+  const dialog = page.getByTestId("node-dialog");
+
+  await dialog.getByLabel("Role Template ID").fill("planner");
+  await dialog.getByLabel("Prompt Template").fill("Plan from {{input}}");
+
+  await expect
+    .poll(async () => {
+      const graph = await readGraph(page);
+      const node = graph.nodes.find((candidate) => candidate.id === "yes") as
+        | undefined
+        | { data?: { role_template_id?: string; prompt_template?: string } };
+      return node?.data;
+    })
+    .toMatchObject({
+      role_template_id: "planner",
+      prompt_template: "Plan from {{input}}",
+    });
 });
 
 test("customizes condition branches from the node configuration dialog", async ({

@@ -1,5 +1,6 @@
 export * from './model/workflowGraph';
 export * from './model/workflowNodeCatalog';
+export * from './model/workflowNodeSchemas';
 export * from './model/issueWorkflow';
 export * from './model/workflowRunView';
 export * from './ui/WorkflowTemplateListPage';

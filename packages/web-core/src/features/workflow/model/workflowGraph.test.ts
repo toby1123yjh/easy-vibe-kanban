@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_GRAPH_VERSION,
+  DEFAULT_SOURCE_HANDLE,
+  DEFAULT_TARGET_HANDLE,
   clearConditionBranchTargetForEdge,
   createDefaultWorkflowGraph,
   createWorkflowEdge,
@@ -8,6 +10,7 @@ import {
   fromReactFlowGraph,
   getConditionBranchNameForEdge,
   getConditionBranchNamesForEdge,
+  migrateWorkflowGraph,
   setConditionBranchTargetForEdge,
   toReactFlowEdges,
   toReactFlowNodes,
@@ -38,7 +41,9 @@ describe('workflow graph model', () => {
       {
         id: 'start-end',
         source: 'start',
+        source_handle: DEFAULT_SOURCE_HANDLE,
         target: 'end',
+        target_handle: DEFAULT_TARGET_HANDLE,
         type: 'default',
       },
     ]);
@@ -167,7 +172,9 @@ describe('workflow graph model', () => {
     const edge = createWorkflowEdge({
       id: 'review-approve',
       source: 'review',
+      source_handle: DEFAULT_SOURCE_HANDLE,
       target: 'ship',
+      target_handle: DEFAULT_TARGET_HANDLE,
       type: 'approval',
     });
 
@@ -189,6 +196,74 @@ describe('workflow graph model', () => {
     const graph = fromReactFlowGraph([], flowEdges);
 
     expect(graph.edges[0]).toEqual(edge);
+  });
+
+  it('preserves edge handles through React Flow conversion', () => {
+    const edge = createWorkflowEdge({
+      id: 'condition-true',
+      source: 'condition',
+      source_handle: 'branch:true',
+      target: 'agent',
+      target_handle: 'input',
+      type: 'condition_branch',
+    });
+
+    const flowEdges = toReactFlowEdges({
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [],
+      edges: [edge],
+    });
+
+    expect(flowEdges[0]).toMatchObject({
+      sourceHandle: 'branch:true',
+      targetHandle: 'input',
+    });
+
+    expect(fromReactFlowGraph([], flowEdges).edges[0]).toEqual(edge);
+  });
+
+  it('migrates legacy v1 graphs to v2 edge handles', () => {
+    const graph = migrateWorkflowGraph({
+      version: 1,
+      nodes: [
+        { id: 'start', type: 'start', data: { display_name: 'Start' } },
+        { id: 'agent', type: 'agent', data: { display_name: 'Agent' } },
+      ],
+      edges: [
+        {
+          id: 'start-agent',
+          source: 'start',
+          target: 'agent',
+          type: 'default',
+        },
+      ],
+    });
+
+    expect(graph.version).toBe(WORKFLOW_GRAPH_VERSION);
+    expect(graph.edges[0]).toMatchObject({
+      source_handle: DEFAULT_SOURCE_HANDLE,
+      target_handle: DEFAULT_TARGET_HANDLE,
+    });
+  });
+
+  it('does not overwrite existing v2 handles', () => {
+    const graph = migrateWorkflowGraph({
+      version: 2,
+      nodes: [],
+      edges: [
+        {
+          id: 'a-b',
+          source: 'a',
+          source_handle: 'right',
+          target: 'b',
+          target_handle: 'left',
+          type: 'default',
+        },
+      ],
+    });
+
+    expect(graph.edges[0].source_handle).toBe('right');
+    expect(graph.edges[0].target_handle).toBe('left');
   });
 
   it('continues to read legacy semantic edge types from React Flow edge type', () => {

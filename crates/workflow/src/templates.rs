@@ -80,7 +80,7 @@ fn plan_approve_implement_review() -> WorkflowTemplate {
         name: "Plan, Approve, Implement, Review",
         description: "Creates a plan, pauses for approval, then implements and reviews.",
         graph: WorkflowGraph {
-            version: 1,
+            version: 2,
             nodes: vec![
                 node("start", WorkflowNodeKind::Start, display_data("Start")),
                 node(
@@ -131,7 +131,7 @@ fn plan_arena_pick_winner_review() -> WorkflowTemplate {
         name: "Plan, Arena, Pick Winner, Review",
         description: "Plans once, creates parallel Arena attempts, then reviews the selected winner.",
         graph: WorkflowGraph {
-            version: 1,
+            version: 2,
             nodes: vec![
                 node("start", WorkflowNodeKind::Start, display_data("Start")),
                 node(
@@ -171,7 +171,7 @@ fn research_architect_implement_review_fix() -> WorkflowTemplate {
         name: "Research, Architect, Implement, Review, Fix",
         description: "Gathers context, designs, implements, reviews, and applies a final fix step.",
         graph: WorkflowGraph {
-            version: 1,
+            version: 2,
             nodes: vec![
                 node("start", WorkflowNodeKind::Start, display_data("Start")),
                 node(
@@ -226,7 +226,9 @@ fn edge(id: &str, source: &str, target: &str, kind: WorkflowEdgeKind) -> Workflo
     WorkflowEdge {
         id: id.to_string(),
         source: source.to_string(),
+        source_handle: Some("output-right".to_string()),
         target: target.to_string(),
+        target_handle: Some("input-left".to_string()),
         kind,
     }
 }

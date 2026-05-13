@@ -41,7 +41,7 @@ enum VisitState {
 }
 
 pub fn validate_graph(graph: &WorkflowGraph) -> Result<ValidatedGraph, ValidationError> {
-    if graph.version != 1 {
+    if graph.version != 1 && graph.version != 2 {
         return Err(ValidationError::new(format!(
             "unsupported workflow graph version {}",
             graph.version
@@ -220,14 +220,16 @@ mod tests {
         WorkflowEdge {
             id: id.to_string(),
             source: source.to_string(),
+            source_handle: Some("output-right".to_string()),
             target: target.to_string(),
+            target_handle: Some("input-left".to_string()),
             kind: WorkflowEdgeKind::Default,
         }
     }
 
     fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraph {
         WorkflowGraph {
-            version: 1,
+            version: 2,
             nodes,
             edges,
         }

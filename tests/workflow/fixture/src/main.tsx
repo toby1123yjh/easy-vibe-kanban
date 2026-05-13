@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
 import "./style.css";
 import {
@@ -9,6 +10,7 @@ import {
   createWorkflowNode,
   getConditionBranchNameForEdge,
   getConditionBranchNamesForEdge,
+  migrateWorkflowGraph,
   setConditionBranchTargetForEdge,
   type WorkflowEdge,
   type WorkflowGraph,
@@ -19,7 +21,13 @@ import { WorkflowCanvas } from "../../../../packages/web-core/src/features/workf
 import { WorkflowEdgeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector";
 import { IssueWorkflowEntryCard } from "../../../../packages/web-core/src/features/workflow/ui/IssueWorkflowEntryCard";
 import { WorkflowNodeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector";
+import { WorkflowRunCanvasTab } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowRunCanvasTab";
+import { workflowTemplateQueryKeys } from "../../../../packages/web-core/src/shared/hooks/useWorkflowTemplates";
 import type { ValidationIssue } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel";
+import type {
+  WorkflowRunResponse,
+  WorkflowTemplateResponse,
+} from "../../../../shared/types";
 
 const initialGraph: WorkflowGraph = {
   version: WORKFLOW_GRAPH_VERSION,
@@ -53,7 +61,11 @@ const initialGraph: WorkflowGraph = {
     {
       id: "yes",
       type: "agent",
-      data: { display_name: "Yes path", role_template_id: "reviewer" },
+      data: {
+        display_name: "Yes path",
+        role_template_id: "reviewer",
+        prompt_template: "Review {{input}} and {{upstream}}",
+      },
       position: { x: 540, y: 40 },
     },
     {
@@ -119,7 +131,17 @@ function PaletteButton({ kind }: { kind: WorkflowNodeKind }) {
 function WorkflowCanvasHarness() {
   const readOnly =
     new URLSearchParams(window.location.search).get("readonly") === "1";
-  const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
+  const legacyGraphMode =
+    new URLSearchParams(window.location.search).get("legacy") === "1";
+  const [graph, setGraph] = useState<WorkflowGraph>(() =>
+    migrateWorkflowGraph({
+      ...initialGraph,
+      version: legacyGraphMode ? 1 : initialGraph.version,
+      edges: legacyGraphMode
+        ? initialGraph.edges.map(({ source_handle: _source, target_handle: _target, ...edge }) => edge)
+        : initialGraph.edges,
+    }),
+  );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [openNodeDialogId, setOpenNodeDialogId] = useState<string | null>(null);
@@ -287,8 +309,94 @@ function WorkflowEntryHarness() {
   );
 }
 
+const runCanvasTemplate: WorkflowTemplateResponse = {
+  id: "workflow-1",
+  source: "project",
+  project_id: "project-1",
+  name: "Session workflow",
+  description: null,
+  graph_json: JSON.stringify(initialGraph),
+  created_at: "2026-05-13T00:00:00Z",
+  updated_at: "2026-05-13T00:00:00Z",
+};
+
+const runCanvasRun: WorkflowRunResponse = {
+  id: "run-1",
+  workflow_id: "workflow-1",
+  issue_id: "issue-1",
+  workspace_id: "workspace-1",
+  trigger_source: "manual",
+  input_text: "Build feature",
+  output_text: null,
+  status: "running",
+  started_at: "2026-05-13T00:00:00Z",
+  finished_at: null,
+  error_text: null,
+  created_at: "2026-05-13T00:00:00Z",
+  updated_at: "2026-05-13T00:00:00Z",
+  nodes: [
+    {
+      id: "node-exec-yes",
+      run_id: "run-1",
+      node_id: "yes",
+      node_type: "agent",
+      iteration: 0n,
+      status: "succeeded",
+      input_text: "input",
+      output_text: "done",
+      session_id: "session-agent",
+      execution_process_id: "process-agent",
+      arena_group_id: null,
+      tokens_used: null,
+      cost_estimate: null,
+      started_at: "2026-05-13T00:00:00Z",
+      finished_at: "2026-05-13T00:01:00Z",
+      error_text: null,
+      created_at: "2026-05-13T00:00:00Z",
+      updated_at: "2026-05-13T00:01:00Z",
+    },
+  ],
+};
+
+function WorkflowRunCanvasHarness() {
+  const queryClient = useMemo(() => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    client.setQueryData(
+      workflowTemplateQueryKeys.detail(runCanvasTemplate.id),
+      runCanvasTemplate,
+    );
+
+    return client;
+  }, []);
+
+  return (
+    <main className="workflow-run-harness">
+      <section data-testid="workflow-run-canvas" style={{ height: 560 }}>
+        <QueryClientProvider client={queryClient}>
+          <ReactFlowProvider>
+            <WorkflowRunCanvasTab projectId="project-1" run={runCanvasRun} />
+          </ReactFlowProvider>
+        </QueryClientProvider>
+      </section>
+    </main>
+  );
+}
+
 const mode = new URLSearchParams(window.location.search).get("mode");
 
 createRoot(document.getElementById("root")!).render(
-  mode === "entry" ? <WorkflowEntryHarness /> : <WorkflowCanvasHarness />,
+  mode === "entry" ? (
+    <WorkflowEntryHarness />
+  ) : mode === "run-canvas" ? (
+    <WorkflowRunCanvasHarness />
+  ) : (
+    <WorkflowCanvasHarness />
+  ),
 );

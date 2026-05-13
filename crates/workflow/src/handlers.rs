@@ -296,7 +296,9 @@ mod tests {
         WorkflowEdge {
             id: id.to_string(),
             source: source.to_string(),
+            source_handle: Some("output-right".to_string()),
             target: target.to_string(),
+            target_handle: Some("input-left".to_string()),
             kind: WorkflowEdgeKind::Default,
         }
     }

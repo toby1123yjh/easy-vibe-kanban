@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type DragEvent,
   type MouseEvent,
 } from 'react';
@@ -33,6 +34,10 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
+  DEFAULT_SOURCE_HANDLE,
+  DEFAULT_TARGET_HANDLE,
+  WORKFLOW_GRAPH_VERSION,
+  createWorkflowNode,
   toReactFlowNodes,
   toReactFlowEdges,
   fromReactFlowGraph,
@@ -56,6 +61,8 @@ import {
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
+import { splitWorkflowEdgeForInsertedNode } from './workflowEdgeInsert';
+import { WorkflowQuickAdd } from './WorkflowQuickAdd';
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
@@ -70,6 +77,10 @@ export interface WorkflowCanvasProps {
 export interface WorkflowCanvasSelection {
   nodeId: string | null;
   edgeId: string | null;
+}
+
+interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
+  onInsert?: (edgeId: string, position: WorkflowNodePosition) => void;
 }
 
 interface BaseNodeProps {
@@ -90,6 +101,23 @@ const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
 };
+
+const workflowHandleClass =
+  'h-3.5 w-3.5 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand';
+
+const inputHandles = [
+  { id: 'input-left', position: Position.Left, style: { top: '42%' } },
+  { id: 'input-top', position: Position.Top, style: { left: '42%' } },
+  { id: 'input-right', position: Position.Right, style: { top: '42%' } },
+  { id: 'input-bottom', position: Position.Bottom, style: { left: '42%' } },
+] as const;
+
+const outputHandles = [
+  { id: 'output-left', position: Position.Left, style: { top: '58%' } },
+  { id: 'output-top', position: Position.Top, style: { left: '58%' } },
+  { id: 'output-right', position: Position.Right, style: { top: '58%' } },
+  { id: 'output-bottom', position: Position.Bottom, style: { left: '58%' } },
+] as const;
 
 const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const nodeKind = type ?? 'agent';
@@ -113,13 +141,18 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             : 'border-secondary hover:border-brand/70 hover:shadow-md'
       )}
     >
-      {type !== 'start' ? (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="h-4 w-4 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand"
-        />
-      ) : null}
+      {type !== 'start'
+        ? inputHandles.map((handle) => (
+            <Handle
+              key={handle.id}
+              id={handle.id}
+              type="target"
+              position={handle.position}
+              style={handle.style}
+              className={workflowHandleClass}
+            />
+          ))
+        : null}
 
       <div
         className={cn(
@@ -204,13 +237,18 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         ) : null}
       </div>
 
-      {type !== 'end' ? (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="h-4 w-4 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand"
-        />
-      ) : null}
+      {type !== 'end'
+        ? outputHandles.map((handle) => (
+            <Handle
+              key={handle.id}
+              id={handle.id}
+              type="source"
+              position={handle.position}
+              style={handle.style}
+              className={workflowHandleClass}
+            />
+          ))
+        : null}
     </div>
   );
 };
@@ -276,8 +314,9 @@ const WorkflowEdge = ({
   markerEnd,
   data,
   selected,
-}: EdgeProps<ReactFlowEdge<ReactFlowWorkflowEdgeData>>) => {
+}: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
   const workflowType = data?.workflowType ?? 'default';
+  const onInsert = data?.onInsert;
   const visual = getWorkflowEdgeVisual(workflowType);
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -300,6 +339,28 @@ const WorkflowEdge = ({
           className={cn('transition-all', visual.pathClass)}
           style={{ strokeWidth: selected ? 3 : 2 }}
         />
+        {onInsert ? (
+          <foreignObject
+            x={labelX - 12}
+            y={labelY - 36}
+            width={24}
+            height={24}
+            className="overflow-visible"
+          >
+            <button
+              type="button"
+              data-testid={`workflow-edge-insert-${id}`}
+              className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-secondary bg-panel text-xs font-semibold text-high shadow-sm transition-colors hover:border-brand hover:text-brand"
+              onClick={(event) => {
+                event.stopPropagation();
+                onInsert(id, { x: labelX, y: labelY });
+              }}
+              aria-label={`Insert step on edge ${id}`}
+            >
+              +
+            </button>
+          </foreignObject>
+        ) : null}
       </g>
       {visual.label ? (
         <EdgeLabelRenderer>
@@ -307,7 +368,7 @@ const WorkflowEdge = ({
             className="nodrag nopan absolute"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: 'all',
+              pointerEvents: 'none',
             }}
           >
             <span
@@ -368,8 +429,13 @@ export function WorkflowCanvas({
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
   >([]);
   const [edges, setEdges] = useEdgesState<
-    ReactFlowEdge<ReactFlowWorkflowEdgeData>
+    ReactFlowEdge<WorkflowCanvasEdgeData>
   >([]);
+  const [insertMenu, setInsertMenu] = useState<{
+    edgeId: string;
+    position: WorkflowNodePosition;
+  } | null>(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const { screenToFlowPosition } = useReactFlow();
   const lastSelectionRef = useRef<WorkflowCanvasSelection>({
     nodeId: null,
@@ -378,7 +444,7 @@ export function WorkflowCanvas({
   const nodesRef = useRef<ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[]>(
     []
   );
-  const edgesRef = useRef<ReactFlowEdge<ReactFlowWorkflowEdgeData>[]>([]);
+  const edgesRef = useRef<ReactFlowEdge<WorkflowCanvasEdgeData>[]>([]);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -387,6 +453,14 @@ export function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  const startEdgeInsert = useCallback(
+    (edgeId: string, position: WorkflowNodePosition) => {
+      if (readOnly) return;
+      setInsertMenu({ edgeId, position });
+    },
+    [readOnly]
+  );
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -420,16 +494,22 @@ export function WorkflowCanvas({
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    const nextEdges = toReactFlowEdges(graph);
+    const nextEdges = toReactFlowEdges(graph).map((edge) => ({
+      ...edge,
+      data: {
+        workflowType: edge.data?.workflowType ?? 'default',
+        onInsert: readOnly ? undefined : startEdgeInsert,
+      },
+    })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-  }, [graph, setNodes, setEdges, validationIssues]);
+  }, [graph, readOnly, setNodes, setEdges, startEdgeInsert, validationIssues]);
 
   // Bubble up changes
   const reportChange = useCallback(
     (
       newNodes: ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[],
-      newEdges: ReactFlowEdge<ReactFlowWorkflowEdgeData>[]
+      newEdges: ReactFlowEdge<WorkflowCanvasEdgeData>[]
     ) => {
       if (readOnly || !onChange) return;
       onChange(fromReactFlowGraph(newNodes, newEdges));
@@ -459,7 +539,7 @@ export function WorkflowCanvas({
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange<ReactFlowEdge<ReactFlowWorkflowEdgeData>>[]) => {
+    (changes: EdgeChange<ReactFlowEdge<WorkflowCanvasEdgeData>>[]) => {
       const appliedChanges = readOnly
         ? filterReadOnlyEdgeChanges(changes)
         : changes;
@@ -536,10 +616,12 @@ export function WorkflowCanvas({
               ? `${connection.source}-${connection.target}`
               : undefined,
           type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
+          sourceHandle: connection.sourceHandle ?? DEFAULT_SOURCE_HANDLE,
+          targetHandle: connection.targetHandle ?? DEFAULT_TARGET_HANDLE,
           data: { workflowType: 'default' },
         },
         edgesRef.current
-      ) as ReactFlowEdge<ReactFlowWorkflowEdgeData>[];
+      ) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
       edgesRef.current = next;
       setEdges(next);
       reportChange(nodesRef.current, next);
@@ -549,18 +631,84 @@ export function WorkflowCanvas({
 
   const onReconnect = useCallback(
     (
-      oldEdge: ReactFlowEdge<ReactFlowWorkflowEdgeData>,
+      oldEdge: ReactFlowEdge<WorkflowCanvasEdgeData>,
       newConnection: Connection
     ) => {
       if (readOnly) return;
       const next = reconnectEdge(oldEdge, newConnection, edgesRef.current, {
         shouldReplaceId: false,
-      }) as ReactFlowEdge<ReactFlowWorkflowEdgeData>[];
+      }) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
       edgesRef.current = next;
       setEdges(next);
       reportChange(nodesRef.current, next);
     },
     [readOnly, reportChange, setEdges]
+  );
+
+  const addNodeAtViewportCenter = useCallback(
+    (kind: WorkflowNodeKind) => {
+      if (readOnly) return;
+      const node = createWorkflowNode(kind, {
+        position: screenToFlowPosition({
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+        }),
+      });
+      const nextNode = toReactFlowNodes({
+        version: WORKFLOW_GRAPH_VERSION,
+        nodes: [node],
+        edges: [],
+      })[0];
+      const nextNodes = [...nodesRef.current, nextNode];
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      reportChange(nextNodes, edgesRef.current);
+    },
+    [readOnly, reportChange, screenToFlowPosition, setNodes]
+  );
+
+  const insertNodeOnSelectedEdge = useCallback(
+    (kind: WorkflowNodeKind) => {
+      if (readOnly || !insertMenu) return;
+      const edge = edgesRef.current.find(
+        (candidate) => candidate.id === insertMenu.edgeId
+      );
+      if (!edge) {
+        setInsertMenu(null);
+        return;
+      }
+
+      const node = createWorkflowNode(kind, {
+        position: insertMenu.position,
+      });
+      const nextNode = toReactFlowNodes({
+        version: WORKFLOW_GRAPH_VERSION,
+        nodes: [node],
+        edges: [],
+      })[0];
+      const splitEdges = splitWorkflowEdgeForInsertedNode({
+        edge,
+        nodeId: node.id,
+      }).map((splitEdge) => ({
+        ...splitEdge,
+        data: {
+          workflowType: splitEdge.data?.workflowType ?? 'default',
+          onInsert: startEdgeInsert,
+        },
+      })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
+      const nextNodes = [...nodesRef.current, nextNode];
+      const nextEdges = edgesRef.current
+        .filter((candidate) => candidate.id !== edge.id)
+        .concat(splitEdges);
+
+      nodesRef.current = nextNodes;
+      edgesRef.current = nextEdges;
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      setInsertMenu(null);
+      reportChange(nextNodes, nextEdges);
+    },
+    [insertMenu, readOnly, reportChange, setEdges, setNodes, startEdgeInsert]
   );
 
   const onSelectionChangeReactFlow = useCallback(
@@ -583,6 +731,23 @@ export function WorkflowCanvas({
     },
     [emitSelectionChange]
   );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (readOnly) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setQuickAddOpen(true);
+      }
+      if (event.key === 'Escape') {
+        setQuickAddOpen(false);
+        setInsertMenu(null);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [readOnly]);
 
   const onDragOver = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
@@ -614,7 +779,7 @@ export function WorkflowCanvas({
 
   return (
     <div
-      className="h-full w-full bg-primary"
+      className="relative h-full w-full bg-primary"
       onDoubleClickCapture={onCanvasDoubleClickCapture}
     >
       <ReactFlow
@@ -675,6 +840,36 @@ export function WorkflowCanvas({
           className="overflow-hidden rounded-lg border border-secondary shadow-sm"
         />
       </ReactFlow>
+      {insertMenu ? (
+        <div
+          role="menu"
+          className="min-w-40 rounded-md border border-secondary bg-panel p-1 shadow-lg"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            top: 80,
+            zIndex: 9999,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full rounded px-3 py-2 text-left text-sm font-medium text-high hover:bg-secondary/70"
+            onClick={() => insertNodeOnSelectedEdge('agent')}
+          >
+            Agent Step
+          </button>
+        </div>
+      ) : null}
+      <WorkflowQuickAdd
+        open={quickAddOpen && !readOnly}
+        onClose={() => setQuickAddOpen(false)}
+        onSelect={(kind) => {
+          addNodeAtViewportCenter(kind);
+          setQuickAddOpen(false);
+        }}
+      />
     </div>
   );
 }

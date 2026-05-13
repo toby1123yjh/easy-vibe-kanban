@@ -5,7 +5,9 @@ import type {
 import { createDefaultNodeData } from './workflowNodeCatalog';
 import { getWorkflowEdgeLabel } from './workflowPresentation';
 
-export const WORKFLOW_GRAPH_VERSION = 1;
+export const WORKFLOW_GRAPH_VERSION = 2;
+export const DEFAULT_SOURCE_HANDLE = 'output-right';
+export const DEFAULT_TARGET_HANDLE = 'input-left';
 
 export type WorkflowNodeKind =
   | 'start'
@@ -114,7 +116,9 @@ export interface WorkflowNode {
 export interface WorkflowEdge {
   id: string;
   source: string;
+  source_handle?: string;
   target: string;
+  target_handle?: string;
   type: WorkflowEdgeKind;
 }
 
@@ -123,6 +127,16 @@ export interface WorkflowGraph {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
 }
+
+type LegacyWorkflowEdge = Omit<
+  WorkflowEdge,
+  'source_handle' | 'target_handle'
+> &
+  Partial<Pick<WorkflowEdge, 'source_handle' | 'target_handle'>>;
+
+type LegacyWorkflowGraph = Omit<WorkflowGraph, 'edges'> & {
+  edges: LegacyWorkflowEdge[];
+};
 
 export interface ReactFlowWorkflowEdgeData extends Record<string, unknown> {
   workflowType: WorkflowEdgeKind;
@@ -268,10 +282,26 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
       {
         id: 'start-end',
         source: 'start',
+        source_handle: DEFAULT_SOURCE_HANDLE,
         target: 'end',
+        target_handle: DEFAULT_TARGET_HANDLE,
         type: 'default',
       },
     ],
+  };
+}
+
+export function migrateWorkflowGraph(
+  graph: WorkflowGraph | LegacyWorkflowGraph
+): WorkflowGraph {
+  return {
+    ...graph,
+    version: WORKFLOW_GRAPH_VERSION,
+    edges: graph.edges.map((edge) => ({
+      ...edge,
+      source_handle: edge.source_handle ?? DEFAULT_SOURCE_HANDLE,
+      target_handle: edge.target_handle ?? DEFAULT_TARGET_HANDLE,
+    })),
   };
 }
 
@@ -297,13 +327,17 @@ export function createWorkflowNode(
 export function createWorkflowEdge(options: {
   id?: string;
   source: string;
+  source_handle?: string;
   target: string;
+  target_handle?: string;
   type?: WorkflowEdgeKind;
 }): WorkflowEdge {
   return {
     id: options.id ?? `${options.source}-${options.target}`,
     source: options.source,
+    source_handle: options.source_handle ?? DEFAULT_SOURCE_HANDLE,
     target: options.target,
+    target_handle: options.target_handle ?? DEFAULT_TARGET_HANDLE,
     type: options.type ?? 'default',
   };
 }
@@ -326,7 +360,9 @@ export function toReactFlowEdges(
   return graph.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
+    sourceHandle: edge.source_handle,
     target: edge.target,
+    targetHandle: edge.target_handle,
     type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
     data: { workflowType: edge.type },
     label: getWorkflowEdgeLabel(edge.type),
@@ -361,7 +397,9 @@ export function fromReactFlowGraph(
     edges: edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
+      source_handle: edge.sourceHandle ?? undefined,
       target: edge.target,
+      target_handle: edge.targetHandle ?? undefined,
       type: getWorkflowTypeFromReactFlowEdge(edge),
     })),
   };

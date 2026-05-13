@@ -6,6 +6,7 @@ import type {
 import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
 import {
   buildAgentSessionRows,
+  buildWorkflowNodeDebugView,
   buildWorkspaceSessionHref,
   buildArenaWinnerOptions,
   buildWorkflowRunDashboardSummary,
@@ -341,5 +342,69 @@ describe('workflow run view helpers', () => {
     ).toBe(
       '/projects/project-1/issues/issue-1/workspaces/workspace-1?panel=chat&session_id=session-2#bottom'
     );
+  });
+
+  it('builds debug data for a selected run node', () => {
+    const debug = buildWorkflowNodeDebugView({
+      run: {
+        ...baseRun,
+        input_text: 'Build feature',
+        nodes: [
+          {
+            ...baseRun.nodes[0],
+            node_id: 'plan',
+            output_text: 'plan result',
+          },
+          withExecutionProcess(
+            {
+              ...baseRun.nodes[0],
+              id: 'node-exec-review',
+              node_id: 'review',
+              input_text: 'Review rendered prompt',
+              output_text: 'review result',
+              session_id: 'session-review',
+            },
+            'process-review'
+          ),
+        ],
+      },
+      graph: {
+        version: 2,
+        nodes: [
+          {
+            id: 'plan',
+            type: 'agent',
+            data: { prompt_template: 'Plan {{input}}' },
+          },
+          {
+            id: 'review',
+            type: 'agent',
+            data: { prompt_template: 'Review {{upstream}}' },
+          },
+        ],
+        edges: [
+          {
+            id: 'plan-review',
+            source: 'plan',
+            source_handle: 'output-right',
+            target: 'review',
+            target_handle: 'input-left',
+            type: 'default',
+          },
+        ],
+      },
+      nodeId: 'review',
+    });
+
+    expect(debug).toMatchObject({
+      nodeId: 'review',
+      promptTemplate: 'Review {{upstream}}',
+      renderedPrompt: 'Review rendered prompt',
+      rawInput: 'Build feature',
+      outputText: 'review result',
+      sessionId: 'session-review',
+      executionProcessId: 'process-review',
+      upstreamOutputs: [{ nodeId: 'plan', outputText: 'plan result' }],
+    });
   });
 });

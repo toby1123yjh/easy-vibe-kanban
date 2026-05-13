@@ -9,6 +9,7 @@ import {
   createWorkflowNode,
   getConditionBranchNameForEdge,
   getConditionBranchNamesForEdge,
+  migrateWorkflowGraph,
   setConditionBranchTargetForEdge,
   type WorkflowGraph,
   type WorkflowEdge,
@@ -79,7 +80,7 @@ export function WorkflowTemplateEditorPage({
       try {
         const parsed = JSON.parse(template.graph_json) as WorkflowGraph;
         if (parsed && typeof parsed === 'object' && parsed.version) {
-          setGraph(parsed);
+          setGraph(migrateWorkflowGraph(parsed));
           setGraphParseError(null);
         } else {
           setGraph(createDefaultWorkflowGraph());
