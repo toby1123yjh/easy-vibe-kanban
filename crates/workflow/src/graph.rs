@@ -216,10 +216,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(
-            graph.edges[0].source_handle.as_deref(),
-            Some("output")
-        );
+        assert_eq!(graph.edges[0].source_handle.as_deref(), Some("output"));
         assert_eq!(graph.edges[0].target_handle.as_deref(), Some("input"));
     }
 
