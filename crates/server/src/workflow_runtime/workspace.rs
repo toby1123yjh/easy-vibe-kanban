@@ -229,8 +229,7 @@ async fn upsert_workflow_workspace_link(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use sqlx::SqlitePool;
-    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use uuid::Uuid;
 
     use super::{project_workspace_repos_from_db, upsert_workflow_workspace_link};
@@ -341,14 +340,7 @@ mod tests {
         let pool = setup_repo_defaults_pool().await;
         let project_id = Uuid::new_v4();
         let repo_id = Uuid::new_v4();
-        insert_repo(
-            &pool,
-            repo_id,
-            "F:\\Mydev2023\\repo",
-            "repo",
-            Some("main"),
-        )
-        .await;
+        insert_repo(&pool, repo_id, "F:\\Mydev2023\\repo", "repo", Some("main")).await;
         insert_repo_defaults_scratch(&pool, project_id, repo_id, "master").await;
 
         let repos = project_workspace_repos_from_db(&pool, project_id, |_| "fallback".to_string())
