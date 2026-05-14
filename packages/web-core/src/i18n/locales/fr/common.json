@@ -303,7 +303,6 @@
     "title": "Task Attempts",
     "loading": "Loading attempts...",
     "empty": "Create a task attempt to solve this issue.",
-    "newWorkflow": "New workflow attempt",
     "newSingleAgent": "New single-agent attempt"
   },
   "fileTree": {
