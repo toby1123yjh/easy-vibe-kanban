@@ -310,10 +310,10 @@ test("presents the workflow entry as canvas-first before running", async ({
   await page.goto("/?mode=entry");
 
   const openCanvas = page.getByRole("button", {
-    name: "Open workflow canvas",
+    name: "Open workflow attempt canvas",
   });
   const runExisting = page.getByRole("button", {
-    name: "Run existing workflow",
+    name: "Run workflow attempt",
   });
 
   await expect(openCanvas).toBeVisible();
@@ -445,7 +445,9 @@ test("inserts a workflow node from an edge midpoint action", async ({
 }) => {
   await page.goto("/");
   await waitForWorkflowNodeVisible(page, "start");
-  await expect(page.getByTestId("workflow-edge-start-condition")).toBeAttached();
+  await expect(
+    page.getByTestId("workflow-edge-start-condition"),
+  ).toBeAttached();
 
   await page.getByTestId("workflow-edge-insert-start-condition").click();
   await page.getByRole("menuitem", { name: "Agent Step" }).click();
@@ -660,4 +662,36 @@ test("edits condition branch routing from the edge inspector", async ({
       )?.target_node_id;
     })
     .toBe("yes");
+});
+
+test("shows workflow as an issue task attempt", async ({ page }) => {
+  await page.goto("/?mode=task-attempts");
+
+  await expect(page.getByText("Task Attempts")).toBeVisible();
+  await expect(
+    page.getByTestId("task-attempt-workflow-attempt-1"),
+  ).toContainText("Workflow attempt for Familiarize code");
+  await expect(
+    page.getByTestId("task-attempt-workspace-attempt-1"),
+  ).toContainText("Codex try");
+
+  await page
+    .getByTestId("task-attempt-workflow-attempt-1")
+    .getByRole("button", { name: /Open canvas/i })
+    .click();
+  await expect(page.getByTestId("task-attempt-action")).toHaveText(
+    "open:workflow",
+  );
+});
+
+test("runs a workflow task attempt from the issue attempt card", async ({
+  page,
+}) => {
+  await page.goto("/?mode=task-attempts");
+
+  await page.getByRole("button", { name: "Run workflow attempt" }).click();
+
+  await expect(page.getByTestId("task-attempt-action")).toHaveText(
+    "run:workflow-attempt-1",
+  );
 });

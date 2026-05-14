@@ -9,7 +9,9 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use db::models::workflow::{NodeExecutionStatus, WorkflowRunStatus, WorkflowSource};
+use db::models::workflow::{
+    NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource,
+};
 use deployment::Deployment;
 use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
@@ -24,12 +26,17 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     workflow_runtime::{
-        arena::{DeploymentWorkflowArenaCreator, DeploymentWorkflowArenaWinnerApplier},
+        arena::{
+            DeploymentWorkflowArenaCreator, DeploymentWorkflowArenaWinnerApplier,
+            NoopWorkflowArenaCreator, WorkflowArenaCreator,
+        },
         runner::{
             DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller,
+            WorkflowAgentExecutor, WorkflowWorkspaceResolver,
             approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
             reject_human_node, retry_workflow_node_with_arena, select_arena_winner_with_arena,
-            subscribe_workflow_events, trigger_workflow_run_with_arena, workflow_event_history,
+            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_arena,
+            trigger_workflow_run_with_arena, workflow_event_history,
         },
         workspace::DeploymentWorkflowWorkspaceResolver,
     },
@@ -75,14 +82,47 @@ pub struct TriggerWorkflowRequest {
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
+pub struct CreateWorkflowAttemptRequest {
+    pub name: Option<String>,
+    pub graph_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct RunWorkflowAttemptRequest {
+    pub workspace_id: Option<Uuid>,
+    pub trigger_source: String,
+    pub input_text: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
 pub struct SelectArenaWinnerRequest {
     pub workspace_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkflowAttemptResponse {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub issue_id: Uuid,
+    pub workflow_id: Uuid,
+    pub latest_run_id: Option<Uuid>,
+    pub workspace_id: Option<Uuid>,
+    pub name: String,
+    pub status: WorkflowAttemptStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkflowAttemptListResponse {
+    pub attempts: Vec<WorkflowAttemptResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkflowRunResponse {
     pub id: Uuid,
     pub workflow_id: Uuid,
+    pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -146,6 +186,7 @@ pub struct FallbackNodeExecutionsQuery {
 struct WorkflowRunFallbackRow {
     pub id: Uuid,
     pub workflow_id: Uuid,
+    pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -205,6 +246,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(list_workflows).post(create_workflow),
         )
         .route(
+            "/v1/projects/{project_id}/issues/{issue_id}/workflow-attempts",
+            get(list_issue_workflow_attempts).post(create_workflow_attempt),
+        )
+        .route(
             "/v1/workflows/{workflow_id}",
             get(get_workflow)
                 .put(update_workflow)
@@ -215,6 +260,11 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             post(trigger_workflow),
         )
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
+        .route("/v1/workflow-attempts/{attempt_id}", get(get_workflow_attempt))
+        .route(
+            "/v1/workflow-attempts/{attempt_id}/run",
+            post(run_workflow_attempt),
+        )
         .route(
             "/v1/workflow-runs/{run_id}/cancel",
             post(cancel_workflow_run),
@@ -260,6 +310,58 @@ async fn create_workflow(
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
+async fn list_issue_workflow_attempts(
+    State(deployment): State<DeploymentImpl>,
+    Path((project_id, issue_id)): Path<(Uuid, Uuid)>,
+) -> Result<ResponseJson<WorkflowAttemptListResponse>, ApiError> {
+    Ok(ResponseJson(WorkflowAttemptListResponse {
+        attempts: list_workflow_attempts_for_issue(&deployment.db().pool, project_id, issue_id)
+            .await?,
+    }))
+}
+
+async fn create_workflow_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path((project_id, issue_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<CreateWorkflowAttemptRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowAttemptResponse>>, ApiError> {
+    let data =
+        create_issue_workflow_attempt(&deployment.db().pool, project_id, issue_id, request).await?;
+    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
+}
+
+async fn get_workflow_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path(attempt_id): Path<Uuid>,
+) -> Result<ResponseJson<WorkflowAttemptResponse>, ApiError> {
+    Ok(ResponseJson(
+        workflow_attempt_by_id(&deployment.db().pool, attempt_id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?,
+    ))
+}
+
+async fn run_workflow_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path(attempt_id): Path<Uuid>,
+    Json(request): Json<RunWorkflowAttemptRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowRunResponse>>, ApiError> {
+    let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let data = run_workflow_attempt_runtime_with_arena(
+        &deployment.db().pool,
+        attempt_id,
+        request,
+        &workspace_resolver,
+        &agent_executor,
+        &arena_creator,
+    )
+    .await?;
+
+    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
+}
+
 async fn get_workflow(
     State(deployment): State<DeploymentImpl>,
     Path(workflow_id): Path<Uuid>,
@@ -296,7 +398,8 @@ pub async fn list_project_workflows(
         r#"
         SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
         FROM workflows
-        WHERE source = 'system' OR project_id = ?
+        WHERE (source = 'system' OR project_id = ?)
+          AND id NOT IN (SELECT workflow_id FROM workflow_attempts)
         ORDER BY
             CASE source WHEN 'system' THEN 0 ELSE 1 END,
             name ASC,
@@ -339,6 +442,211 @@ pub async fn create_project_workflow(
     workflow_by_id(pool, workflow_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow not found after create".to_string()))
+}
+
+pub async fn create_issue_workflow_attempt(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    issue_id: Uuid,
+    request: CreateWorkflowAttemptRequest,
+) -> Result<WorkflowAttemptResponse, ApiError> {
+    ensure_project_exists(pool, project_id).await?;
+    ensure_issue_belongs_to_project(pool, project_id, issue_id).await?;
+    validate_graph_json(&request.graph_json)?;
+
+    let name = request
+        .name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Workflow attempt".to_string());
+
+    let workflow = create_project_workflow(
+        pool,
+        project_id,
+        CreateWorkflowRequest {
+            name: name.clone(),
+            description: Some(
+                "Issue-bound workflow attempt backing graph. Hidden from template lists."
+                    .to_string(),
+            ),
+            graph_json: request.graph_json,
+        },
+    )
+    .await?;
+
+    let attempt_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_attempts
+            (id, project_id, issue_id, workflow_id, name, status)
+        VALUES (?, ?, ?, ?, ?, 'draft')
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(project_id)
+    .bind(issue_id)
+    .bind(workflow.id)
+    .bind(name)
+    .execute(pool)
+    .await?;
+
+    workflow_attempt_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found after create".to_string()))
+}
+
+pub async fn list_workflow_attempts_for_issue(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<Vec<WorkflowAttemptResponse>, ApiError> {
+    ensure_project_exists(pool, project_id).await?;
+    ensure_issue_belongs_to_project(pool, project_id, issue_id).await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
+               name, status, created_at, updated_at
+        FROM workflow_attempts
+        WHERE project_id = ? AND issue_id = ?
+        ORDER BY updated_at DESC, created_at DESC
+        "#,
+    )
+    .bind(project_id)
+    .bind(issue_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(workflow_attempt_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+pub async fn workflow_attempt_by_id(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+) -> Result<Option<WorkflowAttemptResponse>, ApiError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
+               name, status, created_at, updated_at
+        FROM workflow_attempts
+        WHERE id = ?
+        "#,
+    )
+    .bind(attempt_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.as_ref().map(workflow_attempt_from_row).transpose()?)
+}
+
+pub async fn update_workflow_attempt_runtime(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    latest_run_id: Option<Uuid>,
+    workspace_id: Option<Uuid>,
+    status: WorkflowAttemptStatus,
+) -> Result<(), ApiError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE workflow_attempts
+        SET latest_run_id = COALESCE(?, latest_run_id),
+            workspace_id = COALESCE(?, workspace_id),
+            status = ?,
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ?
+        "#,
+    )
+    .bind(latest_run_id)
+    .bind(workspace_id)
+    .bind(workflow_attempt_status_value(status))
+    .bind(attempt_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::BadRequest("Workflow attempt not found".to_string()));
+    }
+
+    Ok(())
+}
+
+pub async fn run_workflow_attempt_runtime<W, A>(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    request: RunWorkflowAttemptRequest,
+    workspace_resolver: &W,
+    agent_executor: &A,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+{
+    let arena_creator = NoopWorkflowArenaCreator;
+    run_workflow_attempt_runtime_with_arena(
+        pool,
+        attempt_id,
+        request,
+        workspace_resolver,
+        agent_executor,
+        &arena_creator,
+    )
+    .await
+}
+
+pub async fn run_workflow_attempt_runtime_with_arena<W, A, R>(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    request: RunWorkflowAttemptRequest,
+    workspace_resolver: &W,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
+    let attempt = workflow_attempt_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
+
+    let run = trigger_workflow_run_for_attempt_with_arena(
+        pool,
+        attempt.workflow_id,
+        Some(attempt.id),
+        TriggerWorkflowRequest {
+            issue_id: attempt.issue_id,
+            workspace_id: request.workspace_id,
+            trigger_source: request.trigger_source,
+            input_text: request.input_text,
+        },
+        workspace_resolver,
+        agent_executor,
+        arena_creator,
+    )
+    .await?;
+
+    sync_attempt_from_run(pool, &run).await?;
+    get_workflow_run_response(pool, run.id).await
+}
+
+pub async fn sync_attempt_from_run(
+    pool: &SqlitePool,
+    run: &WorkflowRunResponse,
+) -> Result<(), ApiError> {
+    if let Some(attempt_id) = run.attempt_id {
+        update_workflow_attempt_runtime(
+            pool,
+            attempt_id,
+            Some(run.id),
+            run.workspace_id,
+            workflow_attempt_status_from_run(run.status),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn get_workflow_template(
@@ -449,6 +757,7 @@ async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateRes
         r#"
         SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
         FROM workflows
+        WHERE id NOT IN (SELECT workflow_id FROM workflow_attempts)
         ORDER BY
             CASE source WHEN 'system' THEN 0 ELSE 1 END,
             name ASC,
@@ -548,6 +857,28 @@ async fn ensure_project_exists(pool: &SqlitePool, project_id: Uuid) -> Result<()
     Ok(())
 }
 
+async fn ensure_issue_belongs_to_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<(), ApiError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM local_issues WHERE id = ? AND project_id = ?",
+    )
+    .bind(issue_id)
+    .bind(project_id)
+    .fetch_one(pool)
+    .await?;
+
+    if count == 0 {
+        return Err(ApiError::BadRequest(
+            "Issue not found for project".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn workflow_template_from_row(
     row: &SqliteRow,
 ) -> Result<WorkflowTemplateResponse, WorkflowRouteError> {
@@ -563,10 +894,28 @@ fn workflow_template_from_row(
     })
 }
 
+fn workflow_attempt_from_row(
+    row: &SqliteRow,
+) -> Result<WorkflowAttemptResponse, WorkflowRouteError> {
+    Ok(WorkflowAttemptResponse {
+        id: row.try_get("id")?,
+        project_id: row.try_get("project_id")?,
+        issue_id: row.try_get("issue_id")?,
+        workflow_id: row.try_get("workflow_id")?,
+        latest_run_id: row.try_get("latest_run_id")?,
+        workspace_id: row.try_get("workspace_id")?,
+        name: row.try_get("name")?,
+        status: workflow_attempt_status_from_str(&row.try_get::<String, _>("status")?)?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
 fn workflow_run_from_row(row: &SqliteRow) -> Result<WorkflowRunFallbackRow, WorkflowRouteError> {
     Ok(WorkflowRunFallbackRow {
         id: row.try_get("id")?,
         workflow_id: row.try_get("workflow_id")?,
+        attempt_id: row.try_get("attempt_id")?,
         issue_id: row.try_get("issue_id")?,
         workspace_id: row.try_get("workspace_id")?,
         trigger_source: row.try_get("trigger_source")?,
@@ -612,7 +961,7 @@ async fn workflow_run_rows(
     workflow_id: Option<Uuid>,
 ) -> Result<Vec<WorkflowRunFallbackRow>, ApiError> {
     let select = r#"
-        SELECT id, workflow_id, issue_id, workspace_id, trigger_source, input_text,
+        SELECT id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text,
                output_text, status, started_at, finished_at, error_text, created_at, updated_at
         FROM workflow_runs
     "#;
@@ -714,6 +1063,49 @@ fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, Workfl
     }
 }
 
+fn workflow_attempt_status_from_str(
+    value: &str,
+) -> Result<WorkflowAttemptStatus, WorkflowRouteError> {
+    match value {
+        "draft" => Ok(WorkflowAttemptStatus::Draft),
+        "ready" => Ok(WorkflowAttemptStatus::Ready),
+        "running" => Ok(WorkflowAttemptStatus::Running),
+        "awaiting_human" => Ok(WorkflowAttemptStatus::AwaitingHuman),
+        "awaiting_arena" => Ok(WorkflowAttemptStatus::AwaitingArena),
+        "succeeded" => Ok(WorkflowAttemptStatus::Succeeded),
+        "failed" => Ok(WorkflowAttemptStatus::Failed),
+        "canceled" => Ok(WorkflowAttemptStatus::Canceled),
+        other => Err(WorkflowRouteError::BadRequest(format!(
+            "Unknown workflow attempt status `{other}`"
+        ))),
+    }
+}
+
+fn workflow_attempt_status_value(status: WorkflowAttemptStatus) -> &'static str {
+    match status {
+        WorkflowAttemptStatus::Draft => "draft",
+        WorkflowAttemptStatus::Ready => "ready",
+        WorkflowAttemptStatus::Running => "running",
+        WorkflowAttemptStatus::AwaitingHuman => "awaiting_human",
+        WorkflowAttemptStatus::AwaitingArena => "awaiting_arena",
+        WorkflowAttemptStatus::Succeeded => "succeeded",
+        WorkflowAttemptStatus::Failed => "failed",
+        WorkflowAttemptStatus::Canceled => "canceled",
+    }
+}
+
+fn workflow_attempt_status_from_run(status: WorkflowRunStatus) -> WorkflowAttemptStatus {
+    match status {
+        WorkflowRunStatus::Pending => WorkflowAttemptStatus::Ready,
+        WorkflowRunStatus::Running => WorkflowAttemptStatus::Running,
+        WorkflowRunStatus::AwaitingHuman => WorkflowAttemptStatus::AwaitingHuman,
+        WorkflowRunStatus::AwaitingArena => WorkflowAttemptStatus::AwaitingArena,
+        WorkflowRunStatus::Succeeded => WorkflowAttemptStatus::Succeeded,
+        WorkflowRunStatus::Failed => WorkflowAttemptStatus::Failed,
+        WorkflowRunStatus::Canceled => WorkflowAttemptStatus::Canceled,
+    }
+}
+
 fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, WorkflowRouteError> {
     match value {
         "pending" => Ok(NodeExecutionStatus::Pending),
@@ -758,9 +1150,9 @@ async fn get_workflow_run(
     State(deployment): State<DeploymentImpl>,
     Path(run_id): Path<Uuid>,
 ) -> Result<ResponseJson<WorkflowRunResponse>, ApiError> {
-    Ok(ResponseJson(
-        get_workflow_run_response(&deployment.db().pool, run_id).await?,
-    ))
+    let run = get_workflow_run_response(&deployment.db().pool, run_id).await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
+    Ok(ResponseJson(run))
 }
 
 async fn cancel_workflow_run(
@@ -769,6 +1161,7 @@ async fn cancel_workflow_run(
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let canceller = DeploymentWorkflowRunCanceller::new(deployment.clone());
     let run = cancel_workflow_run_runtime(&deployment.db().pool, run_id, &canceller).await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, None),
@@ -780,7 +1173,8 @@ async fn workflow_run_events(
     State(deployment): State<DeploymentImpl>,
     Path(run_id): Path<Uuid>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, BoxError>>>, ApiError> {
-    get_workflow_run_response(&deployment.db().pool, run_id).await?;
+    let run = get_workflow_run_response(&deployment.db().pool, run_id).await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     let run_id_string = run_id.to_string();
     let receiver = subscribe_workflow_events();
@@ -834,6 +1228,7 @@ async fn retry_node(
         &arena_creator,
     )
     .await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -855,6 +1250,7 @@ async fn approve_node(
         &arena_creator,
     )
     .await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -867,6 +1263,7 @@ async fn reject_node(
     Path((run_id, node_id)): Path<(Uuid, String)>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let run = reject_human_node(&deployment.db().pool, run_id, &node_id).await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -892,6 +1289,7 @@ async fn select_arena_winner(
         &winner_applier,
     )
     .await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),

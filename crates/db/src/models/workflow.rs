@@ -29,6 +29,22 @@ pub enum WorkflowRunStatus {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
+#[sqlx(type_name = "workflow_attempt_status", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum WorkflowAttemptStatus {
+    #[default]
+    Draft,
+    Ready,
+    Running,
+    AwaitingHuman,
+    AwaitingArena,
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "node_execution_status", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 #[ts(rename_all = "snake_case")]
@@ -59,6 +75,7 @@ pub struct Workflow {
 pub struct WorkflowRun {
     pub id: Uuid,
     pub workflow_id: Uuid,
+    pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -68,6 +85,20 @@ pub struct WorkflowRun {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub error_text: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+pub struct WorkflowAttempt {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub issue_id: Uuid,
+    pub workflow_id: Uuid,
+    pub latest_run_id: Option<Uuid>,
+    pub workspace_id: Option<Uuid>,
+    pub name: String,
+    pub status: WorkflowAttemptStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -113,10 +144,26 @@ pub struct UpdateWorkflow {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateWorkflowRun {
     pub workflow_id: Uuid,
+    pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
     pub input_text: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct CreateWorkflowAttempt {
+    pub project_id: Uuid,
+    pub issue_id: Uuid,
+    pub workflow_id: Uuid,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct UpdateWorkflowAttemptRuntime {
+    pub latest_run_id: Option<Uuid>,
+    pub workspace_id: Option<Uuid>,
+    pub status: WorkflowAttemptStatus,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -157,6 +204,14 @@ mod tests {
     fn workflow_run_status_serializes_with_snake_case_names() {
         assert_eq!(
             serde_json::to_string(&WorkflowRunStatus::AwaitingHuman).unwrap(),
+            r#""awaiting_human""#
+        );
+    }
+
+    #[test]
+    fn workflow_attempt_status_serializes_with_snake_case_names() {
+        assert_eq!(
+            serde_json::to_string(&WorkflowAttemptStatus::AwaitingHuman).unwrap(),
             r#""awaiting_human""#
         );
     }

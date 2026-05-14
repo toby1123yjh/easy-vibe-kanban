@@ -19,9 +19,8 @@ import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTa
 import { IssueCommentsSectionContainer } from './IssueCommentsSectionContainer';
 import { IssueSubIssuesSectionContainer } from './IssueSubIssuesSectionContainer';
 import { IssueRelationshipsSectionContainer } from './IssueRelationshipsSectionContainer';
-import { IssueWorkspacesSectionContainer } from './IssueWorkspacesSectionContainer';
 import { IssueArenaSectionContainer } from './IssueArenaSectionContainer';
-import { IssueWorkflowSectionContainer } from './IssueWorkflowSectionContainer';
+import { IssueTaskAttemptsSectionContainer } from './IssueTaskAttemptsSectionContainer';
 import {
   KanbanIssuePanel,
   type IssueFormData,
@@ -1113,13 +1112,12 @@ export function KanbanIssuePanelContainer({
       )}
       renderWorkspacesSection={(issueId) => (
         <>
-          <IssueWorkflowSectionContainer
+          <IssueTaskAttemptsSectionContainer
             issueId={issueId}
             issueTitle={displayData.title}
             issueDescription={displayData.description}
           />
           <IssueArenaSectionContainer issueId={issueId} />
-          <IssueWorkspacesSectionContainer issueId={issueId} />
         </>
       )}
       renderRelationshipsSection={(issueId) => (

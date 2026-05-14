@@ -5,6 +5,10 @@ import type {
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   TriggerWorkflowRequest,
+  CreateWorkflowAttemptRequest,
+  RunWorkflowAttemptRequest,
+  WorkflowAttemptListResponse,
+  WorkflowAttemptResponse,
   WorkflowRunResponse,
   WorkflowActionResponse,
 } from 'shared/types';
@@ -167,6 +171,55 @@ export const workflowApi = {
         body: JSON.stringify(payload),
       }),
       'Failed to trigger workflow'
+    );
+  },
+
+  async listAttempts(
+    projectId: string,
+    issueId: string
+  ): Promise<WorkflowAttemptListResponse> {
+    return getJson(
+      await localFetch(
+        `/projects/${projectId}/issues/${issueId}/workflow-attempts`
+      ),
+      'Failed to list workflow attempts'
+    );
+  },
+
+  async createAttempt(
+    projectId: string,
+    issueId: string,
+    payload: CreateWorkflowAttemptRequest
+  ): Promise<WorkflowAttemptResponse> {
+    return mutate(
+      await localFetch(
+        `/projects/${projectId}/issues/${issueId}/workflow-attempts`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+      'Failed to create workflow attempt'
+    );
+  },
+
+  async getAttempt(attemptId: string): Promise<WorkflowAttemptResponse> {
+    return getJson(
+      await localFetch(`/workflow-attempts/${attemptId}`),
+      'Failed to get workflow attempt'
+    );
+  },
+
+  async runAttempt(
+    attemptId: string,
+    payload: RunWorkflowAttemptRequest
+  ): Promise<WorkflowRunResponse> {
+    return mutate(
+      await localFetch(`/workflow-attempts/${attemptId}/run`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+      'Failed to run workflow attempt'
     );
   },
 

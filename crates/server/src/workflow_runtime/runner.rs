@@ -337,6 +337,32 @@ where
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
+    trigger_workflow_run_for_attempt_with_arena(
+        pool,
+        workflow_id,
+        None,
+        request,
+        workspace_resolver,
+        agent_executor,
+        arena_creator,
+    )
+    .await
+}
+
+pub async fn trigger_workflow_run_for_attempt_with_arena<W, A, R>(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    attempt_id: Option<Uuid>,
+    request: TriggerWorkflowRequest,
+    workspace_resolver: &W,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
     let workflow = get_workflow_template(pool, workflow_id).await?;
     let graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
@@ -357,7 +383,7 @@ where
         })
         .await?;
 
-    insert_workflow_run(pool, run_id, workflow_id, workspace_id, &request).await?;
+    insert_workflow_run(pool, run_id, workflow_id, attempt_id, workspace_id, &request).await?;
     initialize_node_executions(pool, run_id, &graph).await?;
     drive_workflow_run(
         pool,
@@ -402,7 +428,7 @@ pub async fn get_workflow_run_response(
 ) -> Result<WorkflowRunResponse, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, workflow_id, issue_id, workspace_id, trigger_source, input_text,
+        SELECT id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text,
                output_text, status, started_at, finished_at, error_text, created_at, updated_at
         FROM workflow_runs
         WHERE id = ?
@@ -418,6 +444,7 @@ pub async fn get_workflow_run_response(
     Ok(WorkflowRunResponse {
         id: row.try_get("id")?,
         workflow_id: row.try_get("workflow_id")?,
+        attempt_id: row.try_get("attempt_id")?,
         issue_id: row.try_get("issue_id")?,
         workspace_id: row.try_get("workspace_id")?,
         trigger_source: row.try_get("trigger_source")?,
@@ -700,6 +727,19 @@ pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiEr
             true,
         )
         .await?;
+        sqlx::query(
+            r#"
+            UPDATE workflow_attempts
+            SET status = 'failed',
+                updated_at = datetime('now', 'subsec')
+            WHERE latest_run_id = ?
+               OR id = (SELECT attempt_id FROM workflow_runs WHERE id = ?)
+            "#,
+        )
+        .bind(run_id)
+        .bind(run_id)
+        .execute(pool)
+        .await?;
         recovered += 1;
     }
 
@@ -748,18 +788,20 @@ async fn insert_workflow_run(
     pool: &SqlitePool,
     run_id: Uuid,
     workflow_id: Uuid,
+    attempt_id: Option<Uuid>,
     workspace_id: Uuid,
     request: &TriggerWorkflowRequest,
 ) -> Result<(), ApiError> {
     sqlx::query(
         r#"
         INSERT INTO workflow_runs
-            (id, workflow_id, issue_id, workspace_id, trigger_source, input_text, status, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'running', datetime('now', 'subsec'))
+            (id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text, status, started_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', datetime('now', 'subsec'))
         "#,
     )
     .bind(run_id)
     .bind(workflow_id)
+    .bind(attempt_id)
     .bind(request.issue_id)
     .bind(workspace_id)
     .bind(&request.trigger_source)

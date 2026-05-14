@@ -22,6 +22,7 @@ import { WorkflowEdgeInspector } from "../../../../packages/web-core/src/feature
 import { IssueWorkflowEntryCard } from "../../../../packages/web-core/src/features/workflow/ui/IssueWorkflowEntryCard";
 import { WorkflowNodeInspector } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector";
 import { WorkflowRunCanvasTab } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowRunCanvasTab";
+import { IssueTaskAttemptsSection } from "../../../../packages/ui/src/components/IssueTaskAttemptsSection";
 import { workflowTemplateQueryKeys } from "../../../../packages/web-core/src/shared/hooks/useWorkflowTemplates";
 import type { ValidationIssue } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel";
 import type {
@@ -138,7 +139,10 @@ function WorkflowCanvasHarness() {
       ...initialGraph,
       version: legacyGraphMode ? 1 : initialGraph.version,
       edges: legacyGraphMode
-        ? initialGraph.edges.map(({ source_handle: _source, target_handle: _target, ...edge }) => edge)
+        ? initialGraph.edges.map(
+            ({ source_handle: _source, target_handle: _target, ...edge }) =>
+              edge,
+          )
         : initialGraph.edges,
     }),
   );
@@ -323,6 +327,7 @@ const runCanvasTemplate: WorkflowTemplateResponse = {
 const runCanvasRun: WorkflowRunResponse = {
   id: "run-1",
   workflow_id: "workflow-1",
+  attempt_id: null,
   issue_id: "issue-1",
   workspace_id: "workspace-1",
   trigger_source: "manual",
@@ -389,11 +394,51 @@ function WorkflowRunCanvasHarness() {
   );
 }
 
+function TaskAttemptsHarness() {
+  const attempts = [
+    {
+      id: "workflow-attempt-1",
+      kind: "workflow" as const,
+      title: "Workflow attempt for Familiarize code",
+      subtitle: "Draft workflow attempt",
+      statusLabel: "Draft",
+      statusTone: "draft" as const,
+      updatedAt: "2026-05-14T02:00:00Z",
+      primaryActionLabel: "Open canvas",
+    },
+    {
+      id: "workspace-attempt-1",
+      kind: "single_agent" as const,
+      title: "Codex try",
+      subtitle: "Workspace workspace-1",
+      statusLabel: "Completed",
+      statusTone: "succeeded" as const,
+      updatedAt: "2026-05-14T01:00:00Z",
+      primaryActionLabel: "Open session",
+    },
+  ];
+  const [lastAction, setLastAction] = useState("none");
+
+  return (
+    <main>
+      <IssueTaskAttemptsSection
+        attempts={attempts}
+        onOpenAttempt={(attempt) => setLastAction(`open:${attempt.kind}`)}
+        onRunAttempt={(attempt) => setLastAction(`run:${attempt.id}`)}
+        onCreateWorkflowAttempt={() => setLastAction("create-workflow")}
+      />
+      <output data-testid="task-attempt-action">{lastAction}</output>
+    </main>
+  );
+}
+
 const mode = new URLSearchParams(window.location.search).get("mode");
 
 createRoot(document.getElementById("root")!).render(
   mode === "entry" ? (
     <WorkflowEntryHarness />
+  ) : mode === "task-attempts" ? (
+    <TaskAttemptsHarness />
   ) : mode === "run-canvas" ? (
     <WorkflowRunCanvasHarness />
   ) : (

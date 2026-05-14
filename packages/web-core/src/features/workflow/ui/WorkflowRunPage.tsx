@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowRunEvents } from '@/shared/hooks/useWorkflowRunEvents';
-import { getWorkflowRunStatusLabel } from '../model/workflowRunView';
+import {
+  getWorkflowRunStatusLabel,
+  getWorkflowRunTaskAttemptLabel,
+} from '../model/workflowRunView';
 import { WorkflowRunCanvasTab } from './WorkflowRunCanvasTab';
 import { WorkflowRunDashboardTab } from './WorkflowRunDashboardTab';
 import { Activity, LayoutDashboard, Workflow } from 'lucide-react';
@@ -57,7 +60,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
       <header className="flex flex-none flex-col gap-half border-b border-secondary bg-panel px-base py-half sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-base">
           <h1 className="max-w-[240px] truncate text-sm font-medium text-high sm:max-w-md">
-            Run: {runId}
+            {getWorkflowRunTaskAttemptLabel(run)}
           </h1>
           <div
             className={cn(

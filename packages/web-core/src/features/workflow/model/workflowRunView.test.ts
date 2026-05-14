@@ -12,6 +12,7 @@ import {
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
+  getWorkflowRunTaskAttemptLabel,
   getWorkflowRunStatusLabel,
   selectWorkflowRunNode,
 } from './workflowRunView';
@@ -33,6 +34,7 @@ function withExecutionProcess(
 const baseRun = {
   id: 'run-1',
   workflow_id: 'workflow-1',
+  attempt_id: null,
   issue_id: 'issue-1',
   workspace_id: null,
   trigger_source: 'manual',
@@ -149,6 +151,15 @@ describe('workflow run view helpers', () => {
     expect(getWorkflowRunStatusLabel('awaiting_arena')).toBe(
       'Waiting for arena'
     );
+  });
+
+  it('labels workflow runs as task attempts when attempt id is present', () => {
+    const label = getWorkflowRunTaskAttemptLabel({
+      id: 'run-12345678',
+      attempt_id: 'attempt-abcdef',
+    } as WorkflowRunResponse);
+
+    expect(label).toBe('Task attempt attempt-a');
   });
 
   it('maps node statuses to semantic UI tones', () => {

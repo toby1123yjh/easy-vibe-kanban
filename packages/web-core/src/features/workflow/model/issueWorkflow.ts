@@ -2,12 +2,12 @@ import type { CreateWorkflowRequest } from 'shared/types';
 import { createDefaultWorkflowGraph } from './workflowGraph';
 
 export const ISSUE_WORKFLOW_ENTRY_COPY = {
-  title: 'AI workflow',
-  subtitle: 'Canvas draft first',
+  title: 'Workflow attempt',
+  subtitle: 'Design the task attempt before running agents',
   primaryActionLabel: 'Open canvas',
-  primaryActionAriaLabel: 'Open workflow canvas',
-  secondaryActionLabel: 'Run existing',
-  secondaryActionAriaLabel: 'Run existing workflow',
+  primaryActionAriaLabel: 'Open workflow attempt canvas',
+  secondaryActionLabel: 'Run attempt',
+  secondaryActionAriaLabel: 'Run workflow attempt',
 };
 
 export function buildWorkflowRunInput({
@@ -32,9 +32,9 @@ export function buildIssueWorkflowDraft({
   const issueTitle = title.trim() || 'Untitled task';
 
   return {
-    name: `Workflow for ${issueTitle}`,
+    name: `Workflow attempt for ${issueTitle}`,
     description:
-      'Design the automation steps for this issue before starting a workflow run.',
+      'Issue-bound workflow task attempt. Design the canvas before starting the run.',
     graph_json: JSON.stringify(createDefaultWorkflowGraph()),
   };
 }

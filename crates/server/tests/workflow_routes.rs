@@ -1,16 +1,20 @@
 use std::sync::Mutex;
 
-use db::models::workflow::{NodeExecutionStatus, WorkflowRunStatus, WorkflowSource};
+use db::models::workflow::{
+    NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource,
+};
 use serde_json::{Value, json};
 use server::{
     error::ApiError,
     routes::workflows::{
-        CreateWorkflowRequest, SelectArenaWinnerRequest, TriggerWorkflowRequest,
-        UpdateWorkflowRequest, WorkflowActionResponse, WorkflowNodeExecutionResponse,
-        WorkflowRunResponse, WorkflowTemplateListResponse, WorkflowTemplateResponse,
-        create_project_workflow, delete_workflow_template, fallback_node_executions_payload,
-        fallback_workflow_runs_payload, fallback_workflows_payload, list_project_workflows,
-        update_workflow_template,
+        CreateWorkflowAttemptRequest, CreateWorkflowRequest, RunWorkflowAttemptRequest,
+        SelectArenaWinnerRequest, TriggerWorkflowRequest, UpdateWorkflowRequest,
+        WorkflowActionResponse, WorkflowAttemptListResponse, WorkflowAttemptResponse,
+        WorkflowNodeExecutionResponse, WorkflowRunResponse, WorkflowTemplateListResponse,
+        WorkflowTemplateResponse, create_issue_workflow_attempt, create_project_workflow,
+        delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
+        fallback_workflows_payload, list_project_workflows, run_workflow_attempt_runtime,
+        sync_attempt_from_run, update_workflow_template, workflow_attempt_by_id,
     },
     workflow_runtime::{
         arena::{
@@ -47,6 +51,15 @@ async fn setup_workflow_pool() -> SqlitePool {
         )
         "#,
         r#"
+        CREATE TABLE local_issues (
+            id BLOB PRIMARY KEY,
+            project_id BLOB NOT NULL,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
         CREATE TABLE workflows (
             id          BLOB PRIMARY KEY,
             source      TEXT NOT NULL CHECK (source IN ('system','project')),
@@ -66,6 +79,7 @@ async fn setup_workflow_pool() -> SqlitePool {
         CREATE TABLE workflow_runs (
             id             BLOB PRIMARY KEY,
             workflow_id    BLOB NOT NULL,
+            attempt_id     BLOB,
             issue_id       BLOB NOT NULL,
             workspace_id   BLOB,
             trigger_source TEXT NOT NULL DEFAULT 'manual',
@@ -77,6 +91,21 @@ async fn setup_workflow_pool() -> SqlitePool {
             error_text     TEXT,
             created_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE workflow_attempts (
+            id             BLOB PRIMARY KEY,
+            project_id     BLOB NOT NULL,
+            issue_id       BLOB NOT NULL,
+            workflow_id    BLOB NOT NULL,
+            latest_run_id  BLOB,
+            workspace_id   BLOB,
+            name           TEXT NOT NULL,
+            status         TEXT NOT NULL DEFAULT 'draft',
+            created_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (workflow_id)
         )
         "#,
         r#"
@@ -119,6 +148,16 @@ async fn insert_project(pool: &SqlitePool, project_id: Uuid) {
         .execute(pool)
         .await
         .expect("insert project");
+}
+
+async fn insert_local_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid, title: &str) {
+    sqlx::query("INSERT INTO local_issues (id, project_id, title) VALUES (?, ?, ?)")
+        .bind(issue_id)
+        .bind(project_id)
+        .bind(title)
+        .execute(pool)
+        .await
+        .expect("insert local issue");
 }
 
 async fn insert_project_workflow(pool: &SqlitePool, project_id: Uuid) -> Uuid {
@@ -628,7 +667,20 @@ fn workflow_route_dtos_export_stable_type_names() {
         ("CreateWorkflowRequest", CreateWorkflowRequest::decl()),
         ("UpdateWorkflowRequest", UpdateWorkflowRequest::decl()),
         ("TriggerWorkflowRequest", TriggerWorkflowRequest::decl()),
+        (
+            "CreateWorkflowAttemptRequest",
+            CreateWorkflowAttemptRequest::decl(),
+        ),
+        (
+            "RunWorkflowAttemptRequest",
+            RunWorkflowAttemptRequest::decl(),
+        ),
         ("SelectArenaWinnerRequest", SelectArenaWinnerRequest::decl()),
+        ("WorkflowAttemptResponse", WorkflowAttemptResponse::decl()),
+        (
+            "WorkflowAttemptListResponse",
+            WorkflowAttemptListResponse::decl(),
+        ),
         ("WorkflowRunResponse", WorkflowRunResponse::decl()),
         (
             "WorkflowNodeExecutionResponse",
@@ -678,6 +730,88 @@ async fn list_project_workflows_seeds_system_templates_and_returns_project_templ
             .count(),
         built_in_count
     );
+}
+
+#[tokio::test]
+async fn create_workflow_attempt_creates_issue_bound_draft() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Build attempt model").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Workflow attempt".to_string()),
+            graph_json: valid_graph_json(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+
+    assert_eq!(attempt.project_id, project_id);
+    assert_eq!(attempt.issue_id, issue_id);
+    assert_eq!(attempt.status, WorkflowAttemptStatus::Draft);
+    assert!(attempt.latest_run_id.is_none());
+    assert!(attempt.workspace_id.is_none());
+}
+
+#[tokio::test]
+async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Draft hidden attempt").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Hidden attempt graph".to_string()),
+            graph_json: valid_graph_json(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+
+    let workflows = list_project_workflows(&pool, project_id)
+        .await
+        .expect("list workflows");
+
+    assert!(
+        workflows.iter().all(|workflow| workflow.id != attempt.workflow_id),
+        "attempt-owned backing graph must not appear as reusable template"
+    );
+}
+
+#[tokio::test]
+async fn workflow_attempt_create_rejects_issue_from_another_project() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let other_project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_project(&pool, other_project_id).await;
+    insert_local_issue(&pool, other_project_id, issue_id, "Wrong project").await;
+
+    let err = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Invalid".to_string()),
+            graph_json: valid_graph_json(),
+        },
+    )
+    .await
+    .expect_err("issue must belong to project");
+
+    assert!(err.to_string().contains("Issue not found for project"));
 }
 
 #[tokio::test]
@@ -907,6 +1041,107 @@ async fn workflow_runner_trigger_creates_run_workspace_and_node_executions() {
 }
 
 #[tokio::test]
+async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Run workflow attempt").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Attempt run".to_string()),
+            graph_json: valid_graph_json(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(Uuid::new_v4(), "unused");
+    let run = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Implement by workflow".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("run workflow attempt");
+
+    assert_eq!(run.attempt_id, Some(attempt.id));
+    let refreshed = workflow_attempt_by_id(&pool, attempt.id)
+        .await
+        .expect("query attempt")
+        .expect("attempt exists");
+    assert_eq!(refreshed.latest_run_id, Some(run.id));
+    assert_eq!(refreshed.workspace_id, Some(workspace_id));
+    assert_eq!(refreshed.status, WorkflowAttemptStatus::Succeeded);
+}
+
+#[tokio::test]
+async fn canceling_workflow_attempt_syncs_attempt_status() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Cancel workflow attempt").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Cancel attempt".to_string()),
+            graph_json: agent_graph_json(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = StartedAgentExecutor::new(session_id);
+    let running = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Long task".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("run workflow attempt");
+
+    let canceller = FakeRunCanceller::default();
+    let canceled = cancel_workflow_run_runtime(&pool, running.id, &canceller)
+        .await
+        .expect("cancel workflow run");
+    sync_attempt_from_run(&pool, &canceled)
+        .await
+        .expect("sync attempt");
+
+    let refreshed = workflow_attempt_by_id(&pool, attempt.id)
+        .await
+        .expect("query attempt")
+        .expect("attempt exists");
+    assert_eq!(refreshed.status, WorkflowAttemptStatus::Canceled);
+    assert_eq!(refreshed.latest_run_id, Some(running.id));
+}
+
+#[tokio::test]
 async fn workflow_runner_resolves_project_id_from_local_issue_for_system_workflow() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
@@ -915,25 +1150,7 @@ async fn workflow_runner_resolves_project_id_from_local_issue_for_system_workflo
     let workspace_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
-
-    sqlx::query(
-        r#"
-        CREATE TABLE local_issues (
-            id BLOB PRIMARY KEY,
-            project_id BLOB NOT NULL
-        )
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .expect("create local issues");
-
-    sqlx::query("INSERT INTO local_issues (id, project_id) VALUES (?, ?)")
-        .bind(issue_id)
-        .bind(project_id)
-        .execute(&pool)
-        .await
-        .expect("insert local issue");
+    insert_local_issue(&pool, project_id, issue_id, "System workflow issue").await;
 
     sqlx::query(
         r#"
@@ -1938,6 +2155,93 @@ async fn workflow_human_recovery_marks_stale_running_nodes_failed() {
             .as_deref()
             .is_some_and(|message| message.contains("recover"))
     );
+}
+
+#[tokio::test]
+async fn recovery_syncs_attempt_status_for_stale_running_run() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let attempt_id = Uuid::new_v4();
+    let run_id = Uuid::new_v4();
+    let node_execution_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Recover attempt").await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Recover Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert workflow");
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_attempts
+            (id, project_id, issue_id, workflow_id, name, status)
+        VALUES (?, ?, ?, ?, 'Recover attempt', 'running')
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(project_id)
+    .bind(issue_id)
+    .bind(workflow_id)
+    .execute(&pool)
+    .await
+    .expect("insert attempt");
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs
+            (id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text, status)
+        VALUES (?, ?, ?, ?, NULL, 'manual', 'Recover this', 'running')
+        "#,
+    )
+    .bind(run_id)
+    .bind(workflow_id)
+    .bind(attempt_id)
+    .bind(issue_id)
+    .execute(&pool)
+    .await
+    .expect("insert run");
+
+    sqlx::query("UPDATE workflow_attempts SET latest_run_id = ? WHERE id = ?")
+        .bind(run_id)
+        .bind(attempt_id)
+        .execute(&pool)
+        .await
+        .expect("link attempt latest run");
+
+    sqlx::query(
+        r#"
+        INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
+        VALUES (?, ?, 'agent', 'agent', 0, 'running')
+        "#,
+    )
+    .bind(node_execution_id)
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("insert stale node");
+
+    let recovered = recover_stale_workflow_runs(&pool)
+        .await
+        .expect("recover stale workflow runs");
+    assert_eq!(recovered, 1);
+
+    let attempt_status: String = sqlx::query_scalar("SELECT status FROM workflow_attempts WHERE id = ?")
+        .bind(attempt_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch attempt status");
+    assert_eq!(attempt_status, "failed");
 }
 
 #[tokio::test]

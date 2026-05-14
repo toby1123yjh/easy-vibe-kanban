@@ -3,7 +3,10 @@ import { useParams } from '@tanstack/react-router';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
-import { useWorkflowTemplateMutations } from '@/shared/hooks/useWorkflowTemplates';
+import {
+  useWorkflowAttemptMutations,
+  useWorkflowAttempts,
+} from '@/shared/hooks/useWorkflowAttempts';
 import {
   buildIssueWorkflowDraft,
   IssueWorkflowEntryCard,
@@ -25,7 +28,10 @@ export function IssueWorkflowSectionContainer({
   const { projectId } = useParams({ strict: false });
   const { getWorkspacesForIssue } = useProjectContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
-  const { createTemplate, isCreating } = useWorkflowTemplateMutations();
+  const { data: attemptData } = useWorkflowAttempts(projectId, issueId, {
+    enabled: !!projectId,
+  });
+  const { createAttempt, isCreatingAttempt } = useWorkflowAttemptMutations();
   const navigation = useAppNavigation();
   const [error, setError] = useState<string | null>(null);
 
@@ -65,11 +71,26 @@ export function IssueWorkflowSectionContainer({
   }
 
   const handleRunWorkflow = async () => {
+    if (!projectId) return;
+    setError(null);
+    let attempt = attemptData?.attempts[0];
+    if (!attempt) {
+      attempt = await createAttempt({
+        projectId,
+        issueId,
+        payload: buildIssueWorkflowDraft({
+          title: issueTitle,
+          description: issueDescription,
+        }),
+      });
+    }
     await RunWorkflowDialog.show({
       projectId,
       issueId,
       issueTitle,
       issueDescription,
+      attemptId: attempt.id,
+      attemptName: attempt.name,
       workspaces: workflowWorkspaces,
     });
   };
@@ -77,14 +98,15 @@ export function IssueWorkflowSectionContainer({
   const handleDesignWorkflow = async () => {
     setError(null);
     try {
-      const draft = await createTemplate({
+      const draft = await createAttempt({
         projectId,
+        issueId,
         payload: buildIssueWorkflowDraft({
           title: issueTitle,
           description: issueDescription,
         }),
       });
-      navigation.goToProjectWorkflowEdit(projectId, draft.id);
+      navigation.goToProjectWorkflowEdit(projectId, draft.workflow_id);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to create workflow draft.'
@@ -94,7 +116,7 @@ export function IssueWorkflowSectionContainer({
 
   return (
     <IssueWorkflowEntryCard
-      isCreating={isCreating}
+      isCreating={isCreatingAttempt}
       error={error}
       onOpenCanvas={() => void handleDesignWorkflow()}
       onRunExisting={() => void handleRunWorkflow()}

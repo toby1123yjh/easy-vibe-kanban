@@ -299,6 +299,13 @@
     },
     "linkError": "Failed to link workspace"
   },
+  "attempts": {
+    "title": "Task Attempts",
+    "loading": "Loading attempts...",
+    "empty": "Create a task attempt to solve this issue.",
+    "newWorkflow": "New workflow attempt",
+    "newSingleAgent": "New single-agent attempt"
+  },
   "fileTree": {
     "searchPlaceholder": "搜尋檔案...",
     "noResults": "沒有匹配的檔案",

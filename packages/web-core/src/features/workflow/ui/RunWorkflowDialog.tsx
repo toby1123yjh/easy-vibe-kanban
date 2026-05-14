@@ -1,5 +1,5 @@
 import { create, useModal } from '@ebay/nice-modal-react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Loader2, Play } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -13,8 +13,7 @@ import {
 } from '@vibe/ui/components/KeyboardDialog';
 import { defineModal } from '@/shared/lib/modals';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
-import { useWorkflowTemplates } from '@/shared/hooks/useWorkflowTemplates';
-import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
+import { useWorkflowAttemptMutations } from '@/shared/hooks/useWorkflowAttempts';
 import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
@@ -33,6 +32,8 @@ export interface RunWorkflowDialogProps {
   issueId: string;
   issueTitle: string;
   issueDescription?: string | null;
+  attemptId: string;
+  attemptName: string;
   workspaces?: WorkflowWorkspaceOption[];
 }
 
@@ -41,15 +42,18 @@ export type RunWorkflowDialogResult =
   | { kind: 'canceled' };
 
 const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
-  ({ projectId, issueId, issueTitle, issueDescription, workspaces = [] }) => {
+  ({
+    projectId,
+    issueTitle,
+    issueDescription,
+    attemptId,
+    attemptName,
+    workspaces = [],
+  }) => {
     const modal = useModal();
     const navigation = useAppNavigation();
-    const { data: templateData, isLoading: templatesLoading } =
-      useWorkflowTemplates(projectId);
-    const { triggerRun, isTriggering } = useWorkflowRunMutations();
+    const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
 
-    const templates = templateData?.workflows ?? [];
-    const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [selectedWorkspaceValue, setSelectedWorkspaceValue] = useState(
       CREATE_WORKFLOW_WORKSPACE_VALUE
     );
@@ -60,12 +64,6 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
       })
     );
     const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-      if (!selectedTemplateId && templates.length > 0) {
-        setSelectedTemplateId(templates[0].id);
-      }
-    }, [selectedTemplateId, templates]);
 
     const selectedWorkspace = useMemo(
       () =>
@@ -88,10 +86,6 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
       event.preventDefault();
 
       const trimmedInput = inputText.trim();
-      if (!selectedTemplateId) {
-        setError('Select a workflow template before starting the run.');
-        return;
-      }
       if (!trimmedInput) {
         setError('Add run input before starting the workflow.');
         return;
@@ -104,10 +98,9 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
           : selectedWorkspaceValue;
 
       try {
-        const run = await triggerRun({
-          workflowId: selectedTemplateId,
+        const run = await runAttempt({
+          attemptId,
           payload: {
-            issue_id: issueId,
             workspace_id: workspaceId,
             trigger_source: 'manual',
             input_text: trimmedInput,
@@ -125,48 +118,21 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
     };
 
     const canSubmit =
-      !isTriggering &&
-      !templatesLoading &&
-      !!selectedTemplateId &&
-      inputText.trim().length > 0;
+      !isRunningAttempt && inputText.trim().length > 0 && attemptId.length > 0;
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>Run existing workflow</DialogTitle>
+            <DialogTitle>Run workflow attempt</DialogTitle>
             <DialogDescription>
-              Select a saved canvas and start a run for this issue.
+              Start this issue-bound workflow attempt.
             </DialogDescription>
           </DialogHeader>
 
           <form className="flex flex-col gap-base" onSubmit={handleSubmit}>
-            <div className="flex flex-col gap-half">
-              <label
-                htmlFor="workflow-template"
-                className="text-xs font-medium text-low"
-              >
-                Template
-              </label>
-              <select
-                id="workflow-template"
-                value={selectedTemplateId}
-                onChange={(event) => setSelectedTemplateId(event.target.value)}
-                disabled={templatesLoading || isTriggering}
-                className="h-10 w-full rounded border bg-secondary px-2 text-sm text-normal"
-              >
-                {templatesLoading ? (
-                  <option value="">Loading templates...</option>
-                ) : templates.length === 0 ? (
-                  <option value="">No templates available</option>
-                ) : (
-                  templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name || 'Untitled workflow'} - {template.source}
-                    </option>
-                  ))
-                )}
-              </select>
+            <div className="rounded-sm border border-secondary bg-panel p-base text-sm text-normal">
+              {attemptName || 'Workflow attempt'}
             </div>
 
             <div className="flex flex-col gap-half">
@@ -182,7 +148,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 onChange={(event) =>
                   setSelectedWorkspaceValue(event.target.value)
                 }
-                disabled={isTriggering}
+                disabled={isRunningAttempt}
                 className="h-10 w-full rounded border bg-secondary px-2 text-sm text-normal"
               >
                 <option value={CREATE_WORKFLOW_WORKSPACE_VALUE}>
@@ -217,7 +183,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}
                 rows={7}
-                disabled={isTriggering}
+                disabled={isRunningAttempt}
                 className="font-ibm-plex-mono"
               />
             </div>
@@ -233,12 +199,12 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 type="button"
                 variant="outline"
                 onClick={handleCancel}
-                disabled={isTriggering}
+                disabled={isRunningAttempt}
               >
                 Cancel
               </Button>
               <Button type="submit" disabled={!canSubmit}>
-                {isTriggering ? (
+                {isRunningAttempt ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Play className="mr-2 h-4 w-4" />

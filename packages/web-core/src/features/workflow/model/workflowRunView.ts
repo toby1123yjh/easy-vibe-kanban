@@ -29,6 +29,15 @@ export function getWorkflowRunStatusLabel(status: WorkflowRunStatus): string {
   }
 }
 
+export function getWorkflowRunTaskAttemptLabel(
+  run: Pick<WorkflowRunResponse, 'id' | 'attempt_id'>
+): string {
+  if (run.attempt_id) {
+    return `Task attempt ${run.attempt_id.slice(0, 9)}`;
+  }
+  return `Workflow run ${run.id.slice(0, 8)}`;
+}
+
 export type StatusTone =
   | 'neutral'
   | 'active'

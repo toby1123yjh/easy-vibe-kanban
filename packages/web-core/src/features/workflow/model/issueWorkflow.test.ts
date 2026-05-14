@@ -7,14 +7,15 @@ import {
 } from './issueWorkflow';
 
 describe('issue workflow helpers', () => {
-  it('presents the issue workflow entry as canvas-first', () => {
+  it('presents workflow as an issue task attempt', () => {
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.title).toBe('Workflow attempt');
     expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionLabel).toBe('Open canvas');
     expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionAriaLabel).toBe(
-      'Open workflow canvas'
+      'Open workflow attempt canvas'
     );
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Run existing');
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Run attempt');
     expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionAriaLabel).toBe(
-      'Run existing workflow'
+      'Run workflow attempt'
     );
   });
 
@@ -52,9 +53,9 @@ describe('issue workflow helpers', () => {
       description: 'The canvas should support editing before execution.',
     });
 
-    expect(draft.name).toBe('Workflow for Fix workflow drag handles');
+    expect(draft.name).toBe('Workflow attempt for Fix workflow drag handles');
     expect(draft.description).toBe(
-      'Design the automation steps for this issue before starting a workflow run.'
+      'Issue-bound workflow task attempt. Design the canvas before starting the run.'
     );
 
     const graph = JSON.parse(draft.graph_json);
