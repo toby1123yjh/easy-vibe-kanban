@@ -1,4 +1,7 @@
-import type { WorkflowGraph } from '../model/workflowGraph';
+import {
+  WORKFLOW_GRAPH_VERSION,
+  type WorkflowGraph,
+} from '../model/workflowGraph';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export interface ValidationIssue {
@@ -17,7 +20,7 @@ export function validateWorkflowGraph(
   const issues: ValidationIssue[] = [];
   if (!graph) return issues;
 
-  if (graph.version !== 1) {
+  if (graph.version < 1 || graph.version > WORKFLOW_GRAPH_VERSION) {
     issues.push({ type: 'error', message: 'Unsupported graph version' });
   }
 

@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_GRAPH_VERSION,
+  createDefaultWorkflowGraph,
   type WorkflowGraph,
 } from '../model/workflowGraph';
 import { validateWorkflowGraph } from './WorkflowValidationPanel';
 
 describe('workflow graph validation panel helpers', () => {
+  it('accepts the current workflow graph version', () => {
+    expect(
+      validateWorkflowGraph(createDefaultWorkflowGraph())
+    ).not.toContainEqual({
+      type: 'error',
+      message: 'Unsupported graph version',
+    });
+  });
+
   it('reports nodes that cannot be reached from Start', () => {
     const graph: WorkflowGraph = {
       version: WORKFLOW_GRAPH_VERSION,
