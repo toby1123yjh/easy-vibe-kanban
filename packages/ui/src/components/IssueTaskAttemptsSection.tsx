@@ -1,12 +1,12 @@
-import { useTranslation } from "react-i18next";
+import { useTranslation } from 'react-i18next';
 import {
   CollapsibleSectionHeader,
   type SectionAction,
-} from "./CollapsibleSectionHeader";
+} from './CollapsibleSectionHeader';
 import {
   IssueTaskAttemptCard,
   type IssueTaskAttemptCardData,
-} from "./IssueTaskAttemptCard";
+} from './IssueTaskAttemptCard';
 
 export interface IssueTaskAttemptsSectionProps {
   attempts: IssueTaskAttemptCardData[];
@@ -31,11 +31,11 @@ export function IssueTaskAttemptsSection({
   onCreateWorkflowAttempt,
   onCreateSingleAgentAttempt,
 }: IssueTaskAttemptsSectionProps) {
-  const { t } = useTranslation("common");
+  const { t } = useTranslation('common');
 
   return (
     <CollapsibleSectionHeader
-      title={t("attempts.title", "Task Attempts")}
+      title={t('attempts.title', 'Task Attempts')}
       persistKey="kanban-issue-task-attempts"
       defaultExpanded={true}
       actions={actions}
@@ -43,7 +43,7 @@ export function IssueTaskAttemptsSection({
       <div className="flex flex-col gap-base border-t p-base px-base">
         {isLoading ? (
           <p className="py-half text-low">
-            {t("attempts.loading", "Loading attempts...")}
+            {t('attempts.loading', 'Loading attempts...')}
           </p>
         ) : attempts.length === 0 ? (
           <div className="grid gap-half">
@@ -53,8 +53,8 @@ export function IssueTaskAttemptsSection({
               className="rounded-sm border border-dashed border-border bg-panel p-base text-left text-sm text-low transition-colors hover:bg-secondary/70"
             >
               {t(
-                "attempts.empty",
-                "Create a task attempt to solve this issue.",
+                'attempts.empty',
+                'Create a task attempt to solve this issue.'
               )}
             </button>
             {onCreateSingleAgentAttempt && (
@@ -63,7 +63,7 @@ export function IssueTaskAttemptsSection({
                 onClick={onCreateSingleAgentAttempt}
                 className="rounded-sm border border-secondary bg-primary p-base text-left text-xs text-low transition-colors hover:text-high"
               >
-                {t("attempts.newSingleAgent", "New single-agent attempt")}
+                {t('attempts.newSingleAgent', 'New single-agent attempt')}
               </button>
             )}
           </div>
@@ -74,17 +74,17 @@ export function IssueTaskAttemptsSection({
               attempt={attempt}
               onOpen={() => onOpenAttempt?.(attempt)}
               onRun={
-                attempt.kind === "workflow"
+                attempt.kind === 'workflow'
                   ? () => onRunAttempt?.(attempt)
                   : undefined
               }
               onUnlink={
-                attempt.kind === "single_agent" && onUnlinkAttempt
+                attempt.kind === 'single_agent' && onUnlinkAttempt
                   ? () => onUnlinkAttempt(attempt)
                   : undefined
               }
               onDelete={
-                attempt.kind === "single_agent" && onDeleteAttempt
+                attempt.kind === 'single_agent' && onDeleteAttempt
                   ? () => onDeleteAttempt(attempt)
                   : undefined
               }
