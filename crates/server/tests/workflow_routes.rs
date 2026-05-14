@@ -784,7 +784,9 @@ async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
         .expect("list workflows");
 
     assert!(
-        workflows.iter().all(|workflow| workflow.id != attempt.workflow_id),
+        workflows
+            .iter()
+            .all(|workflow| workflow.id != attempt.workflow_id),
         "attempt-owned backing graph must not appear as reusable template"
     );
 }
@@ -2236,11 +2238,12 @@ async fn recovery_syncs_attempt_status_for_stale_running_run() {
         .expect("recover stale workflow runs");
     assert_eq!(recovered, 1);
 
-    let attempt_status: String = sqlx::query_scalar("SELECT status FROM workflow_attempts WHERE id = ?")
-        .bind(attempt_id)
-        .fetch_one(&pool)
-        .await
-        .expect("fetch attempt status");
+    let attempt_status: String =
+        sqlx::query_scalar("SELECT status FROM workflow_attempts WHERE id = ?")
+            .bind(attempt_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch attempt status");
     assert_eq!(attempt_status, "failed");
 }
 

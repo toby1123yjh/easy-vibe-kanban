@@ -31,12 +31,12 @@ use crate::{
             NoopWorkflowArenaCreator, WorkflowArenaCreator,
         },
         runner::{
-            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller,
-            WorkflowAgentExecutor, WorkflowWorkspaceResolver,
-            approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
-            reject_human_node, retry_workflow_node_with_arena, select_arena_winner_with_arena,
-            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_arena,
-            trigger_workflow_run_with_arena, workflow_event_history,
+            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, WorkflowAgentExecutor,
+            WorkflowWorkspaceResolver, approve_human_node_with_arena, cancel_workflow_run_runtime,
+            get_workflow_run_response, reject_human_node, retry_workflow_node_with_arena,
+            select_arena_winner_with_arena, subscribe_workflow_events,
+            trigger_workflow_run_for_attempt_with_arena, trigger_workflow_run_with_arena,
+            workflow_event_history,
         },
         workspace::DeploymentWorkflowWorkspaceResolver,
     },
@@ -260,7 +260,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             post(trigger_workflow),
         )
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
-        .route("/v1/workflow-attempts/{attempt_id}", get(get_workflow_attempt))
+        .route(
+            "/v1/workflow-attempts/{attempt_id}",
+            get(get_workflow_attempt),
+        )
         .route(
             "/v1/workflow-attempts/{attempt_id}/run",
             post(run_workflow_attempt),
@@ -566,7 +569,9 @@ pub async fn update_workflow_attempt_runtime(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(ApiError::BadRequest("Workflow attempt not found".to_string()));
+        return Err(ApiError::BadRequest(
+            "Workflow attempt not found".to_string(),
+        ));
     }
 
     Ok(())
@@ -862,13 +867,12 @@ async fn ensure_issue_belongs_to_project(
     project_id: Uuid,
     issue_id: Uuid,
 ) -> Result<(), ApiError> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM local_issues WHERE id = ? AND project_id = ?",
-    )
-    .bind(issue_id)
-    .bind(project_id)
-    .fetch_one(pool)
-    .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM local_issues WHERE id = ? AND project_id = ?")
+            .bind(issue_id)
+            .bind(project_id)
+            .fetch_one(pool)
+            .await?;
 
     if count == 0 {
         return Err(ApiError::BadRequest(

@@ -383,7 +383,15 @@ where
         })
         .await?;
 
-    insert_workflow_run(pool, run_id, workflow_id, attempt_id, workspace_id, &request).await?;
+    insert_workflow_run(
+        pool,
+        run_id,
+        workflow_id,
+        attempt_id,
+        workspace_id,
+        &request,
+    )
+    .await?;
     initialize_node_executions(pool, run_id, &graph).await?;
     drive_workflow_run(
         pool,
