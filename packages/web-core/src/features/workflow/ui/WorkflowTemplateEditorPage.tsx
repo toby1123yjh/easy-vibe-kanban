@@ -20,10 +20,12 @@ import {
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
+import { isWorkflowAgentDraftNode } from '../model/workflowAgentNodeDraft';
 import { queueWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
+import { WorkflowAgentNodeDraftPanel } from './WorkflowAgentNodeDraftPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import {
@@ -588,29 +590,44 @@ export function WorkflowTemplateEditorPage({
       >
         <DialogContent
           data-testid="workflow-node-dialog"
-          className="flex max-h-[82vh] max-w-[520px] flex-col p-0"
+          className="flex max-h-[86vh] max-w-[760px] flex-col p-0"
         >
           <div className="border-b border-secondary px-5 py-4">
             <DialogHeader className="space-y-half">
               <DialogTitle>
                 {dialogNode
-                  ? `${dialogNode.data.display_name || 'Step'} configuration`
+                  ? isWorkflowAgentDraftNode(dialogNode)
+                    ? `${dialogNode.data.display_name || 'Agent'} session`
+                    : `${dialogNode.data.display_name || 'Step'} configuration`
                   : 'Step configuration'}
               </DialogTitle>
               <DialogDescription>
                 {dialogNode
-                  ? `Edit ${dialogNode.type.replace('_', ' ')} step settings.`
+                  ? isWorkflowAgentDraftNode(dialogNode)
+                    ? 'Prepare the task prompt and agent for this workflow step.'
+                    : `Edit ${dialogNode.type.replace('_', ' ')} step settings.`
                   : 'Edit step settings.'}
               </DialogDescription>
             </DialogHeader>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <WorkflowNodeInspector
-              node={dialogNode}
-              readOnly={readOnly}
-              onChange={handleNodeChange}
-            />
-          </div>
+          {dialogNode && isWorkflowAgentDraftNode(dialogNode) ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <WorkflowAgentNodeDraftPanel
+                node={dialogNode}
+                readOnly={readOnly}
+                onChange={handleNodeChange}
+                onDone={() => setOpenNodeDialogId(null)}
+              />
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <WorkflowNodeInspector
+                node={dialogNode}
+                readOnly={readOnly}
+                onChange={handleNodeChange}
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
