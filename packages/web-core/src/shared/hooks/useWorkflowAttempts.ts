@@ -9,6 +9,7 @@ import type {
   CreateWorkflowAttemptRequest,
   RunWorkflowAttemptRequest,
   WorkflowAttemptListResponse,
+  WorkflowAttemptResponse,
 } from 'shared/types';
 import { workflowRunQueryKeys } from './useWorkflowRun';
 import { workflowTemplateQueryKeys } from './useWorkflowTemplates';
@@ -19,6 +20,8 @@ export const workflowAttemptQueryKeys = {
     ['workflow-attempts', 'project', projectId, 'issue', issueId] as const,
   detail: (attemptId: string) =>
     ['workflow-attempts', 'detail', attemptId] as const,
+  workflow: (workflowId: string) =>
+    ['workflow-attempts', 'workflow', workflowId] as const,
 };
 
 export function useWorkflowAttempts(
@@ -36,6 +39,21 @@ export function useWorkflowAttempts(
     queryFn: () =>
       workflowApi.listAttempts(projectId as string, issueId as string),
     enabled: !!projectId && !!issueId && enabled,
+  });
+}
+
+export function useWorkflowAttemptForWorkflow(
+  workflowId: string | null | undefined,
+  options: { enabled?: boolean } = {}
+): UseQueryResult<WorkflowAttemptResponse | null> {
+  const { enabled = true } = options;
+
+  return useQuery({
+    queryKey: workflowId
+      ? workflowAttemptQueryKeys.workflow(workflowId)
+      : ['workflow-attempts', 'workflow', 'noop'],
+    queryFn: () => workflowApi.getAttemptForWorkflow(workflowId as string),
+    enabled: !!workflowId && enabled,
   });
 }
 
@@ -66,6 +84,10 @@ export function useWorkflowAttemptMutations() {
         workflowAttemptQueryKeys.detail(attempt.id),
         attempt
       );
+      queryClient.setQueryData(
+        workflowAttemptQueryKeys.workflow(attempt.workflow_id),
+        attempt
+      );
     },
   });
 
@@ -82,6 +104,11 @@ export function useWorkflowAttemptMutations() {
       void queryClient.invalidateQueries({
         queryKey: workflowAttemptQueryKeys.all,
       });
+      if (run.workflow_id) {
+        void queryClient.invalidateQueries({
+          queryKey: workflowAttemptQueryKeys.workflow(run.workflow_id),
+        });
+      }
     },
   });
 

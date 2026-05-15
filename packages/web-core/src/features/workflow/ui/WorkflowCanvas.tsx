@@ -800,7 +800,6 @@ export function WorkflowCanvas({
           ) {
             return;
           }
-          onNodeOpen?.(node.id);
         }}
         onNodeDoubleClick={(_, node) => {
           applySelection({ nodeId: node.id, edgeId: null });

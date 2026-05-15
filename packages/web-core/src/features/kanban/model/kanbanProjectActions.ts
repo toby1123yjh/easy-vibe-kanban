@@ -7,16 +7,9 @@ export interface KanbanProjectHeaderAction {
 }
 
 export function getKanbanProjectHeaderActions(
-  projectId: string
+  _projectId: string
 ): KanbanProjectHeaderAction[] {
-  return [
-    {
-      id: 'workflows',
-      label: 'Workflow canvas',
-      destination: {
-        kind: 'project-workflows',
-        projectId,
-      },
-    },
-  ];
+  // Project-level workflow templates stay hidden until they have a
+  // task-linked entry path. Issue workflows are created from Task Attempts.
+  return [];
 }

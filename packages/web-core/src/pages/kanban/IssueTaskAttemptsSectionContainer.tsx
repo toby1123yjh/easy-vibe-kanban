@@ -379,17 +379,20 @@ export function IssueTaskAttemptsSectionContainer({
       {
         icon: GitBranchIcon,
         onClick: handleCreateWorkflowAttempt,
+        label: t('attempts.newWorkflow', 'New workflow attempt'),
       },
       {
         icon: PlusIcon,
         onClick: handleAddWorkspace,
+        label: t('attempts.newSingleAgent', 'New single-agent attempt'),
       },
       {
         icon: LinkIcon,
         onClick: handleLinkWorkspace,
+        label: t('kanban.linkWorkspace', 'Link workspace'),
       },
     ],
-    [handleCreateWorkflowAttempt, handleAddWorkspace, handleLinkWorkspace]
+    [handleCreateWorkflowAttempt, handleAddWorkspace, handleLinkWorkspace, t]
   );
 
   return (

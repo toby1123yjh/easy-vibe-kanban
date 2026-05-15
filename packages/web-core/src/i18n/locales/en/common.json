@@ -316,7 +316,8 @@
   "attempts": {
     "title": "Task Attempts",
     "loading": "Loading attempts...",
-    "empty": "Create a task attempt to solve this issue.",
+    "empty": "No task attempts yet.",
+    "newWorkflow": "New workflow attempt",
     "newSingleAgent": "New single-agent attempt"
   },
   "fileTree": {

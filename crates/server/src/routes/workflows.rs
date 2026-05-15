@@ -256,6 +256,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
                 .delete(delete_workflow),
         )
         .route(
+            "/v1/workflows/{workflow_id}/attempt",
+            get(get_workflow_attempt_by_workflow),
+        )
+        .route(
             "/v1/workflows/{workflow_id}/trigger",
             post(trigger_workflow),
         )
@@ -341,6 +345,15 @@ async fn get_workflow_attempt(
         workflow_attempt_by_id(&deployment.db().pool, attempt_id)
             .await?
             .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?,
+    ))
+}
+
+async fn get_workflow_attempt_by_workflow(
+    State(deployment): State<DeploymentImpl>,
+    Path(workflow_id): Path<Uuid>,
+) -> Result<ResponseJson<Option<WorkflowAttemptResponse>>, ApiError> {
+    Ok(ResponseJson(
+        workflow_attempt_by_workflow_id(&deployment.db().pool, workflow_id).await?,
     ))
 }
 
@@ -538,6 +551,25 @@ pub async fn workflow_attempt_by_id(
         "#,
     )
     .bind(attempt_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.as_ref().map(workflow_attempt_from_row).transpose()?)
+}
+
+pub async fn workflow_attempt_by_workflow_id(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+) -> Result<Option<WorkflowAttemptResponse>, ApiError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
+               name, status, created_at, updated_at
+        FROM workflow_attempts
+        WHERE workflow_id = ?
+        "#,
+    )
+    .bind(workflow_id)
     .fetch_optional(pool)
     .await?;
 

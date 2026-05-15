@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -45,6 +46,7 @@ import {
   selectWorkflowRunNode,
   type StatusTone,
 } from '../model/workflowRunView';
+import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
@@ -282,6 +284,7 @@ export function WorkflowRunCanvasTab({
     ReactFlowNode<RunNodeData, WorkflowNodeKind>
   >([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<ReactFlowEdge>([]);
+  const consumedQueuedFocusForRunRef = useRef<string | null>(null);
 
   const selectNodeById = useCallback((nodeId: string | null) => {
     setActionError(null);
@@ -301,6 +304,18 @@ export function WorkflowRunCanvasTab({
     },
     [run]
   );
+
+  useEffect(() => {
+    if (consumedQueuedFocusForRunRef.current === run.id) return;
+    consumedQueuedFocusForRunRef.current = run.id;
+
+    const queuedFocus = consumeWorkflowRunNodeFocus(run.id);
+    if (!queuedFocus) return;
+
+    setActionError(null);
+    setSelectedNodeId(queuedFocus.nodeId);
+    setActivePanelTab(queuedFocus.panel ?? 'details');
+  }, [run.id]);
 
   useEffect(() => {
     if (
@@ -562,7 +577,14 @@ function NodeDetailPanel({
       : null;
 
   return (
-    <aside className="flex max-h-[50%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:w-[400px] lg:border-l lg:border-t-0 xl:w-[440px]">
+    <aside
+      className={cn(
+        'flex max-h-[50%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:border-l lg:border-t-0',
+        activeTab === 'conversation'
+          ? 'lg:w-[560px] xl:w-[640px]'
+          : 'lg:w-[400px] xl:w-[440px]'
+      )}
+    >
       <div className="border-b border-secondary p-base">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-high">
@@ -598,7 +620,14 @@ function NodeDetailPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-base">
+      <div
+        className={cn(
+          'flex-1',
+          activeTab === 'conversation'
+            ? 'min-h-0 overflow-hidden p-0'
+            : 'overflow-y-auto p-base'
+        )}
+      >
         {!selectedExecution ? (
           <div className="text-sm text-low">
             {selectedNodeId
@@ -608,6 +637,7 @@ function NodeDetailPanel({
         ) : activeTab === 'conversation' ? (
           <WorkflowNodeConversationPanel
             selectedExecution={selectedExecution}
+            workspaceId={run.workspace_id}
             sessionHref={sessionHref}
             workspaceHref={workspaceHref}
           />
@@ -735,10 +765,12 @@ function NodeDetailsTab({
 
 function WorkflowNodeConversationPanel({
   selectedExecution,
+  workspaceId,
   sessionHref,
   workspaceHref,
 }: {
   selectedExecution: WorkflowNodeExecutionResponse;
+  workspaceId: string | null;
   sessionHref: string | null;
   workspaceHref: string | null;
 }) {
@@ -754,9 +786,10 @@ function WorkflowNodeConversationPanel({
   }
 
   return (
-    <div data-testid="workflow-node-conversation-panel" className="min-h-full">
+    <div data-testid="workflow-node-conversation-panel" className="h-full">
       <WorkflowNodeSessionPanel
         execution={selectedExecution}
+        workspaceId={workspaceId}
         sessionHref={sessionHref}
         workspaceHref={workspaceHref}
       />

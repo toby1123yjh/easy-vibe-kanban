@@ -32,6 +32,8 @@ export function IssueTaskAttemptsSection({
   onCreateSingleAgentAttempt,
 }: IssueTaskAttemptsSectionProps) {
   const { t } = useTranslation('common');
+  const hasCreateActions =
+    !!onCreateWorkflowAttempt || !!onCreateSingleAgentAttempt;
 
   return (
     <CollapsibleSectionHeader
@@ -45,51 +47,59 @@ export function IssueTaskAttemptsSection({
           <p className="py-half text-low">
             {t('attempts.loading', 'Loading attempts...')}
           </p>
-        ) : attempts.length === 0 ? (
-          <div className="grid gap-half">
-            <button
-              type="button"
-              onClick={onCreateWorkflowAttempt}
-              className="rounded-sm border border-dashed border-border bg-panel p-base text-left text-sm text-low transition-colors hover:bg-secondary/70"
-            >
-              {t(
-                'attempts.empty',
-                'Create a task attempt to solve this issue.'
-              )}
-            </button>
-            {onCreateSingleAgentAttempt && (
-              <button
-                type="button"
-                onClick={onCreateSingleAgentAttempt}
-                className="rounded-sm border border-secondary bg-primary p-base text-left text-xs text-low transition-colors hover:text-high"
-              >
-                {t('attempts.newSingleAgent', 'New single-agent attempt')}
-              </button>
-            )}
-          </div>
         ) : (
-          attempts.map((attempt) => (
-            <IssueTaskAttemptCard
-              key={attempt.id}
-              attempt={attempt}
-              onOpen={() => onOpenAttempt?.(attempt)}
-              onRun={
-                attempt.kind === 'workflow'
-                  ? () => onRunAttempt?.(attempt)
-                  : undefined
-              }
-              onUnlink={
-                attempt.kind === 'single_agent' && onUnlinkAttempt
-                  ? () => onUnlinkAttempt(attempt)
-                  : undefined
-              }
-              onDelete={
-                attempt.kind === 'single_agent' && onDeleteAttempt
-                  ? () => onDeleteAttempt(attempt)
-                  : undefined
-              }
-            />
-          ))
+          <>
+            {hasCreateActions && (
+              <div className="grid gap-half sm:grid-cols-2">
+                {onCreateWorkflowAttempt && (
+                  <button
+                    type="button"
+                    onClick={onCreateWorkflowAttempt}
+                    className="rounded-sm border border-brand/50 bg-brand/10 px-base py-half text-left text-xs font-medium text-high transition-colors hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand"
+                  >
+                    {t('attempts.newWorkflow', 'New workflow attempt')}
+                  </button>
+                )}
+                {onCreateSingleAgentAttempt && (
+                  <button
+                    type="button"
+                    onClick={onCreateSingleAgentAttempt}
+                    className="rounded-sm border border-secondary bg-primary px-base py-half text-left text-xs text-low transition-colors hover:border-border hover:text-high focus:outline-none focus:ring-1 focus:ring-border"
+                  >
+                    {t('attempts.newSingleAgent', 'New single-agent attempt')}
+                  </button>
+                )}
+              </div>
+            )}
+            {attempts.length === 0 ? (
+              <p className="py-half text-xs text-low">
+                {t('attempts.empty', 'No task attempts yet.')}
+              </p>
+            ) : (
+              attempts.map((attempt) => (
+                <IssueTaskAttemptCard
+                  key={attempt.id}
+                  attempt={attempt}
+                  onOpen={() => onOpenAttempt?.(attempt)}
+                  onRun={
+                    attempt.kind === 'workflow'
+                      ? () => onRunAttempt?.(attempt)
+                      : undefined
+                  }
+                  onUnlink={
+                    attempt.kind === 'single_agent' && onUnlinkAttempt
+                      ? () => onUnlinkAttempt(attempt)
+                      : undefined
+                  }
+                  onDelete={
+                    attempt.kind === 'single_agent' && onDeleteAttempt
+                      ? () => onDeleteAttempt(attempt)
+                      : undefined
+                  }
+                />
+              ))
+            )}
+          </>
         )}
       </div>
     </CollapsibleSectionHeader>

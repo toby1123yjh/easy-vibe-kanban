@@ -210,6 +210,15 @@ export const workflowApi = {
     );
   },
 
+  async getAttemptForWorkflow(
+    workflowId: string
+  ): Promise<WorkflowAttemptResponse | null> {
+    return getJson(
+      await localFetch(`/workflows/${workflowId}/attempt`),
+      'Failed to get workflow attempt'
+    );
+  },
+
   async runAttempt(
     attemptId: string,
     payload: RunWorkflowAttemptRequest

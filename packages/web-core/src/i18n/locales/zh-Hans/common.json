@@ -302,7 +302,8 @@
   "attempts": {
     "title": "\u4efb\u52a1\u5c1d\u8bd5",
     "loading": "\u6b63\u5728\u52a0\u8f7d\u4efb\u52a1\u5c1d\u8bd5...",
-    "empty": "\u521b\u5efa\u4e00\u6b21\u4efb\u52a1\u5c1d\u8bd5\u6765\u89e3\u51b3\u8fd9\u4e2a Issue\u3002",
+    "empty": "\u6682\u65e0\u4efb\u52a1\u5c1d\u8bd5\u3002",
+    "newWorkflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41\u5c1d\u8bd5",
     "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u5c1d\u8bd5"
   },
   "fileTree": {

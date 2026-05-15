@@ -15,6 +15,7 @@ use server::{
         delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
         fallback_workflows_payload, list_project_workflows, run_workflow_attempt_runtime,
         sync_attempt_from_run, update_workflow_template, workflow_attempt_by_id,
+        workflow_attempt_by_workflow_id,
     },
     workflow_runtime::{
         arena::{
@@ -789,6 +790,36 @@ async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
             .all(|workflow| workflow.id != attempt.workflow_id),
         "attempt-owned backing graph must not appear as reusable template"
     );
+}
+
+#[tokio::test]
+async fn workflow_attempt_can_be_resolved_from_backing_workflow() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Open attempt canvas").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Canvas-owned attempt".to_string()),
+            graph_json: valid_graph_json(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+
+    let resolved = workflow_attempt_by_workflow_id(&pool, attempt.workflow_id)
+        .await
+        .expect("query attempt by workflow")
+        .expect("attempt exists for backing workflow");
+
+    assert_eq!(resolved.id, attempt.id);
+    assert_eq!(resolved.issue_id, issue_id);
+    assert_eq!(resolved.workflow_id, attempt.workflow_id);
 }
 
 #[tokio::test]

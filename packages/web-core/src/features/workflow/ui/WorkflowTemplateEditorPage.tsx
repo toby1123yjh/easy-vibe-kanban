@@ -3,6 +3,9 @@ import {
   useWorkflowTemplate,
   useWorkflowTemplateMutations,
 } from '@/shared/hooks/useWorkflowTemplates';
+import { useWorkflowAttemptForWorkflow } from '@/shared/hooks/useWorkflowAttempts';
+import { useProjectContext } from '@/shared/hooks/useProjectContext';
+import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import {
   clearConditionBranchTargetForEdge,
   createDefaultWorkflowGraph,
@@ -17,11 +20,16 @@ import {
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
+import { queueWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
+import {
+  RunWorkflowDialog,
+  type WorkflowWorkspaceOption,
+} from './RunWorkflowDialog';
 import {
   WorkflowValidationPanel,
   validateWorkflowGraph,
@@ -56,9 +64,13 @@ export function WorkflowTemplateEditorPage({
   workflowId,
 }: WorkflowTemplateEditorPageProps) {
   const { data: template, isLoading, error } = useWorkflowTemplate(workflowId);
+  const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
+    useWorkflowAttemptForWorkflow(workflowId);
   const { updateTemplate, createTemplate, isUpdating, isCreating } =
     useWorkflowTemplateMutations();
   const navigation = useAppNavigation();
+  const { getIssue, getWorkspacesForIssue } = useProjectContext();
+  const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
 
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -67,6 +79,8 @@ export function WorkflowTemplateEditorPage({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [graphParseError, setGraphParseError] = useState<string | null>(null);
+  const [runStartError, setRunStartError] = useState<string | null>(null);
+  const [isStartingRun, setIsStartingRun] = useState(false);
   const [validationTouched, setValidationTouched] = useState(false);
 
   const isSystem = template?.source === 'system';
@@ -105,6 +119,85 @@ export function WorkflowTemplateEditorPage({
     });
   };
 
+  const issue = workflowAttempt ? getIssue(workflowAttempt.issue_id) : null;
+
+  const localWorkspacesById = useMemo(() => {
+    const map = new Map<string, (typeof activeWorkspaces)[number]>();
+
+    for (const workspace of activeWorkspaces) {
+      map.set(workspace.id, workspace);
+    }
+
+    for (const workspace of archivedWorkspaces) {
+      map.set(workspace.id, workspace);
+    }
+
+    return map;
+  }, [activeWorkspaces, archivedWorkspaces]);
+
+  const workflowWorkspaces = useMemo<WorkflowWorkspaceOption[]>(() => {
+    if (!workflowAttempt) return [];
+
+    return getWorkspacesForIssue(workflowAttempt.issue_id)
+      .filter((workspace) => workspace.local_workspace_id)
+      .map((workspace) => {
+        const localWorkspace = localWorkspacesById.get(
+          workspace.local_workspace_id as string
+        );
+        return {
+          id: workspace.local_workspace_id as string,
+          label:
+            workspace.name ||
+            localWorkspace?.name ||
+            `Workspace ${workspace.local_workspace_id}`,
+          branch: localWorkspace?.branch ?? null,
+        };
+      });
+  }, [getWorkspacesForIssue, localWorkspacesById, workflowAttempt]);
+
+  const handleRunAttempt = async () => {
+    if (!graph || !workflowAttempt || readOnly) return;
+
+    const runValidationIssues = validateWorkflowGraph(graph);
+    if (runValidationIssues.length > 0 || graphParseError) {
+      setValidationTouched(true);
+      return;
+    }
+
+    setIsStartingRun(true);
+    setRunStartError(null);
+    try {
+      await updateTemplate({
+        workflowId,
+        payload: {
+          name,
+          description,
+          graph_json: JSON.stringify(graph),
+        },
+      });
+      await RunWorkflowDialog.show({
+        projectId,
+        issueId: workflowAttempt.issue_id,
+        issueTitle: issue?.title ?? name,
+        issueDescription: issue?.description ?? description,
+        attemptId: workflowAttempt.id,
+        attemptName: workflowAttempt.name || name,
+        workspaces: workflowWorkspaces,
+      });
+    } catch (err) {
+      setRunStartError(
+        err instanceof Error ? err.message : 'Failed to start workflow attempt.'
+      );
+    } finally {
+      setIsStartingRun(false);
+    }
+  };
+
+  const handleOpenLatestRun = () => {
+    if (!workflowAttempt?.latest_run_id) return;
+    navigation.goToProjectWorkflowRun(projectId, workflowAttempt.latest_run_id);
+  };
+
   const handleCopy = async () => {
     if (!graph) return;
     const result = await createTemplate({
@@ -139,6 +232,7 @@ export function WorkflowTemplateEditorPage({
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {
     setValidationTouched(false);
+    setRunStartError(null);
     setGraph(newGraph);
   };
 
@@ -147,6 +241,7 @@ export function WorkflowTemplateEditorPage({
     dataUpdates: Partial<WorkflowGraph['nodes'][number]['data']>
   ) => {
     if (!graph || readOnly) return;
+    setRunStartError(null);
     setGraph({
       ...graph,
       nodes: graph.nodes.map((node) =>
@@ -245,6 +340,13 @@ export function WorkflowTemplateEditorPage({
   const validationIssues = validateWorkflowGraph(graph);
   const isValid = validationIssues.length === 0 && !graphParseError;
   const nodeCatalogSections = getWorkflowNodeCatalogSections();
+  const canRunWorkflowAttempt =
+    !!workflowAttempt &&
+    !isWorkflowAttemptLoading &&
+    !isStartingRun &&
+    !isUpdating &&
+    isValid &&
+    !readOnly;
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -294,13 +396,32 @@ export function WorkflowTemplateEditorPage({
           </Button>
           <Button
             variant="outline"
-            disabled
+            disabled={!canRunWorkflowAttempt}
+            onClick={() => void handleRunAttempt()}
             className="flex items-center gap-2"
-            aria-label="Run workflow test"
+            aria-label="Run workflow attempt"
+            title={
+              workflowAttempt
+                ? undefined
+                : 'This workflow is not linked to a task attempt.'
+            }
           >
-            <PlayIcon className="h-4 w-4" />
-            Run test
+            {isStartingRun || isWorkflowAttemptLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <PlayIcon className="h-4 w-4" />
+            )}
+            Start run
           </Button>
+          {workflowAttempt?.latest_run_id ? (
+            <Button
+              variant="outline"
+              onClick={handleOpenLatestRun}
+              className="flex items-center gap-2"
+            >
+              Open latest run
+            </Button>
+          ) : null}
           {isSystem ? (
             <Button
               onClick={handleCopy}
@@ -334,6 +455,13 @@ export function WorkflowTemplateEditorPage({
       {graphParseError ? (
         <div className="border-b border-error/30 bg-error/10 px-base py-half text-xs text-error">
           {graphParseError}
+        </div>
+      ) : runStartError ? (
+        <div
+          className="border-b border-error/30 bg-error/10 px-base py-half text-xs text-error"
+          role="alert"
+        >
+          {runStartError}
         </div>
       ) : validationTouched && validationIssues.length > 0 ? (
         <div className="border-b border-brand/30 bg-brand/10 px-base py-half text-xs text-brand">
@@ -409,6 +537,17 @@ export function WorkflowTemplateEditorPage({
                 onNodeOpen={(nodeId) => {
                   setSelectedNodeId(nodeId);
                   setSelectedEdgeId(null);
+                  if (workflowAttempt?.latest_run_id) {
+                    queueWorkflowRunNodeFocus(workflowAttempt.latest_run_id, {
+                      nodeId,
+                      panel: 'conversation',
+                    });
+                    navigation.goToProjectWorkflowRun(
+                      projectId,
+                      workflowAttempt.latest_run_id
+                    );
+                    return;
+                  }
                   setOpenNodeDialogId(nodeId);
                 }}
               />
