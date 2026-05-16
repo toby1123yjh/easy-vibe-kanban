@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowEdge, WorkflowNode } from '../model/workflowGraph';
 import {
+  applyWorkflowNodeDataPatch,
   getNextAgentDraftPanelNodeIdForSelection,
   getWorkflowTemplateInspectorPanel,
 } from './workflowTemplateEditorPanel';
@@ -81,5 +82,38 @@ describe('workflow template editor inspector panel', () => {
         selectedEdgeId: 'edge-1',
       })
     ).toBeNull();
+  });
+
+  it('applies the submitted agent draft to the graph before starting a run', () => {
+    const nextGraph = applyWorkflowNodeDataPatch(
+      {
+        version: 2,
+        nodes: [agentNode, conditionNode],
+        edges: [edge],
+      },
+      'agent-1',
+      {
+        prompt_template: 'Read the project and summarize the architecture.',
+        executor_config: {
+          executor: 'CODEX',
+          variant: null,
+        },
+      }
+    );
+
+    expect(nextGraph.nodes.find((node) => node.id === 'agent-1')?.data).toEqual(
+      {
+        display_name: 'Research code',
+        prompt_template: 'Read the project and summarize the architecture.',
+        executor_config: {
+          executor: 'CODEX',
+          variant: null,
+        },
+      }
+    );
+    expect(nextGraph.nodes.find((node) => node.id === 'condition-1')).toBe(
+      conditionNode
+    );
+    expect(nextGraph.edges).toEqual([edge]);
   });
 });

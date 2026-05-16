@@ -22,18 +22,31 @@ import {
   createWorkflowAgentNodeDraftPatch,
 } from '../model/workflowAgentNodeDraft';
 
+interface WorkflowAgentDraftSubmit {
+  prompt: string;
+  executorConfig: ExecutorConfig | null;
+}
+
 interface WorkflowAgentNodeDraftPanelProps {
   node: WorkflowNode;
   readOnly?: boolean;
   onChange?: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
+  onSubmit?: (draft: WorkflowAgentDraftSubmit) => void;
   onDone?: () => void;
+  isSubmitting?: boolean;
+  submitLabel?: string;
+  submitError?: string | null;
 }
 
 export function WorkflowAgentNodeDraftPanel({
   node,
   readOnly,
   onChange,
+  onSubmit,
   onDone,
+  isSubmitting = false,
+  submitLabel,
+  submitError,
 }: WorkflowAgentNodeDraftPanelProps) {
   const { t } = useTranslation('common');
   const { profiles, config } = useUserSystem();
@@ -83,12 +96,17 @@ export function WorkflowAgentNodeDraftPanel({
     persistDraft(nextPrompt, executorConfig);
   };
 
+  const isDisabled = readOnly || !onChange || isSubmitting;
+  const primaryActionLabel =
+    submitLabel ?? (onSubmit ? 'Start run' : t('buttons.save'));
+
   const handleDone = () => {
+    if (isDisabled || !prompt.trim() || !executorConfig) return;
+
     persistDraft(prompt, executorConfig);
+    onSubmit?.({ prompt, executorConfig });
     onDone?.();
   };
-
-  const isDisabled = readOnly || !onChange;
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -105,6 +123,7 @@ export function WorkflowAgentNodeDraftPanel({
 
           <ChatBoxBase
             visualVariant={VisualVariant.NORMAL}
+            error={submitError}
             editor={
               <WYSIWYGEditor
                 placeholder="Describe this workflow step..."
@@ -164,8 +183,9 @@ export function WorkflowAgentNodeDraftPanel({
             footerLeft={null}
             footerRight={
               <PrimaryButton
-                value={t('buttons.save')}
+                value={isSubmitting ? 'Starting...' : primaryActionLabel}
                 onClick={handleDone}
+                actionIcon={isSubmitting ? 'spinner' : undefined}
                 disabled={isDisabled || !prompt.trim() || !executorConfig}
               />
             }

@@ -1,4 +1,9 @@
-import type { WorkflowEdge, WorkflowNode } from '../model/workflowGraph';
+import type {
+  WorkflowEdge,
+  WorkflowGraph,
+  WorkflowNode,
+  WorkflowNodeData,
+} from '../model/workflowGraph';
 
 export type WorkflowTemplateInspectorPanel =
   | { kind: 'edge'; edge: WorkflowEdge }
@@ -44,4 +49,19 @@ export function getWorkflowTemplateInspectorPanel({
   }
 
   return { kind: 'node', node: selectedNode };
+}
+
+export function applyWorkflowNodeDataPatch(
+  graph: WorkflowGraph,
+  nodeId: string,
+  dataUpdates: Partial<WorkflowNodeData>
+): WorkflowGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.id === nodeId
+        ? { ...node, data: { ...node.data, ...dataUpdates } }
+        : node
+    ),
+  };
 }

@@ -3,7 +3,10 @@ import {
   useWorkflowTemplate,
   useWorkflowTemplateMutations,
 } from '@/shared/hooks/useWorkflowTemplates';
-import { useWorkflowAttemptForWorkflow } from '@/shared/hooks/useWorkflowAttempts';
+import {
+  useWorkflowAttemptForWorkflow,
+  useWorkflowAttemptMutations,
+} from '@/shared/hooks/useWorkflowAttempts';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import {
@@ -20,15 +23,23 @@ import {
   type WorkflowNodePosition,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
 } from '../model/workflowGraph';
-import { isWorkflowAgentDraftNode } from '../model/workflowAgentNodeDraft';
+import {
+  createWorkflowAgentNodeDraftPatch,
+  isWorkflowAgentDraftNode,
+} from '../model/workflowAgentNodeDraft';
 import { queueWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
+import {
+  buildWorkflowRunInput,
+  getWorkflowRunErrorMessage,
+} from '../model/issueWorkflow';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { WorkflowAgentNodeDraftPanel } from './WorkflowAgentNodeDraftPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import {
+  applyWorkflowNodeDataPatch,
   getNextAgentDraftPanelNodeIdForSelection,
   getWorkflowTemplateInspectorPanel,
 } from './workflowTemplateEditorPanel';
@@ -67,6 +78,7 @@ export function WorkflowTemplateEditorPage({
     useWorkflowAttemptForWorkflow(workflowId);
   const { updateTemplate, createTemplate, isUpdating, isCreating } =
     useWorkflowTemplateMutations();
+  const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
   const navigation = useAppNavigation();
   const { getIssue, getWorkspacesForIssue } = useProjectContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
@@ -186,9 +198,59 @@ export function WorkflowTemplateEditorPage({
         workspaces: workflowWorkspaces,
       });
     } catch (err) {
-      setRunStartError(
-        err instanceof Error ? err.message : 'Failed to start workflow attempt.'
-      );
+      setRunStartError(getWorkflowRunErrorMessage(err));
+    } finally {
+      setIsStartingRun(false);
+    }
+  };
+
+  const handleStartRunFromGraph = async (
+    nextGraph: WorkflowGraph,
+    options: { focusNodeId?: string } = {}
+  ) => {
+    if (!workflowAttempt || readOnly) {
+      setRunStartError('This workflow is not linked to a task attempt.');
+      return;
+    }
+
+    const runValidationIssues = validateWorkflowGraph(nextGraph);
+    if (runValidationIssues.length > 0 || graphParseError) {
+      setValidationTouched(true);
+      return;
+    }
+
+    setIsStartingRun(true);
+    setRunStartError(null);
+    try {
+      await updateTemplate({
+        workflowId,
+        payload: {
+          name,
+          description,
+          graph_json: JSON.stringify(nextGraph),
+        },
+      });
+      const run = await runAttempt({
+        attemptId: workflowAttempt.id,
+        payload: {
+          workspace_id: null,
+          trigger_source: 'manual',
+          input_text: buildWorkflowRunInput({
+            title: issue?.title ?? name,
+            description: issue?.description ?? description,
+          }),
+        },
+      });
+
+      if (options.focusNodeId) {
+        queueWorkflowRunNodeFocus(run.id, {
+          nodeId: options.focusNodeId,
+          panel: 'conversation',
+        });
+      }
+      navigation.goToProjectWorkflowRun(projectId, run.id);
+    } catch (err) {
+      setRunStartError(getWorkflowRunErrorMessage(err));
     } finally {
       setIsStartingRun(false);
     }
@@ -245,14 +307,31 @@ export function WorkflowTemplateEditorPage({
   ) => {
     if (!graph || readOnly) return;
     setRunStartError(null);
-    setGraph({
-      ...graph,
-      nodes: graph.nodes.map((node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, ...dataUpdates } }
-          : node
-      ),
-    });
+    setGraph(applyWorkflowNodeDataPatch(graph, nodeId, dataUpdates));
+  };
+
+  const handleAgentDraftSubmit = async ({
+    nodeId,
+    prompt,
+    executorConfig,
+  }: {
+    nodeId: string;
+    prompt: string;
+    executorConfig: Parameters<
+      typeof createWorkflowAgentNodeDraftPatch
+    >[0]['executorConfig'];
+  }) => {
+    if (!graph || readOnly || isStartingRun || isRunningAttempt || isUpdating) {
+      return;
+    }
+
+    const nextGraph = applyWorkflowNodeDataPatch(
+      graph,
+      nodeId,
+      createWorkflowAgentNodeDraftPatch({ prompt, executorConfig })
+    );
+    setGraph(nextGraph);
+    await handleStartRunFromGraph(nextGraph, { focusNodeId: nodeId });
   };
 
   const handleEdgeChange = (
@@ -348,6 +427,7 @@ export function WorkflowTemplateEditorPage({
     !!workflowAttempt &&
     !isWorkflowAttemptLoading &&
     !isStartingRun &&
+    !isRunningAttempt &&
     !isUpdating &&
     isValid &&
     !readOnly;
@@ -415,7 +495,7 @@ export function WorkflowTemplateEditorPage({
                 : 'This workflow is not linked to a task attempt.'
             }
           >
-            {isStartingRun || isWorkflowAttemptLoading ? (
+            {isStartingRun || isRunningAttempt || isWorkflowAttemptLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <PlayIcon className="h-4 w-4" />
@@ -600,6 +680,16 @@ export function WorkflowTemplateEditorPage({
               node={inspectorPanel.node}
               readOnly={readOnly}
               onChange={handleNodeChange}
+              onSubmit={(draft) =>
+                void handleAgentDraftSubmit({
+                  nodeId: inspectorPanel.node.id,
+                  prompt: draft.prompt,
+                  executorConfig: draft.executorConfig,
+                })
+              }
+              isSubmitting={isStartingRun || isRunningAttempt || isUpdating}
+              submitLabel="Start run"
+              submitError={runStartError}
             />
           ) : (
             <WorkflowNodeInspector
