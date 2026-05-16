@@ -13,6 +13,14 @@ pub struct WorkflowNode {
     #[serde(rename = "type")]
     pub kind: WorkflowNodeKind,
     pub data: WorkflowNodeData,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<WorkflowNodePosition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowNodePosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,6 +62,8 @@ pub enum WorkflowEdgeKind {
 pub struct WorkflowNodeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role_template_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

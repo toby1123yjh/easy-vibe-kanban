@@ -13,9 +13,9 @@ describe('issue workflow helpers', () => {
     expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionAriaLabel).toBe(
       'Open workflow attempt canvas'
     );
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Run attempt');
+    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Open canvas');
     expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionAriaLabel).toBe(
-      'Run workflow attempt'
+      'Open workflow attempt canvas'
     );
   });
 
@@ -59,8 +59,20 @@ describe('issue workflow helpers', () => {
     );
 
     const graph = JSON.parse(draft.graph_json);
-    expect(graph.version).toBe(1);
-    expect(graph.nodes.length).toBeGreaterThan(0);
-    expect(graph.edges.length).toBeGreaterThan(0);
+    expect(graph.version).toBe(2);
+    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual([
+      'start',
+      'familiarize',
+      'end',
+    ]);
+    expect(
+      graph.nodes.every((node: { position?: { x: number; y: number } }) =>
+        Boolean(node.position)
+      )
+    ).toBe(true);
+    expect(graph.edges.map((edge: { id: string }) => edge.id)).toEqual([
+      'start-familiarize',
+      'familiarize-end',
+    ]);
   });
 });

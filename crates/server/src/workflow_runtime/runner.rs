@@ -1,22 +1,18 @@
-use std::sync::{LazyLock, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+};
 
 use async_trait::async_trait;
 use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
     session::{CreateSession, Session},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError},
-    workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
-    },
-    profile::{ExecutorConfig, ExecutorConfigs},
-};
+use executors::profile::{ExecutorConfig, ExecutorConfigs};
 use serde_json::{Value, json};
-use services::services::container::ContainerService;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -36,9 +32,12 @@ use workflow::{
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::workflows::{
-        TriggerWorkflowRequest, WorkflowNodeExecutionResponse, WorkflowRunResponse,
-        get_workflow_template,
+    routes::{
+        sessions::start_coding_agent_execution_for_session,
+        workflows::{
+            TriggerWorkflowRequest, WorkflowNodeExecutionResponse, WorkflowRunResponse,
+            ensure_agent_node_sessions, get_workflow_template, persist_workflow_graph,
+        },
     },
     workflow_runtime::{
         arena::{
@@ -88,6 +87,7 @@ pub trait WorkflowWorkspaceResolver: Send + Sync {
 pub struct AgentNodeRequest {
     pub run_id: Uuid,
     pub node_id: String,
+    pub session_id: Option<Uuid>,
     pub workspace_id: Uuid,
     pub prompt: String,
     pub executor_config: Option<Value>,
@@ -235,55 +235,45 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
         let executor_config = executor_config_from_node(request.executor_config).await?;
 
-        let container_ref = self
-            .deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await?;
-        let workspace = workspace_after_container_ensure(workspace, container_ref);
+        let session = if let Some(session_id) = request.session_id {
+            let session =
+                Session::find_by_id(pool, session_id)
+                    .await?
+                    .ok_or(ApiError::BadRequest(format!(
+                        "Workflow node `{}` session `{session_id}` not found",
+                        request.node_id
+                    )))?;
+            if session.workspace_id != workspace.id {
+                return Err(ApiError::BadRequest(format!(
+                    "Workflow node `{}` session `{session_id}` belongs to workspace `{}` instead of `{}`",
+                    request.node_id, session.workspace_id, workspace.id
+                )));
+            }
+            session
+        } else {
+            Session::create(
+                pool,
+                &CreateSession {
+                    executor: Some(executor_config.profile_id().executor.to_string()),
+                    name: Some(format!("Workflow {}", request.node_id)),
+                },
+                Uuid::new_v4(),
+                workspace.id,
+            )
+            .await?
+        };
 
-        let session = Session::create(
-            pool,
-            &CreateSession {
-                executor: Some(executor_config.profile_id().executor.to_string()),
-                name: Some(format!("Workflow {}", request.node_id)),
-            },
-            Uuid::new_v4(),
-            workspace.id,
+        let execution_process = start_coding_agent_execution_for_session(
+            &self.deployment,
+            session.clone(),
+            request.prompt,
+            None,
+            executor_config,
+            None,
+            None,
+            None,
         )
         .await?;
-
-        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        let cleanup_action = self
-            .deployment
-            .container()
-            .cleanup_actions_for_repos(&repos);
-        let working_dir = session
-            .agent_working_dir
-            .as_ref()
-            .filter(|dir| !dir.is_empty())
-            .cloned();
-
-        let action = ExecutorAction::new(
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: request.prompt,
-                selected_skills: None,
-                executor_config,
-                working_dir,
-            }),
-            cleanup_action.map(Box::new),
-        );
-
-        let execution_process = self
-            .deployment
-            .container()
-            .start_execution(
-                &workspace,
-                &session,
-                &action,
-                &ExecutionProcessRunReason::CodingAgent,
-            )
-            .await?;
 
         Ok(AgentNodeExecution::Started {
             session_id: session.id,
@@ -294,11 +284,6 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             )),
         })
     }
-}
-
-fn workspace_after_container_ensure(mut workspace: Workspace, container_ref: String) -> Workspace {
-    workspace.container_ref = Some(container_ref);
-    workspace
 }
 
 pub async fn trigger_workflow_run<W, A>(
@@ -364,7 +349,7 @@ where
     R: WorkflowArenaCreator,
 {
     let workflow = get_workflow_template(pool, workflow_id).await?;
-    let graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
+    let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
     validate_graph(&graph)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
@@ -382,6 +367,10 @@ where
             branch_name: main_workflow_branch_name(request.issue_id, run_id),
         })
         .await?;
+
+    if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
+        persist_workflow_graph(pool, workflow_id, &graph).await?;
+    }
 
     insert_workflow_run(
         pool,
@@ -508,7 +497,7 @@ where
 
     let context = node_context(pool, &run.graph, run_id, node, &run.input_text).await?;
     let approval_output = context.upstream_text();
-    mark_node_succeeded(pool, run_id, node_id, Some(&approval_output), None, None).await?;
+    mark_node_succeeded(pool, run_id, node_id, 0, Some(&approval_output), None, None).await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
     drive_workflow_run(
         pool,
@@ -565,7 +554,7 @@ where
         .await
     {
         Ok(ArenaWinnerExecution { output_text }) => {
-            mark_node_succeeded(pool, run_id, node_id, Some(&output_text), None, None).await?;
+            mark_node_succeeded(pool, run_id, node_id, 0, Some(&output_text), None, None).await?;
             update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
             drive_workflow_run(
                 pool,
@@ -581,7 +570,7 @@ where
         }
         Err(err) => {
             let message = format!("{err}; winner workspace: {winner_workspace_id}");
-            mark_node_failed(pool, run_id, node_id, &message).await?;
+            mark_node_failed(pool, run_id, node_id, 0, &message).await?;
             mark_pending_nodes_skipped(pool, run_id).await?;
             update_run_status(
                 pool,
@@ -606,7 +595,7 @@ pub async fn reject_human_node(
     ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman).await?;
 
     let message = "Human gate rejected";
-    mark_node_failed(pool, run_id, node_id, message).await?;
+    mark_node_failed(pool, run_id, node_id, 0, message).await?;
     mark_pending_nodes_skipped(pool, run_id).await?;
     update_run_status(
         pool,
@@ -845,6 +834,147 @@ async fn initialize_node_executions(
     Ok(())
 }
 
+async fn ensure_triggered_node_iterations(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+) -> Result<(), ApiError> {
+    let succeeded_counts = succeeded_execution_counts(pool, run_id).await?;
+    let existing_counts = existing_execution_counts(pool, run_id).await?;
+    let mut max_iterations = max_execution_iterations(pool, run_id).await?;
+
+    for node in graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind != WorkflowNodeKind::Start)
+    {
+        let desired_count = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.target == node.id)
+            .map(|edge| {
+                succeeded_counts
+                    .get(edge.source.as_str())
+                    .copied()
+                    .unwrap_or(0)
+            })
+            .sum::<i64>();
+        let existing_count = existing_counts
+            .get(node.id.as_str())
+            .copied()
+            .unwrap_or_default();
+
+        for _ in existing_count..desired_count {
+            let next_iteration = max_iterations
+                .entry(node.id.clone())
+                .and_modify(|iteration| *iteration += 1)
+                .or_insert(0);
+            insert_node_execution(pool, run_id, node, *next_iteration).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn succeeded_execution_counts(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<HashMap<String, i64>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT node_id, COUNT(*) AS count
+        FROM node_executions
+        WHERE run_id = ? AND status = 'succeeded'
+        GROUP BY node_id
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| Ok((row.try_get("node_id")?, row.try_get("count")?)))
+        .collect::<Result<HashMap<_, _>, ApiError>>()
+}
+
+async fn existing_execution_counts(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<HashMap<String, i64>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT node_id, COUNT(*) AS count
+        FROM node_executions
+        WHERE run_id = ? AND status != 'skipped'
+        GROUP BY node_id
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| Ok((row.try_get("node_id")?, row.try_get("count")?)))
+        .collect::<Result<HashMap<_, _>, ApiError>>()
+}
+
+async fn max_execution_iterations(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<HashMap<String, i64>, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT node_id, MAX(iteration) AS max_iteration
+        FROM node_executions
+        WHERE run_id = ?
+        GROUP BY node_id
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.iter()
+        .map(|row| {
+            Ok((
+                row.try_get("node_id")?,
+                row.try_get::<Option<i64>, _>("max_iteration")?
+                    .unwrap_or_default(),
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, ApiError>>()
+}
+
+async fn insert_node_execution(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node: &WorkflowNode,
+    iteration: i64,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(run_id)
+    .bind(&node.id)
+    .bind(node_kind_value(&node.kind))
+    .bind(iteration)
+    .execute(pool)
+    .await?;
+
+    emit_node_status(
+        run_id,
+        &node.id,
+        DbNodeExecutionStatus::Pending,
+        json!({ "status": "pending", "iteration": iteration }),
+    );
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn drive_workflow_run<A, R>(
     pool: &SqlitePool,
@@ -863,6 +993,7 @@ where
     let runner = WorkflowRunner::from_graph(graph.clone());
 
     loop {
+        ensure_triggered_node_iterations(pool, run_id, graph).await?;
         let snapshot = load_run_snapshot(pool, run_id).await?;
         if all_nodes_terminal(&snapshot) {
             let output_text = final_run_output(pool, run_id, graph).await?;
@@ -883,6 +1014,7 @@ where
             return Ok(());
         }
 
+        let mut should_pause = false;
         for ready_node in ready_plan.ready_nodes {
             let Some(node) = graph
                 .nodes
@@ -896,6 +1028,7 @@ where
                 run_id,
                 graph,
                 node,
+                ready_node.iteration,
                 issue_id,
                 workspace_id,
                 run_input_text,
@@ -903,9 +1036,15 @@ where
                 arena_creator,
             )
             .await?;
-            if step == RunStep::Wait {
-                return Ok(());
+            match step {
+                RunStep::Continue => {}
+                RunStep::Pause => should_pause = true,
+                RunStep::Stop => return Ok(()),
             }
+        }
+
+        if should_pause {
+            return Ok(());
         }
     }
 }
@@ -913,7 +1052,8 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunStep {
     Continue,
-    Wait,
+    Pause,
+    Stop,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -922,6 +1062,7 @@ async fn execute_ready_node<A, R>(
     run_id: Uuid,
     graph: &WorkflowGraph,
     node: &WorkflowNode,
+    iteration: i64,
     issue_id: Uuid,
     workspace_id: Uuid,
     run_input_text: &str,
@@ -936,11 +1077,12 @@ where
     match node.kind {
         WorkflowNodeKind::Agent => {
             let prompt = render_agent_prompt(node, &context);
-            mark_node_running(pool, run_id, &node.id, Some(&prompt)).await?;
+            mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
             match agent_executor
                 .run_agent(AgentNodeRequest {
                     run_id,
                     node_id: node.id.clone(),
+                    session_id: node_session_id(node)?,
                     workspace_id,
                     prompt,
                     executor_config: node.data.executor_config.clone(),
@@ -956,6 +1098,7 @@ where
                         pool,
                         run_id,
                         &node.id,
+                        iteration,
                         Some(&output_text),
                         Some(session_id),
                         Some(execution_process_id),
@@ -972,6 +1115,7 @@ where
                         pool,
                         run_id,
                         &node.id,
+                        iteration,
                         NodeExecutionUpdate {
                             status: DbNodeExecutionStatus::Running,
                             input_text: None,
@@ -984,11 +1128,11 @@ where
                         },
                     )
                     .await?;
-                    Ok(RunStep::Wait)
+                    Ok(RunStep::Pause)
                 }
                 Err(err) => {
                     let message = err.to_string();
-                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_node_failed(pool, run_id, &node.id, iteration, &message).await?;
                     mark_pending_nodes_skipped(pool, run_id).await?;
                     update_run_status(
                         pool,
@@ -999,13 +1143,13 @@ where
                         true,
                     )
                     .await?;
-                    Ok(RunStep::Wait)
+                    Ok(RunStep::Stop)
                 }
             }
         }
         WorkflowNodeKind::Arena => {
             let prompt = render_arena_prompt(node, &context);
-            mark_node_running(pool, run_id, &node.id, Some(&prompt)).await?;
+            mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
             match arena_creator
                 .create_arena(ArenaNodeRequest {
                     run_id,
@@ -1022,6 +1166,7 @@ where
                         pool,
                         run_id,
                         &node.id,
+                        iteration,
                         NodeExecutionUpdate {
                             status: DbNodeExecutionStatus::AwaitingArena,
                             input_text: Some(&prompt),
@@ -1043,11 +1188,11 @@ where
                         false,
                     )
                     .await?;
-                    Ok(RunStep::Wait)
+                    Ok(RunStep::Pause)
                 }
                 Err(err) => {
                     let message = err.to_string();
-                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_node_failed(pool, run_id, &node.id, iteration, &message).await?;
                     mark_pending_nodes_skipped(pool, run_id).await?;
                     update_run_status(
                         pool,
@@ -1058,13 +1203,13 @@ where
                         true,
                     )
                     .await?;
-                    Ok(RunStep::Wait)
+                    Ok(RunStep::Stop)
                 }
             }
         }
         _ => {
             let input_text = context.upstream_text();
-            mark_node_running(pool, run_id, &node.id, Some(&input_text)).await?;
+            mark_node_running(pool, run_id, &node.id, iteration, Some(&input_text)).await?;
             let outgoing_edges = outgoing_edges(graph, &node.id);
             match handle_pure_node(node, &outgoing_edges, &context) {
                 Ok(outcome) => match outcome.status {
@@ -1073,6 +1218,7 @@ where
                             pool,
                             run_id,
                             &node.id,
+                            iteration,
                             outcome.output_text.as_deref(),
                             None,
                             None,
@@ -1087,6 +1233,7 @@ where
                             pool,
                             run_id,
                             &node.id,
+                            iteration,
                             NodeExecutionUpdate {
                                 status: DbNodeExecutionStatus::AwaitingHuman,
                                 input_text: outcome.prompt.as_deref(),
@@ -1108,13 +1255,14 @@ where
                             false,
                         )
                         .await?;
-                        Ok(RunStep::Wait)
+                        Ok(RunStep::Pause)
                     }
                     NodeHandlerStatus::AwaitingArena => {
                         update_node_execution(
                             pool,
                             run_id,
                             &node.id,
+                            iteration,
                             NodeExecutionUpdate {
                                 status: DbNodeExecutionStatus::AwaitingArena,
                                 input_text: outcome.prompt.as_deref(),
@@ -1136,12 +1284,12 @@ where
                             false,
                         )
                         .await?;
-                        Ok(RunStep::Wait)
+                        Ok(RunStep::Pause)
                     }
                 },
                 Err(err) => {
                     let message = err.to_string();
-                    mark_node_failed(pool, run_id, &node.id, &message).await?;
+                    mark_node_failed(pool, run_id, &node.id, iteration, &message).await?;
                     mark_pending_nodes_skipped(pool, run_id).await?;
                     update_run_status(
                         pool,
@@ -1152,7 +1300,7 @@ where
                         true,
                     )
                     .await?;
-                    Ok(RunStep::Wait)
+                    Ok(RunStep::Stop)
                 }
             }
         }
@@ -1173,7 +1321,9 @@ async fn node_context(
             r#"
             SELECT output_text
             FROM node_executions
-            WHERE run_id = ? AND node_id = ? AND iteration = 0
+            WHERE run_id = ? AND node_id = ? AND status = 'succeeded'
+            ORDER BY iteration ASC
+            LIMIT 1
             "#,
         )
         .bind(run_id)
@@ -1197,22 +1347,31 @@ async fn node_context(
 
 fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
     render_prompt_template(
-        node.data
-            .prompt_template
-            .as_deref()
-            .unwrap_or("{{upstream}}"),
+        node.data.prompt_template.as_deref().unwrap_or_default(),
         context,
     )
 }
 
 fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
     render_prompt_template(
-        node.data
-            .prompt_template
-            .as_deref()
-            .unwrap_or("{{upstream}}"),
+        node.data.prompt_template.as_deref().unwrap_or_default(),
         context,
     )
+}
+
+fn node_session_id(node: &WorkflowNode) -> Result<Option<Uuid>, ApiError> {
+    node.data
+        .session_id
+        .as_deref()
+        .map(|session_id| {
+            Uuid::parse_str(session_id).map_err(|err| {
+                ApiError::BadRequest(format!(
+                    "Workflow node `{}` has invalid session_id `{session_id}`: {err}",
+                    node.id
+                ))
+            })
+        })
+        .transpose()
 }
 
 fn render_prompt_template(template: &str, context: &NodeHandlerContext) -> String {
@@ -1277,7 +1436,7 @@ fn outgoing_edges(graph: &WorkflowGraph, node_id: &str) -> Vec<WorkflowEdge> {
 async fn load_run_snapshot(pool: &SqlitePool, run_id: Uuid) -> Result<RunSnapshot, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT node_id, status, output_text, error_text
+        SELECT node_id, iteration, status, output_text, error_text
         FROM node_executions
         WHERE run_id = ?
         ORDER BY rowid ASC
@@ -1292,6 +1451,7 @@ async fn load_run_snapshot(pool: &SqlitePool, run_id: Uuid) -> Result<RunSnapsho
         .map(|row| {
             Ok(NodeExecutionSnapshot {
                 node_id: row.try_get("node_id")?,
+                iteration: row.try_get("iteration")?,
                 status: planner_status_from_str(&row.try_get::<String, _>("status")?)?,
                 output_text: row.try_get("output_text")?,
                 error_text: row.try_get("error_text")?,
@@ -1363,12 +1523,14 @@ async fn mark_node_running(
     pool: &SqlitePool,
     run_id: Uuid,
     node_id: &str,
+    iteration: i64,
     input_text: Option<&str>,
 ) -> Result<(), ApiError> {
     update_node_execution(
         pool,
         run_id,
         node_id,
+        iteration,
         NodeExecutionUpdate {
             status: DbNodeExecutionStatus::Running,
             input_text,
@@ -1387,6 +1549,7 @@ async fn mark_node_succeeded(
     pool: &SqlitePool,
     run_id: Uuid,
     node_id: &str,
+    iteration: i64,
     output_text: Option<&str>,
     session_id: Option<Uuid>,
     execution_process_id: Option<Uuid>,
@@ -1395,6 +1558,7 @@ async fn mark_node_succeeded(
         pool,
         run_id,
         node_id,
+        iteration,
         NodeExecutionUpdate {
             status: DbNodeExecutionStatus::Succeeded,
             input_text: None,
@@ -1413,12 +1577,14 @@ async fn mark_node_failed(
     pool: &SqlitePool,
     run_id: Uuid,
     node_id: &str,
+    iteration: i64,
     error_text: &str,
 ) -> Result<(), ApiError> {
     update_node_execution(
         pool,
         run_id,
         node_id,
+        iteration,
         NodeExecutionUpdate {
             status: DbNodeExecutionStatus::Failed,
             input_text: None,
@@ -1439,17 +1605,35 @@ async fn mark_skipped_targets(
     node_ids: &[String],
 ) -> Result<(), ApiError> {
     for node_id in node_ids {
+        let row = sqlx::query(
+            r#"
+            SELECT id, iteration
+            FROM node_executions
+            WHERE run_id = ? AND node_id = ? AND status = 'pending'
+            ORDER BY iteration ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(run_id)
+        .bind(node_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let Some(row) = row else {
+            continue;
+        };
+        let execution_id: Uuid = row.try_get("id")?;
+        let iteration: i64 = row.try_get("iteration")?;
         let result = sqlx::query(
             r#"
             UPDATE node_executions
             SET status = 'skipped',
                 finished_at = datetime('now', 'subsec'),
                 updated_at = datetime('now', 'subsec')
-            WHERE run_id = ? AND node_id = ? AND iteration = 0 AND status = 'pending'
+            WHERE id = ? AND status = 'pending'
             "#,
         )
-        .bind(run_id)
-        .bind(node_id)
+        .bind(execution_id)
         .execute(pool)
         .await?;
         if result.rows_affected() > 0 {
@@ -1457,7 +1641,7 @@ async fn mark_skipped_targets(
                 run_id,
                 node_id,
                 DbNodeExecutionStatus::Skipped,
-                json!({ "status": "skipped" }),
+                json!({ "status": "skipped", "iteration": iteration }),
             );
         }
     }
@@ -1573,7 +1757,7 @@ async fn fail_nodes_with_status(
     for status in statuses {
         let rows = sqlx::query(
             r#"
-            SELECT node_id
+            SELECT node_id, iteration
             FROM node_executions
             WHERE run_id = ? AND status = ?
             "#,
@@ -1585,7 +1769,8 @@ async fn fail_nodes_with_status(
 
         for row in rows {
             let node_id: String = row.try_get("node_id")?;
-            mark_node_failed(pool, run_id, &node_id, message).await?;
+            let iteration: i64 = row.try_get("iteration")?;
+            mark_node_failed(pool, run_id, &node_id, iteration, message).await?;
         }
     }
 
@@ -1595,20 +1780,43 @@ async fn fail_nodes_with_status(
 async fn mark_pending_nodes_skipped(pool: &SqlitePool, run_id: Uuid) -> Result<(), ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT node_id
+        SELECT id, node_id, iteration
         FROM node_executions
         WHERE run_id = ? AND status = 'pending'
+        ORDER BY rowid ASC
         "#,
     )
     .bind(run_id)
     .fetch_all(pool)
     .await?;
 
-    let node_ids = rows
-        .iter()
-        .map(|row| row.try_get("node_id"))
-        .collect::<Result<Vec<String>, _>>()?;
-    mark_skipped_targets(pool, run_id, &node_ids).await
+    for row in rows {
+        let execution_id: Uuid = row.try_get("id")?;
+        let node_id: String = row.try_get("node_id")?;
+        let iteration: i64 = row.try_get("iteration")?;
+        let result = sqlx::query(
+            r#"
+            UPDATE node_executions
+            SET status = 'skipped',
+                finished_at = datetime('now', 'subsec'),
+                updated_at = datetime('now', 'subsec')
+            WHERE id = ? AND status = 'pending'
+            "#,
+        )
+        .bind(execution_id)
+        .execute(pool)
+        .await?;
+        if result.rows_affected() > 0 {
+            emit_node_status(
+                run_id,
+                &node_id,
+                DbNodeExecutionStatus::Skipped,
+                json!({ "status": "skipped", "iteration": iteration }),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 async fn reset_node_for_retry(
@@ -1736,6 +1944,7 @@ async fn update_node_execution(
     pool: &SqlitePool,
     run_id: Uuid,
     node_id: &str,
+    iteration: i64,
     update: NodeExecutionUpdate<'_>,
 ) -> Result<(), ApiError> {
     let result = sqlx::query(
@@ -1751,7 +1960,7 @@ async fn update_node_execution(
             started_at = COALESCE(started_at, datetime('now', 'subsec')),
             finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
             updated_at = datetime('now', 'subsec')
-        WHERE run_id = ? AND node_id = ? AND iteration = 0
+        WHERE run_id = ? AND node_id = ? AND iteration = ?
         "#,
     )
     .bind(node_status_value(update.status))
@@ -1764,11 +1973,12 @@ async fn update_node_execution(
     .bind(update.finished)
     .bind(run_id)
     .bind(node_id)
+    .bind(iteration)
     .execute(pool)
     .await?;
 
     if result.rows_affected() > 0 {
-        emit_node_update(run_id, node_id, update);
+        emit_node_update(run_id, node_id, iteration, update);
     }
 
     Ok(())
@@ -1826,7 +2036,7 @@ fn emit_run_status(
     ));
 }
 
-fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>) {
+fn emit_node_update(run_id: Uuid, node_id: &str, iteration: i64, update: NodeExecutionUpdate<'_>) {
     let status_value = node_status_value(update.status);
     emit_node_status(
         run_id,
@@ -1834,6 +2044,7 @@ fn emit_node_update(run_id: Uuid, node_id: &str, update: NodeExecutionUpdate<'_>
         update.status,
         json!({
             "status": status_value,
+            "iteration": iteration,
             "input_text": update.input_text,
             "output_text": update.output_text,
             "session_id": update.session_id,
@@ -2031,43 +2242,5 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
         WorkflowNodeKind::HumanGate => "human_gate",
         WorkflowNodeKind::Transform => "transform",
         WorkflowNodeKind::Arena => "arena",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::Utc;
-    use db::models::arena_group::ArenaStatus;
-
-    use super::*;
-
-    #[test]
-    fn workspace_after_container_ensure_carries_container_ref_for_execution_start() {
-        let now = Utc::now();
-        let workspace = Workspace {
-            id: Uuid::new_v4(),
-            task_id: None,
-            container_ref: None,
-            branch: "main".to_string(),
-            setup_completed_at: None,
-            created_at: now,
-            updated_at: now,
-            archived: false,
-            pinned: false,
-            name: Some("Workflow".to_string()),
-            worktree_deleted: false,
-            arena_group_id: None,
-            arena_status: ArenaStatus::Active,
-        };
-
-        let workspace_id = workspace.id;
-        let updated =
-            workspace_after_container_ensure(workspace, "C:/tmp/workflow-workspace".to_string());
-
-        assert_eq!(updated.id, workspace_id);
-        assert_eq!(
-            updated.container_ref.as_deref(),
-            Some("C:/tmp/workflow-workspace")
-        );
     }
 }

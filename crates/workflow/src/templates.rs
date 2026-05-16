@@ -219,6 +219,7 @@ fn node(id: &str, kind: WorkflowNodeKind, data: WorkflowNodeData) -> WorkflowNod
         id: id.to_string(),
         kind,
         data,
+        position: None,
     }
 }
 

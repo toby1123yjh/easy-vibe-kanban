@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useRef,
-  useState,
   type DragEvent,
   type MouseEvent,
 } from 'react';
@@ -17,7 +16,7 @@ import {
   MiniMap,
   Position,
   ConnectionLineType,
-  getSmoothStepPath,
+  getBezierPath,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -36,8 +35,6 @@ import '@xyflow/react/dist/style.css';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
-  WORKFLOW_GRAPH_VERSION,
-  createWorkflowNode,
   toReactFlowNodes,
   toReactFlowEdges,
   fromReactFlowGraph,
@@ -61,8 +58,6 @@ import {
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
-import { splitWorkflowEdgeForInsertedNode } from './workflowEdgeInsert';
-import { WorkflowQuickAdd } from './WorkflowQuickAdd';
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
@@ -72,11 +67,18 @@ export interface WorkflowCanvasProps {
   onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
   onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
   onNodeOpen?: (nodeId: string) => void;
+  onNodeContextMenu?: (event: WorkflowNodeContextMenuEvent) => void;
 }
 
 export interface WorkflowCanvasSelection {
   nodeId: string | null;
   edgeId: string | null;
+}
+
+export interface WorkflowNodeContextMenuEvent {
+  nodeId: string;
+  x: number;
+  y: number;
 }
 
 interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
@@ -102,8 +104,19 @@ const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
 };
 
+const getExecutorLabel = (data: WorkflowNodeData): string => {
+  const config = data.executor_config;
+  if (!config || typeof config !== 'object') return 'Agent';
+  const executor = (config as { executor?: unknown }).executor;
+  if (typeof executor !== 'string' || executor.length === 0) return 'Agent';
+  return executor.replace(/_/g, ' ');
+};
+
+const hasSession = (data: WorkflowNodeData): boolean =>
+  typeof data.session_id === 'string' && data.session_id.length > 0;
+
 const workflowHandleClass =
-  'h-3.5 w-3.5 border-[3px] border-panel bg-brand/70 shadow-sm transition-colors hover:bg-brand';
+  'h-3.5 w-3.5 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
 
 const inputHandles = [
   { id: 'input-left', position: Position.Left, style: { top: '42%' } },
@@ -127,18 +140,90 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const routeHints = getWorkflowNodeRouteHints(nodeKind, data);
   const validationIssues = getValidationIssues(data);
   const issueCount = validationIssues.length;
+  const structural = nodeKind === 'start' || nodeKind === 'end';
+  const sessionReady = hasSession(data);
+
+  if (structural) {
+    return (
+      <div
+        data-testid={`workflow-node-${id}`}
+        style={{ pointerEvents: 'all' }}
+        className={cn(
+          'relative flex min-w-[150px] cursor-grab items-center gap-2 overflow-visible rounded-full border bg-[#15171d]/90 px-3 py-2 text-high shadow-[0_10px_28px_rgba(0,0,0,0.28)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
+          selected
+            ? 'border-brand ring-2 ring-brand/30'
+            : issueCount > 0
+              ? 'border-amber-500/70'
+              : 'border-white/12 hover:border-brand/60'
+        )}
+      >
+        {nodeKind !== 'start'
+          ? inputHandles.map((handle) => (
+              <Handle
+                key={handle.id}
+                id={handle.id}
+                type="target"
+                position={handle.position}
+                style={handle.style}
+                className={workflowHandleClass}
+              />
+            ))
+          : null}
+        {issueCount > 0 ? (
+          <div
+            data-testid={`workflow-node-issue-${id}`}
+            title={validationIssues.map((issue) => issue.message).join('\n')}
+            className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-[#15171d] bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm"
+          >
+            {issueCount}
+          </div>
+        ) : null}
+        <div
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10',
+            visual.iconClass
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">
+            {data.display_name || getWorkflowNodeKindLabel(nodeKind)}
+          </div>
+          <div
+            data-testid={`workflow-node-kind-${id}`}
+            className="text-[10px] font-semibold uppercase tracking-normal text-low"
+          >
+            {getWorkflowNodeKindLabel(nodeKind)}
+          </div>
+        </div>
+        {nodeKind !== 'end'
+          ? outputHandles.map((handle) => (
+              <Handle
+                key={handle.id}
+                id={handle.id}
+                type="source"
+                position={handle.position}
+                style={handle.style}
+                className={workflowHandleClass}
+              />
+            ))
+          : null}
+      </div>
+    );
+  }
 
   return (
     <div
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'relative min-w-[220px] max-w-[260px] cursor-grab overflow-visible rounded-lg border bg-panel shadow-sm transition-all duration-150 active:cursor-grabbing',
+        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible rounded-lg border bg-[#17191f]/95 text-high shadow-[0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
         selected
-          ? 'border-brand shadow-md ring-2 ring-brand/20'
+          ? 'border-brand shadow-[0_20px_54px_rgba(249,115,22,0.18)] ring-2 ring-brand/25'
           : issueCount > 0
             ? 'border-amber-500/70 shadow-amber-500/10 hover:border-amber-500'
-            : 'border-secondary hover:border-brand/70 hover:shadow-md'
+            : 'border-white/12 hover:border-brand/60 hover:shadow-[0_20px_54px_rgba(0,0,0,0.38)]'
       )}
     >
       {type !== 'start'
@@ -165,16 +250,16 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <div
           data-testid={`workflow-node-issue-${id}`}
           title={validationIssues.map((issue) => issue.message).join('\n')}
-          className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-panel bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm"
+          className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-[#17191f] bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm"
         >
           {issueCount}
         </div>
       ) : null}
 
-      <div className="flex items-start gap-3 border-b border-secondary/50 bg-secondary/20 px-3 py-2 pl-4">
+      <div className="flex items-start gap-3 border-b border-white/10 bg-white/[0.03] px-3 py-2 pl-4">
         <div
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded border border-secondary/60',
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10',
             visual.iconClass
           )}
         >
@@ -188,7 +273,9 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             data-testid={`workflow-node-kind-${id}`}
             className="mt-0.5 text-[10px] font-semibold uppercase tracking-normal text-low"
           >
-            {getWorkflowNodeKindLabel(nodeKind)}
+            {nodeKind === 'agent'
+              ? getExecutorLabel(data)
+              : getWorkflowNodeKindLabel(nodeKind)}
           </div>
         </div>
       </div>
@@ -199,6 +286,23 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           className="truncate text-normal"
         >
           {getWorkflowNodeSummary(nodeKind, data)}
+        </div>
+
+        <div className="flex flex-wrap gap-1">
+          <span
+            data-testid={`workflow-node-session-${id}`}
+            className={cn(
+              'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+              sessionReady
+                ? 'border-success/30 bg-success/10 text-success'
+                : 'border-white/10 bg-white/[0.04] text-low'
+            )}
+          >
+            {sessionReady ? 'Session ready' : 'Draft session'}
+          </span>
+          <span className="inline-flex items-center rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
+            {getWorkflowNodeKindLabel(nodeKind)}
+          </span>
         </div>
 
         {metadata.length > 0 ? (
@@ -266,10 +370,8 @@ const nodeTypes = {
 export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
 export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
-export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
-  ConnectionLineType.SmoothStep;
-export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND =
-  'hsl(var(--bg-panel, 0 0% 89%))';
+export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE = ConnectionLineType.Bezier;
+export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND = '#15171d';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
   'dimensions',
@@ -318,14 +420,13 @@ const WorkflowEdge = ({
   const workflowType = data?.workflowType ?? 'default';
   const onInsert = data?.onInsert;
   const visual = getWorkflowEdgeVisual(workflowType);
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
-    borderRadius: 18,
   });
 
   return (
@@ -336,7 +437,17 @@ const WorkflowEdge = ({
           path={edgePath}
           markerEnd={markerEnd}
           interactionWidth={32}
-          className={cn('transition-all', visual.pathClass)}
+          className={cn('workflow-edge-path transition-all', visual.pathClass)}
+          style={{ strokeWidth: selected ? 3 : 2, opacity: 0.78 }}
+        />
+        <BaseEdge
+          id={`${id}-beam`}
+          path={edgePath}
+          interactionWidth={0}
+          className={cn(
+            'workflow-edge-beam opacity-40 transition-opacity group-hover:opacity-80',
+            selected && 'opacity-90'
+          )}
           style={{ strokeWidth: selected ? 3 : 2 }}
         />
         {onInsert ? (
@@ -424,6 +535,7 @@ export function WorkflowCanvas({
   onSelectionChange,
   onNodeDrop,
   onNodeOpen,
+  onNodeContextMenu,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes] = useNodesState<
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
@@ -431,11 +543,6 @@ export function WorkflowCanvas({
   const [edges, setEdges] = useEdgesState<
     ReactFlowEdge<WorkflowCanvasEdgeData>
   >([]);
-  const [insertMenu, setInsertMenu] = useState<{
-    edgeId: string;
-    position: WorkflowNodePosition;
-  } | null>(null);
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const { screenToFlowPosition } = useReactFlow();
   const lastSelectionRef = useRef<WorkflowCanvasSelection>({
     nodeId: null,
@@ -453,14 +560,6 @@ export function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
-
-  const startEdgeInsert = useCallback(
-    (edgeId: string, position: WorkflowNodePosition) => {
-      if (readOnly) return;
-      setInsertMenu({ edgeId, position });
-    },
-    [readOnly]
-  );
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -498,12 +597,11 @@ export function WorkflowCanvas({
       ...edge,
       data: {
         workflowType: edge.data?.workflowType ?? 'default',
-        onInsert: readOnly ? undefined : startEdgeInsert,
       },
     })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-  }, [graph, readOnly, setNodes, setEdges, startEdgeInsert, validationIssues]);
+  }, [graph, setNodes, setEdges, validationIssues]);
 
   // Bubble up changes
   const reportChange = useCallback(
@@ -597,6 +695,10 @@ export function WorkflowCanvas({
       const nodeElement = target.closest('.react-flow__node[data-id]');
       const nodeId = nodeElement?.getAttribute('data-id');
       if (!nodeId) return;
+      const node = nodesRef.current.find(
+        (candidate) => candidate.id === nodeId
+      );
+      if (node?.type === 'start' || node?.type === 'end') return;
 
       event.stopPropagation();
       applySelection({ nodeId, edgeId: null });
@@ -645,72 +747,6 @@ export function WorkflowCanvas({
     [readOnly, reportChange, setEdges]
   );
 
-  const addNodeAtViewportCenter = useCallback(
-    (kind: WorkflowNodeKind) => {
-      if (readOnly) return;
-      const node = createWorkflowNode(kind, {
-        position: screenToFlowPosition({
-          x: window.innerWidth / 2,
-          y: window.innerHeight / 2,
-        }),
-      });
-      const nextNode = toReactFlowNodes({
-        version: WORKFLOW_GRAPH_VERSION,
-        nodes: [node],
-        edges: [],
-      })[0];
-      const nextNodes = [...nodesRef.current, nextNode];
-      nodesRef.current = nextNodes;
-      setNodes(nextNodes);
-      reportChange(nextNodes, edgesRef.current);
-    },
-    [readOnly, reportChange, screenToFlowPosition, setNodes]
-  );
-
-  const insertNodeOnSelectedEdge = useCallback(
-    (kind: WorkflowNodeKind) => {
-      if (readOnly || !insertMenu) return;
-      const edge = edgesRef.current.find(
-        (candidate) => candidate.id === insertMenu.edgeId
-      );
-      if (!edge) {
-        setInsertMenu(null);
-        return;
-      }
-
-      const node = createWorkflowNode(kind, {
-        position: insertMenu.position,
-      });
-      const nextNode = toReactFlowNodes({
-        version: WORKFLOW_GRAPH_VERSION,
-        nodes: [node],
-        edges: [],
-      })[0];
-      const splitEdges = splitWorkflowEdgeForInsertedNode({
-        edge,
-        nodeId: node.id,
-      }).map((splitEdge) => ({
-        ...splitEdge,
-        data: {
-          workflowType: splitEdge.data?.workflowType ?? 'default',
-          onInsert: startEdgeInsert,
-        },
-      })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
-      const nextNodes = [...nodesRef.current, nextNode];
-      const nextEdges = edgesRef.current
-        .filter((candidate) => candidate.id !== edge.id)
-        .concat(splitEdges);
-
-      nodesRef.current = nextNodes;
-      edgesRef.current = nextEdges;
-      setNodes(nextNodes);
-      setEdges(nextEdges);
-      setInsertMenu(null);
-      reportChange(nextNodes, nextEdges);
-    },
-    [insertMenu, readOnly, reportChange, setEdges, setNodes, startEdgeInsert]
-  );
-
   const onSelectionChangeReactFlow = useCallback(
     ({
       nodes: selectedNodes,
@@ -731,23 +767,6 @@ export function WorkflowCanvas({
     },
     [emitSelectionChange]
   );
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (readOnly) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setQuickAddOpen(true);
-      }
-      if (event.key === 'Escape') {
-        setQuickAddOpen(false);
-        setInsertMenu(null);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [readOnly]);
 
   const onDragOver = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
@@ -779,7 +798,7 @@ export function WorkflowCanvas({
 
   return (
     <div
-      className="relative h-full w-full bg-primary"
+      className="relative h-full w-full bg-[#101114]"
       onDoubleClickCapture={onCanvasDoubleClickCapture}
     >
       <ReactFlow
@@ -802,8 +821,19 @@ export function WorkflowCanvas({
           }
         }}
         onNodeDoubleClick={(_, node) => {
+          if (node.type === 'start' || node.type === 'end') return;
           applySelection({ nodeId: node.id, edgeId: null });
           onNodeOpen?.(node.id);
+        }}
+        onNodeContextMenu={(event, node) => {
+          if (node.type === 'start' || node.type === 'end') return;
+          event.preventDefault();
+          applySelection({ nodeId: node.id, edgeId: null });
+          onNodeContextMenu?.({
+            nodeId: node.id,
+            x: event.clientX,
+            y: event.clientY,
+          });
         }}
         onEdgeClick={(_, edge) =>
           applySelection({ nodeId: null, edgeId: edge.id })
@@ -817,58 +847,33 @@ export function WorkflowCanvas({
         reconnectRadius={16}
         elementsSelectable={true}
         connectionLineType={WORKFLOW_CANVAS_CONNECTION_LINE_TYPE}
+        connectionLineStyle={{
+          stroke: 'hsl(var(--brand))',
+          strokeWidth: 2,
+          strokeDasharray: '8 8',
+        }}
         snapToGrid
         snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
         deleteKeyCode={readOnly ? null : WORKFLOW_CANVAS_DELETE_KEYS}
         fitView
-        className="workflow-canvas bg-primary"
+        className="workflow-canvas workflow-canvas-product bg-[#101114]"
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={WORKFLOW_CANVAS_SNAP_GRID[0]}
           size={1.5}
-          color="hsl(var(--low) / 0.15)"
+          color="#2e333b"
         />
-        <Controls className="rounded-lg border border-secondary bg-panel/90 shadow-sm backdrop-blur" />
+        <Controls className="rounded-lg border border-white/10 bg-[#17191f]/90 text-high shadow-lg backdrop-blur" />
         <MiniMap
           zoomable
           pannable
           nodeColor="#f97316"
-          maskColor="rgba(15, 23, 42, 0.16)"
+          maskColor="rgba(16, 17, 20, 0.54)"
           style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
-          className="overflow-hidden rounded-lg border border-secondary shadow-sm"
+          className="overflow-hidden rounded-lg border border-white/10 shadow-lg"
         />
       </ReactFlow>
-      {insertMenu ? (
-        <div
-          role="menu"
-          className="min-w-40 rounded-md border border-secondary bg-panel p-1 shadow-lg"
-          style={{
-            position: 'fixed',
-            left: '50%',
-            top: 80,
-            zIndex: 9999,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className="w-full rounded px-3 py-2 text-left text-sm font-medium text-high hover:bg-secondary/70"
-            onClick={() => insertNodeOnSelectedEdge('agent')}
-          >
-            Agent Step
-          </button>
-        </div>
-      ) : null}
-      <WorkflowQuickAdd
-        open={quickAddOpen && !readOnly}
-        onClose={() => setQuickAddOpen(false)}
-        onSelect={(kind) => {
-          addNodeAtViewportCenter(kind);
-          setQuickAddOpen(false);
-        }}
-      />
     </div>
   );
 }

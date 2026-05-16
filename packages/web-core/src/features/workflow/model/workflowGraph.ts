@@ -88,6 +88,7 @@ export interface WorkflowArenaAttemptConfig {
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   display_name?: string;
+  session_id?: string;
   role_template_id?: string;
   executor_config?: unknown;
   prompt_template?: string;
@@ -271,17 +272,38 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
         id: 'start',
         type: 'start',
         data: { display_name: 'Start' },
+        position: { x: 80, y: 180 },
+      },
+      {
+        id: 'familiarize',
+        type: 'agent',
+        data: {
+          display_name: '熟悉项目',
+          role_template_id: 'custom',
+          prompt_template:
+            '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
+        },
+        position: { x: 360, y: 160 },
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
+        position: { x: 680, y: 180 },
       },
     ],
     edges: [
       {
-        id: 'start-end',
+        id: 'start-familiarize',
         source: 'start',
+        source_handle: DEFAULT_SOURCE_HANDLE,
+        target: 'familiarize',
+        target_handle: DEFAULT_TARGET_HANDLE,
+        type: 'default',
+      },
+      {
+        id: 'familiarize-end',
+        source: 'familiarize',
         source_handle: DEFAULT_SOURCE_HANDLE,
         target: 'end',
         target_handle: DEFAULT_TARGET_HANDLE,
@@ -297,11 +319,22 @@ export function migrateWorkflowGraph(
   return {
     ...graph,
     version: WORKFLOW_GRAPH_VERSION,
+    nodes: graph.nodes.map((node, index) => ({
+      ...node,
+      position: node.position ?? fallbackWorkflowNodePosition(index),
+    })),
     edges: graph.edges.map((edge) => ({
       ...edge,
       source_handle: edge.source_handle ?? DEFAULT_SOURCE_HANDLE,
       target_handle: edge.target_handle ?? DEFAULT_TARGET_HANDLE,
     })),
+  };
+}
+
+function fallbackWorkflowNodePosition(index: number): WorkflowNodePosition {
+  return {
+    x: 80 + (index % 4) * 280,
+    y: 140 + Math.floor(index / 4) * 180,
   };
 }
 

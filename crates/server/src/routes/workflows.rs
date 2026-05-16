@@ -9,8 +9,9 @@ use axum::{
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
-use db::models::workflow::{
-    NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource,
+use db::models::{
+    session::{CreateSession, Session},
+    workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
 };
 use deployment::Deployment;
 use futures_util::{StreamExt, stream};
@@ -20,7 +21,10 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
-use workflow::{WorkflowGraph, templates::built_in_templates, validation::validate_graph};
+use workflow::{
+    WorkflowGraph, graph::WorkflowNodeKind, templates::built_in_templates,
+    validation::validate_graph,
+};
 
 use crate::{
     DeploymentImpl,
@@ -32,13 +36,13 @@ use crate::{
         },
         runner::{
             DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, WorkflowAgentExecutor,
-            WorkflowWorkspaceResolver, approve_human_node_with_arena, cancel_workflow_run_runtime,
-            get_workflow_run_response, reject_human_node, retry_workflow_node_with_arena,
-            select_arena_winner_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_for_attempt_with_arena, trigger_workflow_run_with_arena,
-            workflow_event_history,
+            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_with_arena,
+            cancel_workflow_run_runtime, get_workflow_run_response, reject_human_node,
+            retry_workflow_node_with_arena, select_arena_winner_with_arena,
+            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_arena,
+            trigger_workflow_run_with_arena, workflow_event_history,
         },
-        workspace::DeploymentWorkflowWorkspaceResolver,
+        workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
     },
 };
 
@@ -332,8 +336,15 @@ async fn create_workflow_attempt(
     Path((project_id, issue_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<CreateWorkflowAttemptRequest>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowAttemptResponse>>, ApiError> {
-    let data =
-        create_issue_workflow_attempt(&deployment.db().pool, project_id, issue_id, request).await?;
+    let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
+    let data = create_issue_workflow_attempt_with_resources(
+        &deployment.db().pool,
+        project_id,
+        issue_id,
+        request,
+        &workspace_resolver,
+    )
+    .await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -510,6 +521,114 @@ pub async fn create_issue_workflow_attempt(
         .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found after create".to_string()))
 }
 
+pub async fn create_issue_workflow_attempt_with_resources<W>(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    issue_id: Uuid,
+    request: CreateWorkflowAttemptRequest,
+    workspace_resolver: &W,
+) -> Result<WorkflowAttemptResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+{
+    let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
+    let workspace_id = workspace_resolver
+        .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
+            issue_id,
+            run_id: attempt.id,
+            project_id: Some(project_id),
+            existing_workspace_id: None,
+            branch_name: main_workflow_branch_name(issue_id, attempt.id),
+        })
+        .await?;
+
+    let workflow = get_workflow_template(pool, attempt.workflow_id).await?;
+    let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+    if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
+        persist_workflow_graph(pool, attempt.workflow_id, &graph).await?;
+    }
+
+    update_workflow_attempt_runtime(
+        pool,
+        attempt.id,
+        None,
+        Some(workspace_id),
+        WorkflowAttemptStatus::Draft,
+    )
+    .await?;
+
+    workflow_attempt_by_id(pool, attempt.id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::BadRequest("Workflow attempt not found after resource bind".to_string())
+        })
+}
+
+pub async fn ensure_agent_node_sessions(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    graph: &mut WorkflowGraph,
+) -> Result<bool, ApiError> {
+    let mut changed = false;
+    for node in graph
+        .nodes
+        .iter_mut()
+        .filter(|node| node.kind == WorkflowNodeKind::Agent)
+    {
+        if node.data.session_id.is_some() {
+            continue;
+        }
+
+        let display_name = node
+            .data
+            .display_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(node.id.as_str());
+        let session = Session::create(
+            pool,
+            &CreateSession {
+                executor: None,
+                name: Some(format!("Workflow {display_name}")),
+            },
+            Uuid::new_v4(),
+            workspace_id,
+        )
+        .await?;
+        node.data.session_id = Some(session.id.to_string());
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
+pub async fn persist_workflow_graph(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    graph: &WorkflowGraph,
+) -> Result<(), ApiError> {
+    validate_graph(graph)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
+    let graph_json = serde_json::to_string(graph)
+        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+
+    sqlx::query(
+        r#"
+        UPDATE workflows
+        SET graph_json = ?,
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ?
+        "#,
+    )
+    .bind(graph_json)
+    .bind(workflow_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn list_workflow_attempts_for_issue(
     pool: &SqlitePool,
     project_id: Uuid,
@@ -655,7 +774,7 @@ where
         Some(attempt.id),
         TriggerWorkflowRequest {
             issue_id: attempt.issue_id,
-            workspace_id: request.workspace_id,
+            workspace_id: request.workspace_id.or(attempt.workspace_id),
             trigger_source: request.trigger_source,
             input_text: request.input_text,
         },
@@ -712,9 +831,27 @@ pub async fn update_workflow_template(
         ));
     }
 
-    if let Some(graph_json) = request.graph_json.as_deref() {
-        validate_graph_json(graph_json)?;
-    }
+    let graph_json = if let Some(graph_json) = request.graph_json {
+        validate_graph_json(&graph_json)?;
+        if let Some(workflow_attempt) = workflow_attempt_by_workflow_id(pool, workflow_id).await? {
+            if let Some(workspace_id) = workflow_attempt.workspace_id {
+                let mut graph: WorkflowGraph =
+                    serde_json::from_str(&graph_json).map_err(|err| {
+                        ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
+                    })?;
+                ensure_agent_node_sessions(pool, workspace_id, &mut graph).await?;
+                serde_json::to_string(&graph).map_err(|err| {
+                    ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
+                })?
+            } else {
+                graph_json
+            }
+        } else {
+            graph_json
+        }
+    } else {
+        existing.graph_json
+    };
 
     sqlx::query(
         r#"
@@ -725,7 +862,7 @@ pub async fn update_workflow_template(
     )
     .bind(request.name.unwrap_or(existing.name))
     .bind(request.description.or(existing.description))
-    .bind(request.graph_json.unwrap_or(existing.graph_json))
+    .bind(graph_json)
     .bind(workflow_id)
     .execute(pool)
     .await?;

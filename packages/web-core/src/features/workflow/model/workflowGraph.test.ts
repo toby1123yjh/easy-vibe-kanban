@@ -21,7 +21,7 @@ import {
 } from './workflowNodeCatalog';
 
 describe('workflow graph model', () => {
-  it('creates a minimal start to end graph compatible with backend schema', () => {
+  it('creates a default issue workflow skeleton compatible with backend schema', () => {
     const graph = createDefaultWorkflowGraph();
 
     expect(graph.version).toBe(WORKFLOW_GRAPH_VERSION);
@@ -30,17 +30,38 @@ describe('workflow graph model', () => {
         id: 'start',
         type: 'start',
         data: { display_name: 'Start' },
+        position: { x: 80, y: 180 },
+      },
+      {
+        id: 'familiarize',
+        type: 'agent',
+        data: {
+          display_name: '熟悉项目',
+          role_template_id: 'custom',
+          prompt_template:
+            '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
+        },
+        position: { x: 360, y: 160 },
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
+        position: { x: 680, y: 180 },
       },
     ]);
     expect(graph.edges).toEqual([
       {
-        id: 'start-end',
+        id: 'start-familiarize',
         source: 'start',
+        source_handle: DEFAULT_SOURCE_HANDLE,
+        target: 'familiarize',
+        target_handle: DEFAULT_TARGET_HANDLE,
+        type: 'default',
+      },
+      {
+        id: 'familiarize-end',
+        source: 'familiarize',
         source_handle: DEFAULT_SOURCE_HANDLE,
         target: 'end',
         target_handle: DEFAULT_TARGET_HANDLE,
@@ -244,6 +265,7 @@ describe('workflow graph model', () => {
       source_handle: DEFAULT_SOURCE_HANDLE,
       target_handle: DEFAULT_TARGET_HANDLE,
     });
+    expect(graph.nodes[0].position).toEqual({ x: 80, y: 140 });
   });
 
   it('does not overwrite existing v2 handles', () => {

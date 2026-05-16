@@ -213,6 +213,7 @@ mod tests {
                 display_name: Some(id.to_string()),
                 ..WorkflowNodeData::default()
             },
+            position: None,
         }
     }
 

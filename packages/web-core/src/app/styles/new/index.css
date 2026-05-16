@@ -440,6 +440,39 @@ html {
       animation: none;
     }
   }
+
+  .workflow-canvas-product .react-flow__pane {
+    background: linear-gradient(180deg, #101114 0%, #121418 100%);
+  }
+
+  .workflow-edge-beam {
+    stroke: hsl(var(--brand));
+    stroke-dasharray: 12 18;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.5));
+    animation: workflow-edge-flow 1.2s linear infinite;
+  }
+
+  .workflow-canvas-product .react-flow__handle {
+    opacity: 0.72;
+  }
+
+  .workflow-canvas-product .react-flow__node:hover .react-flow__handle,
+  .workflow-canvas-product .react-flow__node.selected .react-flow__handle {
+    opacity: 1;
+  }
+
+  @keyframes workflow-edge-flow {
+    to {
+      stroke-dashoffset: -30;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .workflow-edge-beam {
+      animation: none;
+    }
+  }
 }
 
 /* Color emoji utility - uses system color emoji fonts for reactions */

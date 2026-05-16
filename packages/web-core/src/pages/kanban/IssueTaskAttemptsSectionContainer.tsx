@@ -24,9 +24,7 @@ import {
 import {
   buildIssueWorkflowDraft,
   buildTaskAttempts,
-  RunWorkflowDialog,
   type TaskAttemptView,
-  type WorkflowWorkspaceOption,
 } from '@/features/workflow';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { DeleteWorkspaceDialog } from '@vibe/ui/components/DeleteWorkspaceDialog';
@@ -125,26 +123,6 @@ export function IssueTaskAttemptsSectionContainer({
     userId,
     localWorkspacesById,
   ]);
-
-  const workflowWorkspaces = useMemo<WorkflowWorkspaceOption[]>(
-    () =>
-      getWorkspacesForIssue(issueId)
-        .filter((workspace) => workspace.local_workspace_id)
-        .map((workspace) => {
-          const localWorkspace = localWorkspacesById.get(
-            workspace.local_workspace_id as string
-          );
-          return {
-            id: workspace.local_workspace_id as string,
-            label:
-              workspace.name ||
-              localWorkspace?.name ||
-              `Workspace ${workspace.local_workspace_id}`,
-            branch: localWorkspace?.branch ?? null,
-          };
-        }),
-    [getWorkspacesForIssue, issueId, localWorkspacesById]
-  );
 
   const attempts = useMemo(
     () =>
@@ -253,9 +231,7 @@ export function IssueTaskAttemptsSectionContainer({
       const attempt = attemptData as TaskAttemptView;
 
       if (attempt.kind === 'workflow') {
-        if (attempt.latestRunId) {
-          appNavigation.goToProjectWorkflowRun(projectId, attempt.latestRunId);
-        } else if (attempt.workflowId) {
+        if (attempt.workflowId) {
           appNavigation.goToProjectWorkflowEdit(projectId, attempt.workflowId);
         }
         return;
@@ -270,25 +246,6 @@ export function IssueTaskAttemptsSectionContainer({
       }
     },
     [projectId, issueId, appNavigation]
-  );
-
-  const handleRunAttempt = useCallback(
-    async (attemptData: IssueTaskAttemptCardData) => {
-      if (!projectId) return;
-      const attempt = attemptData as TaskAttemptView;
-      if (attempt.kind !== 'workflow' || !attempt.workflowAttemptId) return;
-
-      await RunWorkflowDialog.show({
-        projectId,
-        issueId,
-        issueTitle,
-        issueDescription,
-        attemptId: attempt.workflowAttemptId,
-        attemptName: attempt.title,
-        workspaces: workflowWorkspaces,
-      });
-    },
-    [projectId, issueId, issueTitle, issueDescription, workflowWorkspaces]
   );
 
   const handleUnlinkAttempt = useCallback(
@@ -402,7 +359,6 @@ export function IssueTaskAttemptsSectionContainer({
         isLoading={projectLoading || orgLoading || workflowAttemptsLoading}
         actions={actions}
         onOpenAttempt={handleOpenAttempt}
-        onRunAttempt={handleRunAttempt}
         onUnlinkAttempt={handleUnlinkAttempt}
         onDeleteAttempt={handleDeleteAttempt}
         onCreateWorkflowAttempt={handleCreateWorkflowAttempt}

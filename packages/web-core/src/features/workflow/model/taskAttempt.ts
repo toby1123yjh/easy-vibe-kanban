@@ -62,7 +62,7 @@ function workflowAttemptToTaskAttempt(
     statusLabel: workflowAttemptStatusLabel(attempt.status),
     statusTone: workflowAttemptStatusTone(attempt.status),
     updatedAt: attempt.updated_at,
-    primaryActionLabel: attempt.latest_run_id ? 'Open run' : 'Open canvas',
+    primaryActionLabel: 'Open canvas',
     workflowId: attempt.workflow_id,
     workflowAttemptId: attempt.id,
     latestRunId: attempt.latest_run_id,

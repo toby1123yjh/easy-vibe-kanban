@@ -6,8 +6,8 @@ export const ISSUE_WORKFLOW_ENTRY_COPY = {
   subtitle: 'Design the task attempt before running agents',
   primaryActionLabel: 'Open canvas',
   primaryActionAriaLabel: 'Open workflow attempt canvas',
-  secondaryActionLabel: 'Run attempt',
-  secondaryActionAriaLabel: 'Run workflow attempt',
+  secondaryActionLabel: 'Open canvas',
+  secondaryActionAriaLabel: 'Open workflow attempt canvas',
 };
 
 export function buildWorkflowRunInput({

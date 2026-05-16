@@ -132,6 +132,45 @@ async fn setup_workflow_pool() -> SqlitePool {
             UNIQUE (run_id, node_id, iteration)
         )
         "#,
+        r#"
+        CREATE TABLE repos (
+            id BLOB PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            setup_script TEXT,
+            cleanup_script TEXT,
+            archive_script TEXT,
+            copy_files TEXT,
+            parallel_setup_script BOOLEAN NOT NULL DEFAULT FALSE,
+            dev_server_script TEXT,
+            default_target_branch TEXT,
+            default_working_dir TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE workspace_repos (
+            id BLOB PRIMARY KEY,
+            workspace_id BLOB NOT NULL,
+            repo_id BLOB NOT NULL,
+            target_branch TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE sessions (
+            id BLOB PRIMARY KEY,
+            workspace_id BLOB NOT NULL,
+            name TEXT,
+            executor TEXT,
+            agent_working_dir TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
     ] {
         sqlx::query(statement)
             .execute(&pool)
@@ -283,6 +322,50 @@ fn arena_graph_json() -> String {
             { "id": "e1", "source": "start", "target": "plan", "type": "default" },
             { "id": "e2", "source": "plan", "target": "arena", "type": "default" },
             { "id": "e3", "source": "arena", "target": "end", "type": "arena_winner" }
+        ]
+    })
+    .to_string()
+}
+
+fn fan_in_agent_graph_json() -> String {
+    json!({
+        "version": 2,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "scan",
+                "type": "transform",
+                "data": {
+                    "display_name": "Scan code",
+                    "mode": "template",
+                    "template": "Scan: {{input}}"
+                }
+            },
+            {
+                "id": "summarize",
+                "type": "transform",
+                "data": {
+                    "display_name": "Summarize task",
+                    "mode": "template",
+                    "template": "Summary: {{input}}"
+                }
+            },
+            {
+                "id": "review",
+                "type": "agent",
+                "data": {
+                    "display_name": "Review",
+                    "prompt_template": "Review the current worktree."
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "scan", "type": "default" },
+            { "id": "e2", "source": "start", "target": "summarize", "type": "default" },
+            { "id": "e3", "source": "scan", "target": "review", "type": "default" },
+            { "id": "e4", "source": "summarize", "target": "review", "type": "default" },
+            { "id": "e5", "source": "review", "target": "end", "type": "default" }
         ]
     })
     .to_string()
@@ -1322,6 +1405,7 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     assert_eq!(agent_requests.len(), 1);
     assert_eq!(agent_requests[0].run_id, run.id);
     assert_eq!(agent_requests[0].node_id, "agent");
+    assert!(agent_requests[0].session_id.is_some());
     assert_eq!(agent_requests[0].workspace_id, workspace_id);
     assert_eq!(
         agent_requests[0].prompt,
@@ -1340,6 +1424,72 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
         Some("implemented feature")
     );
     assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
+}
+
+#[tokio::test]
+async fn workflow_runner_fan_in_triggers_same_agent_session_multiple_times() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Fan In Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(fan_in_agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert fan-in workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = FakeAgentExecutor::new(session_id, "reviewed branch");
+
+    let run = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Fan-in should trigger twice".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    let agent_requests = agent.requests();
+    assert_eq!(agent_requests.len(), 2);
+    assert_eq!(agent_requests[0].node_id, "review");
+    assert_eq!(agent_requests[1].node_id, "review");
+    assert_eq!(agent_requests[0].session_id, agent_requests[1].session_id);
+    assert_eq!(agent_requests[0].prompt, "Review the current worktree.");
+    assert_eq!(agent_requests[1].prompt, "Review the current worktree.");
+
+    let review_iterations = run
+        .nodes
+        .iter()
+        .filter(|node| node.node_id == "review")
+        .map(|node| node.iteration)
+        .collect::<Vec<_>>();
+    assert_eq!(review_iterations, vec![0, 1]);
+
+    let end_iterations = run
+        .nodes
+        .iter()
+        .filter(|node| node.node_id == "end")
+        .map(|node| node.iteration)
+        .collect::<Vec<_>>();
+    assert_eq!(end_iterations, vec![0, 1]);
 }
 
 #[tokio::test]

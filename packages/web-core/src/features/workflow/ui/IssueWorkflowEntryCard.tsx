@@ -1,4 +1,4 @@
-import { GitBranch, Loader2, Play } from 'lucide-react';
+import { GitBranch, Loader2 } from 'lucide-react';
 import { ISSUE_WORKFLOW_ENTRY_COPY } from '../model/issueWorkflow';
 
 export interface IssueWorkflowEntryCardProps {
@@ -53,7 +53,7 @@ export function IssueWorkflowEntryCard({
           className="flex h-10 cursor-pointer items-center justify-center gap-half rounded border border-secondary bg-primary px-half text-sm font-medium text-normal transition-colors hover:border-brand/60 hover:text-high focus:outline-none focus:ring-1 focus:ring-brand"
           aria-label={ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionAriaLabel}
         >
-          <Play className="h-4 w-4 shrink-0 text-brand" />
+          <GitBranch className="h-4 w-4 shrink-0 text-brand" />
           <span>{ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel}</span>
         </button>
       </div>

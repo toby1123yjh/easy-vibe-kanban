@@ -289,6 +289,7 @@ mod tests {
             id: id.to_string(),
             kind,
             data,
+            position: None,
         }
     }
 

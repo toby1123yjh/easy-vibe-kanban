@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,8 @@ pub enum NodeExecutionStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeExecutionSnapshot {
     pub node_id: String,
+    #[serde(default)]
+    pub iteration: i64,
     pub status: NodeExecutionStatus,
     pub output_text: Option<String>,
     pub error_text: Option<String>,
@@ -34,6 +36,7 @@ pub struct RunSnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadyNode {
     pub node_id: String,
+    pub iteration: i64,
     pub kind: WorkflowNodeKind,
     pub writes_main_worktree: bool,
 }
@@ -50,48 +53,75 @@ pub struct ReadyPlan {
 }
 
 pub fn plan_ready_nodes(graph: &WorkflowGraph, snapshot: &RunSnapshot) -> ReadyPlan {
-    let statuses = node_statuses(snapshot);
+    let executions = execution_snapshots(graph, snapshot);
+    let succeeded_counts = succeeded_execution_counts(&executions);
     let incoming = incoming_edges(graph);
-
-    let mut ready_nodes = graph
+    let nodes_by_id = graph
         .nodes
         .iter()
-        .filter(|node| node_status(node.id.as_str(), &statuses) == NodeExecutionStatus::Pending)
-        .filter(|node| {
-            node_is_ready(
-                node,
-                incoming.get(node.id.as_str()).map(Vec::as_slice),
-                &statuses,
-            )
-        })
-        .map(ready_node)
-        .collect::<Vec<_>>();
+        .map(|node| (node.id.as_str(), node))
+        .collect::<HashMap<_, _>>();
 
-    let mut warnings = Vec::new();
-    serialize_main_worktree_agents(graph, &statuses, &mut ready_nodes, &mut warnings);
+    let ready_nodes = executions
+        .iter()
+        .filter(|execution| execution.status == NodeExecutionStatus::Pending)
+        .filter_map(|execution| {
+            let node = nodes_by_id.get(execution.node_id.as_str())?;
+            if execution_is_ready(
+                node,
+                execution.iteration,
+                incoming.get(node.id.as_str()).map(Vec::as_slice),
+                &succeeded_counts,
+            ) {
+                Some(ready_node(node, execution.iteration))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     ReadyPlan {
         ready_nodes,
-        warnings,
+        warnings: Vec::new(),
     }
 }
 
-fn node_status(
-    node_id: &str,
-    statuses: &HashMap<&str, NodeExecutionStatus>,
-) -> NodeExecutionStatus {
-    statuses
-        .get(node_id)
-        .copied()
-        .unwrap_or(NodeExecutionStatus::Pending)
+fn execution_snapshots(
+    graph: &WorkflowGraph,
+    snapshot: &RunSnapshot,
+) -> Vec<NodeExecutionSnapshot> {
+    let mut executions = snapshot.nodes.clone();
+    let known_iteration_zero = executions
+        .iter()
+        .filter(|execution| execution.iteration == 0)
+        .map(|execution| execution.node_id.as_str())
+        .collect::<HashSet<_>>();
+
+    for node in &graph.nodes {
+        if known_iteration_zero.contains(node.id.as_str()) {
+            continue;
+        }
+        executions.push(NodeExecutionSnapshot {
+            node_id: node.id.clone(),
+            iteration: 0,
+            status: NodeExecutionStatus::Pending,
+            output_text: None,
+            error_text: None,
+        });
+    }
+
+    executions
 }
 
-fn node_statuses(snapshot: &RunSnapshot) -> HashMap<&str, NodeExecutionStatus> {
+fn succeeded_execution_counts(snapshot: &[NodeExecutionSnapshot]) -> HashMap<&str, i64> {
+    let mut counts = HashMap::new();
     snapshot
-        .nodes
         .iter()
-        .map(|node| (node.node_id.as_str(), node.status))
-        .collect()
+        .filter(|node| node.status == NodeExecutionStatus::Succeeded)
+        .for_each(|node| {
+            *counts.entry(node.node_id.as_str()).or_insert(0) += 1;
+        });
+    counts
 }
 
 fn incoming_edges(graph: &WorkflowGraph) -> HashMap<&str, Vec<&WorkflowEdge>> {
@@ -108,80 +138,35 @@ fn incoming_edges(graph: &WorkflowGraph) -> HashMap<&str, Vec<&WorkflowEdge>> {
     incoming
 }
 
-fn node_is_ready(
+fn execution_is_ready(
     node: &WorkflowNode,
+    iteration: i64,
     incoming: Option<&[&WorkflowEdge]>,
-    statuses: &HashMap<&str, NodeExecutionStatus>,
+    succeeded_counts: &HashMap<&str, i64>,
 ) -> bool {
     let Some(incoming) = incoming else {
-        return node.kind == WorkflowNodeKind::Start;
+        return node.kind == WorkflowNodeKind::Start && iteration == 0;
     };
     if incoming.is_empty() {
-        return node.kind == WorkflowNodeKind::Start;
+        return node.kind == WorkflowNodeKind::Start && iteration == 0;
     }
 
-    let mut has_succeeded_upstream = false;
-    for edge in incoming {
-        match node_status(edge.source.as_str(), statuses) {
-            NodeExecutionStatus::Succeeded => has_succeeded_upstream = true,
-            NodeExecutionStatus::Skipped => {}
-            NodeExecutionStatus::Pending
-            | NodeExecutionStatus::Running
-            | NodeExecutionStatus::AwaitingHuman
-            | NodeExecutionStatus::AwaitingArena
-            | NodeExecutionStatus::Failed => return false,
-        }
-    }
-
-    has_succeeded_upstream
+    incoming.iter().any(|edge| {
+        succeeded_counts
+            .get(edge.source.as_str())
+            .copied()
+            .unwrap_or(0)
+            > 0
+    })
 }
 
-fn ready_node(node: &WorkflowNode) -> ReadyNode {
+fn ready_node(node: &WorkflowNode, iteration: i64) -> ReadyNode {
     ReadyNode {
         node_id: node.id.clone(),
+        iteration,
         kind: node.kind.clone(),
         writes_main_worktree: node.kind == WorkflowNodeKind::Agent,
     }
-}
-
-fn serialize_main_worktree_agents(
-    graph: &WorkflowGraph,
-    statuses: &HashMap<&str, NodeExecutionStatus>,
-    ready_nodes: &mut Vec<ReadyNode>,
-    warnings: &mut Vec<PlannerWarning>,
-) {
-    let agent_node_ids = ready_nodes
-        .iter()
-        .filter(|node| node.writes_main_worktree)
-        .map(|node| node.node_id.clone())
-        .collect::<Vec<_>>();
-    if agent_node_ids.is_empty() {
-        return;
-    }
-
-    let agent_is_running = graph.nodes.iter().any(|node| {
-        node.kind == WorkflowNodeKind::Agent
-            && node_status(node.id.as_str(), statuses) == NodeExecutionStatus::Running
-    });
-
-    if agent_is_running {
-        ready_nodes.retain(|node| !node.writes_main_worktree);
-        warnings.push(PlannerWarning::SerializedMainWorktreeAgents {
-            node_ids: agent_node_ids,
-        });
-        return;
-    }
-
-    if agent_node_ids.len() <= 1 {
-        return;
-    }
-
-    let selected_agent_id = agent_node_ids[0].as_str();
-    ready_nodes
-        .retain(|node| !node.writes_main_worktree || node.node_id.as_str() == selected_agent_id);
-    warnings.push(PlannerWarning::SerializedMainWorktreeAgents {
-        node_ids: agent_node_ids,
-    });
 }
 
 #[cfg(test)]
@@ -191,10 +176,7 @@ mod tests {
             WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
             WorkflowNodeKind,
         },
-        planner::{
-            NodeExecutionSnapshot, NodeExecutionStatus, PlannerWarning, RunSnapshot,
-            plan_ready_nodes,
-        },
+        planner::{NodeExecutionSnapshot, NodeExecutionStatus, RunSnapshot, plan_ready_nodes},
     };
 
     fn node(id: &str, kind: WorkflowNodeKind) -> WorkflowNode {
@@ -202,6 +184,7 @@ mod tests {
             id: id.to_string(),
             kind,
             data: WorkflowNodeData::default(),
+            position: None,
         }
     }
 
@@ -231,6 +214,7 @@ mod tests {
                 .iter()
                 .map(|(node_id, status)| NodeExecutionSnapshot {
                     node_id: (*node_id).to_string(),
+                    iteration: 0,
                     status: *status,
                     output_text: None,
                     error_text: None,
@@ -280,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn join_waits_for_all_selected_upstream_nodes() {
+    fn fan_in_is_ready_after_any_upstream_succeeds() {
         let graph = graph(
             vec![
                 node("start", WorkflowNodeKind::Start),
@@ -298,19 +282,15 @@ mod tests {
             ],
         );
 
-        let waiting = plan_ready_nodes(
+        let ready_after_one = plan_ready_nodes(
             &graph,
             &snapshot(&[
                 ("start", NodeExecutionStatus::Succeeded),
                 ("a", NodeExecutionStatus::Succeeded),
             ]),
         );
-        assert!(
-            waiting
-                .ready_nodes
-                .iter()
-                .all(|node| node.node_id != "join")
-        );
+        assert_eq!(ready_after_one.ready_nodes[0].node_id, "b");
+        assert_eq!(ready_after_one.ready_nodes[1].node_id, "join");
 
         let ready = plan_ready_nodes(
             &graph,
@@ -320,7 +300,14 @@ mod tests {
                 ("b", NodeExecutionStatus::Succeeded),
             ]),
         );
-        assert_eq!(ready.ready_nodes[0].node_id, "join");
+        assert_eq!(
+            ready
+                .ready_nodes
+                .iter()
+                .map(|node| node.node_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["join"]
+        );
     }
 
     #[test]
@@ -382,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_ready_agent_nodes_on_main_worktree_are_serialized() {
+    fn fan_out_keeps_multiple_ready_agent_nodes() {
         let graph = graph(
             vec![
                 node("start", WorkflowNodeKind::Start),
@@ -403,13 +390,83 @@ mod tests {
             &snapshot(&[("start", NodeExecutionStatus::Succeeded)]),
         );
 
-        assert_eq!(plan.ready_nodes.len(), 1);
-        assert_eq!(plan.ready_nodes[0].node_id, "agent-a");
         assert_eq!(
-            plan.warnings,
-            vec![PlannerWarning::SerializedMainWorktreeAgents {
-                node_ids: vec!["agent-a".to_string(), "agent-b".to_string()]
-            }]
+            plan.ready_nodes
+                .iter()
+                .map(|node| node.node_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agent-a", "agent-b"]
+        );
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn fan_in_can_ready_later_iterations_for_same_node() {
+        let graph = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                node("a", WorkflowNodeKind::Transform),
+                node("b", WorkflowNodeKind::Transform),
+                node("join", WorkflowNodeKind::Agent),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "a"),
+                edge("e2", "start", "b"),
+                edge("e3", "a", "join"),
+                edge("e4", "b", "join"),
+                edge("e5", "join", "end"),
+            ],
+        );
+
+        let plan = plan_ready_nodes(
+            &graph,
+            &RunSnapshot {
+                run_id: "run-1".to_string(),
+                nodes: vec![
+                    NodeExecutionSnapshot {
+                        node_id: "start".to_string(),
+                        iteration: 0,
+                        status: NodeExecutionStatus::Succeeded,
+                        output_text: None,
+                        error_text: None,
+                    },
+                    NodeExecutionSnapshot {
+                        node_id: "a".to_string(),
+                        iteration: 0,
+                        status: NodeExecutionStatus::Succeeded,
+                        output_text: None,
+                        error_text: None,
+                    },
+                    NodeExecutionSnapshot {
+                        node_id: "b".to_string(),
+                        iteration: 0,
+                        status: NodeExecutionStatus::Succeeded,
+                        output_text: None,
+                        error_text: None,
+                    },
+                    NodeExecutionSnapshot {
+                        node_id: "join".to_string(),
+                        iteration: 0,
+                        status: NodeExecutionStatus::Succeeded,
+                        output_text: None,
+                        error_text: None,
+                    },
+                    NodeExecutionSnapshot {
+                        node_id: "join".to_string(),
+                        iteration: 1,
+                        status: NodeExecutionStatus::Pending,
+                        output_text: None,
+                        error_text: None,
+                    },
+                ],
+            },
+        );
+
+        assert!(
+            plan.ready_nodes
+                .iter()
+                .any(|node| { node.node_id == "join" && node.iteration == 1 })
         );
     }
 }

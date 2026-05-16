@@ -153,9 +153,34 @@ pub async fn follow_up(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
 ) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
+    let execution_process = start_coding_agent_execution_for_session(
+        &deployment,
+        session,
+        payload.prompt,
+        payload.selected_skills,
+        payload.executor_config,
+        payload.retry_process_id,
+        payload.force_when_dirty,
+        payload.perform_git_reset,
+    )
+    .await?;
+
+    Ok(ResponseJson(ApiResponse::success(execution_process)))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn start_coding_agent_execution_for_session(
+    deployment: &DeploymentImpl,
+    session: Session,
+    prompt: String,
+    selected_skills: Option<Vec<SelectedSkill>>,
+    executor_config: ExecutorConfig,
+    retry_process_id: Option<Uuid>,
+    force_when_dirty: Option<bool>,
+    perform_git_reset: Option<bool>,
+) -> Result<ExecutionProcess, ApiError> {
     let pool = &deployment.db().pool;
 
-    // Load workspace from session
     let workspace = Workspace::find_by_id(pool, session.workspace_id)
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::ValidationError(
@@ -169,9 +194,8 @@ pub async fn follow_up(
         .ensure_container_exists(&workspace)
         .await?;
 
-    let executor_profile_id = payload.executor_config.profile_id();
+    let executor_profile_id = executor_config.profile_id();
 
-    // Validate executor matches session if session has prior executions
     let expected_executor: Option<String> =
         ExecutionProcess::latest_executor_profile_for_session(pool, session.id)
             .await?
@@ -193,9 +217,9 @@ pub async fn follow_up(
             .await?;
     }
 
-    if let Some(proc_id) = payload.retry_process_id {
-        let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
-        let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
+    if let Some(proc_id) = retry_process_id {
+        let force_when_dirty = force_when_dirty.unwrap_or(false);
+        let perform_git_reset = perform_git_reset.unwrap_or(true);
         deployment
             .container()
             .reset_session_to_process(session.id, proc_id, perform_git_reset, force_when_dirty)
@@ -204,7 +228,7 @@ pub async fn follow_up(
 
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
-    let mut prompt = payload.prompt;
+    let mut prompt = prompt;
     if is_open_design_arena_workspace(pool, workspace.id).await? {
         prompt = design_arena_prompt(&prompt);
     }
@@ -219,21 +243,21 @@ pub async fn follow_up(
         .cloned();
 
     let action_type = if let Some(info) = latest_session_info {
-        let is_reset = payload.retry_process_id.is_some();
+        let is_reset = retry_process_id.is_some();
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: prompt.clone(),
-            selected_skills: payload.selected_skills.clone(),
+            selected_skills: selected_skills.clone(),
             session_id: info.session_id,
             reset_to_message_id: if is_reset { info.message_id } else { None },
-            executor_config: payload.executor_config.clone(),
+            executor_config: executor_config.clone(),
             working_dir: working_dir.clone(),
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(
             executors::actions::coding_agent_initial::CodingAgentInitialRequest {
                 prompt,
-                selected_skills: payload.selected_skills.clone(),
-                executor_config: payload.executor_config.clone(),
+                selected_skills: selected_skills.clone(),
+                executor_config: executor_config.clone(),
                 working_dir,
             },
         )
@@ -251,10 +275,7 @@ pub async fn follow_up(
         )
         .await?;
 
-    // Clear the draft follow-up scratch on successful spawn
-    // This ensures the scratch is wiped even if the user navigates away quickly
     if let Err(e) = Scratch::delete(pool, session.id, &ScratchType::DraftFollowUp).await {
-        // Log but don't fail the request - scratch deletion is best-effort
         tracing::debug!(
             "Failed to delete draft follow-up scratch for session {}: {}",
             session.id,
@@ -262,7 +283,7 @@ pub async fn follow_up(
         );
     }
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(execution_process)
 }
 
 pub async fn reset_process(

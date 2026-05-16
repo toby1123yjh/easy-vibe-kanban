@@ -46,38 +46,38 @@ export interface WorkflowNodeRouteHint {
 const NODE_VISUALS: Record<WorkflowNodeKind, WorkflowNodeVisual> = {
   start: {
     accentClass: 'bg-emerald-500',
-    iconClass: 'bg-emerald-500/10 text-emerald-700',
-    badgeClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700',
+    iconClass: 'bg-emerald-500/10 text-emerald-300',
+    badgeClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   },
   end: {
     accentClass: 'bg-slate-500',
-    iconClass: 'bg-slate-500/10 text-slate-700',
-    badgeClass: 'border-slate-500/30 bg-slate-500/10 text-slate-700',
+    iconClass: 'bg-slate-500/10 text-slate-300',
+    badgeClass: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
   },
   agent: {
     accentClass: 'bg-sky-500',
-    iconClass: 'bg-sky-500/10 text-sky-700',
-    badgeClass: 'border-sky-500/30 bg-sky-500/10 text-sky-700',
+    iconClass: 'bg-sky-500/10 text-sky-300',
+    badgeClass: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
   },
   condition: {
     accentClass: 'bg-amber-500',
-    iconClass: 'bg-amber-500/10 text-amber-700',
-    badgeClass: 'border-amber-500/30 bg-amber-500/10 text-amber-700',
+    iconClass: 'bg-amber-500/10 text-amber-300',
+    badgeClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
   },
   human_gate: {
     accentClass: 'bg-violet-500',
-    iconClass: 'bg-violet-500/10 text-violet-700',
-    badgeClass: 'border-violet-500/30 bg-violet-500/10 text-violet-700',
+    iconClass: 'bg-violet-500/10 text-violet-300',
+    badgeClass: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
   },
   transform: {
     accentClass: 'bg-cyan-500',
-    iconClass: 'bg-cyan-500/10 text-cyan-700',
-    badgeClass: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700',
+    iconClass: 'bg-cyan-500/10 text-cyan-300',
+    badgeClass: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300',
   },
   arena: {
     accentClass: 'bg-fuchsia-500',
-    iconClass: 'bg-fuchsia-500/10 text-fuchsia-700',
-    badgeClass: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700',
+    iconClass: 'bg-fuchsia-500/10 text-fuchsia-300',
+    badgeClass: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300',
   },
 };
 

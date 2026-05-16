@@ -82,8 +82,8 @@ export function IssueTaskAttemptsSection({
                   attempt={attempt}
                   onOpen={() => onOpenAttempt?.(attempt)}
                   onRun={
-                    attempt.kind === 'workflow'
-                      ? () => onRunAttempt?.(attempt)
+                    attempt.kind === 'workflow' && onRunAttempt
+                      ? () => onRunAttempt(attempt)
                       : undefined
                   }
                   onUnlink={
