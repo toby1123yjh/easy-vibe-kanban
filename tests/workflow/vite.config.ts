@@ -14,6 +14,8 @@ export default defineConfig({
       'lucide-react': `${repoRoot}/packages/web-core/node_modules/lucide-react`,
       react: `${repoRoot}/packages/web-core/node_modules/react`,
       'react-dom': `${repoRoot}/packages/web-core/node_modules/react-dom`,
+      'shared/types': `${repoRoot}/shared/types.ts`,
+      'shared/remote-types': `${repoRoot}/shared/remote-types.ts`,
     },
   },
   server: {
