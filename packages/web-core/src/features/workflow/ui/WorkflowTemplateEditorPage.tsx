@@ -29,6 +29,10 @@ import { WorkflowAgentNodeDraftPanel } from './WorkflowAgentNodeDraftPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import {
+  getNextAgentDraftPanelNodeIdForSelection,
+  getWorkflowTemplateInspectorPanel,
+} from './workflowTemplateEditorPanel';
+import {
   RunWorkflowDialog,
   type WorkflowWorkspaceOption,
 } from './RunWorkflowDialog';
@@ -37,13 +41,6 @@ import {
   validateWorkflowGraph,
 } from './WorkflowValidationPanel';
 import { Button } from '@vibe/ui/components/Button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@vibe/ui/components/Dialog';
 import {
   Loader2,
   ArrowLeft,
@@ -77,7 +74,9 @@ export function WorkflowTemplateEditorPage({
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [openNodeDialogId, setOpenNodeDialogId] = useState<string | null>(null);
+  const [agentDraftPanelNodeId, setAgentDraftPanelNodeId] = useState<
+    string | null
+  >(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [graphParseError, setGraphParseError] = useState<string | null>(null);
@@ -229,7 +228,9 @@ export function WorkflowTemplateEditorPage({
     });
     setSelectedNodeId(newNode.id);
     setSelectedEdgeId(null);
-    setOpenNodeDialogId(newNode.id);
+    setAgentDraftPanelNodeId(
+      isWorkflowAgentDraftNode(newNode) ? newNode.id : null
+    );
   };
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {
@@ -301,9 +302,10 @@ export function WorkflowTemplateEditorPage({
     [graph, selectedEdgeId]
   );
 
-  const dialogNode = useMemo(
-    () => graph?.nodes.find((node) => node.id === openNodeDialogId) ?? null,
-    [graph, openNodeDialogId]
+  const agentDraftPanelNode = useMemo(
+    () =>
+      graph?.nodes.find((node) => node.id === agentDraftPanelNodeId) ?? null,
+    [agentDraftPanelNodeId, graph]
   );
 
   const selectedEdgeConditionBranchName = useMemo(
@@ -349,6 +351,11 @@ export function WorkflowTemplateEditorPage({
     !isUpdating &&
     isValid &&
     !readOnly;
+  const inspectorPanel = getWorkflowTemplateInspectorPanel({
+    selectedEdge,
+    selectedNode,
+    requestedAgentDraftNode: agentDraftPanelNode,
+  });
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -534,6 +541,13 @@ export function WorkflowTemplateEditorPage({
                 onSelectionChange={(selection) => {
                   setSelectedNodeId(selection.nodeId);
                   setSelectedEdgeId(selection.edgeId);
+                  setAgentDraftPanelNodeId((currentPanelNodeId) =>
+                    getNextAgentDraftPanelNodeIdForSelection({
+                      currentPanelNodeId,
+                      selectedNodeId: selection.nodeId,
+                      selectedEdgeId: selection.edgeId,
+                    })
+                  );
                 }}
                 onNodeDrop={handleAddNode}
                 onNodeOpen={(nodeId) => {
@@ -550,7 +564,12 @@ export function WorkflowTemplateEditorPage({
                     );
                     return;
                   }
-                  setOpenNodeDialogId(nodeId);
+                  const node = graph.nodes.find(
+                    (candidate) => candidate.id === nodeId
+                  );
+                  setAgentDraftPanelNodeId(
+                    node && isWorkflowAgentDraftNode(node) ? nodeId : null
+                  );
                 }}
               />
             </ReactFlowProvider>
@@ -559,10 +578,16 @@ export function WorkflowTemplateEditorPage({
         </div>
 
         {/* Inspector */}
-        <div className="relative z-10 w-80 shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]">
-          {selectedEdge ? (
+        <div
+          className={
+            inspectorPanel.kind === 'agentDraft'
+              ? 'relative z-10 w-[560px] shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)] xl:w-[640px]'
+              : 'relative z-10 w-80 shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]'
+          }
+        >
+          {inspectorPanel.kind === 'edge' ? (
             <WorkflowEdgeInspector
-              edge={selectedEdge}
+              edge={inspectorPanel.edge}
               nodes={graph.nodes}
               conditionBranchName={selectedEdgeConditionBranchName}
               conditionBranchNames={selectedEdgeConditionBranchNames}
@@ -570,66 +595,21 @@ export function WorkflowTemplateEditorPage({
               onChange={handleEdgeChange}
               onConditionBranchChange={handleConditionBranchChange}
             />
+          ) : inspectorPanel.kind === 'agentDraft' ? (
+            <WorkflowAgentNodeDraftPanel
+              node={inspectorPanel.node}
+              readOnly={readOnly}
+              onChange={handleNodeChange}
+            />
           ) : (
             <WorkflowNodeInspector
-              node={selectedNode}
+              node={inspectorPanel.node}
               readOnly={readOnly}
               onChange={handleNodeChange}
             />
           )}
         </div>
       </div>
-
-      <Dialog
-        open={Boolean(dialogNode)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setOpenNodeDialogId(null);
-          }
-        }}
-      >
-        <DialogContent
-          data-testid="workflow-node-dialog"
-          className="flex max-h-[86vh] max-w-[760px] flex-col p-0"
-        >
-          <div className="border-b border-secondary px-5 py-4">
-            <DialogHeader className="space-y-half">
-              <DialogTitle>
-                {dialogNode
-                  ? isWorkflowAgentDraftNode(dialogNode)
-                    ? `${dialogNode.data.display_name || 'Agent'} session`
-                    : `${dialogNode.data.display_name || 'Step'} configuration`
-                  : 'Step configuration'}
-              </DialogTitle>
-              <DialogDescription>
-                {dialogNode
-                  ? isWorkflowAgentDraftNode(dialogNode)
-                    ? 'Prepare the task prompt and agent for this workflow step.'
-                    : `Edit ${dialogNode.type.replace('_', ' ')} step settings.`
-                  : 'Edit step settings.'}
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-          {dialogNode && isWorkflowAgentDraftNode(dialogNode) ? (
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <WorkflowAgentNodeDraftPanel
-                node={dialogNode}
-                readOnly={readOnly}
-                onChange={handleNodeChange}
-                onDone={() => setOpenNodeDialogId(null)}
-              />
-            </div>
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <WorkflowNodeInspector
-                node={dialogNode}
-                readOnly={readOnly}
-                onChange={handleNodeChange}
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
