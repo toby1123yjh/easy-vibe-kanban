@@ -35,9 +35,15 @@ Do not manually edit shared/remote-types.ts, instead edit crates/remote/src/bin/
 - Generate TS types from Rust: `pnpm run generate-types` (or `generate-types:check` in CI)
 - Prepare SQLx (offline): `pnpm run prepare-db`
 - Prepare SQLx (remote package, postgres): `pnpm run remote:prepare-db`
-- Local NPX build: `pnpm run build:npx` then `pnpm pack` in `npx-cli/`
+- NPX release validation: follow `PROJECT.md`. Commit and push the branch, run the GitHub Actions npm publish workflow (`publish-easy-npx.yml`), then verify/install from the official npm registry. Do not use local build/pack artifacts as the validation or release path unless the user explicitly asks for local-only debugging.
 - Format code: `pnpm run format` (runs `cargo fmt` for all backend Rust workspaces + web-core/web Prettier)
 - Lint: `pnpm run lint` (runs web/ui ESLint + `cargo clippy` for all backend Rust workspaces)
+
+## Project Build Policy
+- This section embeds the current local `PROJECT.md` policy. `PROJECT.md` itself is local-only and does not need to be committed or pushed.
+- For validation builds, use GitHub Actions to build and publish to npm. Do not attempt to build release packages on this machine.
+- After the action completes, verify the published `easy-vibe-kanban` version with the official npm registry (`https://registry.npmjs.org/`) and install/run from npm for user-facing checks.
+- `git-build.md` may document historical artifact-based flows, but `PROJECT.md` overrides it for current build/release decisions.
 
 ## Before Completing a Task
 - Run `pnpm run format` to format all Rust workspaces and web code.

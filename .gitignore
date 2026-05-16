@@ -82,6 +82,12 @@ easy-vibe-kanban-windows-x64-npx.zip
 # Claude Code local files
 .claude/
 
+# Agent/local workflow metadata
+.agents/
+.codex/
+.trellis/
+PROJECT.md
+
 # Local git worktrees
 .worktrees/
 
