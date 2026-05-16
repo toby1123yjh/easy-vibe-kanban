@@ -190,10 +190,6 @@ export function getWorkflowNodeMetadata(
     case 'agent':
       return [
         { label: 'Role', value: formatToken(data.role_template_id, 'custom') },
-        {
-          label: 'Capture',
-          value: formatToken(data.output_capture, 'last message'),
-        },
       ];
     case 'condition':
       return [

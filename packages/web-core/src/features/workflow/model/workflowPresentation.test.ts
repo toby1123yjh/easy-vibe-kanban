@@ -83,10 +83,7 @@ describe('workflow presentation helpers', () => {
         role_template_id: 'reviewer',
         output_capture: 'diff_summary',
       })
-    ).toEqual([
-      { label: 'Role', value: 'reviewer' },
-      { label: 'Capture', value: 'diff summary' },
-    ]);
+    ).toEqual([{ label: 'Role', value: 'reviewer' }]);
 
     expect(
       getWorkflowNodeMetadata('arena', {
