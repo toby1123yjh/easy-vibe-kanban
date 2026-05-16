@@ -94,7 +94,7 @@ fn execution_snapshots(
     let known_iteration_zero = executions
         .iter()
         .filter(|execution| execution.iteration == 0)
-        .map(|execution| execution.node_id.as_str())
+        .map(|execution| execution.node_id.clone())
         .collect::<HashSet<_>>();
 
     for node in &graph.nodes {
