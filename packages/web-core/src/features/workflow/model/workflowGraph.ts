@@ -6,8 +6,14 @@ import { createDefaultNodeData } from './workflowNodeCatalog';
 import { getWorkflowEdgeLabel } from './workflowPresentation';
 
 export const WORKFLOW_GRAPH_VERSION = 2;
-export const DEFAULT_SOURCE_HANDLE = 'output-right';
-export const DEFAULT_TARGET_HANDLE = 'input-left';
+export const WORKFLOW_PORT_HANDLE_IDS = {
+  left: 'port-left',
+  top: 'port-top',
+  right: 'port-right',
+  bottom: 'port-bottom',
+} as const;
+export const DEFAULT_SOURCE_HANDLE = WORKFLOW_PORT_HANDLE_IDS.right;
+export const DEFAULT_TARGET_HANDLE = WORKFLOW_PORT_HANDLE_IDS.left;
 
 export type WorkflowNodeKind =
   | 'start'
@@ -146,6 +152,28 @@ export interface ReactFlowWorkflowEdgeData extends Record<string, unknown> {
 export interface WorkflowNodePosition {
   x: number;
   y: number;
+}
+
+export function normalizeWorkflowPortHandle(
+  handle: string | null | undefined,
+  fallback: string
+): string {
+  switch (handle) {
+    case 'input-left':
+    case 'output-left':
+      return WORKFLOW_PORT_HANDLE_IDS.left;
+    case 'input-top':
+    case 'output-top':
+      return WORKFLOW_PORT_HANDLE_IDS.top;
+    case 'input-right':
+    case 'output-right':
+      return WORKFLOW_PORT_HANDLE_IDS.right;
+    case 'input-bottom':
+    case 'output-bottom':
+      return WORKFLOW_PORT_HANDLE_IDS.bottom;
+    default:
+      return handle ?? fallback;
+  }
 }
 
 function getConditionBranchContext(
@@ -325,8 +353,14 @@ export function migrateWorkflowGraph(
     })),
     edges: graph.edges.map((edge) => ({
       ...edge,
-      source_handle: edge.source_handle ?? DEFAULT_SOURCE_HANDLE,
-      target_handle: edge.target_handle ?? DEFAULT_TARGET_HANDLE,
+      source_handle: normalizeWorkflowPortHandle(
+        edge.source_handle,
+        DEFAULT_SOURCE_HANDLE
+      ),
+      target_handle: normalizeWorkflowPortHandle(
+        edge.target_handle,
+        DEFAULT_TARGET_HANDLE
+      ),
     })),
   };
 }
@@ -393,9 +427,15 @@ export function toReactFlowEdges(
   return graph.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
-    sourceHandle: edge.source_handle,
+    sourceHandle: normalizeWorkflowPortHandle(
+      edge.source_handle,
+      DEFAULT_SOURCE_HANDLE
+    ),
     target: edge.target,
-    targetHandle: edge.target_handle,
+    targetHandle: normalizeWorkflowPortHandle(
+      edge.target_handle,
+      DEFAULT_TARGET_HANDLE
+    ),
     type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
     data: { workflowType: edge.type },
     label: getWorkflowEdgeLabel(edge.type),
@@ -430,9 +470,15 @@ export function fromReactFlowGraph(
     edges: edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
-      source_handle: edge.sourceHandle ?? undefined,
+      source_handle: normalizeWorkflowPortHandle(
+        edge.sourceHandle,
+        DEFAULT_SOURCE_HANDLE
+      ),
       target: edge.target,
-      target_handle: edge.targetHandle ?? undefined,
+      target_handle: normalizeWorkflowPortHandle(
+        edge.targetHandle,
+        DEFAULT_TARGET_HANDLE
+      ),
       type: getWorkflowTypeFromReactFlowEdge(edge),
     })),
   };

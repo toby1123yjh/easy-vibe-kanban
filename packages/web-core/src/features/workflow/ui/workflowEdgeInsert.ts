@@ -3,6 +3,7 @@ import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
   WORKFLOW_REACT_FLOW_EDGE_TYPE,
+  normalizeWorkflowPortHandle,
   type ReactFlowWorkflowEdgeData,
 } from '../model/workflowGraph';
 
@@ -19,7 +20,10 @@ export function splitWorkflowEdgeForInsertedNode({
     {
       id: `${edge.source}-${nodeId}`,
       source: edge.source,
-      sourceHandle: edge.sourceHandle ?? DEFAULT_SOURCE_HANDLE,
+      sourceHandle: normalizeWorkflowPortHandle(
+        edge.sourceHandle,
+        DEFAULT_SOURCE_HANDLE
+      ),
       target: nodeId,
       targetHandle: DEFAULT_TARGET_HANDLE,
       type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
@@ -30,7 +34,10 @@ export function splitWorkflowEdgeForInsertedNode({
       source: nodeId,
       sourceHandle: DEFAULT_SOURCE_HANDLE,
       target: edge.target,
-      targetHandle: edge.targetHandle ?? DEFAULT_TARGET_HANDLE,
+      targetHandle: normalizeWorkflowPortHandle(
+        edge.targetHandle,
+        DEFAULT_TARGET_HANDLE
+      ),
       type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
       data: { workflowType: 'default' },
     },

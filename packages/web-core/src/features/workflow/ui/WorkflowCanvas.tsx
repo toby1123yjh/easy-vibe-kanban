@@ -36,6 +36,8 @@ import '@xyflow/react/dist/style.css';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
+  WORKFLOW_PORT_HANDLE_IDS,
+  normalizeWorkflowPortHandle,
   toReactFlowNodes,
   toReactFlowEdges,
   fromReactFlowGraph,
@@ -121,26 +123,22 @@ const workflowHandleClass =
 
 const workflowHandlePoints = [
   {
-    sourceId: 'output-left',
-    targetId: 'input-left',
+    id: WORKFLOW_PORT_HANDLE_IDS.left,
     position: Position.Left,
     style: { top: '50%' },
   },
   {
-    sourceId: 'output-top',
-    targetId: 'input-top',
+    id: WORKFLOW_PORT_HANDLE_IDS.top,
     position: Position.Top,
     style: { left: '50%' },
   },
   {
-    sourceId: 'output-right',
-    targetId: 'input-right',
+    id: WORKFLOW_PORT_HANDLE_IDS.right,
     position: Position.Right,
     style: { top: '50%' },
   },
   {
-    sourceId: 'output-bottom',
-    targetId: 'input-bottom',
+    id: WORKFLOW_PORT_HANDLE_IDS.bottom,
     position: Position.Bottom,
     style: { left: '50%' },
   },
@@ -153,35 +151,21 @@ function renderWorkflowHandles({
   canReceive: boolean;
   canStart: boolean;
 }) {
-  return workflowHandlePoints.flatMap((handle) => {
-    const targetHandle = canReceive ? (
-      <Handle
-        key={`${handle.targetId}-target`}
-        id={handle.targetId}
-        type="target"
-        position={handle.position}
-        style={handle.style}
-        className={cn(
-          workflowHandleClass,
-          canStart
-            ? 'workflow-handle-hidden-target z-[1]'
-            : 'workflow-handle-visible z-[2]'
-        )}
-      />
-    ) : null;
+  if (!canReceive && !canStart) {
+    return null;
+  }
 
-    const sourceHandle = canStart ? (
+  return workflowHandlePoints.map((handle) => {
+    return (
       <Handle
-        key={`${handle.sourceId}-source`}
-        id={handle.sourceId}
-        type="source"
+        key={handle.id}
+        id={handle.id}
+        type={canStart ? 'source' : 'target'}
         position={handle.position}
         style={handle.style}
         className={cn(workflowHandleClass, 'workflow-handle-visible z-[3]')}
       />
-    ) : null;
-
-    return [targetHandle, sourceHandle].filter(Boolean);
+    );
   });
 }
 
@@ -787,8 +771,14 @@ export function WorkflowCanvas({
               ? `${connection.source}-${connection.target}`
               : undefined,
           type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
-          sourceHandle: connection.sourceHandle ?? DEFAULT_SOURCE_HANDLE,
-          targetHandle: connection.targetHandle ?? DEFAULT_TARGET_HANDLE,
+          sourceHandle: normalizeWorkflowPortHandle(
+            connection.sourceHandle,
+            DEFAULT_SOURCE_HANDLE
+          ),
+          targetHandle: normalizeWorkflowPortHandle(
+            connection.targetHandle,
+            DEFAULT_TARGET_HANDLE
+          ),
           data: { workflowType: 'default' },
         },
         edgesRef.current
@@ -806,9 +796,25 @@ export function WorkflowCanvas({
       newConnection: Connection
     ) => {
       if (readOnly) return;
-      const next = reconnectEdge(oldEdge, newConnection, edgesRef.current, {
-        shouldReplaceId: false,
-      }) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
+      const normalizedConnection = {
+        ...newConnection,
+        sourceHandle: normalizeWorkflowPortHandle(
+          newConnection.sourceHandle,
+          DEFAULT_SOURCE_HANDLE
+        ),
+        targetHandle: normalizeWorkflowPortHandle(
+          newConnection.targetHandle,
+          DEFAULT_TARGET_HANDLE
+        ),
+      };
+      const next = reconnectEdge(
+        oldEdge,
+        normalizedConnection,
+        edgesRef.current,
+        {
+          shouldReplaceId: false,
+        }
+      ) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
       edgesRef.current = next;
       setEdges(next);
       reportChange(nodesRef.current, next);

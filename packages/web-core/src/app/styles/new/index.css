@@ -468,13 +468,6 @@ html {
     opacity: 1;
   }
 
-  .workflow-canvas-product .react-flow__handle.workflow-handle-hidden-target {
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
-    opacity: 0 !important;
-  }
-
   .workflow-canvas-product .react-flow__edgeupdater,
   .workflow-canvas-product .react-flow__edgeupdater-source,
   .workflow-canvas-product .react-flow__edgeupdater-target {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_GRAPH_VERSION,
+  WORKFLOW_PORT_HANDLE_IDS,
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
   clearConditionBranchTargetForEdge,
@@ -242,7 +243,7 @@ describe('workflow graph model', () => {
     expect(fromReactFlowGraph([], flowEdges).edges[0]).toEqual(edge);
   });
 
-  it('migrates legacy v1 graphs to v2 edge handles', () => {
+  it('migrates legacy v1 graphs to single-port edge handles', () => {
     const graph = migrateWorkflowGraph({
       version: 1,
       nodes: [
@@ -265,6 +266,26 @@ describe('workflow graph model', () => {
       target_handle: DEFAULT_TARGET_HANDLE,
     });
     expect(graph.nodes[0].position).toEqual({ x: 80, y: 140 });
+  });
+
+  it('normalizes legacy input and output handle ids to shared ports', () => {
+    const graph = migrateWorkflowGraph({
+      version: 2,
+      nodes: [],
+      edges: [
+        {
+          id: 'a-b',
+          source: 'a',
+          source_handle: 'output-bottom',
+          target: 'b',
+          target_handle: 'input-top',
+          type: 'default',
+        },
+      ],
+    });
+
+    expect(graph.edges[0].source_handle).toBe(WORKFLOW_PORT_HANDLE_IDS.bottom);
+    expect(graph.edges[0].target_handle).toBe(WORKFLOW_PORT_HANDLE_IDS.top);
   });
 
   it('does not overwrite existing v2 handles', () => {

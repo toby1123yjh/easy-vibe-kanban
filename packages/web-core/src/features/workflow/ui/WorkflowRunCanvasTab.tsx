@@ -9,6 +9,7 @@ import {
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   Handle,
   MiniMap,
@@ -47,6 +48,7 @@ import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
+  WORKFLOW_PORT_HANDLE_IDS,
   migrateWorkflowGraph,
   toReactFlowEdges,
   toReactFlowNodes,
@@ -106,18 +108,11 @@ const edgeStrokeByTone: Record<StatusTone, string> = {
   warning: 'hsl(var(--warning))',
 };
 
-const runInputHandles = [
+const runPortHandles = [
   { id: DEFAULT_TARGET_HANDLE, position: Position.Left },
-  { id: 'input-top', position: Position.Top },
-  { id: 'input-right', position: Position.Right },
-  { id: 'input-bottom', position: Position.Bottom },
-] as const;
-
-const runOutputHandles = [
-  { id: 'output-left', position: Position.Left },
-  { id: 'output-top', position: Position.Top },
+  { id: WORKFLOW_PORT_HANDLE_IDS.top, position: Position.Top },
   { id: DEFAULT_SOURCE_HANDLE, position: Position.Right },
-  { id: 'output-bottom', position: Position.Bottom },
+  { id: WORKFLOW_PORT_HANDLE_IDS.bottom, position: Position.Bottom },
 ] as const;
 
 function RunNode({ data }: { data: RunNodeData }) {
@@ -165,17 +160,15 @@ function RunNode({ data }: { data: RunNodeData }) {
           isRunning ? 'animate-pulse' : ''
         )}
       />
-      {type !== 'start'
-        ? runInputHandles.map((handle) => (
-            <Handle
-              key={handle.id}
-              id={handle.id}
-              type="target"
-              position={handle.position}
-              className="opacity-0"
-            />
-          ))
-        : null}
+      {runPortHandles.map((handle) => (
+        <Handle
+          key={handle.id}
+          id={handle.id}
+          type={type === 'end' ? 'target' : 'source'}
+          position={handle.position}
+          className="opacity-0"
+        />
+      ))}
       <div className="flex items-center gap-3 pr-4">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/60 bg-primary/70 shadow-sm">
           {statusIconMap[status]}
@@ -189,17 +182,6 @@ function RunNode({ data }: { data: RunNodeData }) {
           </span>
         </div>
       </div>
-      {type !== 'end'
-        ? runOutputHandles.map((handle) => (
-            <Handle
-              key={handle.id}
-              id={handle.id}
-              type="source"
-              position={handle.position}
-              className="opacity-0"
-            />
-          ))
-        : null}
     </div>
   );
 }
@@ -467,6 +449,7 @@ export function WorkflowRunCanvasTab({
           onPaneClick={() => selectNodeById(null)}
           nodesDraggable={false}
           nodesConnectable={false}
+          connectionMode={ConnectionMode.Loose}
           elementsSelectable={true}
           fitView
         >

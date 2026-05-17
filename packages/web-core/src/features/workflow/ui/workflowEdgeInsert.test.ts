@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_SOURCE_HANDLE,
+  DEFAULT_TARGET_HANDLE,
+} from '../model/workflowGraph';
 import { splitWorkflowEdgeForInsertedNode } from './workflowEdgeInsert';
 
 describe('splitWorkflowEdgeForInsertedNode', () => {
@@ -20,5 +24,13 @@ describe('splitWorkflowEdgeForInsertedNode', () => {
       'start-agent-1',
       'agent-1-end',
     ]);
+    expect(result[0]).toMatchObject({
+      sourceHandle: DEFAULT_SOURCE_HANDLE,
+      targetHandle: DEFAULT_TARGET_HANDLE,
+    });
+    expect(result[1]).toMatchObject({
+      sourceHandle: DEFAULT_SOURCE_HANDLE,
+      targetHandle: DEFAULT_TARGET_HANDLE,
+    });
   });
 });
