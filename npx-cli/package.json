@@ -1,7 +1,7 @@
 {
   "name": "easy-vibe-kanban",
   "private": false,
-  "version": "0.1.44-easy.22",
+  "version": "0.1.44-easy.23",
   "main": "index.js",
   "bin": {
     "easy-vibe-kanban": "bin/cli.js"
