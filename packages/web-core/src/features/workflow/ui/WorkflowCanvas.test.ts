@@ -59,8 +59,6 @@ describe('workflow canvas interaction settings', () => {
   });
 
   it('uses a stable non-white minimap background token', () => {
-    expect(WORKFLOW_CANVAS_MINIMAP_BACKGROUND).toBe(
-      'hsl(var(--bg-panel, 0 0% 89%))'
-    );
+    expect(WORKFLOW_CANVAS_MINIMAP_BACKGROUND).toBe('#15171d');
   });
 });

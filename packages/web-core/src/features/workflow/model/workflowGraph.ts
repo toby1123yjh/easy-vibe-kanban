@@ -283,13 +283,13 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
           prompt_template:
             '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
         },
-        position: { x: 360, y: 160 },
+        position: { x: 400, y: 160 },
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
-        position: { x: 680, y: 180 },
+        position: { x: 760, y: 180 },
       },
     ],
     edges: [
@@ -333,7 +333,7 @@ export function migrateWorkflowGraph(
 
 function fallbackWorkflowNodePosition(index: number): WorkflowNodePosition {
   return {
-    x: 80 + (index % 4) * 280,
+    x: 80 + (index % 4) * 340,
     y: 140 + Math.floor(index / 4) * 180,
   };
 }

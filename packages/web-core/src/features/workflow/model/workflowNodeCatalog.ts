@@ -33,7 +33,6 @@ export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
       display_name: 'Agent',
       role_template_id: 'custom',
       prompt_template: '',
-      output_capture: 'last_message',
     },
   },
   {

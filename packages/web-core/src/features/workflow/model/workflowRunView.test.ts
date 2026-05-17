@@ -199,11 +199,41 @@ describe('workflow run view helpers', () => {
 
     expect(summary.totalSteps).toBe(3);
     expect(summary.completedSteps).toBe(1);
+    expect(summary.skippedSteps).toBe(0);
     expect(summary.waitingSteps).toBe(1);
     expect(summary.failedSteps).toBe(1);
     expect(summary.progressPercent).toBe(33);
     expect(summary.totalTokens).toBe(1200);
     expect(summary.totalCostEstimate).toBe(0.42);
+  });
+
+  it('does not count skipped work as succeeded progress', () => {
+    const summary = buildWorkflowRunDashboardSummary({
+      ...baseRun,
+      status: 'canceled',
+      nodes: [
+        {
+          ...baseRun.nodes[0],
+          status: 'succeeded',
+        },
+        {
+          ...baseRun.nodes[1],
+          status: 'skipped',
+        },
+        {
+          ...baseRun.nodes[0],
+          id: 'node-exec-3',
+          node_id: 'failed',
+          status: 'failed',
+        },
+      ],
+    });
+
+    expect(summary.totalSteps).toBe(3);
+    expect(summary.completedSteps).toBe(1);
+    expect(summary.skippedSteps).toBe(1);
+    expect(summary.failedSteps).toBe(1);
+    expect(summary.progressPercent).toBe(33);
   });
 
   it('formats elapsed durations from timestamps', () => {

@@ -699,6 +699,68 @@ where
     get_workflow_run_response(pool, run_id).await
 }
 
+pub async fn reconcile_workflow_run<A>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    agent_executor: &A,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+{
+    let arena_creator = NoopWorkflowArenaCreator;
+    reconcile_workflow_run_with_arena(pool, run_id, agent_executor, &arena_creator).await
+}
+
+pub async fn reconcile_workflow_run_with_arena<A, R>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
+    let current = get_workflow_run_response(pool, run_id).await?;
+    if !matches!(
+        current.status,
+        WorkflowRunStatus::Pending | WorkflowRunStatus::Running
+    ) {
+        return Ok(current);
+    }
+
+    let run = load_runtime_run(pool, run_id).await?;
+    let outcome = reconcile_running_agent_nodes(pool, run_id).await?;
+
+    if outcome.failed {
+        mark_pending_nodes_skipped(pool, run_id).await?;
+        update_run_status(
+            pool,
+            run_id,
+            WorkflowRunStatus::Failed,
+            None,
+            Some("Workflow agent execution failed"),
+            true,
+        )
+        .await?;
+    } else if outcome.completed {
+        update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
+        drive_workflow_run(
+            pool,
+            run_id,
+            &run.graph,
+            run.issue_id,
+            run.workspace_id,
+            &run.input_text,
+            agent_executor,
+            arena_creator,
+        )
+        .await?;
+    }
+
+    get_workflow_run_response(pool, run_id).await
+}
+
 pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiError> {
     let rows = sqlx::query(
         r#"
@@ -742,6 +804,75 @@ pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiEr
     }
 
     Ok(recovered)
+}
+
+#[derive(Debug, Default)]
+struct ReconcileOutcome {
+    completed: bool,
+    failed: bool,
+}
+
+async fn reconcile_running_agent_nodes(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<ReconcileOutcome, ApiError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT ne.node_id, ne.iteration, ne.execution_process_id,
+               ep.status, ep.exit_code
+        FROM node_executions ne
+        JOIN execution_processes ep ON ep.id = ne.execution_process_id
+        WHERE ne.run_id = ?
+          AND ne.node_type = 'agent'
+          AND ne.status = 'running'
+          AND ne.execution_process_id IS NOT NULL
+        ORDER BY ne.rowid ASC
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut outcome = ReconcileOutcome::default();
+    for row in rows {
+        let node_id: String = row.try_get("node_id")?;
+        let iteration: i64 = row.try_get("iteration")?;
+        let execution_process_id: Uuid = row.try_get("execution_process_id")?;
+        let status: ExecutionProcessStatus = row.try_get("status")?;
+        let exit_code: Option<i64> = row.try_get("exit_code")?;
+
+        match status {
+            ExecutionProcessStatus::Running => {}
+            ExecutionProcessStatus::Completed => {
+                let output = format!("Completed workflow agent execution {execution_process_id}");
+                mark_node_succeeded(
+                    pool,
+                    run_id,
+                    &node_id,
+                    iteration,
+                    Some(&output),
+                    None,
+                    Some(execution_process_id),
+                )
+                .await?;
+                outcome.completed = true;
+            }
+            ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
+                let message = match exit_code {
+                    Some(code) => format!(
+                        "Workflow agent execution {execution_process_id} {status:?} with exit code {code}"
+                    ),
+                    None => {
+                        format!("Workflow agent execution {execution_process_id} {status:?}")
+                    }
+                };
+                mark_node_failed(pool, run_id, &node_id, iteration, &message).await?;
+                outcome.failed = true;
+            }
+        }
+    }
+
+    Ok(outcome)
 }
 
 #[derive(Debug)]

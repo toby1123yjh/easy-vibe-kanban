@@ -1,7 +1,8 @@
 use std::sync::Mutex;
 
-use db::models::workflow::{
-    NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource,
+use db::models::{
+    execution_process::ExecutionProcessStatus,
+    workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
 };
 use serde_json::{Value, json};
 use server::{
@@ -25,9 +26,9 @@ use server::{
         runner::{
             AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
             WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
-            cancel_workflow_run_runtime, recover_stale_workflow_runs, reject_human_node,
-            retry_workflow_node, select_arena_winner_with_arena, trigger_workflow_run,
-            trigger_workflow_run_with_arena, workflow_event_history,
+            cancel_workflow_run_runtime, reconcile_workflow_run, recover_stale_workflow_runs,
+            reject_human_node, retry_workflow_node, select_arena_winner_with_arena,
+            trigger_workflow_run, trigger_workflow_run_with_arena, workflow_event_history,
         },
     },
 };
@@ -133,6 +134,21 @@ async fn setup_workflow_pool() -> SqlitePool {
         )
         "#,
         r#"
+        CREATE TABLE execution_processes (
+            id BLOB PRIMARY KEY,
+            session_id BLOB NOT NULL,
+            run_reason TEXT NOT NULL,
+            executor_action TEXT NOT NULL,
+            status TEXT NOT NULL,
+            exit_code INTEGER,
+            dropped BOOLEAN NOT NULL DEFAULT FALSE,
+            started_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            completed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
         CREATE TABLE repos (
             id BLOB PRIMARY KEY,
             path TEXT NOT NULL UNIQUE,
@@ -217,6 +233,40 @@ async fn insert_project_workflow(pool: &SqlitePool, project_id: Uuid) -> Uuid {
     workflow_id
 }
 
+async fn insert_execution_process(
+    pool: &SqlitePool,
+    execution_process_id: Uuid,
+    session_id: Uuid,
+    status: ExecutionProcessStatus,
+    exit_code: Option<i64>,
+) {
+    let completed_at = if matches!(status, ExecutionProcessStatus::Running) {
+        None
+    } else {
+        Some("2026-05-17T00:00:00.000Z")
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO execution_processes
+            (id, session_id, run_reason, executor_action, status, exit_code, dropped, completed_at)
+        VALUES (?, ?, 'codingagent', '{}', ?, ?, FALSE, ?)
+        "#,
+    )
+    .bind(execution_process_id)
+    .bind(session_id)
+    .bind(match status {
+        ExecutionProcessStatus::Running => "running",
+        ExecutionProcessStatus::Completed => "completed",
+        ExecutionProcessStatus::Failed => "failed",
+        ExecutionProcessStatus::Killed => "killed",
+    })
+    .bind(exit_code)
+    .bind(completed_at)
+    .execute(pool)
+    .await
+    .expect("insert execution process");
+}
+
 fn valid_graph_json() -> String {
     json!({
         "version": 1,
@@ -249,6 +299,38 @@ fn agent_graph_json() -> String {
         "edges": [
             { "id": "e1", "source": "start", "target": "agent", "type": "default" },
             { "id": "e2", "source": "agent", "target": "end", "type": "default" }
+        ]
+    })
+    .to_string()
+}
+
+fn two_agent_graph_json() -> String {
+    json!({
+        "version": 1,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "agent-a",
+                "type": "agent",
+                "data": {
+                    "display_name": "Agent A",
+                    "prompt_template": "Agent A prompt"
+                }
+            },
+            {
+                "id": "agent-b",
+                "type": "agent",
+                "data": {
+                    "display_name": "Agent B",
+                    "prompt_template": "Agent B prompt"
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "agent-a", "type": "default" },
+            { "id": "e2", "source": "agent-a", "target": "agent-b", "type": "default" },
+            { "id": "e3", "source": "agent-b", "target": "end", "type": "default" }
         ]
     })
     .to_string()
@@ -491,6 +573,35 @@ fn graph_without_start_json() -> String {
     .to_string()
 }
 
+fn unreachable_draft_graph_json() -> String {
+    json!({
+        "version": 2,
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } },
+            {
+                "id": "agent-draft",
+                "type": "agent",
+                "data": {
+                    "display_name": "Draft Agent",
+                    "prompt_template": "Draft prompt"
+                }
+            }
+        ],
+        "edges": [
+            {
+                "id": "start-end",
+                "source": "start",
+                "source_handle": "output-right",
+                "target": "end",
+                "target_handle": "input-left",
+                "type": "default"
+            }
+        ]
+    })
+    .to_string()
+}
+
 #[derive(Debug)]
 struct FakeWorkspaceResolver {
     workspace_id: Uuid,
@@ -584,6 +695,10 @@ impl StartedAgentExecutor {
             requests: Mutex::new(Vec::new()),
         }
     }
+
+    fn execution_process_id(&self) -> Uuid {
+        self.execution_process_id
+    }
 }
 
 #[async_trait::async_trait]
@@ -595,6 +710,58 @@ impl WorkflowAgentExecutor for StartedAgentExecutor {
             session_id: self.session_id,
             execution_process_id: self.execution_process_id,
             output_text: Some("agent still running".to_string()),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct AsyncThenCompleteAgentExecutor {
+    first_session_id: Uuid,
+    first_execution_process_id: Uuid,
+    second_session_id: Uuid,
+    second_execution_process_id: Uuid,
+    requests: Mutex<Vec<AgentNodeRequest>>,
+}
+
+impl AsyncThenCompleteAgentExecutor {
+    fn new(
+        first_session_id: Uuid,
+        first_execution_process_id: Uuid,
+        second_session_id: Uuid,
+        second_execution_process_id: Uuid,
+    ) -> Self {
+        Self {
+            first_session_id,
+            first_execution_process_id,
+            second_session_id,
+            second_execution_process_id,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<AgentNodeRequest> {
+        self.requests.lock().expect("agent requests").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl WorkflowAgentExecutor for AsyncThenCompleteAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        let node_id = request.node_id.clone();
+        self.requests.lock().expect("agent requests").push(request);
+
+        if node_id == "agent-a" {
+            return Ok(AgentNodeExecution::Started {
+                session_id: self.first_session_id,
+                execution_process_id: self.first_execution_process_id,
+                output_text: Some("agent A started".to_string()),
+            });
+        }
+
+        Ok(AgentNodeExecution::Completed {
+            session_id: self.second_session_id,
+            execution_process_id: self.second_execution_process_id,
+            output_text: "agent B done".to_string(),
         })
     }
 }
@@ -989,6 +1156,31 @@ async fn update_system_template_returns_forbidden() {
     assert!(
         matches!(result, Err(ApiError::Forbidden(message)) if message.contains("system")),
         "system workflows must not be editable"
+    );
+}
+
+#[tokio::test]
+async fn update_project_workflow_accepts_parseable_draft_graph() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    let workflow_id = insert_project_workflow(&pool, project_id).await;
+
+    let result = update_workflow_template(
+        &pool,
+        workflow_id,
+        UpdateWorkflowRequest {
+            name: None,
+            description: None,
+            graph_json: Some(unreachable_draft_graph_json()),
+        },
+    )
+    .await
+    .expect("draft graph update should be persisted before run validation");
+
+    assert!(
+        result.graph_json.contains("agent-draft"),
+        "draft node configuration should survive workflow update"
     );
 }
 
@@ -1424,6 +1616,158 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
         Some("implemented feature")
     );
     assert_eq!(run.output_text.as_deref(), Some("implemented feature"));
+}
+
+#[tokio::test]
+async fn workflow_reconcile_completed_agent_process_resumes_downstream_nodes() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let first_session_id = Uuid::new_v4();
+    let first_execution_process_id = Uuid::new_v4();
+    let second_session_id = Uuid::new_v4();
+    let second_execution_process_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Two Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(two_agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert two-agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = AsyncThenCompleteAgentExecutor::new(
+        first_session_id,
+        first_execution_process_id,
+        second_session_id,
+        second_execution_process_id,
+    );
+
+    let running = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run two agents".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    assert_eq!(running.status, WorkflowRunStatus::Running);
+    assert_eq!(
+        node_status(&running.nodes, "agent-a"),
+        NodeExecutionStatus::Running
+    );
+    assert_eq!(agent.requests().len(), 1);
+
+    insert_execution_process(
+        &pool,
+        first_execution_process_id,
+        first_session_id,
+        ExecutionProcessStatus::Completed,
+        Some(0),
+    )
+    .await;
+
+    let reconciled = reconcile_workflow_run(&pool, running.id, &agent)
+        .await
+        .expect("reconcile workflow run");
+
+    let requests = agent.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].node_id, "agent-b");
+    assert_eq!(requests[1].prompt, "Agent B prompt");
+    assert_eq!(reconciled.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(
+        node_status(&reconciled.nodes, "agent-a"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&reconciled.nodes, "agent-b"),
+        NodeExecutionStatus::Succeeded
+    );
+    assert_eq!(
+        node_status(&reconciled.nodes, "end"),
+        NodeExecutionStatus::Succeeded
+    );
+}
+
+#[tokio::test]
+async fn workflow_reconcile_failed_agent_process_fails_run_and_skips_downstream() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Agent Flow', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(agent_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert agent workflow");
+
+    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let agent = StartedAgentExecutor::new(session_id);
+    let running = trigger_workflow_run(
+        &pool,
+        workflow_id,
+        TriggerWorkflowRequest {
+            issue_id,
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run failing agent".to_string(),
+        },
+        &workspace,
+        &agent,
+    )
+    .await
+    .expect("trigger workflow run");
+
+    insert_execution_process(
+        &pool,
+        agent.execution_process_id(),
+        session_id,
+        ExecutionProcessStatus::Failed,
+        Some(1),
+    )
+    .await;
+
+    let reconciled = reconcile_workflow_run(&pool, running.id, &agent)
+        .await
+        .expect("reconcile failed workflow run");
+
+    assert_eq!(reconciled.status, WorkflowRunStatus::Failed);
+    assert_eq!(
+        node_status(&reconciled.nodes, "agent"),
+        NodeExecutionStatus::Failed
+    );
+    assert_eq!(
+        node_status(&reconciled.nodes, "end"),
+        NodeExecutionStatus::Skipped
+    );
 }
 
 #[tokio::test]

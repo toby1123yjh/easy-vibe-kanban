@@ -69,9 +69,9 @@ import {
 } from '@vibe/ui/components/Dropdown';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 
-const NEW_NODE_OFFSET_X = 300;
+const NEW_NODE_OFFSET_X = 340;
 const NEW_NODE_OFFSET_Y = 0;
-const NODE_COLLISION_X = 260;
+const NODE_COLLISION_X = 320;
 const NODE_COLLISION_Y = 160;
 const DUPLICATE_NODE_OFFSET_X = 80;
 const DUPLICATE_NODE_OFFSET_Y = 80;
@@ -131,7 +131,7 @@ function getNewWorkflowNodePosition({
     });
   }
 
-  return avoidWorkflowNodeOverlap(graph, { x: 360, y: 160 });
+  return avoidWorkflowNodeOverlap(graph, { x: 400, y: 160 });
 }
 
 function parsePersistedWorkflowGraph(

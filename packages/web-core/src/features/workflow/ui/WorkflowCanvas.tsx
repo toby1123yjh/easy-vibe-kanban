@@ -16,7 +16,6 @@ import {
   MiniMap,
   Position,
   ConnectionLineType,
-  getBezierPath,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -24,6 +23,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
+  getSmoothStepPath,
   type Connection,
   type Edge as ReactFlowEdge,
   type Node as ReactFlowNode,
@@ -82,7 +82,7 @@ export interface WorkflowNodeContextMenuEvent {
 }
 
 interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
-  onInsert?: (edgeId: string, position: WorkflowNodePosition) => void;
+  onSelect?: (edgeId: string) => void;
 }
 
 interface BaseNodeProps {
@@ -141,6 +141,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const validationIssues = getValidationIssues(data);
   const issueCount = validationIssues.length;
   const structural = nodeKind === 'start' || nodeKind === 'end';
+  const compactAgent = nodeKind === 'agent';
   const sessionReady = hasSession(data);
 
   if (structural) {
@@ -281,12 +282,14 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       </div>
 
       <div className="flex flex-col gap-2 px-3 py-2 pl-4 text-xs text-low">
-        <div
-          data-testid={`workflow-node-summary-${id}`}
-          className="truncate text-normal"
-        >
-          {getWorkflowNodeSummary(nodeKind, data)}
-        </div>
+        {!compactAgent ? (
+          <div
+            data-testid={`workflow-node-summary-${id}`}
+            className="truncate text-normal"
+          >
+            {getWorkflowNodeSummary(nodeKind, data)}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-1">
           <span
@@ -301,11 +304,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             {sessionReady ? 'Session ready' : 'Draft session'}
           </span>
           <span className="inline-flex items-center rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
-            {getWorkflowNodeKindLabel(nodeKind)}
+            {compactAgent ? 'Agent Step' : getWorkflowNodeKindLabel(nodeKind)}
           </span>
         </div>
 
-        {metadata.length > 0 ? (
+        {!compactAgent && metadata.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {metadata.map((chip) => (
               <span
@@ -323,7 +326,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           </div>
         ) : null}
 
-        {routeHints.length > 0 ? (
+        {!compactAgent && routeHints.length > 0 ? (
           <div className="flex flex-wrap gap-1 border-t border-secondary/50 pt-2">
             {routeHints.map((hint) => (
               <span
@@ -370,7 +373,8 @@ const nodeTypes = {
 export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
 export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
-export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE = ConnectionLineType.Bezier;
+export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
+  ConnectionLineType.SmoothStep;
 export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND = '#15171d';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
@@ -418,15 +422,16 @@ const WorkflowEdge = ({
   selected,
 }: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
   const workflowType = data?.workflowType ?? 'default';
-  const onInsert = data?.onInsert;
+  const onSelect = data?.onSelect;
   const visual = getWorkflowEdgeVisual(workflowType);
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 18,
   });
 
   return (
@@ -450,25 +455,28 @@ const WorkflowEdge = ({
           )}
           style={{ strokeWidth: selected ? 3 : 2 }}
         />
-        {onInsert ? (
+        {onSelect ? (
           <foreignObject
             x={labelX - 12}
-            y={labelY - 36}
+            y={labelY - 12}
             width={24}
             height={24}
-            className="overflow-visible"
+            className={cn(
+              'workflow-edge-action overflow-visible opacity-0 transition-opacity group-hover:opacity-100',
+              selected && 'opacity-100'
+            )}
           >
             <button
               type="button"
-              data-testid={`workflow-edge-insert-${id}`}
-              className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-secondary bg-panel text-xs font-semibold text-high shadow-sm transition-colors hover:border-brand hover:text-brand"
+              data-testid={`workflow-edge-action-${id}`}
+              className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-brand/50 bg-[#17191f] text-brand shadow-[0_0_18px_rgba(249,115,22,0.32)] transition-colors hover:border-brand hover:bg-brand hover:text-white"
               onClick={(event) => {
                 event.stopPropagation();
-                onInsert(id, { x: labelX, y: labelY });
+                onSelect(id);
               }}
-              aria-label={`Insert step on edge ${id}`}
+              aria-label={`Select edge ${id}`}
             >
-              +
+              <span className="h-2 w-2 rounded-full bg-current" />
             </button>
           </foreignObject>
         ) : null}
@@ -552,6 +560,7 @@ export function WorkflowCanvas({
     []
   );
   const edgesRef = useRef<ReactFlowEdge<WorkflowCanvasEdgeData>[]>([]);
+  const selectEdgeRef = useRef<(edgeId: string) => void>(() => {});
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -577,7 +586,7 @@ export function WorkflowCanvas({
         graph.nodes.map((node, index) => [
           node.id,
           {
-            x: 80 + (index % 4) * 220,
+            x: 80 + (index % 4) * 340,
             y: 80 + Math.floor(index / 4) * 150,
           },
         ])
@@ -597,6 +606,7 @@ export function WorkflowCanvas({
       ...edge,
       data: {
         workflowType: edge.data?.workflowType ?? 'default',
+        onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
       },
     })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
@@ -685,6 +695,12 @@ export function WorkflowCanvas({
     },
     [emitSelectionChange, setEdges, setNodes]
   );
+
+  useEffect(() => {
+    selectEdgeRef.current = (edgeId: string) => {
+      applySelection({ nodeId: null, edgeId });
+    };
+  }, [applySelection]);
 
   const onCanvasDoubleClickCapture = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {

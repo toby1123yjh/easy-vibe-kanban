@@ -41,13 +41,13 @@ describe('workflow graph model', () => {
           prompt_template:
             '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
         },
-        position: { x: 360, y: 160 },
+        position: { x: 400, y: 160 },
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
-        position: { x: 680, y: 180 },
+        position: { x: 760, y: 180 },
       },
     ]);
     expect(graph.edges).toEqual([
@@ -85,7 +85,6 @@ describe('workflow graph model', () => {
       display_name: 'Agent',
       role_template_id: 'custom',
       prompt_template: '',
-      output_capture: 'last_message',
     });
     expect(createDefaultNodeData('condition')).toMatchObject({
       display_name: 'Condition',

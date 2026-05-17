@@ -81,6 +81,7 @@ export function selectWorkflowRunNode(
 export interface WorkflowRunDashboardSummary {
   totalSteps: number;
   completedSteps: number;
+  skippedSteps: number;
   waitingSteps: number;
   failedSteps: number;
   runningSteps: number;
@@ -96,6 +97,7 @@ export function buildWorkflowRunDashboardSummary(
   const totalSteps = nodes.length;
 
   let completedSteps = 0;
+  let skippedSteps = 0;
   let waitingSteps = 0;
   let failedSteps = 0;
   let runningSteps = 0;
@@ -103,8 +105,10 @@ export function buildWorkflowRunDashboardSummary(
   let totalCostEstimate = 0;
 
   for (const node of nodes) {
-    if (node.status === 'succeeded' || node.status === 'skipped') {
+    if (node.status === 'succeeded') {
       completedSteps++;
+    } else if (node.status === 'skipped') {
+      skippedSteps++;
     } else if (
       node.status === 'awaiting_human' ||
       node.status === 'awaiting_arena'
@@ -130,6 +134,7 @@ export function buildWorkflowRunDashboardSummary(
   return {
     totalSteps,
     completedSteps,
+    skippedSteps,
     waitingSteps,
     failedSteps,
     runningSteps,

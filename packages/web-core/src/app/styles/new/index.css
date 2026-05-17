@@ -462,6 +462,17 @@ html {
     opacity: 1;
   }
 
+  .workflow-canvas-product .react-flow__edgeupdater {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    opacity: 0;
+  }
+
+  .workflow-canvas-product .workflow-edge-action {
+    pointer-events: all;
+  }
+
   @keyframes workflow-edge-flow {
     to {
       stroke-dashoffset: -30;

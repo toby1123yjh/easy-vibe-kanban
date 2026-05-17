@@ -184,7 +184,7 @@ export function WorkflowRunDashboardTab({
               <div className="mb-1 flex justify-between text-low">
                 <span>
                   {summary.completedSteps} / {summary.totalSteps} steps
-                  completed
+                  succeeded
                 </span>
                 <span>{summary.progressPercent}%</span>
               </div>
@@ -200,6 +200,33 @@ export function WorkflowRunDashboardTab({
               {formatWorkflowDuration(run.started_at, run.finished_at)}
             </div>
           </div>
+          {summary.failedSteps > 0 ||
+          summary.skippedSteps > 0 ||
+          summary.waitingSteps > 0 ||
+          summary.runningSteps > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-low">
+              {summary.runningSteps > 0 ? (
+                <span className="rounded border border-brand/30 bg-brand/10 px-2 py-0.5 text-brand">
+                  {summary.runningSteps} running
+                </span>
+              ) : null}
+              {summary.waitingSteps > 0 ? (
+                <span className="rounded border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
+                  {summary.waitingSteps} waiting
+                </span>
+              ) : null}
+              {summary.failedSteps > 0 ? (
+                <span className="rounded border border-error/30 bg-error/10 px-2 py-0.5 text-error">
+                  {summary.failedSteps} failed
+                </span>
+              ) : null}
+              {summary.skippedSteps > 0 ? (
+                <span className="rounded border border-secondary bg-primary px-2 py-0.5 text-low">
+                  {summary.skippedSteps} skipped
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         {/* Steps Timeline */}

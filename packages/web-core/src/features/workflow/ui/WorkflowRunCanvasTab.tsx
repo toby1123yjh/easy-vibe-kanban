@@ -38,12 +38,9 @@ import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
 import {
-  buildAgentSessionRows,
-  buildWorkflowNodeDebugView,
   buildWorkspaceSessionHref,
   getNodeStatusLabel,
   getNodeStatusTone,
-  selectWorkflowRunNode,
   type StatusTone,
 } from '../model/workflowRunView';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
@@ -58,10 +55,8 @@ import {
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
-import { WorkflowAgentSessionsList } from './WorkflowAgentSessionsList';
 import { WORKFLOW_CANVAS_MINIMAP_BACKGROUND } from './WorkflowCanvas';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
-import { WorkflowRunDebugPanel } from './WorkflowRunDebugPanel';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -76,8 +71,6 @@ interface RunNodeData extends WorkflowNodeData {
   onOpenConversation?: (nodeId: string) => void;
   onSelectNode?: (nodeId: string) => void;
 }
-
-type NodePanelTab = 'conversation' | 'details' | 'io' | 'execution';
 
 const statusIconMap: Record<NodeExecutionStatus, ReactNode> = {
   pending: <Clock className="h-4 w-4 text-low" />,
@@ -112,13 +105,6 @@ const edgeStrokeByTone: Record<StatusTone, string> = {
   danger: 'hsl(var(--destructive))',
   warning: 'hsl(var(--warning))',
 };
-
-const nodePanelTabs: Array<{ id: NodePanelTab; label: string }> = [
-  { id: 'conversation', label: 'Conversation' },
-  { id: 'details', label: 'Details' },
-  { id: 'io', label: 'Input / Output' },
-  { id: 'execution', label: 'Execution' },
-];
 
 const runInputHandles = [
   { id: DEFAULT_TARGET_HANDLE, position: Position.Left },
@@ -252,7 +238,7 @@ function getDefaultPositions(graph: WorkflowGraph) {
     graph.nodes.map((node, index) => [
       node.id,
       {
-        x: 80 + (index % 4) * 250,
+        x: 80 + (index % 4) * 320,
         y: 80 + Math.floor(index / 4) * 150,
       },
     ])
@@ -279,7 +265,6 @@ export function WorkflowRunCanvasTab({
     useWorkflowRunMutations();
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [activePanelTab, setActivePanelTab] = useState<NodePanelTab>('details');
   const [nodes, setNodes, onNodesChange] = useNodesState<
     ReactFlowNode<RunNodeData, WorkflowNodeKind>
   >([]);
@@ -289,21 +274,12 @@ export function WorkflowRunCanvasTab({
   const selectNodeById = useCallback((nodeId: string | null) => {
     setActionError(null);
     setSelectedNodeId(nodeId);
-    setActivePanelTab('details');
   }, []);
 
-  const openNodeConversationById = useCallback(
-    (nodeId: string) => {
-      setActionError(null);
-      setSelectedNodeId(nodeId);
-
-      const execution = getExecutionForNode(run, nodeId);
-      setActivePanelTab(
-        execution?.node_type === 'agent' ? 'conversation' : 'details'
-      );
-    },
-    [run]
-  );
+  const openNodeConversationById = useCallback((nodeId: string) => {
+    setActionError(null);
+    setSelectedNodeId(nodeId);
+  }, []);
 
   useEffect(() => {
     if (consumedQueuedFocusForRunRef.current === run.id) return;
@@ -314,7 +290,6 @@ export function WorkflowRunCanvasTab({
 
     setActionError(null);
     setSelectedNodeId(queuedFocus.nodeId);
-    setActivePanelTab(queuedFocus.panel ?? 'details');
   }, [run.id]);
 
   useEffect(() => {
@@ -382,6 +357,7 @@ export function WorkflowRunCanvasTab({
 
         return {
           ...baseEdge,
+          type: 'smoothstep',
           animated: sourceExecution?.status === 'running',
           style: {
             stroke: active ? edgeStrokeByTone[tone] : edgeStrokeByTone.neutral,
@@ -403,13 +379,12 @@ export function WorkflowRunCanvasTab({
 
   const selectedExecution = selectedNodeId
     ? getExecutionForNode(run, selectedNodeId)
-    : selectWorkflowRunNode(run, null);
+    : null;
 
   const onSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: ReactFlowNode[] }) => {
       setActionError(null);
       setSelectedNodeId(selectedNodes.length > 0 ? selectedNodes[0].id : null);
-      setActivePanelTab('details');
     },
     []
   );
@@ -511,13 +486,10 @@ export function WorkflowRunCanvasTab({
 
       <NodeDetailPanel
         actionError={actionError}
-        activeTab={activePanelTab}
-        graph={graph}
         isApproving={isApproving}
         isRejecting={isRejecting}
         onApprove={() => void handleApprove()}
         onReject={() => void handleReject()}
-        onTabChange={setActivePanelTab}
         projectId={projectId}
         run={run}
         selectedExecution={selectedExecution}
@@ -529,13 +501,10 @@ export function WorkflowRunCanvasTab({
 
 interface NodeDetailPanelProps {
   actionError: string | null;
-  activeTab: NodePanelTab;
-  graph: WorkflowGraph;
   isApproving: boolean;
   isRejecting: boolean;
   onApprove: () => void;
   onReject: () => void;
-  onTabChange: (tab: NodePanelTab) => void;
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse | null;
@@ -544,88 +513,47 @@ interface NodeDetailPanelProps {
 
 function NodeDetailPanel({
   actionError,
-  activeTab,
-  graph,
   isApproving,
   isRejecting,
   onApprove,
   onReject,
-  onTabChange,
   projectId,
   run,
   selectedExecution,
   selectedNodeId,
 }: NodeDetailPanelProps) {
-  const agentSessionRows = buildAgentSessionRows(run, selectedNodeId);
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
   const sessionHref =
     selectedExecution?.node_type === 'agent'
       ? buildWorkspaceSessionHref(workspaceHref, selectedExecution.session_id)
       : null;
+  const isAgent = selectedExecution?.node_type === 'agent';
   const subtitle = selectedExecution
     ? `${selectedExecution.node_type} / ${selectedExecution.node_id}`
     : selectedNodeId
       ? `Node: ${selectedNodeId}`
       : 'Select a node';
-  const debugView =
-    selectedExecution && activeTab === 'io'
-      ? buildWorkflowNodeDebugView({
-          graph,
-          run,
-          nodeId: selectedExecution.node_id,
-        })
-      : null;
 
   return (
     <aside
       className={cn(
         'flex max-h-[50%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:border-l lg:border-t-0',
-        activeTab === 'conversation'
-          ? 'lg:w-[560px] xl:w-[640px]'
-          : 'lg:w-[400px] xl:w-[440px]'
+        isAgent ? 'lg:w-[560px] xl:w-[640px]' : 'lg:w-[400px] xl:w-[440px]'
       )}
     >
       <div className="border-b border-secondary p-base">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-high">
-            {selectedExecution?.node_type === 'agent'
-              ? 'Agent Node'
-              : 'Node Details'}
+            {isAgent ? 'Agent Session' : 'Node Details'}
           </h2>
           <p className="truncate text-xs text-low">{subtitle}</p>
-        </div>
-
-        <div
-          role="tablist"
-          aria-label="Workflow node panel"
-          className="mt-base grid grid-cols-2 gap-1 rounded-md border border-secondary bg-primary p-1"
-        >
-          {nodePanelTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              className={cn(
-                'min-w-0 rounded px-2 py-1.5 text-xs font-medium transition-colors',
-                activeTab === tab.id
-                  ? 'bg-panel text-high shadow-sm'
-                  : 'text-low hover:text-high'
-              )}
-              onClick={() => onTabChange(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
         </div>
       </div>
 
       <div
         className={cn(
           'flex-1',
-          activeTab === 'conversation'
-            ? 'min-h-0 overflow-hidden p-0'
-            : 'overflow-y-auto p-base'
+          isAgent ? 'min-h-0 overflow-hidden p-0' : 'overflow-y-auto p-base'
         )}
       >
         {!selectedExecution ? (
@@ -634,17 +562,16 @@ function NodeDetailPanel({
               ? 'This node has not executed yet.'
               : 'Select a node in the canvas to view its details.'}
           </div>
-        ) : activeTab === 'conversation' ? (
+        ) : isAgent ? (
           <WorkflowNodeConversationPanel
             selectedExecution={selectedExecution}
             workspaceId={run.workspace_id}
             sessionHref={sessionHref}
             workspaceHref={workspaceHref}
           />
-        ) : activeTab === 'details' ? (
+        ) : (
           <NodeDetailsTab
             actionError={actionError}
-            agentSessionRows={agentSessionRows}
             isApproving={isApproving}
             isRejecting={isRejecting}
             onApprove={onApprove}
@@ -652,15 +579,6 @@ function NodeDetailPanel({
             projectId={projectId}
             run={run}
             selectedExecution={selectedExecution}
-            workspaceHref={workspaceHref}
-          />
-        ) : activeTab === 'io' ? (
-          <WorkflowRunDebugPanel debug={debugView} />
-        ) : (
-          <NodeExecutionTab
-            run={run}
-            selectedExecution={selectedExecution}
-            sessionHref={sessionHref}
             workspaceHref={workspaceHref}
           />
         )}
@@ -671,7 +589,6 @@ function NodeDetailPanel({
 
 function NodeDetailsTab({
   actionError,
-  agentSessionRows,
   isApproving,
   isRejecting,
   onApprove,
@@ -682,7 +599,6 @@ function NodeDetailsTab({
   workspaceHref,
 }: {
   actionError: string | null;
-  agentSessionRows: ReturnType<typeof buildAgentSessionRows>;
   isApproving: boolean;
   isRejecting: boolean;
   onApprove: () => void;
@@ -752,13 +668,21 @@ function NodeDetailsTab({
         </p>
       ) : null}
 
-      {selectedExecution.node_type === 'agent' ? (
-        <WorkflowAgentSessionsList
-          compact
-          rows={agentSessionRows}
-          workspaceHref={workspaceHref}
-        />
+      {selectedExecution.error_text ? (
+        <div className="rounded border border-error/50 bg-error/10 p-half">
+          <h3 className="text-xs font-semibold uppercase text-error">Error</h3>
+          <pre className="mt-half whitespace-pre-wrap text-xs text-error">
+            {selectedExecution.error_text}
+          </pre>
+        </div>
       ) : null}
+
+      <NodeExecutionTab
+        run={run}
+        selectedExecution={selectedExecution}
+        sessionHref={null}
+        workspaceHref={workspaceHref}
+      />
     </div>
   );
 }

@@ -37,10 +37,11 @@ use crate::{
         runner::{
             DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, WorkflowAgentExecutor,
             WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_with_arena,
-            cancel_workflow_run_runtime, get_workflow_run_response, reject_human_node,
-            retry_workflow_node_with_arena, select_arena_winner_with_arena,
-            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_arena,
-            trigger_workflow_run_with_arena, workflow_event_history,
+            cancel_workflow_run_runtime, get_workflow_run_response,
+            reconcile_workflow_run_with_arena, reject_human_node, retry_workflow_node_with_arena,
+            select_arena_winner_with_arena, subscribe_workflow_events,
+            trigger_workflow_run_for_attempt_with_arena, trigger_workflow_run_with_arena,
+            workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
     },
@@ -832,13 +833,10 @@ pub async fn update_workflow_template(
     }
 
     let graph_json = if let Some(graph_json) = request.graph_json {
-        validate_graph_json(&graph_json)?;
+        let graph = parse_graph_json(&graph_json)?;
         if let Some(workflow_attempt) = workflow_attempt_by_workflow_id(pool, workflow_id).await? {
             if let Some(workspace_id) = workflow_attempt.workspace_id {
-                let mut graph: WorkflowGraph =
-                    serde_json::from_str(&graph_json).map_err(|err| {
-                        ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
-                    })?;
+                let mut graph = graph;
                 ensure_agent_node_sessions(pool, workspace_id, &mut graph).await?;
                 serde_json::to_string(&graph).map_err(|err| {
                     ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
@@ -1010,10 +1008,21 @@ async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_graph_json(graph_json: &str) -> Result<(), WorkflowRouteError> {
+fn parse_graph_json(graph_json: &str) -> Result<WorkflowGraph, WorkflowRouteError> {
     let graph: WorkflowGraph = serde_json::from_str(graph_json).map_err(|err| {
         WorkflowRouteError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
     })?;
+    if graph.version != 1 && graph.version != 2 {
+        return Err(WorkflowRouteError::BadRequest(format!(
+            "Invalid workflow graph: unsupported workflow graph version {}",
+            graph.version
+        )));
+    }
+    Ok(graph)
+}
+
+fn validate_graph_json(graph_json: &str) -> Result<(), WorkflowRouteError> {
+    let graph = parse_graph_json(graph_json)?;
     validate_graph(&graph)
         .map_err(|err| WorkflowRouteError::BadRequest(format!("Invalid workflow graph: {err}")))?;
     Ok(())
@@ -1323,7 +1332,15 @@ async fn get_workflow_run(
     State(deployment): State<DeploymentImpl>,
     Path(run_id): Path<Uuid>,
 ) -> Result<ResponseJson<WorkflowRunResponse>, ApiError> {
-    let run = get_workflow_run_response(&deployment.db().pool, run_id).await?;
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let run = reconcile_workflow_run_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &agent_executor,
+        &arena_creator,
+    )
+    .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;
     Ok(ResponseJson(run))
 }
@@ -1346,7 +1363,15 @@ async fn workflow_run_events(
     State(deployment): State<DeploymentImpl>,
     Path(run_id): Path<Uuid>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, BoxError>>>, ApiError> {
-    let run = get_workflow_run_response(&deployment.db().pool, run_id).await?;
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let run = reconcile_workflow_run_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &agent_executor,
+        &arena_creator,
+    )
+    .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     let run_id_string = run_id.to_string();
