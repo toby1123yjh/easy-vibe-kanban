@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { ConnectionMode } from '@xyflow/react';
 import {
+  WORKFLOW_CANVAS_CONNECTION_MODE,
   WORKFLOW_CANVAS_CONNECTION_LINE_TYPE,
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_TYPE,
@@ -26,6 +28,10 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses a smooth step connection preview while dragging wires', () => {
     expect(WORKFLOW_CANVAS_CONNECTION_LINE_TYPE).toBe('smoothstep');
+  });
+
+  it('uses loose connection mode so one visible port can start and receive wires', () => {
+    expect(WORKFLOW_CANVAS_CONNECTION_MODE).toBe(ConnectionMode.Loose);
   });
 
   it('keeps selection changes in read-only mode while blocking graph edits', () => {

@@ -504,6 +504,17 @@ export function WorkflowTemplateEditorPage({
     setGraph(setConditionBranchTargetForEdge(graph, edgeId, branchName));
   };
 
+  const handleDeleteEdge = (edgeId: string) => {
+    if (!graph || readOnly) return;
+    setValidationTouched(false);
+    setRunStartError(null);
+    setSelectedEdgeId(null);
+    setGraph({
+      ...graph,
+      edges: graph.edges.filter((edge) => edge.id !== edgeId),
+    });
+  };
+
   const selectedNode = useMemo(
     () => graph?.nodes.find((n) => n.id === selectedNodeId) ?? null,
     [graph, selectedNodeId]
@@ -873,6 +884,7 @@ export function WorkflowTemplateEditorPage({
               readOnly={readOnly}
               onChange={handleEdgeChange}
               onConditionBranchChange={handleConditionBranchChange}
+              onDelete={handleDeleteEdge}
             />
           ) : (
             <WorkflowNodeInspector

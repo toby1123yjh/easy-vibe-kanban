@@ -457,10 +457,22 @@ html {
     opacity: 0;
   }
 
-  .workflow-canvas-product .react-flow__node:hover .react-flow__handle,
-  .workflow-canvas-product .react-flow__node.selected .react-flow__handle,
-  .workflow-canvas-product .react-flow__handle.connectionindicator:hover {
+  .workflow-canvas-product
+    .react-flow__node:hover
+    .react-flow__handle.workflow-handle-visible,
+  .workflow-canvas-product
+    .react-flow__node.selected
+    .react-flow__handle.workflow-handle-visible,
+  .workflow-canvas-product
+    .react-flow__handle.workflow-handle-visible.connectionindicator:hover {
     opacity: 1;
+  }
+
+  .workflow-canvas-product .react-flow__handle.workflow-handle-hidden-target {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    opacity: 0 !important;
   }
 
   .workflow-canvas-product .react-flow__edgeupdater,
@@ -470,8 +482,8 @@ html {
     background: transparent;
     box-shadow: none;
     opacity: 0 !important;
-    pointer-events: none;
-    visibility: hidden;
+    pointer-events: all;
+    visibility: visible;
   }
 
   .workflow-canvas-product .workflow-edge-action {

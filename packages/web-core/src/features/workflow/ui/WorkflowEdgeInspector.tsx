@@ -1,4 +1,4 @@
-import { ArrowDown, GitBranch } from 'lucide-react';
+import { ArrowDown, GitBranch, Trash2 } from 'lucide-react';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
@@ -16,6 +16,7 @@ export interface WorkflowEdgeInspectorProps {
   readOnly?: boolean;
   onChange?: (edgeId: string, updates: Partial<WorkflowEdge>) => void;
   onConditionBranchChange?: (edgeId: string, branchName: string) => void;
+  onDelete?: (edgeId: string) => void;
 }
 
 function getNodeLabel(nodes: WorkflowNode[], nodeId: string): string {
@@ -31,6 +32,7 @@ export function WorkflowEdgeInspector({
   readOnly,
   onChange,
   onConditionBranchChange,
+  onDelete,
 }: WorkflowEdgeInspectorProps) {
   if (!edge) {
     return (
@@ -83,6 +85,16 @@ export function WorkflowEdgeInspector({
         </div>
         <span className="font-semibold text-high">Edge Properties</span>
       </div>
+
+      <button
+        type="button"
+        className="inline-flex items-center justify-center gap-2 rounded border border-error/30 bg-error/10 px-3 py-2 font-semibold text-error transition-colors hover:bg-error/15 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={readOnly || !onDelete}
+        onClick={() => onDelete?.(edge.id)}
+      >
+        <Trash2 className="h-4 w-4" />
+        Delete edge
+      </button>
 
       <div className="rounded border border-secondary bg-primary/40 p-3">
         <div className="truncate text-sm font-semibold text-high">

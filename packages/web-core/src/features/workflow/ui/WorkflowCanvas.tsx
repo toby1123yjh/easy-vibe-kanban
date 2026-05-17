@@ -16,6 +16,7 @@ import {
   MiniMap,
   Position,
   ConnectionLineType,
+  ConnectionMode,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -116,21 +117,73 @@ const hasSession = (data: WorkflowNodeData): boolean =>
   typeof data.session_id === 'string' && data.session_id.length > 0;
 
 const workflowHandleClass =
-  'h-3.5 w-3.5 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
+  'h-4 w-4 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
 
-const inputHandles = [
-  { id: 'input-left', position: Position.Left, style: { top: '42%' } },
-  { id: 'input-top', position: Position.Top, style: { left: '42%' } },
-  { id: 'input-right', position: Position.Right, style: { top: '42%' } },
-  { id: 'input-bottom', position: Position.Bottom, style: { left: '42%' } },
+const workflowHandlePoints = [
+  {
+    sourceId: 'output-left',
+    targetId: 'input-left',
+    position: Position.Left,
+    style: { top: '50%' },
+  },
+  {
+    sourceId: 'output-top',
+    targetId: 'input-top',
+    position: Position.Top,
+    style: { left: '50%' },
+  },
+  {
+    sourceId: 'output-right',
+    targetId: 'input-right',
+    position: Position.Right,
+    style: { top: '50%' },
+  },
+  {
+    sourceId: 'output-bottom',
+    targetId: 'input-bottom',
+    position: Position.Bottom,
+    style: { left: '50%' },
+  },
 ] as const;
 
-const outputHandles = [
-  { id: 'output-left', position: Position.Left, style: { top: '58%' } },
-  { id: 'output-top', position: Position.Top, style: { left: '58%' } },
-  { id: 'output-right', position: Position.Right, style: { top: '58%' } },
-  { id: 'output-bottom', position: Position.Bottom, style: { left: '58%' } },
-] as const;
+function renderWorkflowHandles({
+  canReceive,
+  canStart,
+}: {
+  canReceive: boolean;
+  canStart: boolean;
+}) {
+  return workflowHandlePoints.flatMap((handle) => {
+    const targetHandle = canReceive ? (
+      <Handle
+        key={`${handle.targetId}-target`}
+        id={handle.targetId}
+        type="target"
+        position={handle.position}
+        style={handle.style}
+        className={cn(
+          workflowHandleClass,
+          canStart
+            ? 'workflow-handle-hidden-target z-[1]'
+            : 'workflow-handle-visible z-[2]'
+        )}
+      />
+    ) : null;
+
+    const sourceHandle = canStart ? (
+      <Handle
+        key={`${handle.sourceId}-source`}
+        id={handle.sourceId}
+        type="source"
+        position={handle.position}
+        style={handle.style}
+        className={cn(workflowHandleClass, 'workflow-handle-visible z-[3]')}
+      />
+    ) : null;
+
+    return [targetHandle, sourceHandle].filter(Boolean);
+  });
+}
 
 const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const nodeKind = type ?? 'agent';
@@ -158,18 +211,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
               : 'border-white/12 hover:border-brand/60'
         )}
       >
-        {nodeKind !== 'start'
-          ? inputHandles.map((handle) => (
-              <Handle
-                key={handle.id}
-                id={handle.id}
-                type="target"
-                position={handle.position}
-                style={handle.style}
-                className={workflowHandleClass}
-              />
-            ))
-          : null}
+        {renderWorkflowHandles({
+          canReceive: nodeKind !== 'start',
+          canStart: nodeKind !== 'end',
+        })}
         {issueCount > 0 ? (
           <div
             data-testid={`workflow-node-issue-${id}`}
@@ -198,18 +243,6 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             {getWorkflowNodeKindLabel(nodeKind)}
           </div>
         </div>
-        {nodeKind !== 'end'
-          ? outputHandles.map((handle) => (
-              <Handle
-                key={handle.id}
-                id={handle.id}
-                type="source"
-                position={handle.position}
-                style={handle.style}
-                className={workflowHandleClass}
-              />
-            ))
-          : null}
       </div>
     );
   }
@@ -227,18 +260,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             : 'border-white/12 hover:border-brand/60 hover:shadow-[0_20px_54px_rgba(0,0,0,0.38)]'
       )}
     >
-      {type !== 'start'
-        ? inputHandles.map((handle) => (
-            <Handle
-              key={handle.id}
-              id={handle.id}
-              type="target"
-              position={handle.position}
-              style={handle.style}
-              className={workflowHandleClass}
-            />
-          ))
-        : null}
+      {renderWorkflowHandles({
+        canReceive: type !== 'start',
+        canStart: type !== 'end',
+      })}
 
       <div
         className={cn(
@@ -343,19 +368,6 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           </div>
         ) : null}
       </div>
-
-      {type !== 'end'
-        ? outputHandles.map((handle) => (
-            <Handle
-              key={handle.id}
-              id={handle.id}
-              type="source"
-              position={handle.position}
-              style={handle.style}
-              className={workflowHandleClass}
-            />
-          ))
-        : null}
     </div>
   );
 };
@@ -375,6 +387,7 @@ export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
 export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
   ConnectionLineType.SmoothStep;
+export const WORKFLOW_CANVAS_CONNECTION_MODE = ConnectionMode.Loose;
 export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND = '#15171d';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
@@ -532,6 +545,17 @@ export function hasGraphAffectingEdgeChanges(
 ): boolean {
   return changes.some((change) =>
     GRAPH_AFFECTING_EDGE_CHANGE_TYPES.has(change.type)
+  );
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select'
   );
 }
 
@@ -702,6 +726,35 @@ export function WorkflowCanvas({
     };
   }, [applySelection]);
 
+  const deleteEdgeById = useCallback(
+    (edgeId: string) => {
+      if (readOnly) return;
+      const nextEdges = edgesRef.current.filter((edge) => edge.id !== edgeId);
+      if (nextEdges.length === edgesRef.current.length) return;
+      edgesRef.current = nextEdges;
+      setEdges(nextEdges);
+      reportChange(nodesRef.current, nextEdges);
+      applySelection({ nodeId: null, edgeId: null });
+    },
+    [applySelection, readOnly, reportChange, setEdges]
+  );
+
+  useEffect(() => {
+    if (readOnly) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!WORKFLOW_CANVAS_DELETE_KEYS.includes(event.key)) return;
+      if (isEditableKeyboardTarget(event.target)) return;
+      const selectedEdgeId = lastSelectionRef.current.edgeId;
+      if (!selectedEdgeId) return;
+      event.preventDefault();
+      deleteEdgeById(selectedEdgeId);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [deleteEdgeById, readOnly]);
+
   const onCanvasDoubleClickCapture = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       if (!onNodeOpen) return;
@@ -861,6 +914,7 @@ export function WorkflowCanvas({
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
         reconnectRadius={16}
+        connectionMode={WORKFLOW_CANVAS_CONNECTION_MODE}
         elementsSelectable={true}
         connectionLineType={WORKFLOW_CANVAS_CONNECTION_LINE_TYPE}
         connectionLineStyle={{
