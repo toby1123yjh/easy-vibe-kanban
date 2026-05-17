@@ -464,7 +464,12 @@ export function WorkflowTemplateEditorPage({
 
   const handleEdgeChange = (
     edgeId: string,
-    updates: Partial<Pick<WorkflowEdge, 'type'>>
+    updates: Partial<
+      Pick<
+        WorkflowEdge,
+        'source' | 'target' | 'source_handle' | 'target_handle' | 'type'
+      >
+    >
   ) => {
     if (!graph || readOnly) return;
     let nextGraph: WorkflowGraph = {

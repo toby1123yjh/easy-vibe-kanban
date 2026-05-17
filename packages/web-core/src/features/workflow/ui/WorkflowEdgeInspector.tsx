@@ -1,8 +1,10 @@
 import { ArrowDown, GitBranch } from 'lucide-react';
-import type {
-  WorkflowEdge,
-  WorkflowEdgeKind,
-  WorkflowNode,
+import {
+  DEFAULT_SOURCE_HANDLE,
+  DEFAULT_TARGET_HANDLE,
+  type WorkflowEdge,
+  type WorkflowEdgeKind,
+  type WorkflowNode,
 } from '../model/workflowGraph';
 import { getWorkflowEdgeKindOptions } from '../model/workflowPresentation';
 
@@ -44,10 +46,28 @@ export function WorkflowEdgeInspector({
   );
   const sourceLabel = getNodeLabel(nodes, edge.source);
   const targetLabel = getNodeLabel(nodes, edge.target);
+  const sourceNodeOptions = nodes.filter((node) => node.type !== 'end');
+  const targetNodeOptions = nodes.filter((node) => node.type !== 'start');
 
   const handleTypeChange = (value: WorkflowEdgeKind) => {
     if (readOnly || !onChange) return;
     onChange(edge.id, { type: value });
+  };
+
+  const handleSourceChange = (source: string) => {
+    if (readOnly || !onChange) return;
+    onChange(edge.id, {
+      source,
+      source_handle: edge.source_handle ?? DEFAULT_SOURCE_HANDLE,
+    });
+  };
+
+  const handleTargetChange = (target: string) => {
+    if (readOnly || !onChange) return;
+    onChange(edge.id, {
+      target,
+      target_handle: edge.target_handle ?? DEFAULT_TARGET_HANDLE,
+    });
   };
 
   const handleConditionBranchChange = (branchName: string) => {
@@ -73,6 +93,50 @@ export function WorkflowEdgeInspector({
         </div>
         <div className="truncate text-sm font-semibold text-high">
           {targetLabel}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded border border-secondary bg-primary/40 p-3">
+        <div className="text-xs font-semibold uppercase tracking-normal text-low">
+          Reconnect
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="font-semibold text-high">Source</label>
+          <select
+            className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
+            value={edge.source}
+            onChange={(event) => handleSourceChange(event.target.value)}
+            disabled={readOnly}
+          >
+            {sourceNodeOptions.map((node) => (
+              <option
+                key={node.id}
+                value={node.id}
+                disabled={node.id === edge.target}
+              >
+                {getNodeLabel(nodes, node.id)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="font-semibold text-high">Target</label>
+          <select
+            className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
+            value={edge.target}
+            onChange={(event) => handleTargetChange(event.target.value)}
+            disabled={readOnly}
+          >
+            {targetNodeOptions.map((node) => (
+              <option
+                key={node.id}
+                value={node.id}
+                disabled={node.id === edge.source}
+              >
+                {getNodeLabel(nodes, node.id)}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
