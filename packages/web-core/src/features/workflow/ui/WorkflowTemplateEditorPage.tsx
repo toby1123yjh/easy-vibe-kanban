@@ -7,6 +7,7 @@ import {
   useWorkflowAttemptForWorkflow,
   useWorkflowAttemptMutations,
 } from '@/shared/hooks/useWorkflowAttempts';
+import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import {
   clearConditionBranchTargetForEdge,
@@ -34,9 +35,9 @@ import {
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import {
-  WorkflowAgentStepEditDialog,
+  WorkflowAgentStepEditPanel,
   type WorkflowAgentStepEditValue,
-} from './WorkflowAgentStepEditDialog';
+} from './WorkflowAgentStepEditPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
@@ -59,6 +60,7 @@ import {
   Play as PlayIcon,
 } from 'lucide-react';
 import { ReactFlowProvider } from '@xyflow/react';
+import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
 import type { WorkflowNodeExecutionResponse } from 'shared/types';
 import {
   DropdownMenu,
@@ -180,6 +182,9 @@ export function WorkflowTemplateEditorPage({
   const { data: template, isLoading, error } = useWorkflowTemplate(workflowId);
   const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
     useWorkflowAttemptForWorkflow(workflowId);
+  const { data: latestRun } = useWorkflowRun(workflowAttempt?.latest_run_id, {
+    enabled: !!workflowAttempt?.latest_run_id,
+  });
   const { updateTemplate, createTemplate, isUpdating, isCreating } =
     useWorkflowTemplateMutations();
   const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
@@ -192,7 +197,7 @@ export function WorkflowTemplateEditorPage({
   const [sessionPanelNodeId, setSessionPanelNodeId] = useState<string | null>(
     null
   );
-  const [editDialogNodeId, setEditDialogNodeId] = useState<string | null>(null);
+  const [editPanelNodeId, setEditPanelNodeId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] =
     useState<AgentStepContextMenuState | null>(null);
   const [name, setName] = useState('');
@@ -345,7 +350,7 @@ export function WorkflowTemplateEditorPage({
     setSelectedNodeId(newNode.id);
     setSelectedEdgeId(null);
     setSessionPanelNodeId(null);
-    setEditDialogNodeId(isWorkflowAgentDraftNode(newNode) ? newNode.id : null);
+    setEditPanelNodeId(isWorkflowAgentDraftNode(newNode) ? newNode.id : null);
   };
 
   const handleGraphChange = (newGraph: WorkflowGraph) => {
@@ -368,11 +373,11 @@ export function WorkflowTemplateEditorPage({
     prompt,
     executorConfig,
   }: WorkflowAgentStepEditValue) => {
-    if (!graph || !editDialogNodeId || readOnly || isUpdating) {
+    if (!graph || !editPanelNodeId || readOnly || isUpdating) {
       return;
     }
 
-    const nextGraph = applyWorkflowNodeDataPatch(graph, editDialogNodeId, {
+    const nextGraph = applyWorkflowNodeDataPatch(graph, editPanelNodeId, {
       display_name: displayName,
       ...createWorkflowAgentNodeDraftPatch({ prompt, executorConfig }),
     });
@@ -380,7 +385,7 @@ export function WorkflowTemplateEditorPage({
     setRunStartError(null);
     try {
       await persistWorkflowGraph(nextGraph);
-      setEditDialogNodeId(null);
+      setEditPanelNodeId(null);
     } catch (err) {
       setRunStartError(getWorkflowRunErrorMessage(err));
     }
@@ -394,7 +399,7 @@ export function WorkflowTemplateEditorPage({
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
     setContextMenu(null);
-    setEditDialogNodeId(null);
+    setEditPanelNodeId(null);
     setRunStartError(null);
 
     if (!node.data.session_id && !readOnly) {
@@ -422,7 +427,7 @@ export function WorkflowTemplateEditorPage({
     setSelectedNodeId(duplicate.id);
     setSelectedEdgeId(null);
     setSessionPanelNodeId(null);
-    setEditDialogNodeId(duplicate.id);
+    setEditPanelNodeId(duplicate.id);
     setContextMenu(null);
   };
 
@@ -453,7 +458,7 @@ export function WorkflowTemplateEditorPage({
     if (selectedNodeId === nodeId) setSelectedNodeId(null);
     setSelectedEdgeId(null);
     if (sessionPanelNodeId === nodeId) setSessionPanelNodeId(null);
-    if (editDialogNodeId === nodeId) setEditDialogNodeId(null);
+    if (editPanelNodeId === nodeId) setEditPanelNodeId(null);
     setContextMenu(null);
     try {
       await persistWorkflowGraph(nextGraph);
@@ -529,10 +534,23 @@ export function WorkflowTemplateEditorPage({
     () => graph?.nodes.find((node) => node.id === sessionPanelNodeId) ?? null,
     [sessionPanelNodeId, graph]
   );
-  const editDialogNode = useMemo(
-    () => graph?.nodes.find((node) => node.id === editDialogNodeId) ?? null,
-    [editDialogNodeId, graph]
+  const editPanelNode = useMemo(
+    () => graph?.nodes.find((node) => node.id === editPanelNodeId) ?? null,
+    [editPanelNodeId, graph]
   );
+  const runningNodeIds = useMemo(
+    () =>
+      new Set(
+        (latestRun?.nodes ?? [])
+          .filter((node) => node.status === 'running')
+          .map((node) => node.node_id)
+      ),
+    [latestRun?.nodes]
+  );
+  const isEditPanelNodeRunning =
+    !!editPanelNode && runningNodeIds.has(editPanelNode.id);
+  const editPanelHasExistingRun =
+    !!workflowAttempt?.latest_run_id || !!editPanelNode?.data.session_id;
   const contextMenuNode = useMemo(
     () => graph?.nodes.find((node) => node.id === contextMenu?.nodeId) ?? null,
     [contextMenu?.nodeId, graph]
@@ -631,6 +649,13 @@ export function WorkflowTemplateEditorPage({
     selectedNode,
     requestedAgentDraftNode: null,
   });
+  const editableAgentNode =
+    editPanelNode?.type === 'agent' ? editPanelNode : null;
+  const isEditPanelOpen = !!editableAgentNode;
+  const isWideSidePanel = Boolean(sessionPanelExecution || isEditPanelOpen);
+  const workflowEditorLayout: Layout = isWideSidePanel
+    ? { 'workflow-canvas': 62, 'workflow-side': 38 }
+    : { 'workflow-canvas': 74, 'workflow-side': 26 };
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -795,7 +820,7 @@ export function WorkflowTemplateEditorPage({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
-                setEditDialogNodeId(contextMenu.nodeId);
+                setEditPanelNodeId(contextMenu.nodeId);
                 setSessionPanelNodeId(null);
                 setContextMenu(null);
               }}
@@ -821,49 +846,80 @@ export function WorkflowTemplateEditorPage({
         </DropdownMenu>
       ) : null}
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Canvas & Bottom Panel */}
-        <div className="relative flex flex-1 flex-col">
-          <div className="relative flex-1">
-            <ReactFlowProvider>
-              <WorkflowCanvas
-                graph={graph}
-                validationIssues={validationIssues}
-                readOnly={readOnly}
-                onChange={handleGraphChange}
-                onSelectionChange={(selection) => {
-                  setSelectedNodeId(selection.nodeId);
-                  setSelectedEdgeId(selection.edgeId);
-                  setContextMenu(null);
-                  setSessionPanelNodeId((currentPanelNodeId) =>
-                    selection.edgeId || selection.nodeId !== currentPanelNodeId
-                      ? null
-                      : currentPanelNodeId
-                  );
-                }}
-                onNodeDrop={handleAddNode}
-                onNodeOpen={(nodeId) => void handleOpenAgentSession(nodeId)}
-                onNodeContextMenu={(event) => {
-                  const node = graph.nodes.find(
-                    (candidate) => candidate.id === event.nodeId
-                  );
-                  setContextMenu(node?.type === 'agent' ? event : null);
-                }}
-              />
-            </ReactFlowProvider>
-          </div>
-          <WorkflowValidationPanel graph={graph} />
-        </div>
-
-        {/* Inspector */}
-        <div
-          className={
-            sessionPanelExecution
-              ? 'relative z-10 w-[560px] shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)] xl:w-[640px]'
-              : 'relative z-10 w-80 shrink-0 border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]'
-          }
+      <Group
+        orientation="horizontal"
+        className="min-h-0 flex-1 overflow-hidden"
+        defaultLayout={workflowEditorLayout}
+      >
+        <Panel
+          id="workflow-canvas"
+          minSize="35%"
+          className="min-w-0 overflow-hidden"
         >
-          {sessionPanelExecution ? (
+          <div className="relative flex h-full min-h-0 flex-col">
+            <div className="relative min-h-0 flex-1">
+              <ReactFlowProvider>
+                <WorkflowCanvas
+                  graph={graph}
+                  validationIssues={validationIssues}
+                  readOnly={readOnly}
+                  onChange={handleGraphChange}
+                  onSelectionChange={(selection) => {
+                    setSelectedNodeId(selection.nodeId);
+                    setSelectedEdgeId(selection.edgeId);
+                    setContextMenu(null);
+                    setSessionPanelNodeId((currentPanelNodeId) =>
+                      selection.edgeId ||
+                      selection.nodeId !== currentPanelNodeId
+                        ? null
+                        : currentPanelNodeId
+                    );
+                    setEditPanelNodeId((currentPanelNodeId) =>
+                      selection.edgeId ||
+                      selection.nodeId !== currentPanelNodeId
+                        ? null
+                        : currentPanelNodeId
+                    );
+                  }}
+                  onNodeDrop={handleAddNode}
+                  onNodeOpen={(nodeId) => void handleOpenAgentSession(nodeId)}
+                  onNodeContextMenu={(event) => {
+                    const node = graph.nodes.find(
+                      (candidate) => candidate.id === event.nodeId
+                    );
+                    setContextMenu(node?.type === 'agent' ? event : null);
+                  }}
+                />
+              </ReactFlowProvider>
+            </div>
+            <WorkflowValidationPanel graph={graph} />
+          </div>
+        </Panel>
+
+        <Separator
+          id="workflow-editor-separator"
+          className="w-1 cursor-col-resize bg-panel outline-none transition-colors hover:bg-brand/50"
+        />
+
+        <Panel
+          id="workflow-side"
+          minSize="320px"
+          maxSize="760px"
+          className="relative z-10 min-w-0 overflow-hidden border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]"
+        >
+          {editableAgentNode ? (
+            <WorkflowAgentStepEditPanel
+              key={editableAgentNode.id}
+              node={editableAgentNode}
+              readOnly={readOnly}
+              isSaving={isUpdating}
+              isRunning={isEditPanelNodeRunning}
+              hasExistingRun={editPanelHasExistingRun}
+              error={runStartError}
+              onClose={() => setEditPanelNodeId(null)}
+              onSave={(value) => void handleAgentStepEditSave(value)}
+            />
+          ) : sessionPanelExecution ? (
             <div
               data-testid="workflow-node-conversation-panel"
               className="h-full overflow-hidden p-base"
@@ -873,6 +929,9 @@ export function WorkflowTemplateEditorPage({
                 workspaceId={workflowAttempt?.workspace_id ?? null}
                 sessionHref={null}
                 workspaceHref={null}
+                nodeTitle={sessionPanelNode?.data.display_name}
+                nodeData={sessionPanelNode?.data ?? null}
+                statusLabel="Draft"
               />
             </div>
           ) : inspectorPanel.kind === 'edge' ? (
@@ -893,20 +952,8 @@ export function WorkflowTemplateEditorPage({
               onChange={handleNodeChange}
             />
           )}
-        </div>
-      </div>
-      <WorkflowAgentStepEditDialog
-        key={editDialogNode?.id ?? 'agent-step-edit'}
-        open={!!editDialogNode && editDialogNode.type === 'agent'}
-        node={editDialogNode?.type === 'agent' ? editDialogNode : null}
-        readOnly={readOnly}
-        isSaving={isUpdating}
-        error={runStartError}
-        onOpenChange={(open) => {
-          if (!open) setEditDialogNodeId(null);
-        }}
-        onSave={(value) => void handleAgentStepEditSave(value)}
-      />
+        </Panel>
+      </Group>
     </div>
   );
 }

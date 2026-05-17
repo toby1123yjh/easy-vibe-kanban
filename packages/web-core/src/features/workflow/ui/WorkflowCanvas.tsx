@@ -13,7 +13,6 @@ import {
   Controls,
   EdgeLabelRenderer,
   Handle,
-  MiniMap,
   Position,
   ConnectionLineType,
   ConnectionMode,
@@ -61,6 +60,8 @@ import {
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
+import { AgentIcon } from '@/shared/components/AgentIcon';
+import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
@@ -105,14 +106,6 @@ const ROUTE_HINT_CLASSES: Record<string, string> = {
 const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
-};
-
-const getExecutorLabel = (data: WorkflowNodeData): string => {
-  const config = data.executor_config;
-  if (!config || typeof config !== 'object') return 'Agent';
-  const executor = (config as { executor?: unknown }).executor;
-  if (typeof executor !== 'string' || executor.length === 0) return 'Agent';
-  return executor.replace(/_/g, ' ');
 };
 
 const hasSession = (data: WorkflowNodeData): boolean =>
@@ -180,6 +173,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const structural = nodeKind === 'start' || nodeKind === 'end';
   const compactAgent = nodeKind === 'agent';
   const sessionReady = hasSession(data);
+  const agentDisplay = compactAgent ? getWorkflowAgentDisplay(data) : null;
 
   if (structural) {
     return (
@@ -273,7 +267,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             visual.iconClass
           )}
         >
-          <Icon className="h-4 w-4" />
+          {agentDisplay?.executor ? (
+            <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
+          ) : (
+            <Icon className="h-4 w-4" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-high">
@@ -281,10 +279,13 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
-            className="mt-0.5 text-[10px] font-semibold uppercase tracking-normal text-low"
+            className={cn(
+              'mt-0.5 truncate text-[10px] font-semibold tracking-normal text-low',
+              !agentDisplay && 'uppercase'
+            )}
           >
-            {nodeKind === 'agent'
-              ? getExecutorLabel(data)
+            {agentDisplay
+              ? agentDisplay.detailLabel
               : getWorkflowNodeKindLabel(nodeKind)}
           </div>
         </div>
@@ -315,6 +316,20 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           <span className="inline-flex items-center rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
             {compactAgent ? 'Agent Step' : getWorkflowNodeKindLabel(nodeKind)}
           </span>
+          {agentDisplay ? (
+            <span
+              data-testid={`workflow-node-agent-model-${id}`}
+              className="inline-flex max-w-full items-center truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low"
+              title={agentDisplay.modelLabel}
+            >
+              {agentDisplay.modelLabel}
+            </span>
+          ) : null}
+          {agentDisplay?.reasoningLabel ? (
+            <span className="inline-flex max-w-full items-center truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+              {agentDisplay.reasoningLabel}
+            </span>
+          ) : null}
         </div>
 
         {!compactAgent && metadata.length > 0 ? (
@@ -372,7 +387,6 @@ export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
 export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
   ConnectionLineType.SmoothStep;
 export const WORKFLOW_CANVAS_CONNECTION_MODE = ConnectionMode.Loose;
-export const WORKFLOW_CANVAS_MINIMAP_BACKGROUND = '#15171d';
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
   'dimensions',
@@ -940,15 +954,7 @@ export function WorkflowCanvas({
           size={1.5}
           color="#2e333b"
         />
-        <Controls className="rounded-lg border border-white/10 bg-[#17191f]/90 text-high shadow-lg backdrop-blur" />
-        <MiniMap
-          zoomable
-          pannable
-          nodeColor="#f97316"
-          maskColor="rgba(16, 17, 20, 0.54)"
-          style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
-          className="overflow-hidden rounded-lg border border-white/10 shadow-lg"
-        />
+        <Controls className="workflow-canvas-controls rounded-lg border border-white/20 bg-[#1d2028] text-high shadow-[0_12px_32px_rgba(0,0,0,0.42)] backdrop-blur" />
       </ReactFlow>
     </div>
   );

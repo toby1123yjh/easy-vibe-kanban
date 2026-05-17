@@ -471,8 +471,10 @@ html {
   .workflow-canvas-product .react-flow__edgeupdater,
   .workflow-canvas-product .react-flow__edgeupdater-source,
   .workflow-canvas-product .react-flow__edgeupdater-target {
-    border: 0;
-    background: transparent;
+    width: 32px;
+    height: 32px;
+    border: 0 !important;
+    background: transparent !important;
     box-shadow: none;
     opacity: 0 !important;
     pointer-events: all;
@@ -481,6 +483,29 @@ html {
 
   .workflow-canvas-product .workflow-edge-action {
     pointer-events: all;
+  }
+
+  .workflow-canvas-product .react-flow__controls {
+    overflow: hidden;
+  }
+
+  .workflow-canvas-product .react-flow__controls-button {
+    width: 30px;
+    height: 30px;
+    border-color: rgba(255, 255, 255, 0.14);
+    background: #1d2028;
+    color: hsl(var(--high));
+    fill: hsl(var(--high));
+  }
+
+  .workflow-canvas-product .react-flow__controls-button:hover {
+    background: hsl(var(--brand));
+    color: #fff;
+    fill: #fff;
+  }
+
+  .workflow-canvas-product .react-flow__controls-button svg {
+    fill: currentColor;
   }
 
   @keyframes workflow-edge-flow {

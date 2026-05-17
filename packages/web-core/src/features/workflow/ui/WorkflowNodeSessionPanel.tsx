@@ -17,17 +17,27 @@ import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
+import type { WorkflowNodeData } from '../model/workflowGraph';
+import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 
 export function WorkflowNodeSessionPanel({
   execution,
   workspaceId,
   sessionHref,
   workspaceHref,
+  nodeTitle,
+  nodeData,
+  statusLabel,
+  hideHeader = false,
 }: {
   execution: WorkflowNodeExecutionResponse;
   workspaceId: string | null;
   sessionHref: string | null;
   workspaceHref: string | null;
+  nodeTitle?: string;
+  nodeData?: WorkflowNodeData | null;
+  statusLabel?: string | null;
+  hideHeader?: boolean;
 }) {
   const nodeSessionId = execution.session_id;
 
@@ -37,18 +47,90 @@ export function WorkflowNodeSessionPanel({
         execution={execution}
         sessionHref={sessionHref}
         workspaceHref={workspaceHref}
+        nodeTitle={nodeTitle}
+        nodeData={nodeData}
+        statusLabel={statusLabel}
+        hideHeader={hideHeader}
       />
     );
   }
 
   return (
-    <WorkflowNodeEmbeddedSession
-      execution={execution}
-      nodeSessionId={nodeSessionId}
-      sessionHref={sessionHref}
-      workspaceId={workspaceId}
-      workspaceHref={workspaceHref}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {hideHeader ? null : (
+        <WorkflowNodeSessionHeader
+          execution={execution}
+          sessionHref={sessionHref}
+          workspaceHref={workspaceHref}
+          nodeTitle={nodeTitle}
+          nodeData={nodeData}
+          statusLabel={statusLabel}
+        />
+      )}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <WorkflowNodeEmbeddedSession
+          execution={execution}
+          nodeSessionId={nodeSessionId}
+          sessionHref={sessionHref}
+          workspaceId={workspaceId}
+          workspaceHref={workspaceHref}
+        />
+      </div>
+    </div>
+  );
+}
+
+function WorkflowNodeSessionHeader({
+  execution,
+  sessionHref,
+  workspaceHref,
+  nodeTitle,
+  nodeData,
+  statusLabel,
+}: {
+  execution: WorkflowNodeExecutionResponse;
+  sessionHref: string | null;
+  workspaceHref: string | null;
+  nodeTitle?: string;
+  nodeData?: WorkflowNodeData | null;
+  statusLabel?: string | null;
+}) {
+  const agentDisplay = getWorkflowAgentDisplay(nodeData ?? {});
+  const title =
+    nodeTitle?.trim() ||
+    (execution.node_type === 'agent' ? 'Agent Step Session' : 'Node Session');
+  const sessionLabel = execution.session_id
+    ? 'Session ready'
+    : 'Session not started';
+
+  return (
+    <div className="shrink-0 border-b border-secondary bg-panel px-base py-half">
+      <div className="flex items-start justify-between gap-base">
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-high">{title}</h2>
+          <div className="mt-1 flex flex-wrap gap-1">
+            <span className="rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
+              {agentDisplay.agentLabel}
+            </span>
+            <span className="max-w-[220px] truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+              {agentDisplay.modelLabel}
+            </span>
+            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+              {statusLabel || sessionLabel}
+            </span>
+          </div>
+        </div>
+        {sessionHref ? (
+          <Button asChild size="xs" variant="outline">
+            <a href={sessionHref}>Open in workspace</a>
+          </Button>
+        ) : workspaceHref ? (
+          <Button asChild size="xs" variant="outline">
+            <a href={workspaceHref}>Open workspace</a>
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -226,68 +308,81 @@ function WorkflowNodeSessionFallback({
   execution,
   sessionHref,
   workspaceHref,
+  nodeTitle,
+  nodeData,
+  statusLabel,
+  hideHeader,
 }: {
   execution: WorkflowNodeExecutionResponse;
   sessionHref: string | null;
   workspaceHref: string | null;
+  nodeTitle?: string;
+  nodeData?: WorkflowNodeData | null;
+  statusLabel?: string | null;
+  hideHeader?: boolean;
 }) {
   return (
     <div
       data-testid="workflow-node-session-panel"
-      className="flex min-h-full flex-col gap-base"
+      className="flex min-h-full flex-col"
     >
-      <div className="rounded border border-secondary bg-primary p-half">
-        <div className="flex items-start justify-between gap-base">
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-high">Agent Session</h3>
-            <p
-              data-testid="workflow-node-session-id"
-              className="mt-1 truncate text-xs text-low"
-            >
-              Session: {execution.session_id ?? 'Not started'}
-            </p>
-            <p className="truncate text-xs text-low">
-              Process: {execution.execution_process_id ?? 'Not started'}
-            </p>
-          </div>
-          {sessionHref ? (
-            <Button asChild size="xs" variant="outline">
-              <a href={sessionHref}>Open in workspace</a>
-            </Button>
-          ) : workspaceHref ? (
-            <Button asChild size="xs" variant="outline">
-              <a href={workspaceHref}>Open workspace</a>
-            </Button>
-          ) : null}
+      {hideHeader ? null : (
+        <WorkflowNodeSessionHeader
+          execution={execution}
+          sessionHref={sessionHref}
+          workspaceHref={workspaceHref}
+          nodeTitle={nodeTitle}
+          nodeData={nodeData}
+          statusLabel={statusLabel}
+        />
+      )}
+
+      <div className="flex flex-1 flex-col gap-base overflow-y-auto p-base">
+        <div className="rounded border border-secondary bg-primary p-half">
+          <h3 className="text-xs font-semibold uppercase text-low">
+            Technical details
+          </h3>
+          <p
+            data-testid="workflow-node-session-id"
+            className="mt-half truncate text-xs text-low"
+          >
+            Session: {execution.session_id ?? 'Not started'}
+          </p>
+          <p className="truncate text-xs text-low">
+            Process: {execution.execution_process_id ?? 'Not started'}
+          </p>
         </div>
-      </div>
 
-      <div className="rounded border border-secondary bg-primary p-half">
-        <h3 className="text-xs font-semibold uppercase text-low">
-          Conversation
-        </h3>
-        <pre className="mt-half whitespace-pre-wrap text-xs text-high">
-          {execution.output_text || 'No agent response has been captured yet.'}
-        </pre>
-      </div>
-
-      <div className="rounded border border-secondary bg-primary p-half">
-        <h3 className="text-xs font-semibold uppercase text-low">
-          Node Prompt
-        </h3>
-        <pre className="mt-half whitespace-pre-wrap text-xs text-high">
-          {execution.input_text || 'No prompt has been captured yet.'}
-        </pre>
-      </div>
-
-      {execution.error_text ? (
-        <div className="rounded border border-error/50 bg-error/10 p-half">
-          <h3 className="text-xs font-semibold uppercase text-error">Error</h3>
-          <pre className="mt-half whitespace-pre-wrap text-xs text-error">
-            {execution.error_text}
+        <div className="rounded border border-secondary bg-primary p-half">
+          <h3 className="text-xs font-semibold uppercase text-low">
+            Conversation
+          </h3>
+          <pre className="mt-half whitespace-pre-wrap text-xs text-high">
+            {execution.output_text ||
+              'No agent response has been captured yet.'}
           </pre>
         </div>
-      ) : null}
+
+        <div className="rounded border border-secondary bg-primary p-half">
+          <h3 className="text-xs font-semibold uppercase text-low">
+            Node Prompt
+          </h3>
+          <pre className="mt-half whitespace-pre-wrap text-xs text-high">
+            {execution.input_text || 'No prompt has been captured yet.'}
+          </pre>
+        </div>
+
+        {execution.error_text ? (
+          <div className="rounded border border-error/50 bg-error/10 p-half">
+            <h3 className="text-xs font-semibold uppercase text-error">
+              Error
+            </h3>
+            <pre className="mt-half whitespace-pre-wrap text-xs text-error">
+              {execution.error_text}
+            </pre>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

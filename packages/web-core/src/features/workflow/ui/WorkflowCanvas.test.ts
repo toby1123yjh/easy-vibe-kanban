@@ -5,7 +5,6 @@ import {
   WORKFLOW_CANVAS_CONNECTION_LINE_TYPE,
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_TYPE,
-  WORKFLOW_CANVAS_MINIMAP_BACKGROUND,
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
@@ -62,9 +61,5 @@ describe('workflow canvas interaction settings', () => {
 
     expect(hasGraphAffectingEdgeChanges([{ type: 'select' }])).toBe(false);
     expect(hasGraphAffectingEdgeChanges([{ type: 'remove' }])).toBe(true);
-  });
-
-  it('uses a stable non-white minimap background token', () => {
-    expect(WORKFLOW_CANVAS_MINIMAP_BACKGROUND).toBe('#15171d');
   });
 });

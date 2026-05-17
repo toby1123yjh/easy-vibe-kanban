@@ -12,7 +12,6 @@ import {
   ConnectionMode,
   Controls,
   Handle,
-  MiniMap,
   Position,
   ReactFlow,
   useEdgesState,
@@ -20,6 +19,7 @@ import {
   type Edge as ReactFlowEdge,
   type Node as ReactFlowNode,
 } from '@xyflow/react';
+import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
 import '@xyflow/react/dist/style.css';
 import {
   Activity,
@@ -53,12 +53,14 @@ import {
   toReactFlowEdges,
   toReactFlowNodes,
   type WorkflowGraph,
+  type WorkflowNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
-import { WORKFLOW_CANVAS_MINIMAP_BACKGROUND } from './WorkflowCanvas';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
+import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
+import { AgentIcon } from '@/shared/components/AgentIcon';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -121,6 +123,7 @@ function RunNode({ data }: { data: RunNodeData }) {
   const type = data.nodeType;
   const isRunning = status === 'running';
   const isWaiting = status === 'awaiting_human' || status === 'awaiting_arena';
+  const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
 
   return (
     <div
@@ -171,15 +174,26 @@ function RunNode({ data }: { data: RunNodeData }) {
       ))}
       <div className="flex items-center gap-3 pr-4">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/60 bg-primary/70 shadow-sm">
-          {statusIconMap[status]}
+          {agentDisplay?.executor ? (
+            <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
+          ) : (
+            statusIconMap[status]
+          )}
         </div>
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-semibold">
             {data.display_name || type || 'Node'}
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider opacity-80">
-            {getNodeStatusLabel(status)}
+          <span className="truncate text-[10px] font-semibold tracking-normal opacity-80">
+            {agentDisplay
+              ? `${agentDisplay.agentLabel} / ${agentDisplay.modelLabel}`
+              : getNodeStatusLabel(status)}
           </span>
+          {agentDisplay ? (
+            <span className="text-[10px] font-semibold uppercase tracking-normal opacity-70">
+              {getNodeStatusLabel(status)}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -362,6 +376,16 @@ export function WorkflowRunCanvasTab({
   const selectedExecution = selectedNodeId
     ? getExecutionForNode(run, selectedNodeId)
     : null;
+  const selectedGraphNode =
+    graph && selectedNodeId
+      ? (graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
+      : null;
+  const isWideRunSidePanel =
+    selectedExecution?.node_type === 'agent' ||
+    selectedGraphNode?.type === 'agent';
+  const runCanvasLayout: Layout = isWideRunSidePanel
+    ? { 'workflow-run-canvas': 62, 'workflow-run-side': 38 }
+    : { 'workflow-run-canvas': 74, 'workflow-run-side': 26 };
 
   const onSelectionChange = useCallback(
     ({ nodes: selectedNodes }: { nodes: ReactFlowNode[] }) => {
@@ -435,49 +459,70 @@ export function WorkflowRunCanvasTab({
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-primary lg:flex-row">
-      <div className="h-full min-h-[360px] min-w-0 flex-1 lg:min-h-0">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onSelectionChange={onSelectionChange}
-          onNodeClick={handleNodeClick}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          onPaneClick={() => selectNodeById(null)}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          connectionMode={ConnectionMode.Loose}
-          elementsSelectable={true}
-          fitView
+    <div className="h-full w-full bg-primary">
+      <Group
+        orientation="horizontal"
+        className="h-full min-w-0 overflow-hidden"
+        defaultLayout={runCanvasLayout}
+      >
+        <Panel
+          id="workflow-run-canvas"
+          minSize="35%"
+          className="min-w-0 overflow-hidden"
         >
-          <Background
-            variant={BackgroundVariant.Dots}
-            size={1.5}
-            color="hsl(var(--low) / 0.15)"
-          />
-          <Controls className="rounded-lg border border-secondary bg-panel/90 shadow-sm backdrop-blur" />
-          <MiniMap
-            maskColor="rgba(15, 23, 42, 0.16)"
-            style={{ backgroundColor: WORKFLOW_CANVAS_MINIMAP_BACKGROUND }}
-            className="overflow-hidden rounded-lg border border-secondary shadow-sm"
-          />
-        </ReactFlow>
-      </div>
+          <div className="h-full min-h-[360px] min-w-0">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onSelectionChange={onSelectionChange}
+              onNodeClick={handleNodeClick}
+              onNodeDoubleClick={handleNodeDoubleClick}
+              onPaneClick={() => selectNodeById(null)}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              connectionMode={ConnectionMode.Loose}
+              elementsSelectable={true}
+              fitView
+              className="workflow-canvas workflow-canvas-product bg-[#101114]"
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                size={1.5}
+                color="#2e333b"
+              />
+              <Controls className="workflow-canvas-controls rounded-lg border border-white/20 bg-[#1d2028] text-high shadow-[0_12px_32px_rgba(0,0,0,0.42)] backdrop-blur" />
+            </ReactFlow>
+          </div>
+        </Panel>
 
-      <NodeDetailPanel
-        actionError={actionError}
-        isApproving={isApproving}
-        isRejecting={isRejecting}
-        onApprove={() => void handleApprove()}
-        onReject={() => void handleReject()}
-        projectId={projectId}
-        run={run}
-        selectedExecution={selectedExecution}
-        selectedNodeId={selectedNodeId}
-      />
+        <Separator
+          id="workflow-run-separator"
+          className="w-1 cursor-col-resize bg-panel outline-none transition-colors hover:bg-brand/50"
+        />
+
+        <Panel
+          id="workflow-run-side"
+          minSize="320px"
+          maxSize="760px"
+          className="min-w-0 overflow-hidden border-l border-secondary bg-panel"
+        >
+          <NodeDetailPanel
+            actionError={actionError}
+            isApproving={isApproving}
+            isRejecting={isRejecting}
+            onApprove={() => void handleApprove()}
+            onReject={() => void handleReject()}
+            projectId={projectId}
+            run={run}
+            selectedExecution={selectedExecution}
+            selectedGraphNode={selectedGraphNode}
+            selectedNodeId={selectedNodeId}
+          />
+        </Panel>
+      </Group>
     </div>
   );
 }
@@ -491,6 +536,7 @@ interface NodeDetailPanelProps {
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse | null;
+  selectedGraphNode: WorkflowNode | null;
   selectedNodeId: string | null;
 }
 
@@ -503,6 +549,7 @@ function NodeDetailPanel({
   projectId,
   run,
   selectedExecution,
+  selectedGraphNode,
   selectedNodeId,
 }: NodeDetailPanelProps) {
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
@@ -510,26 +557,42 @@ function NodeDetailPanel({
     selectedExecution?.node_type === 'agent'
       ? buildWorkspaceSessionHref(workspaceHref, selectedExecution.session_id)
       : null;
-  const isAgent = selectedExecution?.node_type === 'agent';
+  const isAgent =
+    selectedExecution?.node_type === 'agent' ||
+    selectedGraphNode?.type === 'agent';
+  const agentDisplay =
+    selectedGraphNode?.type === 'agent'
+      ? getWorkflowAgentDisplay(selectedGraphNode.data)
+      : null;
+  const title =
+    selectedGraphNode?.data.display_name ||
+    (isAgent ? 'Agent Step Session' : 'Node Details');
   const subtitle = selectedExecution
-    ? `${selectedExecution.node_type} / ${selectedExecution.node_id}`
+    ? getNodeStatusLabel(selectedExecution.status)
     : selectedNodeId
-      ? `Node: ${selectedNodeId}`
+      ? 'Not executed yet'
       : 'Select a node';
 
   return (
-    <aside
-      className={cn(
-        'flex max-h-[50%] min-h-0 w-full flex-col overflow-hidden border-t border-secondary bg-panel lg:max-h-none lg:border-l lg:border-t-0',
-        isAgent ? 'lg:w-[560px] xl:w-[640px]' : 'lg:w-[400px] xl:w-[440px]'
-      )}
-    >
+    <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
       <div className="border-b border-secondary p-base">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-high">
-            {isAgent ? 'Agent Session' : 'Node Details'}
-          </h2>
-          <p className="truncate text-xs text-low">{subtitle}</p>
+          <h2 className="text-sm font-semibold text-high">{title}</h2>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {agentDisplay ? (
+              <>
+                <span className="rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
+                  {agentDisplay.agentLabel}
+                </span>
+                <span className="max-w-[220px] truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+                  {agentDisplay.modelLabel}
+                </span>
+              </>
+            ) : null}
+            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+              {subtitle}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -548,6 +611,7 @@ function NodeDetailPanel({
         ) : isAgent ? (
           <WorkflowNodeConversationPanel
             selectedExecution={selectedExecution}
+            selectedGraphNode={selectedGraphNode}
             workspaceId={run.workspace_id}
             sessionHref={sessionHref}
             workspaceHref={workspaceHref}
@@ -672,11 +736,13 @@ function NodeDetailsTab({
 
 function WorkflowNodeConversationPanel({
   selectedExecution,
+  selectedGraphNode,
   workspaceId,
   sessionHref,
   workspaceHref,
 }: {
   selectedExecution: WorkflowNodeExecutionResponse;
+  selectedGraphNode: WorkflowNode | null;
   workspaceId: string | null;
   sessionHref: string | null;
   workspaceHref: string | null;
@@ -699,6 +765,10 @@ function WorkflowNodeConversationPanel({
         workspaceId={workspaceId}
         sessionHref={sessionHref}
         workspaceHref={workspaceHref}
+        nodeTitle={selectedGraphNode?.data.display_name}
+        nodeData={selectedGraphNode?.data ?? null}
+        statusLabel={getNodeStatusLabel(selectedExecution.status)}
+        hideHeader
       />
     </div>
   );
