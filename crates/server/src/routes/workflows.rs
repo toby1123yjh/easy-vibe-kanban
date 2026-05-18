@@ -251,6 +251,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(list_workflows).post(create_workflow),
         )
         .route(
+            "/v1/projects/{project_id}/workflow-attempts",
+            get(list_project_workflow_attempts),
+        )
+        .route(
             "/v1/projects/{project_id}/issues/{issue_id}/workflow-attempts",
             get(list_issue_workflow_attempts).post(create_workflow_attempt),
         )
@@ -310,6 +314,16 @@ async fn list_workflows(
 ) -> Result<ResponseJson<WorkflowTemplateListResponse>, ApiError> {
     Ok(ResponseJson(WorkflowTemplateListResponse {
         workflows: list_project_workflows(&deployment.db().pool, project_id).await?,
+    }))
+}
+
+async fn list_project_workflow_attempts(
+    State(deployment): State<DeploymentImpl>,
+    Path(project_id): Path<Uuid>,
+) -> Result<ResponseJson<WorkflowAttemptListResponse>, ApiError> {
+    Ok(ResponseJson(WorkflowAttemptListResponse {
+        attempts: list_workflow_attempts_for_project(&deployment.db().pool, project_id)
+            .await?,
     }))
 }
 
@@ -602,6 +616,31 @@ pub async fn ensure_agent_node_sessions(
     }
 
     Ok(changed)
+}
+
+pub async fn list_workflow_attempts_for_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<Vec<WorkflowAttemptResponse>, ApiError> {
+    ensure_project_exists(pool, project_id).await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
+               name, status, created_at, updated_at
+        FROM workflow_attempts
+        WHERE project_id = ?
+        ORDER BY updated_at DESC, created_at DESC
+        "#,
+    )
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .map(workflow_attempt_from_row)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 pub async fn persist_workflow_graph(

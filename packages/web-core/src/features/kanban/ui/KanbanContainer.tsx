@@ -14,6 +14,7 @@ import { useActions } from '@/shared/hooks/useActions';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { useProjectWorkflowAttempts } from '@/shared/hooks/useWorkflowAttempts';
 import { cn } from '@/shared/lib/utils';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import {
@@ -42,7 +43,10 @@ import {
   type ProjectIssueCreateOptions,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
-import type { OrganizationMemberWithProfile } from 'shared/types';
+import type {
+  OrganizationMemberWithProfile,
+  WorkflowAttemptResponse,
+} from 'shared/types';
 import {
   KanbanProvider,
   KanbanBoard,
@@ -57,6 +61,10 @@ import {
   type WorkspaceWithStats,
   type WorkspacePr,
 } from '@vibe/ui/components/IssueWorkspaceCard';
+import {
+  IssueWorkflowAttemptCard,
+  type IssueWorkflowAttemptCardData,
+} from '@vibe/ui/components/IssueWorkflowAttemptCard';
 import { resolveRelationshipsForIssue } from '@/shared/lib/resolveRelationships';
 import { KanbanFilterBar } from '@vibe/ui/components/KanbanFilterBar';
 import { ViewNavTabs } from '@vibe/ui/components/ViewNavTabs';
@@ -75,6 +83,11 @@ import type { IssuePriority } from 'shared/remote-types';
 import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
 import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
 import { BulkActionBarContainer } from './BulkActionBarContainer';
+import {
+  getWorkflowAttemptWorkspaceIds,
+  workflowAttemptStatusLabel,
+  workflowAttemptStatusTone,
+} from '@/features/workflow/model/taskAttempt';
 
 const areStringSetsEqual = (left: string[], right: string[]): boolean => {
   if (left.length !== right.length) {
@@ -110,6 +123,20 @@ const areKanbanFiltersEqual = (
     left.sortDirection === right.sortDirection
   );
 };
+
+function workflowAttemptToKanbanCard(
+  attempt: WorkflowAttemptResponse
+): IssueWorkflowAttemptCardData {
+  return {
+    id: attempt.id,
+    title: attempt.name || 'Workflow attempt',
+    subtitle: attempt.latest_run_id
+      ? `Latest run ${attempt.latest_run_id.slice(0, 8)}`
+      : 'Canvas draft ready',
+    statusLabel: workflowAttemptStatusLabel(attempt.status),
+    statusTone: workflowAttemptStatusTone(attempt.status),
+  };
+}
 
 function LoadingState() {
   const { t } = useTranslation('common');
@@ -194,6 +221,12 @@ export function KanbanContainer() {
     },
     [appNavigation, projectId]
   );
+  const openIssueWorkflowAttempt = useCallback(
+    (workflowId: string) => {
+      appNavigation.goToProjectWorkflowEdit(projectId, workflowId);
+    },
+    [appNavigation, projectId]
+  );
   const startCreate = useCallback(
     (options?: ProjectIssueCreateOptions) => {
       openKanbanIssueComposer(issueComposerKey, options);
@@ -254,6 +287,10 @@ export function KanbanContainer() {
   const showWorkspaces =
     projectViewPreferences?.showWorkspaces ?? defaultShowWorkspaces;
   const hideBlocked = projectViewPreferences?.hideBlocked ?? defaultHideBlocked;
+  const { data: projectWorkflowAttemptData } = useProjectWorkflowAttempts(
+    projectId,
+    { enabled: showWorkspaces }
+  );
 
   const hasActiveFilters = useMemo(
     () =>
@@ -593,6 +630,27 @@ export function KanbanContainer() {
     return map;
   }, [pullRequests]);
 
+  const projectWorkflowAttempts = projectWorkflowAttemptData?.attempts ?? [];
+
+  const workflowWorkspaceIds = useMemo(
+    () => getWorkflowAttemptWorkspaceIds(projectWorkflowAttempts),
+    [projectWorkflowAttempts]
+  );
+
+  const workflowAttemptsByIssueId = useMemo(() => {
+    if (!showWorkspaces) {
+      return new Map<string, WorkflowAttemptResponse[]>();
+    }
+
+    const map = new Map<string, WorkflowAttemptResponse[]>();
+    for (const attempt of projectWorkflowAttempts) {
+      const attempts = map.get(attempt.issue_id) ?? [];
+      attempts.push(attempt);
+      map.set(attempt.issue_id, attempts);
+    }
+    return map;
+  }, [projectWorkflowAttempts, showWorkspaces]);
+
   const workspacesByIssueId = useMemo(() => {
     if (!showWorkspaces) {
       return new Map<string, WorkspaceWithStats[]>();
@@ -605,6 +663,7 @@ export function KanbanContainer() {
         .filter(
           (workspace) =>
             !workspace.archived &&
+            !workflowWorkspaceIds.has(workspace.id) &&
             !!workspace.local_workspace_id &&
             localWorkspacesById.has(workspace.local_workspace_id)
         )
@@ -644,6 +703,7 @@ export function KanbanContainer() {
     showWorkspaces,
     issues,
     getWorkspacesForIssue,
+    workflowWorkspaceIds,
     localWorkspacesById,
     prsByWorkspaceId,
     membersWithProfilesById,
@@ -1031,6 +1091,8 @@ export function KanbanContainer() {
                       {issueIds.map((issueId, index) => {
                         const issue = issueMap[issueId];
                         if (!issue) return null;
+                        const issueWorkflowAttempts =
+                          workflowAttemptsByIssueId.get(issue.id) ?? [];
                         const issueWorkspaces =
                           workspacesByIssueId.get(issue.id) ?? [];
                         const workspaceIdsShownOnCard = new Set(
@@ -1114,8 +1176,22 @@ export function KanbanContainer() {
                                 ),
                               }}
                             />
-                            {issueWorkspaces.length > 0 && (
+                            {(issueWorkflowAttempts.length > 0 ||
+                              issueWorkspaces.length > 0) && (
                               <div className="mt-base flex flex-col gap-half">
+                                {issueWorkflowAttempts.map((attempt) => (
+                                  <IssueWorkflowAttemptCard
+                                    key={attempt.id}
+                                    attempt={workflowAttemptToKanbanCard(
+                                      attempt
+                                    )}
+                                    onClick={() =>
+                                      openIssueWorkflowAttempt(
+                                        attempt.workflow_id
+                                      )
+                                    }
+                                  />
+                                ))}
                                 {issueWorkspaces.map((workspace) => (
                                   <IssueWorkspaceCard
                                     key={workspace.id}

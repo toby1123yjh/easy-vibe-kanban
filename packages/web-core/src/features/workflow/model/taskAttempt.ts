@@ -40,16 +40,31 @@ export function buildTaskAttempts({
   workspaceAttempts,
   workflowAttempts,
 }: BuildTaskAttemptsInput): TaskAttemptView[] {
+  const workflowWorkspaceIds = getWorkflowAttemptWorkspaceIds(workflowAttempts);
+  const singleAgentAttempts = workspaceAttempts.filter(
+    (workspace) => !workflowWorkspaceIds.has(workspace.id)
+  );
+
   return [
     ...workflowAttempts.map(workflowAttemptToTaskAttempt),
-    ...workspaceAttempts.map(workspaceToTaskAttempt),
+    ...singleAgentAttempts.map(workspaceToTaskAttempt),
   ].sort(
     (left, right) =>
       new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
   );
 }
 
-function workflowAttemptToTaskAttempt(
+export function getWorkflowAttemptWorkspaceIds(
+  workflowAttempts: WorkflowAttemptResponse[]
+): Set<string> {
+  return new Set(
+    workflowAttempts
+      .map((attempt) => attempt.workspace_id)
+      .filter((workspaceId): workspaceId is string => !!workspaceId)
+  );
+}
+
+export function workflowAttemptToTaskAttempt(
   attempt: WorkflowAttemptResponse
 ): TaskAttemptView {
   return {
@@ -92,7 +107,7 @@ function workspaceToTaskAttempt(
   };
 }
 
-function workflowAttemptStatusLabel(
+export function workflowAttemptStatusLabel(
   status: WorkflowAttemptResponse['status']
 ): string {
   switch (status) {
@@ -115,7 +130,7 @@ function workflowAttemptStatusLabel(
   }
 }
 
-function workflowAttemptStatusTone(
+export function workflowAttemptStatusTone(
   status: WorkflowAttemptResponse['status']
 ): TaskAttemptStatusTone {
   switch (status) {

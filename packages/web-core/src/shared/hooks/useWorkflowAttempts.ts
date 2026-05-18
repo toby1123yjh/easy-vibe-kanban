@@ -16,6 +16,8 @@ import { workflowTemplateQueryKeys } from './useWorkflowTemplates';
 
 export const workflowAttemptQueryKeys = {
   all: ['workflow-attempts'] as const,
+  project: (projectId: string) =>
+    ['workflow-attempts', 'project', projectId] as const,
   issue: (projectId: string, issueId: string) =>
     ['workflow-attempts', 'project', projectId, 'issue', issueId] as const,
   detail: (attemptId: string) =>
@@ -39,6 +41,21 @@ export function useWorkflowAttempts(
     queryFn: () =>
       workflowApi.listAttempts(projectId as string, issueId as string),
     enabled: !!projectId && !!issueId && enabled,
+  });
+}
+
+export function useProjectWorkflowAttempts(
+  projectId: string | null | undefined,
+  options: { enabled?: boolean } = {}
+): UseQueryResult<WorkflowAttemptListResponse> {
+  const { enabled = true } = options;
+
+  return useQuery({
+    queryKey: projectId
+      ? workflowAttemptQueryKeys.project(projectId)
+      : ['workflow-attempts', 'project', 'noop'],
+    queryFn: () => workflowApi.listProjectAttempts(projectId as string),
+    enabled: !!projectId && enabled,
   });
 }
 
@@ -76,6 +93,9 @@ export function useWorkflowAttemptMutations() {
           variables.projectId,
           variables.issueId
         ),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: workflowAttemptQueryKeys.project(variables.projectId),
       });
       void queryClient.invalidateQueries({
         queryKey: workflowTemplateQueryKeys.list(variables.projectId),

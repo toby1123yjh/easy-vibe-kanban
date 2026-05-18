@@ -6,6 +6,7 @@ import {
   BaseAgentCapability,
   type Session,
   type BaseCodingAgent,
+  type ExecutorConfig,
   ExecutionProcessStatus,
   type SelectedSkill,
 } from 'shared/types';
@@ -109,6 +110,8 @@ interface SharedProps {
   disableViewCode: boolean;
   /** Replace diff stats with an "Open Workspace" button in header */
   showOpenWorkspaceButton: boolean;
+  /** Default executor config supplied by an embedding workflow/node context. */
+  preferredExecutorConfig?: ExecutorConfig | null;
 }
 
 /** Props for existing session mode */
@@ -154,6 +157,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     getActiveTurnPatchKey,
     disableViewCode = false,
     showOpenWorkspaceButton,
+    preferredExecutorConfig,
   } = props;
 
   // Extract mode-specific values
@@ -388,8 +392,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     return null;
   }, [processes, lastSessionProcesses, sessions]);
 
+  const resolvedInitialConfig = preferredExecutorConfig ?? latestConfig;
   const needsExecutorSelection =
-    isNewSessionMode || (!session?.executor && !latestConfig?.executor);
+    isNewSessionMode ||
+    (!session?.executor && !resolvedInitialConfig?.executor);
 
   // Message editor state
   const {
@@ -443,6 +449,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   const { uploadFiles, localAttachments, clearUploadedAttachments } =
     useSessionAttachments(workspaceId, sessionId, handleInsertMarkdown);
+  const scratchExecutorConfig =
+    preferredExecutorConfig ?? scratchData?.executor_config ?? undefined;
 
   // Unified executor + variant + model selector options resolution
   const {
@@ -458,7 +466,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   } = useExecutorConfig({
     profiles,
     lastUsedConfig: latestConfig,
-    scratchConfig: scratchData?.executor_config ?? undefined,
+    scratchConfig: scratchExecutorConfig,
     configExecutorProfile: config?.executor_profile,
     onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
   });

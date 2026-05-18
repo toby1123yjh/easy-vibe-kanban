@@ -6,7 +6,10 @@ import {
   type ReactNode,
   type WheelEvent,
 } from 'react';
-import type { WorkflowNodeExecutionResponse } from 'shared/types';
+import type {
+  ExecutorConfig,
+  WorkflowNodeExecutionResponse,
+} from 'shared/types';
 import {
   AlertCircle,
   Clock,
@@ -34,6 +37,7 @@ import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { cn } from '@/shared/lib/utils';
 import type { WorkflowNodeData } from '../model/workflowGraph';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
+import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
 import {
   formatWorkflowDuration,
   getNodeStatusLabel,
@@ -103,6 +107,10 @@ export function WorkflowNodeSessionPanel({
   runStepTitle,
 }: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
+  const preferredExecutorConfig = useMemo(
+    () => coerceWorkflowNodeExecutorConfig(nodeData?.executor_config),
+    [nodeData?.executor_config]
+  );
 
   if (!workspaceId || !nodeSessionId) {
     return (
@@ -147,6 +155,7 @@ export function WorkflowNodeSessionPanel({
           sessionHref={sessionHref}
           workspaceId={workspaceId}
           workspaceHref={workspaceHref}
+          preferredExecutorConfig={preferredExecutorConfig}
         />
       </div>
     </div>
@@ -424,12 +433,14 @@ function WorkflowNodeEmbeddedSession({
   sessionHref,
   workspaceId,
   workspaceHref,
+  preferredExecutorConfig,
 }: {
   execution: WorkflowNodeExecutionResponse;
   nodeSessionId: string;
   sessionHref: string | null;
   workspaceId: string;
   workspaceHref: string | null;
+  preferredExecutorConfig: ExecutorConfig | null;
 }) {
   const containerRef = useRef<HTMLElement>(null);
   const conversationListRef = useRef<ConversationListHandle>(null);
@@ -551,6 +562,7 @@ function WorkflowNodeEmbeddedSession({
       onScrollToBottom={handleScrollToBottom}
       onScrollToUserMessage={handleScrollToUserMessage}
       getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+      preferredExecutorConfig={preferredExecutorConfig}
     />
   );
 

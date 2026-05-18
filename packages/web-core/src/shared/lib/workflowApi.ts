@@ -186,6 +186,15 @@ export const workflowApi = {
     );
   },
 
+  async listProjectAttempts(
+    projectId: string
+  ): Promise<WorkflowAttemptListResponse> {
+    return getJson(
+      await localFetch(`/projects/${projectId}/workflow-attempts`),
+      'Failed to list project workflow attempts'
+    );
+  },
+
   async createAttempt(
     projectId: string,
     issueId: string,
