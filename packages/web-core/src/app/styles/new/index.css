@@ -449,8 +449,31 @@ html {
     stroke: hsl(var(--brand));
     stroke-dasharray: 12 18;
     stroke-linecap: round;
+    opacity: 0;
+    filter: none;
+    animation: none;
+  }
+
+  .workflow-edge-beam-running {
+    opacity: 0.84;
     filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.5));
     animation: workflow-edge-flow 1.2s linear infinite;
+  }
+
+  .workflow-node-running::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border: 1px solid hsl(var(--brand) / 0.66);
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0.38;
+    box-shadow: 0 0 24px rgba(249, 115, 22, 0.18);
+    animation: workflow-node-breathe 1.8s ease-in-out infinite;
+  }
+
+  .workflow-status-dot-running {
+    animation: workflow-status-dot-pulse 1.4s ease-in-out infinite;
   }
 
   .workflow-canvas-product .react-flow__handle {
@@ -514,9 +537,43 @@ html {
     }
   }
 
+  @keyframes workflow-node-breathe {
+    0%,
+    100% {
+      opacity: 0.24;
+      transform: scale(0.995);
+    }
+
+    50% {
+      opacity: 0.72;
+      transform: scale(1.018);
+    }
+  }
+
+  @keyframes workflow-status-dot-pulse {
+    0%,
+    100% {
+      opacity: 0.72;
+      transform: scale(0.92);
+    }
+
+    50% {
+      opacity: 1;
+      transform: scale(1.16);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .workflow-edge-beam {
+    .workflow-edge-beam-running,
+    .workflow-node-running::before,
+    .workflow-status-dot-running {
       animation: none;
+    }
+
+    .workflow-edge-action,
+    .workflow-canvas-product .react-flow__node,
+    .workflow-canvas-product .react-flow__edge {
+      transition-duration: 0ms !important;
     }
   }
 }

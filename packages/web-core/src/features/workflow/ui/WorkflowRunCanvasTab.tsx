@@ -49,6 +49,7 @@ import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
   WORKFLOW_PORT_HANDLE_IDS,
+  WORKFLOW_REACT_FLOW_EDGE_TYPE,
   migrateWorkflowGraph,
   toReactFlowEdges,
   toReactFlowNodes,
@@ -57,10 +58,17 @@ import {
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
+import {
+  getWorkflowCanvasEdgeState,
+  getWorkflowCanvasNodeState,
+  getWorkflowCanvasNodeStateLabel,
+  type WorkflowCanvasNodeState,
+} from '../model/workflowCanvasVisualState';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { AgentIcon } from '@/shared/components/AgentIcon';
+import { workflowCanvasEdgeTypes } from './WorkflowCanvas';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -78,7 +86,7 @@ interface RunNodeData extends WorkflowNodeData {
 
 const statusIconMap: Record<NodeExecutionStatus, ReactNode> = {
   pending: <Clock className="h-4 w-4 text-low" />,
-  running: <Activity className="h-4 w-4 animate-pulse text-brand" />,
+  running: <Activity className="h-4 w-4 text-brand" />,
   succeeded: <CheckCircle className="h-4 w-4 text-success" />,
   failed: <AlertCircle className="h-4 w-4 text-error" />,
   awaiting_human: <User className="h-4 w-4 text-warning" />,
@@ -102,12 +110,30 @@ const statusDotClassMap: Record<StatusTone, string> = {
   warning: 'bg-warning',
 };
 
-const edgeStrokeByTone: Record<StatusTone, string> = {
-  neutral: 'hsl(var(--border))',
-  active: 'hsl(var(--brand))',
-  success: 'hsl(var(--success))',
-  danger: 'hsl(var(--destructive))',
-  warning: 'hsl(var(--warning))',
+const runNodeStateFrameClassMap: Record<WorkflowCanvasNodeState, string> = {
+  draft: 'border-secondary bg-panel text-low',
+  configured: 'border-secondary bg-panel text-low',
+  pending: 'border-secondary bg-panel text-low',
+  running:
+    'border-brand/70 bg-brand/10 text-high shadow-[0_18px_48px_rgba(249,115,22,0.16)]',
+  succeeded:
+    'border-success/45 bg-success/10 text-high shadow-[0_18px_42px_rgba(34,197,94,0.1)]',
+  failed:
+    'border-error/70 bg-error/10 text-high shadow-[0_18px_42px_rgba(239,68,68,0.14)]',
+  waiting:
+    'border-warning/60 bg-warning/10 text-high shadow-[0_18px_42px_rgba(245,158,11,0.12)]',
+  skipped: 'border-secondary bg-panel text-low opacity-80',
+};
+
+const runNodeStateChipClassMap: Record<WorkflowCanvasNodeState, string> = {
+  draft: 'border-secondary bg-panel text-low',
+  configured: 'border-secondary bg-panel text-low',
+  pending: 'border-secondary bg-panel text-low',
+  running: 'border-brand/35 bg-brand/10 text-brand',
+  succeeded: 'border-success/35 bg-success/10 text-success',
+  failed: 'border-error/35 bg-error/10 text-error',
+  waiting: 'border-warning/35 bg-warning/10 text-warning',
+  skipped: 'border-secondary bg-panel text-low',
 };
 
 const runPortHandles = [
@@ -121,6 +147,12 @@ function RunNode({ data }: { data: RunNodeData }) {
   const status = data.execution?.status ?? 'pending';
   const tone = data.execution ? getNodeStatusTone(status) : 'neutral';
   const type = data.nodeType;
+  const nodeState = getWorkflowCanvasNodeState({
+    data,
+    executionStatus: data.execution?.status,
+    nodeType: type ?? 'agent',
+  });
+  const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState);
   const isRunning = status === 'running';
   const isWaiting = status === 'awaiting_human' || status === 'awaiting_arena';
   const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
@@ -143,8 +175,9 @@ function RunNode({ data }: { data: RunNodeData }) {
         data.onOpenConversation?.(data.nodeId);
       }}
       className={cn(
-        'relative min-w-[170px] cursor-pointer overflow-hidden rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
-        toneClassMap[tone],
+        'relative min-w-[170px] cursor-pointer overflow-visible rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
+        runNodeStateFrameClassMap[nodeState] ?? toneClassMap[tone],
+        isRunning && 'workflow-node-running',
         data.isSelected
           ? 'shadow-md ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
           : ''
@@ -160,7 +193,7 @@ function RunNode({ data }: { data: RunNodeData }) {
         className={cn(
           'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
           statusDotClassMap[tone],
-          isRunning ? 'animate-pulse' : ''
+          isRunning ? 'workflow-status-dot-running' : ''
         )}
       />
       {runPortHandles.map((handle) => (
@@ -189,9 +222,17 @@ function RunNode({ data }: { data: RunNodeData }) {
               ? `${agentDisplay.agentLabel} / ${agentDisplay.modelLabel}`
               : getNodeStatusLabel(status)}
           </span>
-          {agentDisplay ? (
-            <span className="text-[10px] font-semibold uppercase tracking-normal opacity-70">
-              {getNodeStatusLabel(status)}
+          <span
+            className={cn(
+              'mt-1 w-fit rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+              runNodeStateChipClassMap[nodeState]
+            )}
+          >
+            {stateLabel}
+          </span>
+          {agentDisplay?.reasoningLabel ? (
+            <span className="mt-1 text-[10px] font-semibold tracking-normal opacity-70">
+              {agentDisplay.reasoningLabel}
             </span>
           ) : null}
         </div>
@@ -344,21 +385,13 @@ export function WorkflowRunCanvasTab({
     setEdges(
       baseEdges.map((baseEdge) => {
         const sourceExecution = execNodeMap.get(baseEdge.source);
-        const tone = sourceExecution
-          ? getNodeStatusTone(sourceExecution.status)
-          : 'neutral';
-        const active =
-          sourceExecution?.status === 'running' ||
-          sourceExecution?.status === 'succeeded';
 
         return {
           ...baseEdge,
-          type: 'smoothstep',
-          animated: sourceExecution?.status === 'running',
-          style: {
-            stroke: active ? edgeStrokeByTone[tone] : edgeStrokeByTone.neutral,
-            strokeWidth: active ? 3 : 2,
-            transition: 'stroke 0.3s ease, stroke-width 0.3s ease',
+          type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
+          data: {
+            ...baseEdge.data,
+            visualStatus: getWorkflowCanvasEdgeState(sourceExecution?.status),
           },
         };
       })
@@ -475,6 +508,7 @@ export function WorkflowRunCanvasTab({
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
+              edgeTypes={workflowCanvasEdgeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onSelectionChange={onSelectionChange}

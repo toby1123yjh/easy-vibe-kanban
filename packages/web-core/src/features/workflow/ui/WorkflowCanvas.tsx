@@ -62,10 +62,20 @@ import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
+import {
+  buildWorkflowEdgeStateMap,
+  getWorkflowCanvasNodeState,
+  getWorkflowCanvasNodeStateLabel,
+  type WorkflowCanvasEdgeState,
+  type WorkflowCanvasNodeState,
+  type WorkflowNodeExecutionStatusMap,
+} from '../model/workflowCanvasVisualState';
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
   validationIssues?: ValidationIssue[];
+  nodeStatuses?: WorkflowNodeExecutionStatusMap;
+  staleNodeIds?: readonly string[];
   readOnly?: boolean;
   onChange?: (graph: WorkflowGraph) => void;
   onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
@@ -87,6 +97,7 @@ export interface WorkflowNodeContextMenuEvent {
 
 interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
   onSelect?: (edgeId: string) => void;
+  visualStatus?: WorkflowCanvasEdgeState;
 }
 
 interface BaseNodeProps {
@@ -103,6 +114,48 @@ const ROUTE_HINT_CLASSES: Record<string, string> = {
   danger: 'border-error/30 bg-error/10 text-error',
 };
 
+const NODE_STATE_FRAME_CLASSES: Record<WorkflowCanvasNodeState, string> = {
+  draft: 'border-white/12',
+  configured: 'border-white/12',
+  pending: 'border-white/15',
+  running: 'border-brand/70 shadow-[0_20px_54px_rgba(249,115,22,0.16)]',
+  succeeded: 'border-success/45 shadow-[0_16px_44px_rgba(34,197,94,0.08)]',
+  failed: 'border-error/70 shadow-[0_16px_44px_rgba(239,68,68,0.14)]',
+  waiting: 'border-warning/60 shadow-[0_16px_44px_rgba(245,158,11,0.12)]',
+  skipped: 'border-white/10 opacity-80',
+};
+
+const NODE_STATE_CHIP_CLASSES: Record<WorkflowCanvasNodeState, string> = {
+  draft: 'border-white/10 bg-white/[0.04] text-low',
+  configured: 'border-white/10 bg-white/[0.04] text-low',
+  pending: 'border-white/10 bg-white/[0.04] text-low',
+  running: 'border-brand/35 bg-brand/10 text-brand',
+  succeeded: 'border-success/35 bg-success/10 text-success',
+  failed: 'border-error/35 bg-error/10 text-error',
+  waiting: 'border-warning/35 bg-warning/10 text-warning',
+  skipped: 'border-white/10 bg-white/[0.03] text-low',
+};
+
+const NODE_STATE_DOT_CLASSES: Record<WorkflowCanvasNodeState, string> = {
+  draft: 'bg-low/60',
+  configured: 'bg-low',
+  pending: 'bg-low',
+  running: 'bg-brand shadow-[0_0_16px_rgba(249,115,22,0.62)]',
+  succeeded: 'bg-success shadow-[0_0_14px_rgba(34,197,94,0.34)]',
+  failed: 'bg-error shadow-[0_0_16px_rgba(239,68,68,0.46)]',
+  waiting: 'bg-warning shadow-[0_0_16px_rgba(245,158,11,0.4)]',
+  skipped: 'bg-low/45',
+};
+
+const EDGE_STATE_PATH_CLASSES: Record<WorkflowCanvasEdgeState, string> = {
+  idle: 'stroke-low/45',
+  running: 'stroke-brand',
+  succeeded: 'stroke-success/80',
+  failed: 'stroke-error/85',
+  waiting: 'stroke-warning/85',
+  skipped: 'stroke-low/35',
+};
+
 const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
@@ -110,6 +163,13 @@ const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
 
 const hasSession = (data: WorkflowNodeData): boolean =>
   typeof data.session_id === 'string' && data.session_id.length > 0;
+
+const getNodeUiState = (data: WorkflowNodeData): WorkflowCanvasNodeState =>
+  (data.__workflowNodeState as WorkflowCanvasNodeState | undefined) ??
+  'configured';
+
+const isNodeStaleForNextRun = (data: WorkflowNodeData): boolean =>
+  data.__workflowIsStale === true;
 
 const workflowHandleClass =
   'h-4 w-4 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
@@ -174,6 +234,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const compactAgent = nodeKind === 'agent';
   const sessionReady = hasSession(data);
   const agentDisplay = compactAgent ? getWorkflowAgentDisplay(data) : null;
+  const nodeState = getNodeUiState(data);
+  const nodeStateLabel = getWorkflowCanvasNodeStateLabel(nodeState);
+  const isRunning = nodeState === 'running';
+  const isStale = isNodeStaleForNextRun(data);
 
   if (structural) {
     return (
@@ -186,7 +250,9 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             ? 'border-brand ring-2 ring-brand/30'
             : issueCount > 0
               ? 'border-amber-500/70'
-              : 'border-white/12 hover:border-brand/60'
+              : 'border-white/12 hover:border-brand/60',
+          NODE_STATE_FRAME_CLASSES[nodeState],
+          isRunning && 'workflow-node-running'
         )}
       >
         {renderWorkflowHandles({
@@ -202,6 +268,15 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             {issueCount}
           </div>
         ) : null}
+        <span
+          data-testid={`workflow-node-status-dot-${id}`}
+          title={nodeStateLabel}
+          className={cn(
+            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[#15171d]',
+            NODE_STATE_DOT_CLASSES[nodeState],
+            isRunning && 'workflow-status-dot-running'
+          )}
+        />
         <div
           className={cn(
             'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10',
@@ -235,7 +310,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           ? 'border-brand shadow-[0_20px_54px_rgba(249,115,22,0.18)] ring-2 ring-brand/25'
           : issueCount > 0
             ? 'border-amber-500/70 shadow-amber-500/10 hover:border-amber-500'
-            : 'border-white/12 hover:border-brand/60 hover:shadow-[0_20px_54px_rgba(0,0,0,0.38)]'
+            : 'border-white/12 hover:border-brand/60 hover:shadow-[0_20px_54px_rgba(0,0,0,0.38)]',
+        NODE_STATE_FRAME_CLASSES[nodeState],
+        isRunning && 'workflow-node-running',
+        isStale && 'border-amber-400/70 shadow-amber-500/10'
       )}
     >
       {renderWorkflowHandles({
@@ -258,6 +336,24 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         >
           {issueCount}
         </div>
+      ) : null}
+      <span
+        data-testid={`workflow-node-status-dot-${id}`}
+        title={nodeStateLabel}
+        className={cn(
+          'workflow-status-dot absolute right-3 top-3 z-10 h-2.5 w-2.5 rounded-full border border-[#17191f]',
+          NODE_STATE_DOT_CLASSES[nodeState],
+          isRunning && 'workflow-status-dot-running'
+        )}
+      />
+      {isStale ? (
+        <span
+          data-testid={`workflow-node-stale-${id}`}
+          title="Configuration was updated after the latest run and applies to the next run."
+          className="absolute -top-2 right-2 z-10 max-w-[170px] truncate rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200 shadow-[0_8px_22px_rgba(245,158,11,0.18)]"
+        >
+          Updated for next run
+        </span>
       ) : null}
 
       <div className="flex items-start gap-3 border-b border-white/10 bg-white/[0.03] px-3 py-2 pl-4">
@@ -303,19 +399,31 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
 
         <div className="flex flex-wrap gap-1">
           <span
-            data-testid={`workflow-node-session-${id}`}
+            data-testid={`workflow-node-status-${id}`}
             className={cn(
               'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-              sessionReady
-                ? 'border-success/30 bg-success/10 text-success'
-                : 'border-white/10 bg-white/[0.04] text-low'
+              NODE_STATE_CHIP_CLASSES[nodeState]
             )}
           >
-            {sessionReady ? 'Session ready' : 'Draft session'}
+            {nodeStateLabel}
           </span>
-          <span className="inline-flex items-center rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
-            {compactAgent ? 'Agent Step' : getWorkflowNodeKindLabel(nodeKind)}
-          </span>
+          {compactAgent ? (
+            <span
+              data-testid={`workflow-node-session-${id}`}
+              className={cn(
+                'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+                sessionReady
+                  ? 'border-success/30 bg-success/10 text-success'
+                  : 'border-white/10 bg-white/[0.04] text-low'
+              )}
+            >
+              {sessionReady ? 'Session ready' : 'Draft session'}
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+              {getWorkflowNodeKindLabel(nodeKind)}
+            </span>
+          )}
           {agentDisplay ? (
             <span
               data-testid={`workflow-node-agent-model-${id}`}
@@ -394,6 +502,7 @@ export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
 ] as const;
 export const WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES = ['select'] as const;
 const EMPTY_VALIDATION_ISSUES: ValidationIssue[] = [];
+const EMPTY_STALE_NODE_IDS: readonly string[] = [];
 
 type ReadOnlyNodeChangeType =
   (typeof WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES)[number];
@@ -434,7 +543,10 @@ const WorkflowEdge = ({
 }: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
   const workflowType = data?.workflowType ?? 'default';
   const onSelect = data?.onSelect;
+  const visualStatus = data?.visualStatus ?? 'idle';
+  const isRunning = visualStatus === 'running';
   const visual = getWorkflowEdgeVisual(workflowType);
+  const statusPathClass = EDGE_STATE_PATH_CLASSES[visualStatus];
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -453,18 +565,30 @@ const WorkflowEdge = ({
           path={edgePath}
           markerEnd={markerEnd}
           interactionWidth={32}
-          className={cn('workflow-edge-path transition-all', visual.pathClass)}
-          style={{ strokeWidth: selected ? 3 : 2, opacity: 0.78 }}
+          className={cn(
+            'workflow-edge-path transition-all',
+            selected ? 'stroke-brand' : statusPathClass
+          )}
+          style={{
+            strokeWidth:
+              selected ||
+              visualStatus === 'running' ||
+              visualStatus === 'failed'
+                ? 3
+                : 2,
+            opacity: visualStatus === 'idle' ? 0.58 : 0.86,
+          }}
         />
         <BaseEdge
           id={`${id}-beam`}
           path={edgePath}
           interactionWidth={0}
           className={cn(
-            'workflow-edge-beam opacity-40 transition-opacity group-hover:opacity-80',
-            selected && 'opacity-90'
+            'workflow-edge-beam transition-opacity',
+            isRunning && 'workflow-edge-beam-running',
+            selected && isRunning && 'opacity-100'
           )}
-          style={{ strokeWidth: selected ? 3 : 2 }}
+          style={{ strokeWidth: selected || isRunning ? 3 : 2 }}
         />
         {onSelect ? (
           <foreignObject
@@ -517,7 +641,7 @@ const WorkflowEdge = ({
   );
 };
 
-const edgeTypes = {
+export const workflowCanvasEdgeTypes = {
   [WORKFLOW_CANVAS_EDGE_TYPE]: WorkflowEdge,
 };
 
@@ -560,6 +684,8 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 export function WorkflowCanvas({
   graph,
   validationIssues = EMPTY_VALIDATION_ISSUES,
+  nodeStatuses,
+  staleNodeIds = EMPTY_STALE_NODE_IDS,
   readOnly = false,
   onChange,
   onSelectionChange,
@@ -595,6 +721,8 @@ export function WorkflowCanvas({
   // Sync incoming graph to internal state
   useEffect(() => {
     const issuesByNodeId = new Map<string, ValidationIssue[]>();
+    const edgeStateById = buildWorkflowEdgeStateMap(graph, nodeStatuses);
+    const staleNodeIdSet = new Set(staleNodeIds);
     for (const issue of validationIssues) {
       if (!issue.nodeId) continue;
       const nodeIssues = issuesByNodeId.get(issue.nodeId) ?? [];
@@ -618,6 +746,12 @@ export function WorkflowCanvas({
         data: {
           ...n.data,
           __validationIssues: issuesByNodeId.get(n.id) ?? [],
+          __workflowNodeState: getWorkflowCanvasNodeState({
+            data: n.data,
+            executionStatus: nodeStatuses?.[n.id],
+            nodeType: n.type ?? 'agent',
+          }),
+          __workflowIsStale: staleNodeIdSet.has(n.id),
         },
         position: positionMap.get(n.id) ?? n.position,
       }));
@@ -628,12 +762,13 @@ export function WorkflowCanvas({
       ...edge,
       data: {
         workflowType: edge.data?.workflowType ?? 'default',
+        visualStatus: edgeStateById[edge.id] ?? 'idle',
         onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
       },
     })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-  }, [graph, setNodes, setEdges, validationIssues]);
+  }, [graph, nodeStatuses, setNodes, setEdges, staleNodeIds, validationIssues]);
 
   // Bubble up changes
   const reportChange = useCallback(
@@ -894,7 +1029,7 @@ export function WorkflowCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
+        edgeTypes={workflowCanvasEdgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}

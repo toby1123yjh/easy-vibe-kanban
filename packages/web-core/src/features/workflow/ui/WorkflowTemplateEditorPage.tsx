@@ -32,6 +32,7 @@ import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
+import { buildWorkflowNodeExecutionStatusMap } from '../model/workflowCanvasVisualState';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import {
@@ -206,6 +207,9 @@ export function WorkflowTemplateEditorPage({
   const [runStartError, setRunStartError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [validationTouched, setValidationTouched] = useState(false);
+  const [staleNodeIds, setStaleNodeIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const isSystem = template?.source === 'system';
   const readOnly = isSystem;
@@ -230,6 +234,10 @@ export function WorkflowTemplateEditorPage({
       }
     }
   }, [template]);
+
+  useEffect(() => {
+    setStaleNodeIds(new Set());
+  }, [workflowAttempt?.latest_run_id]);
 
   const persistWorkflowGraph = async (nextGraph: WorkflowGraph) => {
     const updatedTemplate = await updateTemplate({
@@ -283,6 +291,7 @@ export function WorkflowTemplateEditorPage({
         },
       });
 
+      setStaleNodeIds(new Set());
       navigation.goToProjectWorkflowRun(projectId, run.id);
     } catch (err) {
       setRunStartError(getWorkflowRunErrorMessage(err));
@@ -377,14 +386,29 @@ export function WorkflowTemplateEditorPage({
       return;
     }
 
+    const currentNode = graph.nodes.find((node) => node.id === editPanelNodeId);
     const nextGraph = applyWorkflowNodeDataPatch(graph, editPanelNodeId, {
       display_name: displayName,
       ...createWorkflowAgentNodeDraftPatch({ prompt, executorConfig }),
     });
+    const nextNode = nextGraph.nodes.find(
+      (node) => node.id === editPanelNodeId
+    );
+    const changedNextRunConfig =
+      currentNode?.data.prompt_template !== nextNode?.data.prompt_template ||
+      JSON.stringify(currentNode?.data.executor_config ?? null) !==
+        JSON.stringify(nextNode?.data.executor_config ?? null);
     setGraph(nextGraph);
     setRunStartError(null);
     try {
       await persistWorkflowGraph(nextGraph);
+      if (
+        workflowAttempt?.latest_run_id &&
+        changedNextRunConfig &&
+        !runningNodeIds.has(editPanelNodeId)
+      ) {
+        setStaleNodeIds((current) => new Set(current).add(editPanelNodeId));
+      }
       setEditPanelNodeId(null);
     } catch (err) {
       setRunStartError(getWorkflowRunErrorMessage(err));
@@ -546,6 +570,14 @@ export function WorkflowTemplateEditorPage({
           .map((node) => node.node_id)
       ),
     [latestRun?.nodes]
+  );
+  const nodeStatuses = useMemo(
+    () => buildWorkflowNodeExecutionStatusMap(latestRun?.nodes),
+    [latestRun?.nodes]
+  );
+  const staleNodeIdList = useMemo(
+    () => Array.from(staleNodeIds),
+    [staleNodeIds]
   );
   const isEditPanelNodeRunning =
     !!editPanelNode && runningNodeIds.has(editPanelNode.id);
@@ -862,6 +894,8 @@ export function WorkflowTemplateEditorPage({
                 <WorkflowCanvas
                   graph={graph}
                   validationIssues={validationIssues}
+                  nodeStatuses={nodeStatuses}
+                  staleNodeIds={staleNodeIdList}
                   readOnly={readOnly}
                   onChange={handleGraphChange}
                   onSelectionChange={(selection) => {
