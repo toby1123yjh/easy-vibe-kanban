@@ -64,13 +64,18 @@ import {
   getWorkflowCanvasEdgeState,
   getWorkflowCanvasNodeState,
   getWorkflowCanvasNodeStateLabel,
-  type WorkflowCanvasNodeState,
 } from '../model/workflowCanvasVisualState';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { workflowCanvasEdgeTypes } from './WorkflowCanvas';
+import {
+  WORKFLOW_CANVAS_CLASS_NAMES,
+  WORKFLOW_CANVAS_COLOR_TOKENS,
+  WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES,
+  WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES,
+} from './workflowCanvasTokens';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -110,32 +115,6 @@ const statusDotClassMap: Record<StatusTone, string> = {
   success: 'bg-success',
   danger: 'bg-error',
   warning: 'bg-warning',
-};
-
-const runNodeStateFrameClassMap: Record<WorkflowCanvasNodeState, string> = {
-  draft: 'border-secondary bg-panel text-low',
-  configured: 'border-secondary bg-panel text-low',
-  pending: 'border-secondary bg-panel text-low',
-  running:
-    'border-brand/70 bg-brand/10 text-high shadow-[0_18px_48px_rgba(249,115,22,0.16)]',
-  succeeded:
-    'border-success/45 bg-success/10 text-high shadow-[0_18px_42px_rgba(34,197,94,0.1)]',
-  failed:
-    'border-error/70 bg-error/10 text-high shadow-[0_18px_42px_rgba(239,68,68,0.14)]',
-  waiting:
-    'border-warning/60 bg-warning/10 text-high shadow-[0_18px_42px_rgba(245,158,11,0.12)]',
-  skipped: 'border-secondary bg-panel text-low opacity-80',
-};
-
-const runNodeStateChipClassMap: Record<WorkflowCanvasNodeState, string> = {
-  draft: 'border-secondary bg-panel text-low',
-  configured: 'border-secondary bg-panel text-low',
-  pending: 'border-secondary bg-panel text-low',
-  running: 'border-brand/35 bg-brand/10 text-brand',
-  succeeded: 'border-success/35 bg-success/10 text-success',
-  failed: 'border-error/35 bg-error/10 text-error',
-  waiting: 'border-warning/35 bg-warning/10 text-warning',
-  skipped: 'border-secondary bg-panel text-low',
 };
 
 const runPortHandles = [
@@ -178,7 +157,7 @@ function RunNode({ data }: { data: RunNodeData }) {
       }}
       className={cn(
         'relative min-w-[170px] cursor-pointer overflow-visible rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
-        runNodeStateFrameClassMap[nodeState] ?? toneClassMap[tone],
+        WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES[nodeState] ?? toneClassMap[tone],
         isRunning && 'workflow-node-running',
         data.isSelected
           ? 'shadow-md ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
@@ -227,7 +206,7 @@ function RunNode({ data }: { data: RunNodeData }) {
           <span
             className={cn(
               'mt-1 w-fit rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-              runNodeStateChipClassMap[nodeState]
+              WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES[nodeState]
             )}
           >
             {stateLabel}
@@ -540,14 +519,14 @@ export function WorkflowRunCanvasTab({
               connectionMode={ConnectionMode.Loose}
               elementsSelectable={true}
               fitView
-              className="workflow-canvas workflow-canvas-product bg-[#101114]"
+              className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
             >
               <Background
                 variant={BackgroundVariant.Dots}
                 size={1.5}
-                color="#2e333b"
+                color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
               />
-              <Controls className="workflow-canvas-controls rounded-lg border border-white/20 bg-[#1d2028] text-high shadow-[0_12px_32px_rgba(0,0,0,0.42)] backdrop-blur" />
+              <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
             </ReactFlow>
           </div>
         </Panel>
@@ -561,7 +540,7 @@ export function WorkflowRunCanvasTab({
           id="workflow-run-side"
           minSize="320px"
           maxSize="760px"
-          className="min-w-0 overflow-hidden border-l border-secondary bg-panel"
+          className={WORKFLOW_CANVAS_CLASS_NAMES.sidePanel}
         >
           <NodeDetailPanel
             actionError={actionError}

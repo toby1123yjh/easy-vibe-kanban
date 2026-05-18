@@ -85,6 +85,18 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
+import {
+  WORKFLOW_CANVAS_CLASS_NAMES,
+  WORKFLOW_CANVAS_COLOR_TOKENS,
+  WORKFLOW_CANVAS_EDGE_CLASSES,
+  WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES,
+  WORKFLOW_CANVAS_GROUP_COLOR_CLASSES,
+  WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES,
+  WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
+  WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES,
+  WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
+  WORKFLOW_CANVAS_NOTE_COLOR_CLASSES,
+} from './workflowCanvasTokens';
 
 export const WORKFLOW_CANVAS_NODE_ACTIONS = [
   'open-session',
@@ -188,62 +200,6 @@ const ROUTE_HINT_CLASSES: Record<string, string> = {
   danger: 'border-error/30 bg-error/10 text-error',
 };
 
-const NODE_STATE_FRAME_CLASSES: Record<WorkflowCanvasNodeState, string> = {
-  draft: 'border-white/12',
-  configured: 'border-white/12',
-  pending: 'border-white/15',
-  running: 'border-brand/70 shadow-[0_20px_54px_rgba(249,115,22,0.16)]',
-  succeeded: 'border-success/45 shadow-[0_16px_44px_rgba(34,197,94,0.08)]',
-  failed: 'border-error/70 shadow-[0_16px_44px_rgba(239,68,68,0.14)]',
-  waiting: 'border-warning/60 shadow-[0_16px_44px_rgba(245,158,11,0.12)]',
-  skipped: 'border-white/10 opacity-80',
-};
-
-const NODE_STATE_CHIP_CLASSES: Record<WorkflowCanvasNodeState, string> = {
-  draft: 'border-white/10 bg-white/[0.04] text-low',
-  configured: 'border-white/10 bg-white/[0.04] text-low',
-  pending: 'border-white/10 bg-white/[0.04] text-low',
-  running: 'border-brand/35 bg-brand/10 text-brand',
-  succeeded: 'border-success/35 bg-success/10 text-success',
-  failed: 'border-error/35 bg-error/10 text-error',
-  waiting: 'border-warning/35 bg-warning/10 text-warning',
-  skipped: 'border-white/10 bg-white/[0.03] text-low',
-};
-
-const NODE_STATE_DOT_CLASSES: Record<WorkflowCanvasNodeState, string> = {
-  draft: 'bg-low/60',
-  configured: 'bg-low',
-  pending: 'bg-low',
-  running: 'bg-brand shadow-[0_0_16px_rgba(249,115,22,0.62)]',
-  succeeded: 'bg-success shadow-[0_0_14px_rgba(34,197,94,0.34)]',
-  failed: 'bg-error shadow-[0_0_16px_rgba(239,68,68,0.46)]',
-  waiting: 'bg-warning shadow-[0_0_16px_rgba(245,158,11,0.4)]',
-  skipped: 'bg-low/45',
-};
-
-const EDGE_STATE_PATH_CLASSES: Record<WorkflowCanvasEdgeState, string> = {
-  idle: 'stroke-low/45',
-  running: 'stroke-brand',
-  succeeded: 'stroke-success/80',
-  failed: 'stroke-error/85',
-  waiting: 'stroke-warning/85',
-  skipped: 'stroke-low/35',
-};
-
-const NOTE_COLOR_CLASSES = {
-  amber: 'border-amber-300/35 bg-amber-300/12 text-amber-50',
-  blue: 'border-sky-300/30 bg-sky-300/10 text-sky-50',
-  green: 'border-emerald-300/30 bg-emerald-300/10 text-emerald-50',
-  neutral: 'border-white/12 bg-white/[0.06] text-high',
-} satisfies Record<string, string>;
-
-const GROUP_COLOR_CLASSES = {
-  amber: 'border-amber-300/18 bg-amber-300/[0.035]',
-  blue: 'border-sky-300/18 bg-sky-300/[0.035]',
-  green: 'border-emerald-300/18 bg-emerald-300/[0.035]',
-  neutral: 'border-white/10 bg-white/[0.025]',
-} satisfies Record<string, string>;
-
 const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
@@ -292,7 +248,7 @@ function WorkflowNodeActionButton({
         'nodrag nopan flex h-7 w-7 items-center justify-center rounded border text-low shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45',
         danger
           ? 'border-error/30 bg-error/10 hover:border-error/70 hover:text-error'
-          : 'border-white/10 bg-[#20232b]/95 hover:border-brand/60 hover:bg-brand/15 hover:text-brand'
+          : WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.actionButton
       )}
       aria-label={label}
       title={label}
@@ -323,7 +279,7 @@ function WorkflowNodeHoverToolbar({
   return (
     <div
       className={cn(
-        'workflow-node-toolbar nodrag nopan absolute -top-9 right-2 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-[#15171d]/96 p-1 shadow-[0_14px_34px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-150',
+        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.toolbar,
         selected
           ? 'translate-y-0 opacity-100'
           : 'pointer-events-none translate-y-1 opacity-0'
@@ -385,7 +341,7 @@ function WorkflowAddNextButton({
       type="button"
       data-testid={`workflow-node-add-next-${nodeId}`}
       className={cn(
-        'workflow-node-add-next nodrag nopan absolute -right-12 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-brand/40 bg-[#15171d]/96 text-brand shadow-[0_0_20px_rgba(249,115,22,0.22)] backdrop-blur transition-all duration-150 hover:border-brand hover:bg-brand hover:text-white disabled:cursor-not-allowed disabled:opacity-40',
+        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.addNext,
         selected
           ? 'translate-x-0 opacity-100'
           : 'pointer-events-none translate-x-1 opacity-0'
@@ -405,8 +361,7 @@ function WorkflowAddNextButton({
   );
 }
 
-const workflowHandleClass =
-  'h-4 w-4 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
+const workflowHandleClass = WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.handle;
 
 const workflowHandlePoints = [
   {
@@ -481,13 +436,14 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         data-testid={`workflow-node-${id}`}
         style={{ pointerEvents: 'all' }}
         className={cn(
-          'relative flex min-w-[112px] cursor-grab items-center gap-2 overflow-visible rounded-full border bg-[#15171d]/60 px-2.5 py-1.5 text-normal shadow-[0_8px_20px_rgba(0,0,0,0.18)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
+          'relative flex min-w-[112px] cursor-grab items-center gap-2 overflow-visible rounded-full border px-2.5 py-1.5 text-normal backdrop-blur transition-all duration-150 active:cursor-grabbing',
+          WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.structural,
           selected
             ? 'border-brand/80 ring-2 ring-brand/20'
             : issueCount > 0
               ? 'border-amber-500/70'
               : 'border-white/10 hover:border-brand/40',
-          NODE_STATE_FRAME_CLASSES[nodeState],
+          WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
           isRunning && 'workflow-node-running'
         )}
       >
@@ -506,7 +462,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           <div
             data-testid={`workflow-node-issue-${id}`}
             title={validationIssues.map((issue) => issue.message).join('\n')}
-            className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-[#15171d] bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm"
+            className={cn(
+              'absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm',
+              WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.issueBadgeBorder
+            )}
           >
             {issueCount}
           </div>
@@ -515,8 +474,8 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           data-testid={`workflow-node-status-dot-${id}`}
           title={nodeStateLabel}
           className={cn(
-            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[#15171d]',
-            NODE_STATE_DOT_CLASSES[nodeState],
+            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-port-ring)]',
+            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
             isRunning && 'workflow-status-dot-running'
           )}
         />
@@ -548,13 +507,17 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible rounded-lg border bg-[#17191f]/95 text-high shadow-[0_18px_48px_rgba(0,0,0,0.32)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
+        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible rounded-lg border text-high backdrop-blur transition-all duration-150 active:cursor-grabbing',
+        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.agent,
         selected
-          ? 'border-brand shadow-[0_20px_54px_rgba(249,115,22,0.18)] ring-2 ring-brand/25'
+          ? 'border-brand shadow-[var(--workflow-node-shadow-selected)] ring-2 ring-brand/25'
           : issueCount > 0
             ? 'border-amber-500/70 shadow-amber-500/10 hover:border-amber-500'
-            : 'border-white/12 hover:border-brand/60 hover:shadow-[0_20px_54px_rgba(0,0,0,0.38)]',
-        NODE_STATE_FRAME_CLASSES[nodeState],
+            : cn(
+                'border-white/12 hover:border-brand/60',
+                WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.agentHover
+              ),
+        WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
         isRunning && 'workflow-node-running',
         isStale && 'border-amber-400/70 shadow-amber-500/10'
       )}
@@ -589,7 +552,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <div
           data-testid={`workflow-node-issue-${id}`}
           title={validationIssues.map((issue) => issue.message).join('\n')}
-          className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border border-[#17191f] bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm"
+          className={cn(
+            'absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm',
+            WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.issueBadgeBorder
+          )}
         >
           {issueCount}
         </div>
@@ -598,8 +564,8 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         data-testid={`workflow-node-status-dot-${id}`}
         title={nodeStateLabel}
         className={cn(
-          'workflow-status-dot absolute right-3 top-3 z-10 h-2.5 w-2.5 rounded-full border border-[#17191f]',
-          NODE_STATE_DOT_CLASSES[nodeState],
+          'workflow-status-dot absolute right-3 top-3 z-10 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-bg)]',
+          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
           isRunning && 'workflow-status-dot-running'
         )}
       />
@@ -607,7 +573,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <span
           data-testid={`workflow-node-stale-${id}`}
           title="Configuration was updated after the latest run and applies to the next run."
-          className="absolute -top-2 right-2 z-10 max-w-[170px] truncate rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200 shadow-[0_8px_22px_rgba(245,158,11,0.18)]"
+          className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.staleBadge}
         >
           Updated for next run
         </span>
@@ -659,7 +625,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             data-testid={`workflow-node-status-${id}`}
             className={cn(
               'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-              NODE_STATE_CHIP_CLASSES[nodeState]
+              WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES[nodeState]
             )}
           >
             {nodeStateLabel}
@@ -677,21 +643,21 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
               {sessionReady ? 'Session ready' : 'Draft session'}
             </span>
           ) : (
-            <span className="inline-flex items-center rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+            <span className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chip}>
               {getWorkflowNodeKindLabel(nodeKind)}
             </span>
           )}
           {agentDisplay ? (
             <span
               data-testid={`workflow-node-agent-model-${id}`}
-              className="inline-flex max-w-full items-center truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low"
+              className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chipTruncate}
               title={agentDisplay.modelLabel}
             >
               {agentDisplay.modelLabel}
             </span>
           ) : null}
           {agentDisplay?.reasoningLabel ? (
-            <span className="inline-flex max-w-full items-center truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
+            <span className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chipTruncate}>
               {agentDisplay.reasoningLabel}
             </span>
           ) : null}
@@ -745,8 +711,8 @@ function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
     <div
       data-testid={`workflow-note-${id}`}
       className={cn(
-        'relative h-full min-h-[120px] w-full min-w-[220px] overflow-hidden rounded-lg border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.22)] backdrop-blur transition-colors',
-        NOTE_COLOR_CLASSES[color],
+        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.note,
+        WORKFLOW_CANVAS_NOTE_COLOR_CLASSES[color],
         selected ? 'ring-2 ring-brand/35' : 'hover:border-white/25'
       )}
     >
@@ -811,8 +777,8 @@ function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
     <div
       data-testid={`workflow-stage-group-${id}`}
       className={cn(
-        'relative h-full min-h-[170px] w-full min-w-[360px] rounded-xl border p-4 text-low transition-colors',
-        GROUP_COLOR_CLASSES[color],
+        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.stageGroup,
+        WORKFLOW_CANVAS_GROUP_COLOR_CLASSES[color],
         selected ? 'ring-2 ring-brand/25' : 'hover:border-white/18'
       )}
     >
@@ -940,7 +906,7 @@ const WorkflowEdge = ({
   const visualStatus = data?.visualStatus ?? 'idle';
   const isRunning = visualStatus === 'running';
   const visual = getWorkflowEdgeVisual(workflowType);
-  const statusPathClass = EDGE_STATE_PATH_CLASSES[visualStatus];
+  const statusPathClass = WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES[visualStatus];
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -998,7 +964,7 @@ const WorkflowEdge = ({
             <button
               type="button"
               data-testid={`workflow-edge-action-${id}`}
-              className="nodrag nopan flex h-7 w-7 items-center justify-center rounded-full border border-brand/50 bg-[#17191f] text-brand shadow-[0_0_18px_rgba(249,115,22,0.32)] transition-colors hover:border-brand hover:bg-brand hover:text-white"
+              className={WORKFLOW_CANVAS_EDGE_CLASSES.actionButton}
               onClick={(event) => {
                 event.stopPropagation();
                 onSelect(id);
@@ -1523,7 +1489,7 @@ export function WorkflowCanvas({
 
   return (
     <div
-      className="relative h-full w-full bg-[#101114]"
+      className={WORKFLOW_CANVAS_CLASS_NAMES.root}
       onDoubleClickCapture={onCanvasDoubleClickCapture}
     >
       <ReactFlow
@@ -1596,15 +1562,15 @@ export function WorkflowCanvas({
         snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
         deleteKeyCode={readOnly ? null : WORKFLOW_CANVAS_DELETE_KEYS}
         fitView
-        className="workflow-canvas workflow-canvas-product bg-[#101114]"
+        className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={WORKFLOW_CANVAS_SNAP_GRID[0]}
           size={1.5}
-          color="#2e333b"
+          color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
         />
-        <Controls className="workflow-canvas-controls rounded-lg border border-white/20 bg-[#1d2028] text-high shadow-[0_12px_32px_rgba(0,0,0,0.42)] backdrop-blur" />
+        <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
       </ReactFlow>
     </div>
   );

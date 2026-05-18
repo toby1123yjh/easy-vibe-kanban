@@ -441,8 +441,64 @@ html {
     }
   }
 
+  .workflow-canvas-surface,
+  .workflow-canvas-product,
+  .workflow-side-panel-surface {
+    --workflow-canvas-bg: #101114;
+    --workflow-canvas-bg-end: #121418;
+    --workflow-canvas-grid: #2e333b;
+    --workflow-canvas-control-bg: #1d2028;
+    --workflow-canvas-control-border: rgba(255, 255, 255, 0.14);
+    --workflow-canvas-control-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+    --workflow-node-bg: rgba(23, 25, 31, 0.95);
+    --workflow-node-structural-bg: rgba(21, 23, 29, 0.6);
+    --workflow-node-action-bg: rgba(32, 35, 43, 0.95);
+    --workflow-node-port-ring: #15171d;
+    --workflow-node-issue-border: #17191f;
+    --workflow-node-shadow-base: 0 18px 48px rgba(0, 0, 0, 0.32);
+    --workflow-node-shadow-hover: 0 20px 54px rgba(0, 0, 0, 0.38);
+    --workflow-node-shadow-selected: 0 20px 54px rgba(249, 115, 22, 0.18);
+    --workflow-node-shadow-structural: 0 8px 20px rgba(0, 0, 0, 0.18);
+    --workflow-node-shadow-running: 0 20px 54px rgba(249, 115, 22, 0.16);
+    --workflow-node-shadow-succeeded: 0 16px 44px rgba(34, 197, 94, 0.08);
+    --workflow-node-shadow-failed: 0 16px 44px rgba(239, 68, 68, 0.14);
+    --workflow-node-shadow-waiting: 0 16px 44px rgba(245, 158, 11, 0.12);
+    --workflow-node-shadow-add-next: 0 0 20px rgba(249, 115, 22, 0.22);
+    --workflow-node-shadow-port:
+      0 0 0 1px rgba(255, 255, 255, 0.18), 0 0 12px rgba(249, 115, 22, 0.34);
+    --workflow-node-shadow-stale: 0 8px 22px rgba(245, 158, 11, 0.18);
+    --workflow-node-shadow-dot-running: 0 0 16px rgba(249, 115, 22, 0.62);
+    --workflow-node-shadow-dot-succeeded: 0 0 14px rgba(34, 197, 94, 0.34);
+    --workflow-node-shadow-dot-failed: 0 0 16px rgba(239, 68, 68, 0.46);
+    --workflow-node-shadow-dot-waiting: 0 0 16px rgba(245, 158, 11, 0.4);
+    --workflow-note-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+    --workflow-edge-action-bg: #17191f;
+    --workflow-edge-action-shadow: 0 0 18px rgba(249, 115, 22, 0.32);
+    --workflow-edge-beam-shadow: 0 0 8px rgba(249, 115, 22, 0.5);
+    --workflow-port-hover-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 16px rgba(249, 115, 22, 0.48);
+    --workflow-port-active-shadow:
+      0 0 0 4px rgba(249, 115, 22, 0.16), 0 0 18px rgba(249, 115, 22, 0.58);
+    --workflow-popover-bg: rgba(21, 23, 29, 0.96);
+    --workflow-popover-border: rgba(255, 255, 255, 0.1);
+    --workflow-popover-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+    --workflow-panel-bg: hsl(var(--bg-panel));
+    --workflow-panel-border: hsl(var(--border));
+    --workflow-panel-shadow: -8px 0 18px rgba(15, 23, 42, 0.06);
+    --workflow-motion-fast: 140ms;
+    --workflow-motion-base: 160ms;
+    --workflow-motion-panel: 160ms;
+    --workflow-motion-beam: 1.2s;
+    --workflow-motion-node-pulse: 1.8s;
+    --workflow-motion-dot-pulse: 1.4s;
+  }
+
   .workflow-canvas-product .react-flow__pane {
-    background: linear-gradient(180deg, #101114 0%, #121418 100%);
+    background: linear-gradient(
+      180deg,
+      var(--workflow-canvas-bg) 0%,
+      var(--workflow-canvas-bg-end) 100%
+    );
   }
 
   .workflow-canvas-product .react-flow__node-stage_group {
@@ -469,8 +525,8 @@ html {
 
   .workflow-edge-beam-running {
     opacity: 0.84;
-    filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.5));
-    animation: workflow-edge-flow 1.2s linear infinite;
+    filter: drop-shadow(var(--workflow-edge-beam-shadow));
+    animation: workflow-edge-flow var(--workflow-motion-beam) linear infinite;
   }
 
   .workflow-node-running::before {
@@ -481,12 +537,14 @@ html {
     border-radius: inherit;
     pointer-events: none;
     opacity: 0.38;
-    box-shadow: 0 0 24px rgba(249, 115, 22, 0.18);
-    animation: workflow-node-breathe 1.8s ease-in-out infinite;
+    box-shadow: var(--workflow-node-shadow-add-next);
+    animation: workflow-node-breathe var(--workflow-motion-node-pulse)
+      ease-in-out infinite;
   }
 
   .workflow-status-dot-running {
-    animation: workflow-status-dot-pulse 1.4s ease-in-out infinite;
+    animation: workflow-status-dot-pulse var(--workflow-motion-dot-pulse)
+      ease-in-out infinite;
   }
 
   .workflow-canvas-product .react-flow__handle {
@@ -497,10 +555,10 @@ html {
     opacity: 0.26;
     transform: scale(0.82);
     transition:
-      opacity 140ms ease,
-      transform 140ms ease,
-      box-shadow 140ms ease,
-      background-color 140ms ease;
+      opacity var(--workflow-motion-fast) ease,
+      transform var(--workflow-motion-fast) ease,
+      box-shadow var(--workflow-motion-fast) ease,
+      background-color var(--workflow-motion-fast) ease;
   }
 
   .workflow-canvas-product .react-flow__handle.workflow-handle-visible::after {
@@ -520,9 +578,7 @@ html {
     .react-flow__handle.workflow-handle-visible.connectionindicator:hover {
     opacity: 1;
     transform: scale(1);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.22),
-      0 0 16px rgba(249, 115, 22, 0.48);
+    box-shadow: var(--workflow-port-hover-shadow);
   }
 
   .workflow-canvas-product
@@ -533,9 +589,7 @@ html {
     opacity: 1;
     transform: scale(1.08);
     background: hsl(var(--brand));
-    box-shadow:
-      0 0 0 4px rgba(249, 115, 22, 0.16),
-      0 0 18px rgba(249, 115, 22, 0.58);
+    box-shadow: var(--workflow-port-active-shadow);
   }
 
   .workflow-canvas-product .react-flow__node:hover .workflow-node-toolbar,
@@ -574,7 +628,8 @@ html {
   }
 
   .workflow-side-panel-content {
-    animation: workflow-side-panel-crossfade 160ms ease-out;
+    animation: workflow-side-panel-crossfade var(--workflow-motion-panel)
+      ease-out;
     will-change: opacity, transform;
   }
 
@@ -585,8 +640,8 @@ html {
   .workflow-canvas-product .react-flow__controls-button {
     width: 30px;
     height: 30px;
-    border-color: rgba(255, 255, 255, 0.14);
-    background: #1d2028;
+    border-color: var(--workflow-canvas-control-border);
+    background: var(--workflow-canvas-control-bg);
     color: hsl(var(--text-high));
     fill: hsl(var(--text-high));
   }

@@ -13,6 +13,10 @@ import {
   hasGraphAffectingEdgeChanges,
   hasGraphAffectingNodeChanges,
 } from './WorkflowCanvas';
+import {
+  WORKFLOW_CANVAS_CLASS_NAMES,
+  WORKFLOW_CANVAS_TOKEN_GROUPS,
+} from './workflowCanvasTokens';
 
 describe('workflow canvas interaction settings', () => {
   it('uses benchmark-backed snap grid spacing', () => {
@@ -25,6 +29,25 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses a custom semantic edge renderer', () => {
     expect(WORKFLOW_CANVAS_EDGE_TYPE).toBe('workflow');
+  });
+
+  it('keeps visual token groups explicit for canvas, nodes, edges, panels, and motion', () => {
+    expect(WORKFLOW_CANVAS_TOKEN_GROUPS).toEqual([
+      'canvas',
+      'node',
+      'edge',
+      'panel',
+      'motion',
+    ]);
+    expect(WORKFLOW_CANVAS_CLASS_NAMES.reactFlow).toContain(
+      'workflow-canvas-product'
+    );
+    expect(WORKFLOW_CANVAS_CLASS_NAMES.controls).toContain(
+      '--workflow-canvas-control-bg'
+    );
+    expect(WORKFLOW_CANVAS_CLASS_NAMES.sidePanel).toContain(
+      '--workflow-panel-bg'
+    );
   });
 
   it('uses a smooth step connection preview while dragging wires', () => {

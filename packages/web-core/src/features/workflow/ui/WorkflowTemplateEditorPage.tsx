@@ -41,6 +41,7 @@ import { buildWorkflowNodeExecutionStatusMap } from '../model/workflowCanvasVisu
 import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
+import { WORKFLOW_CANVAS_CLASS_NAMES } from './workflowCanvasTokens';
 import {
   WorkflowAgentStepEditPanel,
   type WorkflowAgentStepEditValue,
@@ -1319,7 +1320,7 @@ export function WorkflowTemplateEditorPage({
           id="workflow-side"
           minSize="320px"
           maxSize="760px"
-          className="relative z-10 min-w-0 overflow-hidden border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]"
+          className={WORKFLOW_CANVAS_CLASS_NAMES.sidePanel}
         >
           <div
             key={workflowSidePanelKey}
