@@ -1,5 +1,19 @@
-import { useCallback, useMemo, useRef, useState, type WheelEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type WheelEvent,
+} from 'react';
 import type { WorkflowNodeExecutionResponse } from 'shared/types';
+import {
+  AlertCircle,
+  Clock,
+  ExternalLink,
+  Play,
+  Settings2,
+} from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
 import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
 import { ConversationList } from '@/features/workspace-chat/ui/ConversationListContainer';
@@ -17,8 +31,61 @@ import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
+import { cn } from '@/shared/lib/utils';
 import type { WorkflowNodeData } from '../model/workflowGraph';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
+import {
+  formatWorkflowDuration,
+  getNodeStatusLabel,
+  getNodeStatusTone,
+  type StatusTone,
+} from '../model/workflowRunView';
+
+interface WorkflowNodeSessionPanelProps {
+  execution: WorkflowNodeExecutionResponse;
+  workspaceId: string | null;
+  sessionHref: string | null;
+  workspaceHref: string | null;
+  nodeTitle?: string;
+  nodeData?: WorkflowNodeData | null;
+  statusLabel?: string | null;
+  hideHeader?: boolean;
+  onEditConfig?: () => void;
+  editConfigDisabled?: boolean;
+  onRunStep?: () => void;
+  runStepDisabled?: boolean;
+  runStepTitle?: string;
+}
+
+interface WorkflowNodeSessionHeaderProps {
+  execution: WorkflowNodeExecutionResponse;
+  sessionHref: string | null;
+  workspaceHref: string | null;
+  nodeTitle?: string;
+  nodeData?: WorkflowNodeData | null;
+  statusLabel?: string | null;
+  onEditConfig?: () => void;
+  editConfigDisabled?: boolean;
+  onRunStep?: () => void;
+  runStepDisabled?: boolean;
+  runStepTitle?: string;
+}
+
+const cockpitToneClassMap: Record<StatusTone, string> = {
+  neutral: 'border-secondary bg-primary/60 text-low',
+  active: 'border-brand/30 bg-brand/10 text-brand',
+  success: 'border-success/35 bg-success/10 text-success',
+  danger: 'border-error/45 bg-error/10 text-error',
+  warning: 'border-warning/40 bg-warning/10 text-warning',
+};
+
+const cockpitDotClassMap: Record<StatusTone, string> = {
+  neutral: 'bg-low',
+  active: 'bg-brand',
+  success: 'bg-success',
+  danger: 'bg-error',
+  warning: 'bg-warning',
+};
 
 export function WorkflowNodeSessionPanel({
   execution,
@@ -29,16 +96,12 @@ export function WorkflowNodeSessionPanel({
   nodeData,
   statusLabel,
   hideHeader = false,
-}: {
-  execution: WorkflowNodeExecutionResponse;
-  workspaceId: string | null;
-  sessionHref: string | null;
-  workspaceHref: string | null;
-  nodeTitle?: string;
-  nodeData?: WorkflowNodeData | null;
-  statusLabel?: string | null;
-  hideHeader?: boolean;
-}) {
+  onEditConfig,
+  editConfigDisabled,
+  onRunStep,
+  runStepDisabled,
+  runStepTitle,
+}: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
 
   if (!workspaceId || !nodeSessionId) {
@@ -51,6 +114,11 @@ export function WorkflowNodeSessionPanel({
         nodeData={nodeData}
         statusLabel={statusLabel}
         hideHeader={hideHeader}
+        onEditConfig={onEditConfig}
+        editConfigDisabled={editConfigDisabled}
+        onRunStep={onRunStep}
+        runStepDisabled={runStepDisabled}
+        runStepTitle={runStepTitle}
       />
     );
   }
@@ -65,6 +133,11 @@ export function WorkflowNodeSessionPanel({
           nodeTitle={nodeTitle}
           nodeData={nodeData}
           statusLabel={statusLabel}
+          onEditConfig={onEditConfig}
+          editConfigDisabled={editConfigDisabled}
+          onRunStep={onRunStep}
+          runStepDisabled={runStepDisabled}
+          runStepTitle={runStepTitle}
         />
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -87,14 +160,12 @@ function WorkflowNodeSessionHeader({
   nodeTitle,
   nodeData,
   statusLabel,
-}: {
-  execution: WorkflowNodeExecutionResponse;
-  sessionHref: string | null;
-  workspaceHref: string | null;
-  nodeTitle?: string;
-  nodeData?: WorkflowNodeData | null;
-  statusLabel?: string | null;
-}) {
+  onEditConfig,
+  editConfigDisabled,
+  onRunStep,
+  runStepDisabled,
+  runStepTitle,
+}: WorkflowNodeSessionHeaderProps) {
   const agentDisplay = getWorkflowAgentDisplay(nodeData ?? {});
   const title =
     nodeTitle?.trim() ||
@@ -102,34 +173,247 @@ function WorkflowNodeSessionHeader({
   const sessionLabel = execution.session_id
     ? 'Session ready'
     : 'Session not started';
+  const statusText = statusLabel || getNodeStatusLabel(execution.status);
+  const statusTone = getNodeStatusTone(execution.status);
+  const canRunStep = Boolean(onRunStep) && !runStepDisabled;
+  const canEditConfig = Boolean(onEditConfig) && !editConfigDisabled;
+  const openHref = sessionHref || workspaceHref;
 
   return (
-    <div className="shrink-0 border-b border-secondary bg-panel px-base py-half">
+    <div className="shrink-0 border-b border-secondary bg-panel/95 px-base py-base">
       <div className="flex items-start justify-between gap-base">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-high">{title}</h2>
-          <div className="mt-1 flex flex-wrap gap-1">
-            <span className="rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
-              {agentDisplay.agentLabel}
-            </span>
-            <span className="max-w-[220px] truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
-              {agentDisplay.modelLabel}
-            </span>
-            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
-              {statusLabel || sessionLabel}
-            </span>
+        <div className="min-w-0 space-y-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-normal text-low">
+              Agent Step Cockpit
+            </p>
+            <h2 className="mt-1 truncate text-sm font-semibold text-high">
+              {title}
+            </h2>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <CockpitChip tone="active">{agentDisplay.agentLabel}</CockpitChip>
+            <CockpitChip>{agentDisplay.modelLabel}</CockpitChip>
+            {agentDisplay.reasoningLabel ? (
+              <CockpitChip>{agentDisplay.reasoningLabel}</CockpitChip>
+            ) : null}
+            <CockpitChip tone={statusTone}>
+              <span
+                className={cn(
+                  'mr-1.5 inline-block h-1.5 w-1.5 rounded-full',
+                  cockpitDotClassMap[statusTone]
+                )}
+              />
+              {statusText}
+            </CockpitChip>
+            <CockpitChip>{sessionLabel}</CockpitChip>
           </div>
         </div>
-        {sessionHref ? (
-          <Button asChild size="xs" variant="outline">
-            <a href={sessionHref}>Open in workspace</a>
+
+        <div className="flex shrink-0 flex-wrap justify-end gap-half">
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            disabled={!canRunStep}
+            title={
+              canRunStep
+                ? runStepTitle
+                : (runStepTitle ?? 'Single-step run is not available yet.')
+            }
+            onClick={onRunStep}
+            className="gap-1.5"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Run this step
           </Button>
-        ) : workspaceHref ? (
-          <Button asChild size="xs" variant="outline">
-            <a href={workspaceHref}>Open workspace</a>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            disabled={!canEditConfig}
+            onClick={onEditConfig}
+            className="gap-1.5"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Edit config
           </Button>
-        ) : null}
+          {openHref ? (
+            <Button asChild size="xs" variant="outline" className="gap-1.5">
+              <a href={openHref}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open workspace
+              </a>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              disabled
+              className="gap-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open workspace
+            </Button>
+          )}
+        </div>
       </div>
+
+      <WorkflowNodeRunSummary execution={execution} />
+      <WorkflowNodeTechnicalDetails execution={execution} />
+    </div>
+  );
+}
+
+function CockpitChip({
+  children,
+  tone = 'neutral',
+}: {
+  children: ReactNode;
+  tone?: StatusTone;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex max-w-[220px] items-center truncate rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+        cockpitToneClassMap[tone]
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function formatWorkflowTimestamp(value: string | null): string | null {
+  if (!value) return null;
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return value;
+  return time.toLocaleString();
+}
+
+function WorkflowNodeRunSummary({
+  execution,
+}: {
+  execution: WorkflowNodeExecutionResponse;
+}) {
+  const statusTone = getNodeStatusTone(execution.status);
+  const startedLabel = formatWorkflowTimestamp(execution.started_at);
+  const finishedLabel = formatWorkflowTimestamp(execution.finished_at);
+  const durationLabel = formatWorkflowDuration(
+    execution.started_at,
+    execution.finished_at
+  );
+  const hasError = execution.status === 'failed' || !!execution.error_text;
+
+  const summary = (() => {
+    if (hasError) {
+      return {
+        title: 'Last run failed',
+        detail:
+          execution.error_text ||
+          execution.output_text ||
+          'The agent step failed without a captured error message.',
+      };
+    }
+    if (execution.status === 'running') {
+      return {
+        title: 'Running now',
+        detail: startedLabel
+          ? `Started ${startedLabel} / ${durationLabel}`
+          : 'The agent is currently working in this session.',
+      };
+    }
+    if (
+      execution.status === 'awaiting_human' ||
+      execution.status === 'awaiting_arena'
+    ) {
+      return {
+        title: getNodeStatusLabel(execution.status),
+        detail:
+          execution.output_text ||
+          'This step is waiting for a decision before the workflow continues.',
+      };
+    }
+    if (execution.status === 'succeeded') {
+      return {
+        title: 'Last run succeeded',
+        detail: finishedLabel
+          ? `Finished ${finishedLabel} / ${durationLabel}`
+          : durationLabel,
+      };
+    }
+    return {
+      title: 'Not started yet',
+      detail: execution.session_id
+        ? 'The session is ready for manual conversation or the next workflow run.'
+        : 'This step does not have a session yet.',
+    };
+  })();
+
+  return (
+    <div
+      className={cn(
+        'mt-base rounded border p-half text-xs',
+        cockpitToneClassMap[hasError ? 'danger' : statusTone]
+      )}
+      role={hasError ? 'alert' : undefined}
+    >
+      <div className="flex items-center gap-half font-semibold text-high">
+        {hasError ? (
+          <AlertCircle className="h-3.5 w-3.5 text-error" />
+        ) : (
+          <Clock className="h-3.5 w-3.5 text-low" />
+        )}
+        <span>{summary.title}</span>
+      </div>
+      <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-low">
+        {summary.detail}
+      </p>
+    </div>
+  );
+}
+
+function WorkflowNodeTechnicalDetails({
+  execution,
+}: {
+  execution: WorkflowNodeExecutionResponse;
+}) {
+  return (
+    <details className="mt-half rounded border border-secondary bg-primary/50 px-half py-1 text-xs text-low">
+      <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-normal text-low">
+        Technical details
+      </summary>
+      <div className="mt-half grid gap-half">
+        <TechnicalDetailRow label="Node ID">
+          {execution.node_id}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label="Execution ID">
+          {execution.id}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label="Session ID">
+          {execution.session_id ?? 'Not started'}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label="Process ID">
+          {execution.execution_process_id ?? 'Not started'}
+        </TechnicalDetailRow>
+      </div>
+    </details>
+  );
+}
+
+function TechnicalDetailRow({
+  children,
+  label,
+}: {
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-half">
+      <span className="text-low">{label}</span>
+      <span className="break-all text-high">{children}</span>
     </div>
   );
 }
@@ -312,15 +596,12 @@ function WorkflowNodeSessionFallback({
   nodeData,
   statusLabel,
   hideHeader,
-}: {
-  execution: WorkflowNodeExecutionResponse;
-  sessionHref: string | null;
-  workspaceHref: string | null;
-  nodeTitle?: string;
-  nodeData?: WorkflowNodeData | null;
-  statusLabel?: string | null;
-  hideHeader?: boolean;
-}) {
+  onEditConfig,
+  editConfigDisabled,
+  onRunStep,
+  runStepDisabled,
+  runStepTitle,
+}: Omit<WorkflowNodeSessionPanelProps, 'workspaceId'>) {
   return (
     <div
       data-testid="workflow-node-session-panel"
@@ -334,29 +615,22 @@ function WorkflowNodeSessionFallback({
           nodeTitle={nodeTitle}
           nodeData={nodeData}
           statusLabel={statusLabel}
+          onEditConfig={onEditConfig}
+          editConfigDisabled={editConfigDisabled}
+          onRunStep={onRunStep}
+          runStepDisabled={runStepDisabled}
+          runStepTitle={runStepTitle}
         />
       )}
 
       <div className="flex flex-1 flex-col gap-base overflow-y-auto p-base">
         <div className="rounded border border-secondary bg-primary p-half">
           <h3 className="text-xs font-semibold uppercase text-low">
-            Technical details
-          </h3>
-          <p
-            data-testid="workflow-node-session-id"
-            className="mt-half truncate text-xs text-low"
-          >
-            Session: {execution.session_id ?? 'Not started'}
-          </p>
-          <p className="truncate text-xs text-low">
-            Process: {execution.execution_process_id ?? 'Not started'}
-          </p>
-        </div>
-
-        <div className="rounded border border-secondary bg-primary p-half">
-          <h3 className="text-xs font-semibold uppercase text-low">
             Conversation
           </h3>
+          <p data-testid="workflow-node-session-id" className="sr-only">
+            Session: {execution.session_id ?? 'Not started'}
+          </p>
           <pre className="mt-half whitespace-pre-wrap text-xs text-high">
             {execution.output_text ||
               'No agent response has been captured yet.'}

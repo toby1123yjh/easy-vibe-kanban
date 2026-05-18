@@ -560,6 +560,11 @@ html {
     pointer-events: all;
   }
 
+  .workflow-side-panel-content {
+    animation: workflow-side-panel-crossfade 160ms ease-out;
+    will-change: opacity, transform;
+  }
+
   .workflow-canvas-product .react-flow__controls {
     overflow: hidden;
   }
@@ -615,10 +620,23 @@ html {
     }
   }
 
+  @keyframes workflow-side-panel-crossfade {
+    from {
+      opacity: 0.72;
+      transform: translateX(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .workflow-edge-beam-running,
     .workflow-node-running::before,
-    .workflow-status-dot-running {
+    .workflow-status-dot-running,
+    .workflow-side-panel-content {
       animation: none;
     }
 

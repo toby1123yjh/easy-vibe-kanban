@@ -35,6 +35,7 @@ import type {
   WorkflowRunResponse,
 } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
+import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
@@ -45,6 +46,7 @@ import {
   type StatusTone,
 } from '../model/workflowRunView';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
+import { queueWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
@@ -298,6 +300,7 @@ export function WorkflowRunCanvasTab({
   const { data: template, isLoading: isTemplateLoading } = useWorkflowTemplate(
     run.workflow_id
   );
+  const navigation = useAppNavigation();
   const { approveNode, rejectNode, isApproving, isRejecting } =
     useWorkflowRunMutations();
   const [actionError, setActionError] = useState<string | null>(null);
@@ -442,6 +445,23 @@ export function WorkflowRunCanvasTab({
     [openNodeConversationById]
   );
 
+  const handleEditSelectedNodeConfig = useCallback(() => {
+    const nodeId = selectedExecution?.node_id ?? selectedNodeId;
+    if (nodeId) {
+      queueWorkflowTemplateNodeFocus(run.workflow_id, {
+        nodeId,
+        panel: 'edit',
+      });
+    }
+    navigation.goToProjectWorkflowEdit(projectId, run.workflow_id);
+  }, [
+    navigation,
+    projectId,
+    run.workflow_id,
+    selectedExecution?.node_id,
+    selectedNodeId,
+  ]);
+
   const handleApprove = async () => {
     if (!selectedExecution) return;
     setActionError(null);
@@ -554,6 +574,7 @@ export function WorkflowRunCanvasTab({
             selectedExecution={selectedExecution}
             selectedGraphNode={selectedGraphNode}
             selectedNodeId={selectedNodeId}
+            onEditWorkflowConfig={handleEditSelectedNodeConfig}
           />
         </Panel>
       </Group>
@@ -572,6 +593,7 @@ interface NodeDetailPanelProps {
   selectedExecution: WorkflowNodeExecutionResponse | null;
   selectedGraphNode: WorkflowNode | null;
   selectedNodeId: string | null;
+  onEditWorkflowConfig: () => void;
 }
 
 function NodeDetailPanel({
@@ -585,6 +607,7 @@ function NodeDetailPanel({
   selectedExecution,
   selectedGraphNode,
   selectedNodeId,
+  onEditWorkflowConfig,
 }: NodeDetailPanelProps) {
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
   const sessionHref =
@@ -606,6 +629,26 @@ function NodeDetailPanel({
     : selectedNodeId
       ? 'Not executed yet'
       : 'Select a node';
+
+  if (isAgent && selectedExecution) {
+    return (
+      <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
+        <div
+          key={`agent-session-${selectedExecution.node_id}`}
+          className="workflow-side-panel-content h-full min-h-0"
+        >
+          <WorkflowNodeConversationPanel
+            selectedExecution={selectedExecution}
+            selectedGraphNode={selectedGraphNode}
+            workspaceId={run.workspace_id}
+            sessionHref={sessionHref}
+            workspaceHref={workspaceHref}
+            onEditConfig={onEditWorkflowConfig}
+          />
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
@@ -631,8 +674,9 @@ function NodeDetailPanel({
       </div>
 
       <div
+        key={`node-detail-${selectedExecution?.node_id ?? selectedNodeId ?? 'empty'}`}
         className={cn(
-          'flex-1',
+          'workflow-side-panel-content flex-1',
           isAgent ? 'min-h-0 overflow-hidden p-0' : 'overflow-y-auto p-base'
         )}
       >
@@ -649,6 +693,7 @@ function NodeDetailPanel({
             workspaceId={run.workspace_id}
             sessionHref={sessionHref}
             workspaceHref={workspaceHref}
+            onEditConfig={onEditWorkflowConfig}
           />
         ) : (
           <NodeDetailsTab
@@ -774,12 +819,14 @@ function WorkflowNodeConversationPanel({
   workspaceId,
   sessionHref,
   workspaceHref,
+  onEditConfig,
 }: {
   selectedExecution: WorkflowNodeExecutionResponse;
   selectedGraphNode: WorkflowNode | null;
   workspaceId: string | null;
   sessionHref: string | null;
   workspaceHref: string | null;
+  onEditConfig: () => void;
 }) {
   if (selectedExecution.node_type !== 'agent') {
     return (
@@ -802,7 +849,9 @@ function WorkflowNodeConversationPanel({
         nodeTitle={selectedGraphNode?.data.display_name}
         nodeData={selectedGraphNode?.data ?? null}
         statusLabel={getNodeStatusLabel(selectedExecution.status)}
-        hideHeader
+        onEditConfig={onEditConfig}
+        runStepDisabled
+        runStepTitle="Single-step run is not available yet."
       />
     </div>
   );

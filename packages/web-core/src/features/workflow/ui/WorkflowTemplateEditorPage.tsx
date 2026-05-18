@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   useWorkflowTemplate,
   useWorkflowTemplateMutations,
@@ -35,6 +35,7 @@ import {
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
 import { buildWorkflowNodeExecutionStatusMap } from '../model/workflowCanvasVisualState';
+import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import {
@@ -223,6 +224,7 @@ export function WorkflowTemplateEditorPage({
   const [staleNodeIds, setStaleNodeIds] = useState<Set<string>>(
     () => new Set()
   );
+  const consumedQueuedFocusForWorkflowRef = useRef<string | null>(null);
 
   const isSystem = template?.source === 'system';
   const readOnly = isSystem;
@@ -251,6 +253,42 @@ export function WorkflowTemplateEditorPage({
   useEffect(() => {
     setStaleNodeIds(new Set());
   }, [workflowAttempt?.latest_run_id]);
+
+  useEffect(() => {
+    if (!graph || consumedQueuedFocusForWorkflowRef.current === workflowId) {
+      return;
+    }
+
+    consumedQueuedFocusForWorkflowRef.current = workflowId;
+    const queuedFocus = consumeWorkflowTemplateNodeFocus(workflowId);
+    if (!queuedFocus) return;
+
+    const focusedNode = graph.nodes.find(
+      (node) => node.id === queuedFocus.nodeId
+    );
+    if (
+      !focusedNode ||
+      focusedNode.type === 'start' ||
+      focusedNode.type === 'end'
+    ) {
+      return;
+    }
+
+    setSelectedNodeId(focusedNode.id);
+    setSelectedEdgeId(null);
+    setEdgeReconnectFocus(null);
+    setContextMenu(null);
+    setEdgeActionMenu(null);
+
+    if (queuedFocus.panel === 'edit' && focusedNode.type === 'agent') {
+      setEditPanelNodeId(focusedNode.id);
+      setSessionPanelNodeId(null);
+      return;
+    }
+
+    setSessionPanelNodeId(focusedNode.id);
+    setEditPanelNodeId(null);
+  }, [graph, workflowId]);
 
   const persistWorkflowGraph = async (nextGraph: WorkflowGraph) => {
     const updatedTemplate = await updateTemplate({
@@ -817,6 +855,13 @@ export function WorkflowTemplateEditorPage({
   const workflowEditorLayout: Layout = isWideSidePanel
     ? { 'workflow-canvas': 62, 'workflow-side': 38 }
     : { 'workflow-canvas': 74, 'workflow-side': 26 };
+  const workflowSidePanelKey = editableAgentNode
+    ? `edit-${editableAgentNode.id}`
+    : sessionPanelExecution
+      ? `session-${sessionPanelExecution.node_id}`
+      : inspectorPanel.kind === 'edge'
+        ? `edge-${inspectorPanel.edge.id}`
+        : `node-${inspectorPanel.node?.id ?? 'empty'}`;
 
   return (
     <div className="flex h-full flex-col bg-primary">
@@ -1145,52 +1190,64 @@ export function WorkflowTemplateEditorPage({
           maxSize="760px"
           className="relative z-10 min-w-0 overflow-hidden border-l border-secondary bg-panel shadow-[-8px_0_18px_rgba(15,23,42,0.06)]"
         >
-          {editableAgentNode ? (
-            <WorkflowAgentStepEditPanel
-              key={editableAgentNode.id}
-              node={editableAgentNode}
-              readOnly={readOnly}
-              isSaving={isUpdating}
-              isRunning={isEditPanelNodeRunning}
-              hasExistingRun={editPanelHasExistingRun}
-              error={runStartError}
-              onClose={() => setEditPanelNodeId(null)}
-              onSave={(value) => void handleAgentStepEditSave(value)}
-            />
-          ) : sessionPanelExecution ? (
-            <div
-              data-testid="workflow-node-conversation-panel"
-              className="h-full overflow-hidden p-base"
-            >
-              <WorkflowNodeSessionPanel
-                execution={sessionPanelExecution}
-                workspaceId={workflowAttempt?.workspace_id ?? null}
-                sessionHref={null}
-                workspaceHref={null}
-                nodeTitle={sessionPanelNode?.data.display_name}
-                nodeData={sessionPanelNode?.data ?? null}
-                statusLabel="Draft"
+          <div
+            key={workflowSidePanelKey}
+            className="workflow-side-panel-content h-full min-h-0"
+          >
+            {editableAgentNode ? (
+              <WorkflowAgentStepEditPanel
+                key={editableAgentNode.id}
+                node={editableAgentNode}
+                readOnly={readOnly}
+                isSaving={isUpdating}
+                isRunning={isEditPanelNodeRunning}
+                hasExistingRun={editPanelHasExistingRun}
+                error={runStartError}
+                onClose={() => setEditPanelNodeId(null)}
+                onSave={(value) => void handleAgentStepEditSave(value)}
               />
-            </div>
-          ) : inspectorPanel.kind === 'edge' ? (
-            <WorkflowEdgeInspector
-              edge={inspectorPanel.edge}
-              nodes={graph.nodes}
-              conditionBranchName={selectedEdgeConditionBranchName}
-              conditionBranchNames={selectedEdgeConditionBranchNames}
-              focusField={edgeReconnectFocus}
-              readOnly={readOnly}
-              onChange={handleEdgeChange}
-              onConditionBranchChange={handleConditionBranchChange}
-              onDelete={handleDeleteEdge}
-            />
-          ) : (
-            <WorkflowNodeInspector
-              node={inspectorPanel.node}
-              readOnly={readOnly}
-              onChange={handleNodeChange}
-            />
-          )}
+            ) : sessionPanelExecution ? (
+              <div
+                data-testid="workflow-node-conversation-panel"
+                className="h-full overflow-hidden"
+              >
+                <WorkflowNodeSessionPanel
+                  execution={sessionPanelExecution}
+                  workspaceId={workflowAttempt?.workspace_id ?? null}
+                  sessionHref={null}
+                  workspaceHref={null}
+                  nodeTitle={sessionPanelNode?.data.display_name}
+                  nodeData={sessionPanelNode?.data ?? null}
+                  statusLabel="Draft"
+                  onEditConfig={() => {
+                    if (sessionPanelNodeId) {
+                      handleOpenAgentStepEdit(sessionPanelNodeId);
+                    }
+                  }}
+                  runStepDisabled
+                  runStepTitle="Run the workflow to execute this step."
+                />
+              </div>
+            ) : inspectorPanel.kind === 'edge' ? (
+              <WorkflowEdgeInspector
+                edge={inspectorPanel.edge}
+                nodes={graph.nodes}
+                conditionBranchName={selectedEdgeConditionBranchName}
+                conditionBranchNames={selectedEdgeConditionBranchNames}
+                focusField={edgeReconnectFocus}
+                readOnly={readOnly}
+                onChange={handleEdgeChange}
+                onConditionBranchChange={handleConditionBranchChange}
+                onDelete={handleDeleteEdge}
+              />
+            ) : (
+              <WorkflowNodeInspector
+                node={inspectorPanel.node}
+                readOnly={readOnly}
+                onChange={handleNodeChange}
+              />
+            )}
+          </div>
         </Panel>
       </Group>
     </div>
