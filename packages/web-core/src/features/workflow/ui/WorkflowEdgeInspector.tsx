@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowDown, GitBranch, Trash2 } from 'lucide-react';
 import {
   DEFAULT_SOURCE_HANDLE,
@@ -13,6 +14,7 @@ export interface WorkflowEdgeInspectorProps {
   nodes: WorkflowNode[];
   conditionBranchName?: string | null;
   conditionBranchNames?: string[];
+  focusField?: 'source' | 'target' | null;
   readOnly?: boolean;
   onChange?: (edgeId: string, updates: Partial<WorkflowEdge>) => void;
   onConditionBranchChange?: (edgeId: string, branchName: string) => void;
@@ -29,11 +31,23 @@ export function WorkflowEdgeInspector({
   nodes,
   conditionBranchName,
   conditionBranchNames = [],
+  focusField,
   readOnly,
   onChange,
   onConditionBranchChange,
   onDelete,
 }: WorkflowEdgeInspectorProps) {
+  const sourceSelectRef = useRef<HTMLSelectElement>(null);
+  const targetSelectRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    if (focusField === 'source') {
+      sourceSelectRef.current?.focus();
+    } else if (focusField === 'target') {
+      targetSelectRef.current?.focus();
+    }
+  }, [edge?.id, focusField]);
+
   if (!edge) {
     return (
       <div className="flex h-full items-center justify-center p-base text-center text-low text-sm">
@@ -115,6 +129,7 @@ export function WorkflowEdgeInspector({
         <div className="flex flex-col gap-1">
           <label className="font-semibold text-high">Source</label>
           <select
+            ref={sourceSelectRef}
             className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
             value={edge.source}
             onChange={(event) => handleSourceChange(event.target.value)}
@@ -134,6 +149,7 @@ export function WorkflowEdgeInspector({
         <div className="flex flex-col gap-1">
           <label className="font-semibold text-high">Target</label>
           <select
+            ref={targetSelectRef}
             className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
             value={edge.target}
             onChange={(event) => handleTargetChange(event.target.value)}

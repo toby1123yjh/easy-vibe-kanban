@@ -4,6 +4,7 @@ import {
   useRef,
   type DragEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import {
   ReactFlow,
@@ -70,6 +71,30 @@ import {
   type WorkflowCanvasNodeState,
   type WorkflowNodeExecutionStatusMap,
 } from '../model/workflowCanvasVisualState';
+import {
+  Copy,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+
+export const WORKFLOW_CANVAS_NODE_ACTIONS = [
+  'open-session',
+  'edit',
+  'run-step',
+  'duplicate',
+  'delete',
+] as const;
+
+export const WORKFLOW_CANVAS_EDGE_ACTIONS = [
+  'insert-agent-step',
+  'reconnect-source',
+  'reconnect-target',
+  'delete-edge',
+] as const;
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
@@ -81,7 +106,13 @@ export interface WorkflowCanvasProps {
   onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
   onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
   onNodeOpen?: (nodeId: string) => void;
+  onNodeEdit?: (nodeId: string) => void;
+  onNodeRunStep?: (nodeId: string) => void;
+  onNodeAddNext?: (nodeId: string) => void;
+  onNodeDuplicate?: (nodeId: string) => void;
+  onNodeDelete?: (nodeId: string) => void | Promise<void>;
   onNodeContextMenu?: (event: WorkflowNodeContextMenuEvent) => void;
+  onEdgeActionMenu?: (event: WorkflowEdgeActionMenuEvent) => void;
 }
 
 export interface WorkflowCanvasSelection {
@@ -95,8 +126,25 @@ export interface WorkflowNodeContextMenuEvent {
   y: number;
 }
 
+export interface WorkflowEdgeActionMenuEvent {
+  edgeId: string;
+  x: number;
+  y: number;
+}
+
+interface WorkflowNodeActions {
+  readOnly?: boolean;
+  open?: (nodeId: string) => void;
+  edit?: (nodeId: string) => void;
+  runStep?: (nodeId: string) => void;
+  addNext?: (nodeId: string) => void;
+  duplicate?: (nodeId: string) => void;
+  delete?: (nodeId: string) => void | Promise<void>;
+}
+
 interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
   onSelect?: (edgeId: string) => void;
+  onActionMenu?: (event: WorkflowEdgeActionMenuEvent) => void;
   visualStatus?: WorkflowCanvasEdgeState;
 }
 
@@ -171,6 +219,147 @@ const getNodeUiState = (data: WorkflowNodeData): WorkflowCanvasNodeState =>
 const isNodeStaleForNextRun = (data: WorkflowNodeData): boolean =>
   data.__workflowIsStale === true;
 
+const getNodeActions = (data: WorkflowNodeData): WorkflowNodeActions =>
+  (data.__workflowActions as WorkflowNodeActions | undefined) ?? {};
+
+function stopCanvasObjectAction(event: MouseEvent<HTMLElement>) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function WorkflowNodeActionButton({
+  children,
+  danger,
+  disabled,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'nodrag nopan flex h-7 w-7 items-center justify-center rounded border text-low shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45',
+        danger
+          ? 'border-error/30 bg-error/10 hover:border-error/70 hover:text-error'
+          : 'border-white/10 bg-[#20232b]/95 hover:border-brand/60 hover:bg-brand/15 hover:text-brand'
+      )}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={stopCanvasObjectAction}
+      onClick={(event) => {
+        stopCanvasObjectAction(event);
+        if (!disabled) onClick?.();
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WorkflowNodeHoverToolbar({
+  actions,
+  nodeId,
+  selected,
+}: {
+  actions: WorkflowNodeActions;
+  nodeId: string;
+  selected?: boolean;
+}) {
+  const readOnly = actions.readOnly === true;
+
+  return (
+    <div
+      className={cn(
+        'workflow-node-toolbar nodrag nopan absolute -top-9 right-2 z-20 flex items-center gap-1 rounded-lg border border-white/10 bg-[#15171d]/96 p-1 shadow-[0_14px_34px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-150',
+        selected
+          ? 'translate-y-0 opacity-100'
+          : 'pointer-events-none translate-y-1 opacity-0'
+      )}
+    >
+      <WorkflowNodeActionButton
+        label="Open Session"
+        disabled={!actions.open}
+        onClick={() => actions.open?.(nodeId)}
+      >
+        <MessageSquare className="h-3.5 w-3.5" />
+      </WorkflowNodeActionButton>
+      <WorkflowNodeActionButton
+        label="Edit"
+        disabled={readOnly || !actions.edit}
+        onClick={() => actions.edit?.(nodeId)}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </WorkflowNodeActionButton>
+      <WorkflowNodeActionButton
+        label={actions.runStep ? 'Run Step' : 'Run Step (not available yet)'}
+        disabled={readOnly || !actions.runStep}
+        onClick={() => actions.runStep?.(nodeId)}
+      >
+        <Play className="h-3.5 w-3.5" />
+      </WorkflowNodeActionButton>
+      <WorkflowNodeActionButton
+        label="Duplicate"
+        disabled={readOnly || !actions.duplicate}
+        onClick={() => actions.duplicate?.(nodeId)}
+      >
+        <Copy className="h-3.5 w-3.5" />
+      </WorkflowNodeActionButton>
+      <WorkflowNodeActionButton
+        danger
+        label="Delete"
+        disabled={readOnly || !actions.delete}
+        onClick={() => void actions.delete?.(nodeId)}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </WorkflowNodeActionButton>
+    </div>
+  );
+}
+
+function WorkflowAddNextButton({
+  actions,
+  nodeId,
+  selected,
+}: {
+  actions: WorkflowNodeActions;
+  nodeId: string;
+  selected?: boolean;
+}) {
+  const disabled = actions.readOnly === true || !actions.addNext;
+
+  return (
+    <button
+      type="button"
+      data-testid={`workflow-node-add-next-${nodeId}`}
+      className={cn(
+        'workflow-node-add-next nodrag nopan absolute -right-12 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-brand/40 bg-[#15171d]/96 text-brand shadow-[0_0_20px_rgba(249,115,22,0.22)] backdrop-blur transition-all duration-150 hover:border-brand hover:bg-brand hover:text-white disabled:cursor-not-allowed disabled:opacity-40',
+        selected
+          ? 'translate-x-0 opacity-100'
+          : 'pointer-events-none translate-x-1 opacity-0'
+      )}
+      aria-label="Add next Agent Step"
+      title="Add next Agent Step"
+      disabled={disabled}
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={stopCanvasObjectAction}
+      onClick={(event) => {
+        stopCanvasObjectAction(event);
+        if (!disabled) actions.addNext?.(nodeId);
+      }}
+    >
+      <Plus className="h-4 w-4" />
+    </button>
+  );
+}
+
 const workflowHandleClass =
   'h-4 w-4 border-[3px] border-[#15171d] bg-brand/80 shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_0_12px_rgba(249,115,22,0.34)] transition-colors hover:bg-brand';
 
@@ -238,6 +427,8 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const nodeStateLabel = getWorkflowCanvasNodeStateLabel(nodeState);
   const isRunning = nodeState === 'running';
   const isStale = isNodeStaleForNextRun(data);
+  const actions = getNodeActions(data);
+  const canAddNext = Boolean(actions.addNext) && nodeKind !== 'end';
 
   if (structural) {
     return (
@@ -259,6 +450,13 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           canReceive: nodeKind !== 'start',
           canStart: nodeKind !== 'end',
         })}
+        {canAddNext ? (
+          <WorkflowAddNextButton
+            actions={actions}
+            nodeId={id}
+            selected={selected}
+          />
+        ) : null}
         {issueCount > 0 ? (
           <div
             data-testid={`workflow-node-issue-${id}`}
@@ -320,6 +518,20 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         canReceive: type !== 'start',
         canStart: type !== 'end',
       })}
+      {compactAgent ? (
+        <WorkflowNodeHoverToolbar
+          actions={actions}
+          nodeId={id}
+          selected={selected}
+        />
+      ) : null}
+      {canAddNext ? (
+        <WorkflowAddNextButton
+          actions={actions}
+          nodeId={id}
+          selected={selected}
+        />
+      ) : null}
 
       <div
         className={cn(
@@ -543,6 +755,7 @@ const WorkflowEdge = ({
 }: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
   const workflowType = data?.workflowType ?? 'default';
   const onSelect = data?.onSelect;
+  const onActionMenu = data?.onActionMenu;
   const visualStatus = data?.visualStatus ?? 'idle';
   const isRunning = visualStatus === 'running';
   const visual = getWorkflowEdgeVisual(workflowType);
@@ -592,10 +805,10 @@ const WorkflowEdge = ({
         />
         {onSelect ? (
           <foreignObject
-            x={labelX - 12}
-            y={labelY - 12}
-            width={24}
-            height={24}
+            x={labelX - 14}
+            y={labelY - 14}
+            width={28}
+            height={28}
             className={cn(
               'workflow-edge-action overflow-visible opacity-0 transition-opacity group-hover:opacity-100',
               selected && 'opacity-100'
@@ -604,14 +817,20 @@ const WorkflowEdge = ({
             <button
               type="button"
               data-testid={`workflow-edge-action-${id}`}
-              className="nodrag nopan flex h-6 w-6 items-center justify-center rounded-full border border-brand/50 bg-[#17191f] text-brand shadow-[0_0_18px_rgba(249,115,22,0.32)] transition-colors hover:border-brand hover:bg-brand hover:text-white"
+              className="nodrag nopan flex h-7 w-7 items-center justify-center rounded-full border border-brand/50 bg-[#17191f] text-brand shadow-[0_0_18px_rgba(249,115,22,0.32)] transition-colors hover:border-brand hover:bg-brand hover:text-white"
               onClick={(event) => {
                 event.stopPropagation();
                 onSelect(id);
+                onActionMenu?.({
+                  edgeId: id,
+                  x: event.clientX,
+                  y: event.clientY,
+                });
               }}
-              aria-label={`Select edge ${id}`}
+              aria-label={`Open edge actions for ${id}`}
+              title="Edge actions"
             >
-              <span className="h-2 w-2 rounded-full bg-current" />
+              <MoreHorizontal className="h-4 w-4" />
             </button>
           </foreignObject>
         ) : null}
@@ -691,7 +910,13 @@ export function WorkflowCanvas({
   onSelectionChange,
   onNodeDrop,
   onNodeOpen,
+  onNodeEdit,
+  onNodeRunStep,
+  onNodeAddNext,
+  onNodeDuplicate,
+  onNodeDelete,
   onNodeContextMenu,
+  onEdgeActionMenu,
 }: WorkflowCanvasProps) {
   const [nodes, setNodes] = useNodesState<
     ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
@@ -752,6 +977,15 @@ export function WorkflowCanvas({
             nodeType: n.type ?? 'agent',
           }),
           __workflowIsStale: staleNodeIdSet.has(n.id),
+          __workflowActions: {
+            readOnly,
+            open: onNodeOpen,
+            edit: onNodeEdit,
+            runStep: onNodeRunStep,
+            addNext: onNodeAddNext,
+            duplicate: onNodeDuplicate,
+            delete: onNodeDelete,
+          } satisfies WorkflowNodeActions,
         },
         position: positionMap.get(n.id) ?? n.position,
       }));
@@ -764,11 +998,27 @@ export function WorkflowCanvas({
         workflowType: edge.data?.workflowType ?? 'default',
         visualStatus: edgeStateById[edge.id] ?? 'idle',
         onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
+        onActionMenu: onEdgeActionMenu,
       },
     })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
-  }, [graph, nodeStatuses, setNodes, setEdges, staleNodeIds, validationIssues]);
+  }, [
+    graph,
+    nodeStatuses,
+    onEdgeActionMenu,
+    onNodeAddNext,
+    onNodeDelete,
+    onNodeDuplicate,
+    onNodeEdit,
+    onNodeOpen,
+    onNodeRunStep,
+    readOnly,
+    setNodes,
+    setEdges,
+    staleNodeIds,
+    validationIssues,
+  ]);
 
   // Bubble up changes
   const reportChange = useCallback(

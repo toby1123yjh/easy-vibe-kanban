@@ -480,6 +480,23 @@ html {
     opacity: 0;
   }
 
+  .workflow-canvas-product .react-flow__handle.workflow-handle-visible {
+    opacity: 0.26;
+    transform: scale(0.82);
+    transition:
+      opacity 140ms ease,
+      transform 140ms ease,
+      box-shadow 140ms ease,
+      background-color 140ms ease;
+  }
+
+  .workflow-canvas-product .react-flow__handle.workflow-handle-visible::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    border-radius: 9999px;
+  }
+
   .workflow-canvas-product
     .react-flow__node:hover
     .react-flow__handle.workflow-handle-visible,
@@ -489,6 +506,41 @@ html {
   .workflow-canvas-product
     .react-flow__handle.workflow-handle-visible.connectionindicator:hover {
     opacity: 1;
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.22),
+      0 0 16px rgba(249, 115, 22, 0.48);
+  }
+
+  .workflow-canvas-product
+    .react-flow__handle.workflow-handle-visible.connectingfrom,
+  .workflow-canvas-product
+    .react-flow__handle.workflow-handle-visible.connectingto,
+  .workflow-canvas-product .react-flow__handle.workflow-handle-visible.valid {
+    opacity: 1;
+    transform: scale(1.08);
+    background: hsl(var(--brand));
+    box-shadow:
+      0 0 0 4px rgba(249, 115, 22, 0.16),
+      0 0 18px rgba(249, 115, 22, 0.58);
+  }
+
+  .workflow-canvas-product .react-flow__node:hover .workflow-node-toolbar,
+  .workflow-canvas-product .react-flow__node:hover .workflow-node-add-next,
+  .workflow-node-toolbar:focus-within,
+  .workflow-node-add-next:focus-visible {
+    pointer-events: auto;
+    opacity: 1;
+  }
+
+  .workflow-canvas-product .react-flow__node:hover .workflow-node-toolbar,
+  .workflow-node-toolbar:focus-within {
+    transform: translateY(0);
+  }
+
+  .workflow-canvas-product .react-flow__node:hover .workflow-node-add-next,
+  .workflow-node-add-next:focus-visible {
+    transform: translate(0, -50%);
   }
 
   .workflow-canvas-product .react-flow__edgeupdater,
@@ -571,8 +623,11 @@ html {
     }
 
     .workflow-edge-action,
+    .workflow-node-toolbar,
+    .workflow-node-add-next,
     .workflow-canvas-product .react-flow__node,
-    .workflow-canvas-product .react-flow__edge {
+    .workflow-canvas-product .react-flow__edge,
+    .workflow-canvas-product .react-flow__handle.workflow-handle-visible {
       transition-duration: 0ms !important;
     }
   }

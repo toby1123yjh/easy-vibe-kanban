@@ -4,7 +4,9 @@ import {
   WORKFLOW_CANVAS_CONNECTION_MODE,
   WORKFLOW_CANVAS_CONNECTION_LINE_TYPE,
   WORKFLOW_CANVAS_DELETE_KEYS,
+  WORKFLOW_CANVAS_EDGE_ACTIONS,
   WORKFLOW_CANVAS_EDGE_TYPE,
+  WORKFLOW_CANVAS_NODE_ACTIONS,
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
@@ -31,6 +33,22 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses loose connection mode so one visible port can start and receive wires', () => {
     expect(WORKFLOW_CANVAS_CONNECTION_MODE).toBe(ConnectionMode.Loose);
+  });
+
+  it('keeps object-level node and edge actions discoverable near the object', () => {
+    expect(WORKFLOW_CANVAS_NODE_ACTIONS).toEqual([
+      'open-session',
+      'edit',
+      'run-step',
+      'duplicate',
+      'delete',
+    ]);
+    expect(WORKFLOW_CANVAS_EDGE_ACTIONS).toEqual([
+      'insert-agent-step',
+      'reconnect-source',
+      'reconnect-target',
+      'delete-edge',
+    ]);
   });
 
   it('keeps selection changes in read-only mode while blocking graph edits', () => {
