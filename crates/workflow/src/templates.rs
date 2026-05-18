@@ -121,6 +121,7 @@ fn plan_approve_implement_review() -> WorkflowTemplate {
                 edge("e5", "implement", "review", WorkflowEdgeKind::Default),
                 edge("e6", "review", "end", WorkflowEdgeKind::Default),
             ],
+            canvas: None,
         },
     }
 }
@@ -161,6 +162,7 @@ fn plan_arena_pick_winner_review() -> WorkflowTemplate {
                 edge("e3", "arena", "review", WorkflowEdgeKind::ArenaWinner),
                 edge("e4", "review", "end", WorkflowEdgeKind::Default),
             ],
+            canvas: None,
         },
     }
 }
@@ -210,6 +212,7 @@ fn research_architect_implement_review_fix() -> WorkflowTemplate {
                 edge("e6", "review", "fix", WorkflowEdgeKind::Rejection),
                 edge("e7", "fix", "end", WorkflowEdgeKind::Default),
             ],
+            canvas: None,
         },
     }
 }

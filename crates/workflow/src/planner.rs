@@ -204,6 +204,7 @@ mod tests {
             version: 2,
             nodes,
             edges,
+            canvas: None,
         }
     }
 

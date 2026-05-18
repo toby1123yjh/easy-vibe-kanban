@@ -11,6 +11,8 @@ import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import {
   clearConditionBranchTargetForEdge,
+  createWorkflowCanvasStageGroup,
+  createWorkflowCanvasStickyNote,
   createDefaultWorkflowGraph,
   createWorkflowEdge,
   createWorkflowNode,
@@ -20,6 +22,7 @@ import {
   getConditionBranchNamesForEdge,
   migrateWorkflowGraph,
   setConditionBranchTargetForEdge,
+  tidyWorkflowGraph,
   type WorkflowGraph,
   type WorkflowEdge,
   type WorkflowNode,
@@ -61,7 +64,10 @@ import {
   Copy,
   Plus,
   CheckCircle2,
+  LayoutGrid,
   Play as PlayIcon,
+  StickyNote,
+  Ungroup,
 } from 'lucide-react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
@@ -144,6 +150,61 @@ function getNewWorkflowNodePosition({
   }
 
   return avoidWorkflowNodeOverlap(graph, { x: 400, y: 160 });
+}
+
+function getWorkflowNodeBounds(graph: WorkflowGraph) {
+  const positions = graph.nodes
+    .map((node) => node.position)
+    .filter((position): position is WorkflowNodePosition => Boolean(position));
+
+  if (positions.length === 0) {
+    return {
+      minX: 120,
+      minY: 160,
+      maxX: 780,
+      maxY: 320,
+    };
+  }
+
+  return positions.reduce(
+    (bounds, position) => ({
+      minX: Math.min(bounds.minX, position.x),
+      minY: Math.min(bounds.minY, position.y),
+      maxX: Math.max(bounds.maxX, position.x),
+      maxY: Math.max(bounds.maxY, position.y),
+    }),
+    {
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    }
+  );
+}
+
+function getNewStickyNotePosition(graph: WorkflowGraph): WorkflowNodePosition {
+  const bounds = getWorkflowNodeBounds(graph);
+  return {
+    x: bounds.minX,
+    y: Math.max(20, bounds.minY - 170),
+  };
+}
+
+function getNewStageGroupPosition(graph: WorkflowGraph): {
+  position: WorkflowNodePosition;
+  size: { width: number; height: number };
+} {
+  const bounds = getWorkflowNodeBounds(graph);
+  return {
+    position: {
+      x: Math.max(40, bounds.minX - 50),
+      y: Math.max(40, bounds.minY - 65),
+    },
+    size: {
+      width: Math.max(520, bounds.maxX - bounds.minX + 360),
+      height: Math.max(220, bounds.maxY - bounds.minY + 220),
+    },
+  };
 }
 
 function parsePersistedWorkflowGraph(
@@ -446,6 +507,49 @@ export function WorkflowTemplateEditorPage({
     setValidationTouched(false);
     setRunStartError(null);
     setGraph(newGraph);
+  };
+
+  const handleTidyGraph = () => {
+    if (!graph || readOnly) return;
+    handleGraphChange(tidyWorkflowGraph(graph));
+  };
+
+  const handleAddStickyNote = () => {
+    if (!graph || readOnly) return;
+    setGraph({
+      ...graph,
+      canvas: {
+        ...graph.canvas,
+        notes: [
+          ...(graph.canvas?.notes ?? []),
+          createWorkflowCanvasStickyNote({
+            title: 'Note',
+            content: '记录这个阶段的目标、约束或注意事项。',
+            position: getNewStickyNotePosition(graph),
+          }),
+        ],
+      },
+    });
+  };
+
+  const handleAddStageGroup = () => {
+    if (!graph || readOnly) return;
+    const { position, size } = getNewStageGroupPosition(graph);
+    setGraph({
+      ...graph,
+      canvas: {
+        ...graph.canvas,
+        groups: [
+          ...(graph.canvas?.groups ?? []),
+          createWorkflowCanvasStageGroup({
+            title: '新阶段',
+            description: '把相关 Agent Step 放在同一阶段内。',
+            position,
+            size,
+          }),
+        ],
+      },
+    });
   };
 
   const handleNodeChange = (
@@ -909,6 +1013,33 @@ export function WorkflowTemplateEditorPage({
           >
             <Plus className="h-4 w-4" />
             Add Agent Step
+          </Button>
+          <Button
+            variant="outline"
+            disabled={readOnly}
+            onClick={handleTidyGraph}
+            className="flex items-center gap-2"
+          >
+            <LayoutGrid className="h-4 w-4" />
+            Tidy
+          </Button>
+          <Button
+            variant="outline"
+            disabled={readOnly}
+            onClick={handleAddStickyNote}
+            className="flex items-center gap-2"
+          >
+            <StickyNote className="h-4 w-4" />
+            Note
+          </Button>
+          <Button
+            variant="outline"
+            disabled={readOnly}
+            onClick={handleAddStageGroup}
+            className="flex items-center gap-2"
+          >
+            <Ungroup className="h-4 w-4" />
+            Stage
           </Button>
           <Button
             variant="outline"

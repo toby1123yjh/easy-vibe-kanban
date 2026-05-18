@@ -5,6 +5,8 @@ pub struct WorkflowGraph {
     pub version: u32,
     pub nodes: Vec<WorkflowNode>,
     pub edges: Vec<WorkflowEdge>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<WorkflowCanvasData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -34,6 +36,65 @@ pub struct WorkflowEdge {
     pub target_handle: Option<String>,
     #[serde(rename = "type")]
     pub kind: WorkflowEdgeKind,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowCanvasData {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<WorkflowCanvasStickyNote>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<WorkflowCanvasStageGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowCanvasStickyNote {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: WorkflowCanvasObjectKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub content: String,
+    pub position: WorkflowNodePosition,
+    pub size: WorkflowCanvasObjectSize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<WorkflowCanvasObjectColor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowCanvasStageGroup {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: WorkflowCanvasObjectKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub position: WorkflowNodePosition,
+    pub size: WorkflowCanvasObjectSize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<WorkflowCanvasObjectColor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowCanvasObjectSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowCanvasObjectKind {
+    StickyNote,
+    StageGroup,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowCanvasObjectColor {
+    Amber,
+    Blue,
+    Green,
+    Neutral,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -246,5 +307,52 @@ mod tests {
 
         assert_eq!(graph.edges[0].source_handle, None);
         assert_eq!(graph.edges[0].target_handle, None);
+    }
+
+    #[test]
+    fn parses_and_serializes_canvas_metadata() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "version": 2,
+            "nodes": [
+                { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+                { "id": "end", "type": "end", "data": { "display_name": "End" } }
+            ],
+            "edges": [
+                { "id": "e1", "source": "start", "target": "end", "type": "default" }
+            ],
+            "canvas": {
+                "notes": [
+                    {
+                        "id": "note-1",
+                        "type": "sticky_note",
+                        "title": "Context",
+                        "content": "Read first",
+                        "position": { "x": 100.0, "y": 40.0 },
+                        "size": { "width": 260.0, "height": 140.0 },
+                        "color": "amber"
+                    }
+                ],
+                "groups": [
+                    {
+                        "id": "stage-1",
+                        "type": "stage_group",
+                        "title": "Stage 1",
+                        "description": "Understand",
+                        "position": { "x": 80.0, "y": 120.0 },
+                        "size": { "width": 520.0, "height": 220.0 },
+                        "color": "neutral"
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let canvas = graph.canvas.as_ref().unwrap();
+        assert_eq!(canvas.notes[0].kind, WorkflowCanvasObjectKind::StickyNote);
+        assert_eq!(canvas.groups[0].kind, WorkflowCanvasObjectKind::StageGroup);
+
+        let value = serde_json::to_value(&graph).unwrap();
+        assert_eq!(value["canvas"]["notes"][0]["type"], "sticky_note");
+        assert_eq!(value["canvas"]["groups"][0]["type"], "stage_group");
     }
 }

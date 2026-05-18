@@ -5,14 +5,19 @@ import {
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
   clearConditionBranchTargetForEdge,
+  createWorkflowCanvasStageGroup,
+  createWorkflowCanvasStickyNote,
   createDefaultWorkflowGraph,
   createWorkflowEdge,
   createWorkflowNode,
+  fromReactFlowCanvasGraph,
   fromReactFlowGraph,
   getConditionBranchNameForEdge,
   getConditionBranchNamesForEdge,
   migrateWorkflowGraph,
   setConditionBranchTargetForEdge,
+  tidyWorkflowGraph,
+  toReactFlowCanvasNodes,
   toReactFlowEdges,
   toReactFlowNodes,
 } from './workflowGraph';
@@ -31,7 +36,7 @@ describe('workflow graph model', () => {
         id: 'start',
         type: 'start',
         data: { display_name: 'Start' },
-        position: { x: 80, y: 180 },
+        position: { x: 120, y: 190 },
       },
       {
         id: 'familiarize',
@@ -42,13 +47,13 @@ describe('workflow graph model', () => {
           prompt_template:
             '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
         },
-        position: { x: 400, y: 160 },
+        position: { x: 420, y: 160 },
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
-        position: { x: 760, y: 180 },
+        position: { x: 780, y: 190 },
       },
     ]);
     expect(graph.edges).toEqual([
@@ -69,6 +74,13 @@ describe('workflow graph model', () => {
         type: 'default',
       },
     ]);
+    expect(graph.canvas?.groups?.[0]).toMatchObject({
+      id: 'stage-understand',
+      type: 'stage_group',
+      title: '阶段 1：理解项目',
+      position: { x: 70, y: 105 },
+      size: { width: 880, height: 240 },
+    });
   });
 
   it('defines catalog entries and default data for every v1 node kind', () => {
@@ -189,6 +201,130 @@ describe('workflow graph model', () => {
     expect(graph.nodes[0].position).toEqual({ x: 480, y: 260 });
   });
 
+  it('keeps canvas notes and stage groups out of runtime graph nodes', () => {
+    const agent = createWorkflowNode('agent', {
+      id: 'agent-1',
+      position: { x: 320, y: 180 },
+    });
+    const graph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [agent],
+      edges: [],
+      canvas: {
+        notes: [
+          createWorkflowCanvasStickyNote({
+            id: 'note-1',
+            title: 'Context',
+            content: 'Read first',
+            position: { x: 120, y: 40 },
+            size: { width: 260, height: 140 },
+          }),
+        ],
+        groups: [
+          createWorkflowCanvasStageGroup({
+            id: 'stage-1',
+            title: 'Stage 1',
+            position: { x: 80, y: 120 },
+            size: { width: 520, height: 220 },
+          }),
+        ],
+      },
+    };
+
+    const flowNodes = toReactFlowCanvasNodes(graph);
+
+    expect(flowNodes.map((node) => node.type)).toEqual([
+      'stage_group',
+      'agent',
+      'sticky_note',
+    ]);
+
+    const roundTrip = fromReactFlowCanvasGraph(
+      flowNodes.map((node) =>
+        node.id === 'note-1'
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                content: 'Updated note',
+                __workflowCanvasObjectActions: {},
+              },
+              position: { x: 180, y: 60 },
+              style: { width: 300, height: 160 },
+            }
+          : node
+      ),
+      [],
+      graph
+    );
+
+    expect(roundTrip.nodes).toEqual([agent]);
+    expect(roundTrip.canvas?.notes?.[0]).toMatchObject({
+      id: 'note-1',
+      content: 'Updated note',
+      position: { x: 180, y: 60 },
+      size: { width: 300, height: 160 },
+    });
+    expect(roundTrip.canvas?.groups?.[0]).toMatchObject({
+      id: 'stage-1',
+      title: 'Stage 1',
+    });
+  });
+
+  it('tidies workflow nodes into readable horizontal levels', () => {
+    const graph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        createWorkflowNode('start', {
+          id: 'start',
+          position: { x: 600, y: 300 },
+        }),
+        createWorkflowNode('agent', {
+          id: 'research',
+          position: { x: 20, y: 20 },
+        }),
+        createWorkflowNode('agent', {
+          id: 'review',
+          position: { x: 80, y: 500 },
+        }),
+        createWorkflowNode('end', {
+          id: 'end',
+          position: { x: 100, y: 80 },
+        }),
+      ],
+      edges: [
+        createWorkflowEdge({
+          id: 'start-research',
+          source: 'start',
+          target: 'research',
+        }),
+        createWorkflowEdge({
+          id: 'research-review',
+          source: 'research',
+          target: 'review',
+        }),
+        createWorkflowEdge({
+          id: 'review-end',
+          source: 'review',
+          target: 'end',
+        }),
+      ],
+    };
+
+    const tidy = tidyWorkflowGraph(graph);
+
+    expect(tidy.nodes.map((node) => [node.id, node.position])).toEqual([
+      ['start', { x: 120, y: 170 }],
+      ['research', { x: 480, y: 170 }],
+      ['review', { x: 840, y: 170 }],
+      ['end', { x: 1200, y: 170 }],
+    ]);
+    expect(tidy.edges[0]).toMatchObject({
+      source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
+      target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
+    });
+  });
+
   it('keeps workflow edge semantics separate from React Flow edge renderer type', () => {
     const edge = createWorkflowEdge({
       id: 'review-approve',
@@ -265,7 +401,7 @@ describe('workflow graph model', () => {
       source_handle: DEFAULT_SOURCE_HANDLE,
       target_handle: DEFAULT_TARGET_HANDLE,
     });
-    expect(graph.nodes[0].position).toEqual({ x: 80, y: 140 });
+    expect(graph.nodes[0].position).toEqual({ x: 120, y: 160 });
   });
 
   it('normalizes legacy input and output handle ids to shared ports', () => {

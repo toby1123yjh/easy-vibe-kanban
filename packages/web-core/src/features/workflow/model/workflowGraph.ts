@@ -129,11 +129,60 @@ export interface WorkflowEdge {
   type: WorkflowEdgeKind;
 }
 
+export type WorkflowCanvasObjectKind = 'sticky_note' | 'stage_group';
+export type WorkflowCanvasObjectColor = 'amber' | 'blue' | 'green' | 'neutral';
+
+export interface WorkflowCanvasObjectSize {
+  width: number;
+  height: number;
+}
+
+export interface WorkflowCanvasStickyNote {
+  id: string;
+  type: 'sticky_note';
+  title?: string;
+  content: string;
+  position: WorkflowNodePosition;
+  size: WorkflowCanvasObjectSize;
+  color?: WorkflowCanvasObjectColor;
+}
+
+export interface WorkflowCanvasStageGroup {
+  id: string;
+  type: 'stage_group';
+  title: string;
+  description?: string;
+  position: WorkflowNodePosition;
+  size: WorkflowCanvasObjectSize;
+  color?: WorkflowCanvasObjectColor;
+}
+
+export interface WorkflowCanvasData {
+  notes?: WorkflowCanvasStickyNote[];
+  groups?: WorkflowCanvasStageGroup[];
+}
+
 export interface WorkflowGraph {
   version: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  canvas?: WorkflowCanvasData;
 }
+
+export interface WorkflowCanvasObjectNodeData extends Record<string, unknown> {
+  title?: string;
+  content?: string;
+  description?: string;
+  color?: WorkflowCanvasObjectColor;
+  size?: WorkflowCanvasObjectSize;
+}
+
+export type WorkflowCanvasReactFlowNodeKind =
+  | WorkflowNodeKind
+  | WorkflowCanvasObjectKind;
+export type WorkflowCanvasReactFlowNodeData =
+  | WorkflowNodeData
+  | WorkflowCanvasObjectNodeData;
 
 type LegacyWorkflowEdge = Omit<
   WorkflowEdge,
@@ -153,6 +202,25 @@ export interface WorkflowNodePosition {
   x: number;
   y: number;
 }
+
+const DEFAULT_WORKFLOW_LAYOUT = {
+  start: { x: 120, y: 190 },
+  agent: { x: 420, y: 160 },
+  end: { x: 780, y: 190 },
+} as const satisfies Record<string, WorkflowNodePosition>;
+
+const DEFAULT_AGENT_PROMPT =
+  '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。';
+
+const DEFAULT_NOTE_SIZE: WorkflowCanvasObjectSize = {
+  width: 280,
+  height: 150,
+};
+
+const DEFAULT_GROUP_SIZE: WorkflowCanvasObjectSize = {
+  width: 880,
+  height: 240,
+};
 
 export function normalizeWorkflowPortHandle(
   handle: string | null | undefined,
@@ -300,7 +368,7 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
         id: 'start',
         type: 'start',
         data: { display_name: 'Start' },
-        position: { x: 80, y: 180 },
+        position: DEFAULT_WORKFLOW_LAYOUT.start,
       },
       {
         id: 'familiarize',
@@ -308,16 +376,15 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
         data: {
           display_name: '熟悉项目',
           role_template_id: 'custom',
-          prompt_template:
-            '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
+          prompt_template: DEFAULT_AGENT_PROMPT,
         },
-        position: { x: 400, y: 160 },
+        position: DEFAULT_WORKFLOW_LAYOUT.agent,
       },
       {
         id: 'end',
         type: 'end',
         data: { display_name: 'End' },
-        position: { x: 760, y: 180 },
+        position: DEFAULT_WORKFLOW_LAYOUT.end,
       },
     ],
     edges: [
@@ -338,14 +405,30 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
         type: 'default',
       },
     ],
+    canvas: {
+      groups: [
+        {
+          id: 'stage-understand',
+          type: 'stage_group',
+          title: '阶段 1：理解项目',
+          description:
+            '默认从熟悉项目开始，后续可以继续添加实现、评审、测试节点。',
+          position: { x: 70, y: 105 },
+          size: DEFAULT_GROUP_SIZE,
+          color: 'neutral',
+        },
+      ],
+    },
   };
 }
 
 export function migrateWorkflowGraph(
   graph: WorkflowGraph | LegacyWorkflowGraph
 ): WorkflowGraph {
+  const canvas = normalizeWorkflowCanvas(graph.canvas);
+  const { canvas: _canvas, ...graphWithoutCanvas } = graph;
   return {
-    ...graph,
+    ...graphWithoutCanvas,
     version: WORKFLOW_GRAPH_VERSION,
     nodes: graph.nodes.map((node, index) => ({
       ...node,
@@ -362,13 +445,14 @@ export function migrateWorkflowGraph(
         DEFAULT_TARGET_HANDLE
       ),
     })),
+    ...(canvas ? { canvas } : {}),
   };
 }
 
 function fallbackWorkflowNodePosition(index: number): WorkflowNodePosition {
   return {
-    x: 80 + (index % 4) * 340,
-    y: 140 + Math.floor(index / 4) * 180,
+    x: 120 + (index % 4) * 360,
+    y: 160 + Math.floor(index / 4) * 190,
   };
 }
 
@@ -409,6 +493,44 @@ export function createWorkflowEdge(options: {
   };
 }
 
+export function createWorkflowCanvasStickyNote(options?: {
+  id?: string;
+  title?: string;
+  content?: string;
+  position?: WorkflowNodePosition;
+  size?: WorkflowCanvasObjectSize;
+  color?: WorkflowCanvasObjectColor;
+}): WorkflowCanvasStickyNote {
+  return {
+    id: options?.id ?? `note-${crypto.randomUUID().slice(0, 8)}`,
+    type: 'sticky_note',
+    title: options?.title ?? 'Note',
+    content: options?.content ?? '',
+    position: options?.position ?? { x: 160, y: 80 },
+    size: options?.size ?? DEFAULT_NOTE_SIZE,
+    color: options?.color ?? 'amber',
+  };
+}
+
+export function createWorkflowCanvasStageGroup(options?: {
+  id?: string;
+  title?: string;
+  description?: string;
+  position?: WorkflowNodePosition;
+  size?: WorkflowCanvasObjectSize;
+  color?: WorkflowCanvasObjectColor;
+}): WorkflowCanvasStageGroup {
+  return {
+    id: options?.id ?? `stage-${crypto.randomUUID().slice(0, 8)}`,
+    type: 'stage_group',
+    title: options?.title ?? 'Stage',
+    description: options?.description ?? '',
+    position: options?.position ?? { x: 80, y: 120 },
+    size: options?.size ?? DEFAULT_GROUP_SIZE,
+    color: options?.color ?? 'neutral',
+  };
+}
+
 export function toReactFlowNodes(
   graph: WorkflowGraph,
   positions?: Record<string, { x: number; y: number }>
@@ -419,6 +541,57 @@ export function toReactFlowNodes(
     data: node.data,
     position: node.position ?? positions?.[node.id] ?? { x: 0, y: 0 },
   }));
+}
+
+export function toReactFlowCanvasNodes(
+  graph: WorkflowGraph,
+  positions?: Record<string, { x: number; y: number }>
+): ReactFlowNode<
+  WorkflowCanvasReactFlowNodeData,
+  WorkflowCanvasReactFlowNodeKind
+>[] {
+  const groups = (graph.canvas?.groups ?? []).map((group) => ({
+    id: group.id,
+    type: 'stage_group' as const,
+    data: {
+      title: group.title,
+      description: group.description,
+      color: group.color,
+      size: group.size,
+    },
+    position: group.position,
+    style: {
+      width: group.size.width,
+      height: group.size.height,
+    },
+    zIndex: -1,
+  }));
+
+  const notes = (graph.canvas?.notes ?? []).map((note) => ({
+    id: note.id,
+    type: 'sticky_note' as const,
+    data: {
+      title: note.title,
+      content: note.content,
+      color: note.color,
+      size: note.size,
+    },
+    position: note.position,
+    style: {
+      width: note.size.width,
+      height: note.size.height,
+    },
+    zIndex: 2,
+  }));
+
+  return [
+    ...groups,
+    ...toReactFlowNodes(graph, positions),
+    ...notes,
+  ] satisfies ReactFlowNode<
+    WorkflowCanvasReactFlowNodeData,
+    WorkflowCanvasReactFlowNodeKind
+  >[];
 }
 
 export function toReactFlowEdges(
@@ -457,9 +630,13 @@ function getWorkflowTypeFromReactFlowEdge(
 
 export function fromReactFlowGraph(
   nodes: ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[],
-  edges: ReactFlowEdge[]
+  edges: ReactFlowEdge[],
+  baseGraph?: WorkflowGraph
 ): WorkflowGraph {
+  const canvas = normalizeWorkflowCanvas(baseGraph?.canvas);
+  const { canvas: _canvas, ...baseGraphWithoutCanvas } = baseGraph ?? {};
   return {
+    ...baseGraphWithoutCanvas,
     version: WORKFLOW_GRAPH_VERSION,
     nodes: nodes.map((node) => ({
       id: node.id,
@@ -481,11 +658,287 @@ export function fromReactFlowGraph(
       ),
       type: getWorkflowTypeFromReactFlowEdge(edge),
     })),
+    ...(canvas ? { canvas } : {}),
   };
+}
+
+export function fromReactFlowCanvasGraph(
+  nodes: ReactFlowNode<
+    WorkflowCanvasReactFlowNodeData,
+    WorkflowCanvasReactFlowNodeKind
+  >[],
+  edges: ReactFlowEdge[],
+  baseGraph?: WorkflowGraph
+): WorkflowGraph {
+  const workflowNodes: ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[] = [];
+  const notes: WorkflowCanvasStickyNote[] = [];
+  const groups: WorkflowCanvasStageGroup[] = [];
+
+  for (const node of nodes) {
+    if (isWorkflowNodeKind(String(node.type))) {
+      workflowNodes.push(
+        node as ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
+      );
+      continue;
+    }
+
+    if (node.type === 'sticky_note') {
+      const data = stripWorkflowCanvasObjectUiData(node.data);
+      notes.push({
+        id: node.id,
+        type: 'sticky_note',
+        title: typeof data.title === 'string' ? data.title : undefined,
+        content: typeof data.content === 'string' ? data.content : '',
+        position: node.position,
+        size: getCanvasNodeSize(node, DEFAULT_NOTE_SIZE),
+        color: normalizeWorkflowCanvasObjectColor(data.color),
+      });
+      continue;
+    }
+
+    if (node.type === 'stage_group') {
+      const data = stripWorkflowCanvasObjectUiData(node.data);
+      groups.push({
+        id: node.id,
+        type: 'stage_group',
+        title: typeof data.title === 'string' ? data.title : 'Stage',
+        description:
+          typeof data.description === 'string' ? data.description : undefined,
+        position: node.position,
+        size: getCanvasNodeSize(node, DEFAULT_GROUP_SIZE),
+        color: normalizeWorkflowCanvasObjectColor(data.color),
+      });
+    }
+  }
+
+  const graph = fromReactFlowGraph(workflowNodes, edges, baseGraph);
+  const canvas = normalizeWorkflowCanvas({ notes, groups });
+  if (!canvas) {
+    const next = { ...graph };
+    delete next.canvas;
+    return next;
+  }
+  return { ...graph, canvas };
 }
 
 function stripWorkflowNodeUiData(data: WorkflowNodeData): WorkflowNodeData {
   return Object.fromEntries(
     Object.entries(data).filter(([key]) => !key.startsWith('__'))
   ) as WorkflowNodeData;
+}
+
+function stripWorkflowCanvasObjectUiData(
+  data: WorkflowCanvasReactFlowNodeData
+): WorkflowCanvasObjectNodeData {
+  return Object.fromEntries(
+    Object.entries(data).filter(([key]) => !key.startsWith('__'))
+  ) as WorkflowCanvasObjectNodeData;
+}
+
+function normalizeWorkflowCanvas(
+  canvas: WorkflowCanvasData | undefined
+): WorkflowCanvasData | undefined {
+  const notes = (canvas?.notes ?? []).map((note) => ({
+    ...note,
+    type: 'sticky_note' as const,
+    content: note.content ?? '',
+    position: note.position ?? { x: 160, y: 80 },
+    size: normalizeCanvasSize(note.size, DEFAULT_NOTE_SIZE),
+    color: normalizeWorkflowCanvasObjectColor(note.color),
+  }));
+  const groups = (canvas?.groups ?? []).map((group) => ({
+    ...group,
+    type: 'stage_group' as const,
+    title: group.title || 'Stage',
+    description: group.description ?? '',
+    position: group.position ?? { x: 80, y: 120 },
+    size: normalizeCanvasSize(group.size, DEFAULT_GROUP_SIZE),
+    color: normalizeWorkflowCanvasObjectColor(group.color),
+  }));
+
+  if (notes.length === 0 && groups.length === 0) return undefined;
+  return {
+    ...(notes.length > 0 ? { notes } : {}),
+    ...(groups.length > 0 ? { groups } : {}),
+  };
+}
+
+function normalizeCanvasSize(
+  size: Partial<WorkflowCanvasObjectSize> | undefined,
+  fallback: WorkflowCanvasObjectSize
+): WorkflowCanvasObjectSize {
+  return {
+    width:
+      typeof size?.width === 'number' && Number.isFinite(size.width)
+        ? size.width
+        : fallback.width,
+    height:
+      typeof size?.height === 'number' && Number.isFinite(size.height)
+        ? size.height
+        : fallback.height,
+  };
+}
+
+function normalizeWorkflowCanvasObjectColor(
+  color: unknown
+): WorkflowCanvasObjectColor | undefined {
+  return color === 'amber' ||
+    color === 'blue' ||
+    color === 'green' ||
+    color === 'neutral'
+    ? color
+    : undefined;
+}
+
+function getCanvasNodeSize(
+  node: ReactFlowNode<
+    WorkflowCanvasReactFlowNodeData,
+    WorkflowCanvasReactFlowNodeKind
+  >,
+  fallback: WorkflowCanvasObjectSize
+): WorkflowCanvasObjectSize {
+  const dataSize =
+    'size' in node.data ? (node.data.size as WorkflowCanvasObjectSize) : null;
+  return normalizeCanvasSize(
+    {
+      width:
+        node.width ??
+        parseCanvasDimension(node.style?.width) ??
+        dataSize?.width,
+      height:
+        node.height ??
+        parseCanvasDimension(node.style?.height) ??
+        dataSize?.height,
+    },
+    fallback
+  );
+}
+
+function parseCanvasDimension(value: unknown): number | undefined {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string') return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
+  const levels = getWorkflowNodeLevels(graph);
+  const buckets = new Map<number, WorkflowNode[]>();
+
+  for (const node of graph.nodes) {
+    const level = levels.get(node.id) ?? 0;
+    const bucket = buckets.get(level) ?? [];
+    bucket.push(node);
+    buckets.set(level, bucket);
+  }
+
+  const positions = new Map<string, WorkflowNodePosition>();
+  const sortedLevels = Array.from(buckets.keys()).sort((a, b) => a - b);
+  for (const level of sortedLevels) {
+    const bucket = [...(buckets.get(level) ?? [])].sort((a, b) => {
+      const ay = a.position?.y ?? 0;
+      const by = b.position?.y ?? 0;
+      if (ay !== by) return ay - by;
+      return (a.position?.x ?? 0) - (b.position?.x ?? 0);
+    });
+    const startY = 170 - ((bucket.length - 1) * 190) / 2;
+    bucket.forEach((node, index) => {
+      positions.set(node.id, {
+        x: 120 + level * 360,
+        y: Math.max(80, startY + index * 190),
+      });
+    });
+  }
+
+  const nodes = graph.nodes.map((node) => ({
+    ...node,
+    position: positions.get(node.id) ?? node.position,
+  }));
+  const edges = graph.edges.map((edge) => {
+    const source = positions.get(edge.source);
+    const target = positions.get(edge.target);
+    if (!source || !target) return edge;
+    return {
+      ...edge,
+      ...getDirectionalEdgeHandles(source, target),
+    };
+  });
+
+  return { ...graph, nodes, edges };
+}
+
+function getWorkflowNodeLevels(graph: WorkflowGraph): Map<string, number> {
+  const nodeIds = new Set(graph.nodes.map((node) => node.id));
+  const outgoing = new Map<string, WorkflowEdge[]>();
+  const incomingTargets = new Set<string>();
+
+  for (const edge of graph.edges) {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+    const sourceEdges = outgoing.get(edge.source) ?? [];
+    sourceEdges.push(edge);
+    outgoing.set(edge.source, sourceEdges);
+    incomingTargets.add(edge.target);
+  }
+
+  const starts = graph.nodes.filter(
+    (node) => node.type === 'start' || !incomingTargets.has(node.id)
+  );
+  const levels = new Map<string, number>();
+  const queue = starts.length > 0 ? starts.map((node) => node.id) : [];
+
+  for (const start of queue) {
+    levels.set(start, 0);
+  }
+
+  let guard = graph.nodes.length * Math.max(graph.edges.length, 1);
+  while (queue.length > 0 && guard > 0) {
+    guard -= 1;
+    const sourceId = queue.shift();
+    if (!sourceId) continue;
+    const sourceLevel = levels.get(sourceId) ?? 0;
+    for (const edge of outgoing.get(sourceId) ?? []) {
+      const nextLevel = Math.min(sourceLevel + 1, graph.nodes.length);
+      if ((levels.get(edge.target) ?? -1) >= nextLevel) continue;
+      levels.set(edge.target, nextLevel);
+      queue.push(edge.target);
+    }
+  }
+
+  const fallbackLevel =
+    Math.max(0, ...Array.from(levels.values())) + (levels.size > 0 ? 1 : 0);
+  graph.nodes.forEach((node, index) => {
+    if (!levels.has(node.id)) {
+      levels.set(node.id, fallbackLevel + index);
+    }
+  });
+
+  return levels;
+}
+
+function getDirectionalEdgeHandles(
+  source: WorkflowNodePosition,
+  target: WorkflowNodePosition
+): Pick<WorkflowEdge, 'source_handle' | 'target_handle'> {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0
+      ? {
+          source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
+          target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
+        }
+      : {
+          source_handle: WORKFLOW_PORT_HANDLE_IDS.left,
+          target_handle: WORKFLOW_PORT_HANDLE_IDS.right,
+        };
+  }
+  return dy >= 0
+    ? {
+        source_handle: WORKFLOW_PORT_HANDLE_IDS.bottom,
+        target_handle: WORKFLOW_PORT_HANDLE_IDS.top,
+      }
+    : {
+        source_handle: WORKFLOW_PORT_HANDLE_IDS.top,
+        target_handle: WORKFLOW_PORT_HANDLE_IDS.bottom,
+      };
 }

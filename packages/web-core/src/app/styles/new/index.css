@@ -445,6 +445,19 @@ html {
     background: linear-gradient(180deg, #101114 0%, #121418 100%);
   }
 
+  .workflow-canvas-product .react-flow__node-stage_group {
+    z-index: -1 !important;
+  }
+
+  .workflow-canvas-product .react-flow__node-stage_group.selected {
+    z-index: 1 !important;
+  }
+
+  .workflow-canvas-product .react-flow__node-sticky_note textarea,
+  .workflow-canvas-product .react-flow__node-stage_group textarea {
+    font-family: inherit;
+  }
+
   .workflow-edge-beam {
     stroke: hsl(var(--brand));
     stroke-dasharray: 12 18;
@@ -574,8 +587,8 @@ html {
     height: 30px;
     border-color: rgba(255, 255, 255, 0.14);
     background: #1d2028;
-    color: hsl(var(--high));
-    fill: hsl(var(--high));
+    color: hsl(var(--text-high));
+    fill: hsl(var(--text-high));
   }
 
   .workflow-canvas-product .react-flow__controls-button:hover {

@@ -17,6 +17,7 @@ import {
   Position,
   ConnectionLineType,
   ConnectionMode,
+  NodeResizer,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -38,17 +39,21 @@ import {
   DEFAULT_TARGET_HANDLE,
   WORKFLOW_PORT_HANDLE_IDS,
   normalizeWorkflowPortHandle,
-  toReactFlowNodes,
   toReactFlowEdges,
-  fromReactFlowGraph,
   isWorkflowNodeKind,
   WORKFLOW_REACT_FLOW_EDGE_TYPE,
   type WorkflowGraph,
   type WorkflowNodeKind,
   type WorkflowNodeData,
   type WorkflowNodePosition,
+  type WorkflowCanvasObjectNodeData,
+  type WorkflowCanvasObjectSize,
+  type WorkflowCanvasReactFlowNodeData,
+  type WorkflowCanvasReactFlowNodeKind,
   type ReactFlowWorkflowEdgeData,
   WORKFLOW_NODE_DRAG_DATA_TYPE,
+  toReactFlowCanvasNodes,
+  fromReactFlowCanvasGraph,
 } from '../model/workflowGraph';
 import {
   getWorkflowEdgeVisual,
@@ -148,12 +153,33 @@ interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
   visualStatus?: WorkflowCanvasEdgeState;
 }
 
+interface WorkflowCanvasObjectActions {
+  readOnly?: boolean;
+  update?: (
+    objectId: string,
+    updates: Partial<WorkflowCanvasObjectNodeData>
+  ) => void;
+  resize?: (objectId: string, size: WorkflowCanvasObjectSize) => void;
+  delete?: (objectId: string) => void;
+}
+
 interface BaseNodeProps {
   id: string;
   data: WorkflowNodeData;
   type?: WorkflowNodeKind;
   selected?: boolean;
 }
+
+interface CanvasObjectNodeProps {
+  id: string;
+  data: WorkflowCanvasObjectNodeData;
+  selected?: boolean;
+}
+
+type WorkflowCanvasFlowNode = ReactFlowNode<
+  WorkflowCanvasReactFlowNodeData,
+  WorkflowCanvasReactFlowNodeKind
+>;
 
 const ROUTE_HINT_CLASSES: Record<string, string> = {
   brand: 'border-brand/30 bg-brand/10 text-brand',
@@ -204,6 +230,20 @@ const EDGE_STATE_PATH_CLASSES: Record<WorkflowCanvasEdgeState, string> = {
   skipped: 'stroke-low/35',
 };
 
+const NOTE_COLOR_CLASSES = {
+  amber: 'border-amber-300/35 bg-amber-300/12 text-amber-50',
+  blue: 'border-sky-300/30 bg-sky-300/10 text-sky-50',
+  green: 'border-emerald-300/30 bg-emerald-300/10 text-emerald-50',
+  neutral: 'border-white/12 bg-white/[0.06] text-high',
+} satisfies Record<string, string>;
+
+const GROUP_COLOR_CLASSES = {
+  amber: 'border-amber-300/18 bg-amber-300/[0.035]',
+  blue: 'border-sky-300/18 bg-sky-300/[0.035]',
+  green: 'border-emerald-300/18 bg-emerald-300/[0.035]',
+  neutral: 'border-white/10 bg-white/[0.025]',
+} satisfies Record<string, string>;
+
 const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
@@ -221,6 +261,11 @@ const isNodeStaleForNextRun = (data: WorkflowNodeData): boolean =>
 
 const getNodeActions = (data: WorkflowNodeData): WorkflowNodeActions =>
   (data.__workflowActions as WorkflowNodeActions | undefined) ?? {};
+
+const getCanvasObjectActions = (
+  data: WorkflowCanvasObjectNodeData
+): WorkflowCanvasObjectActions =>
+  (data.__workflowCanvasObjectActions as WorkflowCanvasObjectActions) ?? {};
 
 function stopCanvasObjectAction(event: MouseEvent<HTMLElement>) {
   event.preventDefault();
@@ -436,12 +481,12 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         data-testid={`workflow-node-${id}`}
         style={{ pointerEvents: 'all' }}
         className={cn(
-          'relative flex min-w-[150px] cursor-grab items-center gap-2 overflow-visible rounded-full border bg-[#15171d]/90 px-3 py-2 text-high shadow-[0_10px_28px_rgba(0,0,0,0.28)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
+          'relative flex min-w-[112px] cursor-grab items-center gap-2 overflow-visible rounded-full border bg-[#15171d]/60 px-2.5 py-1.5 text-normal shadow-[0_8px_20px_rgba(0,0,0,0.18)] backdrop-blur transition-all duration-150 active:cursor-grabbing',
           selected
-            ? 'border-brand ring-2 ring-brand/30'
+            ? 'border-brand/80 ring-2 ring-brand/20'
             : issueCount > 0
               ? 'border-amber-500/70'
-              : 'border-white/12 hover:border-brand/60',
+              : 'border-white/10 hover:border-brand/40',
           NODE_STATE_FRAME_CLASSES[nodeState],
           isRunning && 'workflow-node-running'
         )}
@@ -477,19 +522,19 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         />
         <div
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10',
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 opacity-80',
             visual.iconClass
           )}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">
+          <div className="truncate text-xs font-semibold">
             {data.display_name || getWorkflowNodeKindLabel(nodeKind)}
           </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
-            className="text-[10px] font-semibold uppercase tracking-normal text-low"
+            className="text-[9px] font-semibold uppercase tracking-normal text-low"
           >
             {getWorkflowNodeKindLabel(nodeKind)}
           </div>
@@ -691,6 +736,140 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   );
 };
 
+function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
+  const actions = getCanvasObjectActions(data);
+  const readOnly = actions.readOnly === true;
+  const color = data.color ?? 'amber';
+
+  return (
+    <div
+      data-testid={`workflow-note-${id}`}
+      className={cn(
+        'relative h-full min-h-[120px] w-full min-w-[220px] overflow-hidden rounded-lg border p-3 shadow-[0_16px_40px_rgba(0,0,0,0.22)] backdrop-blur transition-colors',
+        NOTE_COLOR_CLASSES[color],
+        selected ? 'ring-2 ring-brand/35' : 'hover:border-white/25'
+      )}
+    >
+      <NodeResizer
+        isVisible={selected && !readOnly}
+        minWidth={220}
+        minHeight={120}
+        color="hsl(var(--brand))"
+        onResizeEnd={(_, params) =>
+          actions.resize?.(id, {
+            width: params.width,
+            height: params.height,
+          })
+        }
+      />
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          className="nodrag nopan min-w-0 flex-1 bg-transparent text-xs font-semibold text-high outline-none placeholder:text-low"
+          value={data.title ?? ''}
+          placeholder="Note"
+          readOnly={readOnly}
+          onChange={(event) =>
+            actions.update?.(id, { title: event.target.value })
+          }
+          onPointerDown={(event) => event.stopPropagation()}
+        />
+        <button
+          type="button"
+          className="nodrag nopan flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/10 bg-black/20 text-low transition-colors hover:border-error/50 hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Delete note"
+          title="Delete note"
+          disabled={readOnly}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            stopCanvasObjectAction(event);
+            actions.delete?.(id);
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <textarea
+        className="nodrag nopan h-[calc(100%-2.25rem)] w-full resize-none bg-transparent text-xs leading-5 text-normal outline-none placeholder:text-low"
+        value={data.content ?? ''}
+        placeholder="Write a note..."
+        readOnly={readOnly}
+        onChange={(event) =>
+          actions.update?.(id, { content: event.target.value })
+        }
+        onPointerDown={(event) => event.stopPropagation()}
+      />
+    </div>
+  );
+}
+
+function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
+  const actions = getCanvasObjectActions(data);
+  const readOnly = actions.readOnly === true;
+  const color = data.color ?? 'neutral';
+
+  return (
+    <div
+      data-testid={`workflow-stage-group-${id}`}
+      className={cn(
+        'relative h-full min-h-[170px] w-full min-w-[360px] rounded-xl border p-4 text-low transition-colors',
+        GROUP_COLOR_CLASSES[color],
+        selected ? 'ring-2 ring-brand/25' : 'hover:border-white/18'
+      )}
+    >
+      <NodeResizer
+        isVisible={selected && !readOnly}
+        minWidth={360}
+        minHeight={170}
+        color="hsl(var(--brand))"
+        onResizeEnd={(_, params) =>
+          actions.resize?.(id, {
+            width: params.width,
+            height: params.height,
+          })
+        }
+      />
+      <div className="nodrag nopan flex max-w-[360px] flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <input
+            className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-normal text-low outline-none placeholder:text-low"
+            value={data.title ?? ''}
+            placeholder="Stage"
+            readOnly={readOnly}
+            onChange={(event) =>
+              actions.update?.(id, { title: event.target.value })
+            }
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/10 bg-black/15 text-low transition-colors hover:border-error/50 hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Delete stage group"
+            title="Delete stage group"
+            disabled={readOnly}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              stopCanvasObjectAction(event);
+              actions.delete?.(id);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <textarea
+          className="h-10 resize-none bg-transparent text-[11px] leading-4 text-low outline-none placeholder:text-low/70"
+          value={data.description ?? ''}
+          placeholder="Stage description"
+          readOnly={readOnly}
+          onChange={(event) =>
+            actions.update?.(id, { description: event.target.value })
+          }
+          onPointerDown={(event) => event.stopPropagation()}
+        />
+      </div>
+    </div>
+  );
+}
+
 const nodeTypes = {
   start: BaseNode,
   end: BaseNode,
@@ -699,6 +878,8 @@ const nodeTypes = {
   human_gate: BaseNode,
   transform: BaseNode,
   arena: BaseNode,
+  sticky_note: WorkflowStickyNoteNode,
+  stage_group: WorkflowStageGroupNode,
 };
 
 export const WORKFLOW_CANVAS_SNAP_GRID: [number, number] = [15, 15];
@@ -918,9 +1099,7 @@ export function WorkflowCanvas({
   onNodeContextMenu,
   onEdgeActionMenu,
 }: WorkflowCanvasProps) {
-  const [nodes, setNodes] = useNodesState<
-    ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>
-  >([]);
+  const [nodes, setNodes] = useNodesState<WorkflowCanvasFlowNode>([]);
   const [edges, setEdges] = useEdgesState<
     ReactFlowEdge<WorkflowCanvasEdgeData>
   >([]);
@@ -929,9 +1108,7 @@ export function WorkflowCanvas({
     nodeId: null,
     edgeId: null,
   });
-  const nodesRef = useRef<ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[]>(
-    []
-  );
+  const nodesRef = useRef<WorkflowCanvasFlowNode[]>([]);
   const edgesRef = useRef<ReactFlowEdge<WorkflowCanvasEdgeData>[]>([]);
   const selectEdgeRef = useRef<(edgeId: string) => void>(() => {});
 
@@ -942,6 +1119,63 @@ export function WorkflowCanvas({
   useEffect(() => {
     edgesRef.current = edges;
   }, [edges]);
+
+  const reportChange = useCallback(
+    (
+      newNodes: WorkflowCanvasFlowNode[],
+      newEdges: ReactFlowEdge<WorkflowCanvasEdgeData>[]
+    ) => {
+      if (readOnly || !onChange) return;
+      onChange(fromReactFlowCanvasGraph(newNodes, newEdges, graph));
+    },
+    [graph, readOnly, onChange]
+  );
+
+  const updateCanvasObjectNode = useCallback(
+    (
+      objectId: string,
+      updates: Partial<WorkflowCanvasObjectNodeData>,
+      size?: WorkflowCanvasObjectSize
+    ) => {
+      if (readOnly) return;
+      const next = nodesRef.current.map((node) => {
+        if (node.id !== objectId) return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            ...updates,
+            ...(size ? { size } : {}),
+          },
+          ...(size
+            ? {
+                style: {
+                  ...(node.style ?? {}),
+                  width: size.width,
+                  height: size.height,
+                },
+              }
+            : {}),
+        } satisfies WorkflowCanvasFlowNode;
+      });
+      nodesRef.current = next;
+      setNodes(next);
+      reportChange(next, edgesRef.current);
+    },
+    [readOnly, reportChange, setNodes]
+  );
+
+  const deleteCanvasObjectNode = useCallback(
+    (objectId: string) => {
+      if (readOnly) return;
+      const next = nodesRef.current.filter((node) => node.id !== objectId);
+      if (next.length === nodesRef.current.length) return;
+      nodesRef.current = next;
+      setNodes(next);
+      reportChange(next, edgesRef.current);
+    },
+    [readOnly, reportChange, setNodes]
+  );
 
   // Sync incoming graph to internal state
   useEffect(() => {
@@ -955,40 +1189,62 @@ export function WorkflowCanvas({
       issuesByNodeId.set(issue.nodeId, nodeIssues);
     }
 
-    setNodes((currentNodes) => {
-      const positionMap = new Map(currentNodes.map((n) => [n.id, n.position]));
+    setNodes(() => {
       const fallbackPositions = Object.fromEntries(
         graph.nodes.map((node, index) => [
           node.id,
           {
-            x: 80 + (index % 4) * 340,
-            y: 80 + Math.floor(index / 4) * 150,
+            x: 120 + (index % 4) * 360,
+            y: 160 + Math.floor(index / 4) * 190,
           },
         ])
       );
-      const nextNodes = toReactFlowNodes(graph, fallbackPositions).map((n) => ({
-        ...n,
-        data: {
-          ...n.data,
-          __validationIssues: issuesByNodeId.get(n.id) ?? [],
-          __workflowNodeState: getWorkflowCanvasNodeState({
-            data: n.data,
-            executionStatus: nodeStatuses?.[n.id],
-            nodeType: n.type ?? 'agent',
-          }),
-          __workflowIsStale: staleNodeIdSet.has(n.id),
-          __workflowActions: {
-            readOnly,
-            open: onNodeOpen,
-            edit: onNodeEdit,
-            runStep: onNodeRunStep,
-            addNext: onNodeAddNext,
-            duplicate: onNodeDuplicate,
-            delete: onNodeDelete,
-          } satisfies WorkflowNodeActions,
-        },
-        position: positionMap.get(n.id) ?? n.position,
-      }));
+      const nextNodes = toReactFlowCanvasNodes(graph, fallbackPositions).map(
+        (n) => {
+          if (!isWorkflowNodeKind(String(n.type))) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                __workflowCanvasObjectActions: {
+                  readOnly,
+                  update: updateCanvasObjectNode,
+                  resize: (objectId: string, size: WorkflowCanvasObjectSize) =>
+                    updateCanvasObjectNode(objectId, {}, size),
+                  delete: deleteCanvasObjectNode,
+                } satisfies WorkflowCanvasObjectActions,
+              },
+              position: n.position,
+            } satisfies WorkflowCanvasFlowNode;
+          }
+
+          const data = n.data as WorkflowNodeData;
+          const nodeType = n.type as WorkflowNodeKind;
+          return {
+            ...n,
+            data: {
+              ...data,
+              __validationIssues: issuesByNodeId.get(n.id) ?? [],
+              __workflowNodeState: getWorkflowCanvasNodeState({
+                data,
+                executionStatus: nodeStatuses?.[n.id],
+                nodeType,
+              }),
+              __workflowIsStale: staleNodeIdSet.has(n.id),
+              __workflowActions: {
+                readOnly,
+                open: onNodeOpen,
+                edit: onNodeEdit,
+                runStep: onNodeRunStep,
+                addNext: onNodeAddNext,
+                duplicate: onNodeDuplicate,
+                delete: onNodeDelete,
+              } satisfies WorkflowNodeActions,
+            },
+            position: n.position,
+          } satisfies WorkflowCanvasFlowNode;
+        }
+      );
       nodesRef.current = nextNodes;
       return nextNodes;
     });
@@ -1017,25 +1273,13 @@ export function WorkflowCanvas({
     setNodes,
     setEdges,
     staleNodeIds,
+    updateCanvasObjectNode,
+    deleteCanvasObjectNode,
     validationIssues,
   ]);
 
-  // Bubble up changes
-  const reportChange = useCallback(
-    (
-      newNodes: ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[],
-      newEdges: ReactFlowEdge<WorkflowCanvasEdgeData>[]
-    ) => {
-      if (readOnly || !onChange) return;
-      onChange(fromReactFlowGraph(newNodes, newEdges));
-    },
-    [readOnly, onChange]
-  );
-
   const onNodesChange = useCallback(
-    (
-      changes: NodeChange<ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>>[]
-    ) => {
+    (changes: NodeChange<WorkflowCanvasFlowNode>[]) => {
       const appliedChanges = readOnly
         ? filterReadOnlyNodeChanges(changes)
         : changes;
@@ -1043,7 +1287,7 @@ export function WorkflowCanvas({
       const next = applyNodeChanges(
         appliedChanges,
         nodesRef.current
-      ) as ReactFlowNode<WorkflowNodeData, WorkflowNodeKind>[];
+      ) as WorkflowCanvasFlowNode[];
       nodesRef.current = next;
       setNodes(next);
       if (!readOnly && hasGraphAffectingNodeChanges(appliedChanges)) {
@@ -1150,7 +1394,14 @@ export function WorkflowCanvas({
       const node = nodesRef.current.find(
         (candidate) => candidate.id === nodeId
       );
-      if (node?.type === 'start' || node?.type === 'end') return;
+      if (
+        !node?.type ||
+        !isWorkflowNodeKind(String(node.type)) ||
+        node.type === 'start' ||
+        node.type === 'end'
+      ) {
+        return;
+      }
 
       event.stopPropagation();
       applySelection({ nodeId, edgeId: null });
@@ -1295,12 +1546,26 @@ export function WorkflowCanvas({
           }
         }}
         onNodeDoubleClick={(_, node) => {
-          if (node.type === 'start' || node.type === 'end') return;
+          if (
+            !node.type ||
+            !isWorkflowNodeKind(String(node.type)) ||
+            node.type === 'start' ||
+            node.type === 'end'
+          ) {
+            return;
+          }
           applySelection({ nodeId: node.id, edgeId: null });
           onNodeOpen?.(node.id);
         }}
         onNodeContextMenu={(event, node) => {
-          if (node.type === 'start' || node.type === 'end') return;
+          if (
+            !node.type ||
+            !isWorkflowNodeKind(String(node.type)) ||
+            node.type === 'start' ||
+            node.type === 'end'
+          ) {
+            return;
+          }
           event.preventDefault();
           applySelection({ nodeId: node.id, edgeId: null });
           onNodeContextMenu?.({
