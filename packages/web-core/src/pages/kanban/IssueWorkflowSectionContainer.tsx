@@ -1,13 +1,9 @@
-import { useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { useWorkflowAttempts } from '@/shared/hooks/useWorkflowAttempts';
 import {
-  useWorkflowAttemptMutations,
-  useWorkflowAttempts,
-} from '@/shared/hooks/useWorkflowAttempts';
-import {
-  buildIssueWorkflowDraft,
   IssueWorkflowEntryCard,
+  useCreateIssueWorkflowAttempt,
 } from '@/features/workflow';
 
 interface IssueWorkflowSectionContainerProps {
@@ -25,9 +21,16 @@ export function IssueWorkflowSectionContainer({
   const { data: attemptData } = useWorkflowAttempts(projectId, issueId, {
     enabled: !!projectId,
   });
-  const { createAttempt, isCreatingAttempt } = useWorkflowAttemptMutations();
   const navigation = useAppNavigation();
-  const [error, setError] = useState<string | null>(null);
+  const {
+    createWorkflowAttempt,
+    isCreatingWorkflowAttempt,
+    workflowCreateError,
+  } = useCreateIssueWorkflowAttempt({
+    issueId,
+    issueTitle,
+    issueDescription,
+  });
 
   if (!projectId) {
     return null;
@@ -35,44 +38,23 @@ export function IssueWorkflowSectionContainer({
 
   const handleOpenExistingCanvas = async () => {
     if (!projectId) return;
-    setError(null);
-    let attempt = attemptData?.attempts[0];
-    if (!attempt) {
-      attempt = await createAttempt({
-        projectId,
-        issueId,
-        payload: buildIssueWorkflowDraft({
-          title: issueTitle,
-          description: issueDescription,
-        }),
-      });
+    const attempt = attemptData?.attempts[0];
+    if (attempt) {
+      navigation.goToProjectWorkflowEdit(projectId, attempt.workflow_id);
+      return;
     }
-    navigation.goToProjectWorkflowEdit(projectId, attempt.workflow_id);
+
+    await createWorkflowAttempt();
   };
 
   const handleDesignWorkflow = async () => {
-    setError(null);
-    try {
-      const draft = await createAttempt({
-        projectId,
-        issueId,
-        payload: buildIssueWorkflowDraft({
-          title: issueTitle,
-          description: issueDescription,
-        }),
-      });
-      navigation.goToProjectWorkflowEdit(projectId, draft.workflow_id);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to create workflow draft.'
-      );
-    }
+    await createWorkflowAttempt();
   };
 
   return (
     <IssueWorkflowEntryCard
-      isCreating={isCreatingAttempt}
-      error={error}
+      isCreating={isCreatingWorkflowAttempt}
+      error={workflowCreateError}
       onOpenCanvas={() => void handleDesignWorkflow()}
       onRunExisting={() => void handleOpenExistingCanvas()}
     />

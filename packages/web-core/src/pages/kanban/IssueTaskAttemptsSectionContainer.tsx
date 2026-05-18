@@ -17,14 +17,11 @@ import {
   buildWorkspaceCreateInitialState,
   buildWorkspaceCreatePrompt,
 } from '@/shared/lib/workspaceCreateState';
+import { useWorkflowAttempts } from '@/shared/hooks/useWorkflowAttempts';
 import {
-  useWorkflowAttemptMutations,
-  useWorkflowAttempts,
-} from '@/shared/hooks/useWorkflowAttempts';
-import {
-  buildIssueWorkflowDraft,
   buildTaskAttempts,
   type TaskAttemptView,
+  useCreateIssueWorkflowAttempt,
 } from '@/features/workflow';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { DeleteWorkspaceDialog } from '@vibe/ui/components/DeleteWorkspaceDialog';
@@ -62,7 +59,12 @@ export function IssueTaskAttemptsSectionContainer({
   const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
   const { data: workflowAttemptData, isLoading: workflowAttemptsLoading } =
     useWorkflowAttempts(projectId, issueId, { enabled: !!projectId });
-  const { createAttempt, isCreatingAttempt } = useWorkflowAttemptMutations();
+  const { createWorkflowAttempt, workflowCreateError } =
+    useCreateIssueWorkflowAttempt({
+      issueId,
+      issueTitle,
+      issueDescription,
+    });
 
   const localWorkspacesById = useMemo(() => {
     const map = new Map<string, (typeof activeWorkspaces)[number]>();
@@ -195,35 +197,9 @@ export function IssueTaskAttemptsSectionContainer({
   }, [projectId, issueId]);
 
   const handleCreateWorkflowAttempt = useCallback(async () => {
-    if (!projectId || isCreatingAttempt) {
-      return;
-    }
-
     setError(null);
-    try {
-      const draft = await createAttempt({
-        projectId,
-        issueId,
-        payload: buildIssueWorkflowDraft({
-          title: issueTitle,
-          description: issueDescription,
-        }),
-      });
-      appNavigation.goToProjectWorkflowEdit(projectId, draft.workflow_id);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to create workflow draft.'
-      );
-    }
-  }, [
-    projectId,
-    isCreatingAttempt,
-    createAttempt,
-    issueId,
-    issueTitle,
-    issueDescription,
-    appNavigation,
-  ]);
+    await createWorkflowAttempt();
+  }, [createWorkflowAttempt]);
 
   const handleOpenAttempt = useCallback(
     (attemptData: IssueTaskAttemptCardData) => {
@@ -364,9 +340,9 @@ export function IssueTaskAttemptsSectionContainer({
         onCreateWorkflowAttempt={handleCreateWorkflowAttempt}
         onCreateSingleAgentAttempt={handleAddWorkspace}
       />
-      {error ? (
+      {error || workflowCreateError ? (
         <p className="px-base pb-base text-xs text-error" role="alert">
-          {error}
+          {error ?? workflowCreateError}
         </p>
       ) : null}
     </div>

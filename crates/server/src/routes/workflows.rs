@@ -322,8 +322,7 @@ async fn list_project_workflow_attempts(
     Path(project_id): Path<Uuid>,
 ) -> Result<ResponseJson<WorkflowAttemptListResponse>, ApiError> {
     Ok(ResponseJson(WorkflowAttemptListResponse {
-        attempts: list_workflow_attempts_for_project(&deployment.db().pool, project_id)
-            .await?,
+        attempts: list_workflow_attempts_for_project(&deployment.db().pool, project_id).await?,
     }))
 }
 

@@ -68,10 +68,12 @@ const repoRowButtonClassName =
 
 interface CreateModeRepoPickerBarProps {
   onContinueToPrompt: () => void;
+  continueLabel?: string;
 }
 
 export function CreateModeRepoPickerBar({
   onContinueToPrompt,
+  continueLabel = 'Continue',
 }: CreateModeRepoPickerBarProps) {
   const { t } = useTranslation('common');
   const queryClient = useQueryClient();
@@ -351,7 +353,7 @@ export function CreateModeRepoPickerBar({
           <div className="ml-auto">
             <PrimaryButton
               variant="default"
-              value="Continue"
+              value={continueLabel}
               onClick={onContinueToPrompt}
               disabled={isBusy || repos.length === 0}
             />

@@ -12,7 +12,8 @@ use server::{
         SelectArenaWinnerRequest, TriggerWorkflowRequest, UpdateWorkflowRequest,
         WorkflowActionResponse, WorkflowAttemptListResponse, WorkflowAttemptResponse,
         WorkflowNodeExecutionResponse, WorkflowRunResponse, WorkflowTemplateListResponse,
-        WorkflowTemplateResponse, create_issue_workflow_attempt, create_project_workflow,
+        WorkflowTemplateResponse, create_issue_workflow_attempt,
+        create_issue_workflow_attempt_with_resources, create_project_workflow,
         delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
         fallback_workflows_payload, list_project_workflows, run_workflow_attempt_runtime,
         sync_attempt_from_run, update_workflow_template, workflow_attempt_by_id,
@@ -1008,6 +1009,41 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
     assert_eq!(attempt.status, WorkflowAttemptStatus::Draft);
     assert!(attempt.latest_run_id.is_none());
     assert!(attempt.workspace_id.is_none());
+}
+
+#[tokio::test]
+async fn create_workflow_attempt_with_resources_binds_workspace_before_canvas() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Build workflow attempt").await;
+
+    let workspace_resolver = FakeWorkspaceResolver::new(workspace_id);
+    let attempt = create_issue_workflow_attempt_with_resources(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Workflow attempt".to_string()),
+            graph_json: valid_graph_json(),
+        },
+        &workspace_resolver,
+    )
+    .await
+    .expect("create workflow attempt with workspace");
+
+    assert_eq!(attempt.project_id, project_id);
+    assert_eq!(attempt.issue_id, issue_id);
+    assert_eq!(attempt.status, WorkflowAttemptStatus::Draft);
+    assert_eq!(attempt.workspace_id, Some(workspace_id));
+
+    let requests = workspace_resolver.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].issue_id, issue_id);
+    assert_eq!(requests[0].project_id, Some(project_id));
+    assert!(requests[0].existing_workspace_id.is_none());
 }
 
 #[tokio::test]
