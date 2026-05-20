@@ -1686,6 +1686,7 @@ pub fn normalize_logs(
                 EventMsg::ApplyPatchApprovalRequest(ApplyPatchApprovalRequestEvent {
                     call_id,
                     turn_id: _,
+                    started_at_ms: _,
                     changes,
                     reason: _,
                     grant_root: _,
