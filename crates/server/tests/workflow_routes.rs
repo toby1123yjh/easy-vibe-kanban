@@ -1000,7 +1000,7 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
         CreateWorkflowAttemptRequest {
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1031,10 +1031,10 @@ async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
         CreateWorkflowAttemptRequest {
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
-            repos: vec![DraftWorkspaceRepo {
+            repos: Some(vec![DraftWorkspaceRepo {
                 repo_id,
                 target_branch: "main".to_string(),
-            }],
+            }]),
         },
         &workspace_resolver,
     )
@@ -1071,7 +1071,7 @@ async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
         CreateWorkflowAttemptRequest {
             name: Some("Hidden attempt graph".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1104,7 +1104,7 @@ async fn workflow_attempt_can_be_resolved_from_backing_workflow() {
         CreateWorkflowAttemptRequest {
             name: Some("Canvas-owned attempt".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1135,7 +1135,7 @@ async fn delete_workflow_attempt_removes_backing_graph_runs_and_nodes() {
         CreateWorkflowAttemptRequest {
             name: Some("Delete me".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1225,7 +1225,7 @@ async fn workflow_attempt_create_rejects_issue_from_another_project() {
         CreateWorkflowAttemptRequest {
             name: Some("Invalid".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1502,7 +1502,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
         CreateWorkflowAttemptRequest {
             name: Some("Attempt run".to_string()),
             graph_json: valid_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1517,10 +1517,10 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Implement by workflow".to_string(),
-            repos: vec![DraftWorkspaceRepo {
+            repos: Some(vec![DraftWorkspaceRepo {
                 repo_id,
                 target_branch: "develop".to_string(),
-            }],
+            }]),
         },
         &workspace,
         &agent,
@@ -1564,7 +1564,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
         CreateWorkflowAttemptRequest {
             name: Some("Cancel attempt".to_string()),
             graph_json: agent_graph_json(),
-            repos: Vec::new(),
+            repos: None,
         },
     )
     .await
@@ -1579,7 +1579,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Long task".to_string(),
-            repos: Vec::new(),
+            repos: None,
         },
         &workspace,
         &agent,
