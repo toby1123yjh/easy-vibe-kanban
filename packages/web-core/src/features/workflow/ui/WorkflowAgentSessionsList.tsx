@@ -1,4 +1,6 @@
 import { ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   buildWorkspaceSessionHref,
   type AgentSessionRow,
@@ -11,8 +13,25 @@ interface WorkflowAgentSessionsListProps {
   compact?: boolean;
 }
 
-function shortId(value: string | null): string {
-  return value ? value.slice(0, 8) : 'none';
+function shortId(value: string | null, fallback: string): string {
+  return value ? value.slice(0, 8) : fallback;
+}
+
+function formatNodeStatusLabel(label: string, t: TFunction<'common'>): string {
+  switch (label) {
+    case 'awaiting human':
+      return t('workflow.nodeStatus.awaitingHuman');
+    case 'awaiting arena':
+      return t('workflow.nodeStatus.awaitingArena');
+    case 'pending':
+    case 'running':
+    case 'succeeded':
+    case 'failed':
+    case 'skipped':
+      return t(`workflow.nodeStatus.${label}`);
+    default:
+      return label;
+  }
 }
 
 export function WorkflowAgentSessionsList({
@@ -20,11 +39,14 @@ export function WorkflowAgentSessionsList({
   workspaceHref,
   compact = false,
 }: WorkflowAgentSessionsListProps) {
+  const { t } = useTranslation('common');
+  const emptyIdLabel = t('workflow.dashboard.none');
+
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase text-low">
-          Agent Sessions
+          {t('workflow.agentSessions.title')}
         </h3>
         <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-low">
           {rows.length}
@@ -33,7 +55,7 @@ export function WorkflowAgentSessionsList({
 
       {rows.length === 0 ? (
         <div className="rounded border border-dashed border-secondary bg-primary/50 p-3 text-xs text-low">
-          This Agent Step has not created a Session in this run yet.
+          {t('workflow.agentSessions.none')}
         </div>
       ) : (
         <div className="overflow-hidden rounded border border-secondary bg-primary">
@@ -52,17 +74,28 @@ export function WorkflowAgentSessionsList({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium text-high">
-                        Session {shortId(row.sessionId)}
+                        {t('workflow.agentSessions.session', {
+                          id: shortId(row.sessionId, emptyIdLabel),
+                        })}
                       </span>
                       <span className="rounded bg-secondary/70 px-1.5 py-0.5 text-[10px] capitalize text-low">
-                        {row.statusLabel}
+                        {formatNodeStatusLabel(row.statusLabel, t)}
                       </span>
                     </div>
                     <div className="mt-1 grid gap-1 text-[11px] text-low">
-                      <span>Run {shortId(row.runId)}</span>
-                      <span>Process {shortId(row.executionProcessId)}</span>
                       <span>
-                        {row.startedLabel} / {row.durationLabel}
+                        {t('workflow.agentSessions.run', {
+                          id: shortId(row.runId, emptyIdLabel),
+                        })}
+                      </span>
+                      <span>
+                        {t('workflow.agentSessions.process', {
+                          id: shortId(row.executionProcessId, emptyIdLabel),
+                        })}
+                      </span>
+                      <span>
+                        {formatSessionStartedLabel(row.startedLabel, t)} /{' '}
+                        {formatSessionDurationLabel(row.durationLabel, t)}
                       </span>
                     </div>
                   </div>
@@ -73,7 +106,7 @@ export function WorkflowAgentSessionsList({
                       className="inline-flex shrink-0 items-center gap-1 rounded border border-secondary px-2 py-1 text-[11px] font-medium text-brand hover:bg-secondary/60"
                     >
                       <ExternalLink className="h-3 w-3" />
-                      Open
+                      {t('workflow.agentSessions.open')}
                     </a>
                   ) : null}
                 </div>
@@ -84,7 +117,9 @@ export function WorkflowAgentSessionsList({
                     compact ? 'line-clamp-3' : 'max-h-28 overflow-auto'
                   )}
                 >
-                  {row.outputPreview}
+                  {row.outputPreview === 'No output yet'
+                    ? t('workflow.agentSessions.noOutputYet')
+                    : row.outputPreview}
                 </p>
               </div>
             );
@@ -93,4 +128,18 @@ export function WorkflowAgentSessionsList({
       )}
     </section>
   );
+}
+
+function formatSessionStartedLabel(
+  label: string,
+  t: TFunction<'common'>
+): string {
+  return label === 'Not started' ? t('workflow.dashboard.notStarted') : label;
+}
+
+function formatSessionDurationLabel(
+  label: string,
+  t: TFunction<'common'>
+): string {
+  return label === 'Not started' ? t('workflow.dashboard.notStarted') : label;
 }

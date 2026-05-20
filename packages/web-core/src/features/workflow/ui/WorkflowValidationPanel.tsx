@@ -3,6 +3,7 @@ import {
   type WorkflowGraph,
 } from '../model/workflowGraph';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export interface ValidationIssue {
   type: 'error' | 'warning';
@@ -166,15 +167,18 @@ function findReachableNodes(
 export function WorkflowValidationPanel({
   graph,
 }: WorkflowValidationPanelProps) {
+  const { t } = useTranslation('common');
   const issues = validateWorkflowGraph(graph);
 
   return (
     <div className="max-h-48 overflow-y-auto border-t border-secondary bg-panel p-4 text-sm">
-      <h3 className="mb-2 font-semibold text-high">Validation</h3>
+      <h3 className="mb-2 font-semibold text-high">
+        {t('workflow.editor.validation')}
+      </h3>
       {issues.length === 0 ? (
         <div className="flex items-center gap-2 text-success">
           <CheckCircle2 className="h-4 w-4" />
-          <span>Graph is valid</span>
+          <span>{t('workflow.editor.graphValid')}</span>
         </div>
       ) : (
         <ul className="flex flex-col gap-2">

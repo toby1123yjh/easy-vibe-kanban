@@ -92,7 +92,7 @@ export function IssueTaskAttemptsSection({
                       : undefined
                   }
                   onDelete={
-                    attempt.kind === 'single_agent' && onDeleteAttempt
+                    onDeleteAttempt
                       ? () => onDeleteAttempt(attempt)
                       : undefined
                   }

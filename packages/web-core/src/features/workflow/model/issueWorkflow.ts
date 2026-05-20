@@ -1,13 +1,14 @@
-import type { CreateWorkflowRequest } from 'shared/types';
-import { createDefaultWorkflowGraph } from './workflowGraph';
+import type {
+  CreateWorkflowAttemptRequest,
+  DraftWorkspaceRepo,
+} from 'shared/types';
+import {
+  createDefaultWorkflowGraph,
+  type WorkflowGraphDefaultLabels,
+} from './workflowGraph';
 
-export const ISSUE_WORKFLOW_ENTRY_COPY = {
-  title: 'Workflow attempt',
-  subtitle: 'Design the task attempt before running agents',
-  primaryActionLabel: 'Open canvas',
-  primaryActionAriaLabel: 'Open workflow attempt canvas',
-  secondaryActionLabel: 'Open canvas',
-  secondaryActionAriaLabel: 'Open workflow attempt canvas',
+export type IssueWorkflowDraftPayload = CreateWorkflowAttemptRequest & {
+  repos: DraftWorkspaceRepo[];
 };
 
 export function buildWorkflowRunInput({
@@ -25,37 +26,50 @@ export function buildWorkflowRunInput({
 
 export function buildIssueWorkflowDraft({
   title,
+  name,
+  untitledTitle = 'Untitled task',
+  defaultGraphLabels,
+  repos = [],
 }: {
   title: string;
+  name?: string;
+  untitledTitle?: string;
   description?: string | null;
-}): CreateWorkflowRequest {
-  const issueTitle = title.trim() || 'Untitled task';
+  defaultGraphLabels?: Partial<WorkflowGraphDefaultLabels>;
+  repos?: DraftWorkspaceRepo[];
+}): IssueWorkflowDraftPayload {
+  const issueTitle = title.trim() || untitledTitle;
 
   return {
-    name: `Workflow attempt for ${issueTitle}`,
-    description:
-      'Issue-bound workflow task attempt. Design the canvas before starting the run.',
-    graph_json: JSON.stringify(createDefaultWorkflowGraph()),
+    name: name ?? `Workflow attempt for ${issueTitle}`,
+    graph_json: JSON.stringify(createDefaultWorkflowGraph(defaultGraphLabels)),
+    repos,
   };
 }
 
 export const WORKFLOW_RUN_REPOSITORY_ERROR_MESSAGE =
   'This workflow needs a workspace with at least one repository. Choose an existing workspace with repositories, or add a repository to the project before starting the run.';
 
-export function getWorkflowRunErrorMessage(error: unknown): string {
+export function getWorkflowRunErrorMessage(
+  error: unknown,
+  options: {
+    repositoryMessage?: string;
+    fallbackMessage?: string;
+  } = {}
+): string {
   const message =
     error instanceof Error
       ? error.message
       : typeof error === 'string'
         ? error
-        : 'Failed to start workflow run.';
+        : (options.fallbackMessage ?? 'Failed to start workflow run.');
 
   if (
     /workspace has no repositories configured/i.test(message) ||
     /project has no repositories configured/i.test(message) ||
     /no repositories provided/i.test(message)
   ) {
-    return WORKFLOW_RUN_REPOSITORY_ERROR_MESSAGE;
+    return options.repositoryMessage ?? WORKFLOW_RUN_REPOSITORY_ERROR_MESSAGE;
   }
 
   return message;

@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type WheelEvent,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   ExecutorConfig,
   WorkflowNodeExecutionResponse,
@@ -40,10 +41,10 @@ import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
 import {
   formatWorkflowDuration,
-  getNodeStatusLabel,
   getNodeStatusTone,
   type StatusTone,
 } from '../model/workflowRunView';
+import { workflowNodeStatusKey } from './workflowI18n';
 
 interface WorkflowNodeSessionPanelProps {
   execution: WorkflowNodeExecutionResponse;
@@ -175,14 +176,19 @@ function WorkflowNodeSessionHeader({
   runStepDisabled,
   runStepTitle,
 }: WorkflowNodeSessionHeaderProps) {
+  const { t } = useTranslation('common');
   const agentDisplay = getWorkflowAgentDisplay(nodeData ?? {});
   const title =
     nodeTitle?.trim() ||
-    (execution.node_type === 'agent' ? 'Agent Step Session' : 'Node Session');
+    (execution.node_type === 'agent'
+      ? t('workflow.nodeSession.agentStepSession')
+      : t('workflow.nodeSession.nodeSession'));
   const sessionLabel = execution.session_id
-    ? 'Session ready'
-    : 'Session not started';
-  const statusText = statusLabel || getNodeStatusLabel(execution.status);
+    ? t('workflow.canvas.sessionReady')
+    : t('workflow.nodeSession.sessionNotStarted');
+  const statusText =
+    statusLabel ||
+    t(`workflow.nodeStatus.${workflowNodeStatusKey(execution.status)}`);
   const statusTone = getNodeStatusTone(execution.status);
   const canRunStep = Boolean(onRunStep) && !runStepDisabled;
   const canEditConfig = Boolean(onEditConfig) && !editConfigDisabled;
@@ -194,7 +200,7 @@ function WorkflowNodeSessionHeader({
         <div className="min-w-0 space-y-2">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-normal text-low">
-              Agent Step Cockpit
+              {t('workflow.nodeSession.cockpit')}
             </p>
             <h2 className="mt-1 truncate text-sm font-semibold text-high">
               {title}
@@ -229,13 +235,13 @@ function WorkflowNodeSessionHeader({
             title={
               canRunStep
                 ? runStepTitle
-                : (runStepTitle ?? 'Single-step run is not available yet.')
+                : (runStepTitle ?? t('workflow.canvas.runStepUnavailable'))
             }
             onClick={onRunStep}
             className="gap-1.5"
           >
             <Play className="h-3.5 w-3.5" />
-            Run this step
+            {t('workflow.nodeSession.runThisStep')}
           </Button>
           <Button
             type="button"
@@ -246,13 +252,13 @@ function WorkflowNodeSessionHeader({
             className="gap-1.5"
           >
             <Settings2 className="h-3.5 w-3.5" />
-            Edit config
+            {t('workflow.nodeSession.editConfig')}
           </Button>
           {openHref ? (
             <Button asChild size="xs" variant="outline" className="gap-1.5">
               <a href={openHref}>
                 <ExternalLink className="h-3.5 w-3.5" />
-                Open workspace
+                {t('workflow.nodeSession.openWorkspace')}
               </a>
             </Button>
           ) : (
@@ -264,7 +270,7 @@ function WorkflowNodeSessionHeader({
               className="gap-1.5"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Open workspace
+              {t('workflow.nodeSession.openWorkspace')}
             </Button>
           )}
         </div>
@@ -307,6 +313,7 @@ function WorkflowNodeRunSummary({
 }: {
   execution: WorkflowNodeExecutionResponse;
 }) {
+  const { t } = useTranslation('common');
   const statusTone = getNodeStatusTone(execution.status);
   const startedLabel = formatWorkflowTimestamp(execution.started_at);
   const finishedLabel = formatWorkflowTimestamp(execution.finished_at);
@@ -319,19 +326,22 @@ function WorkflowNodeRunSummary({
   const summary = (() => {
     if (hasError) {
       return {
-        title: 'Last run failed',
+        title: t('workflow.nodeSession.lastRunFailed'),
         detail:
           execution.error_text ||
           execution.output_text ||
-          'The agent step failed without a captured error message.',
+          t('workflow.nodeSession.failedWithoutMessage'),
       };
     }
     if (execution.status === 'running') {
       return {
-        title: 'Running now',
+        title: t('workflow.nodeSession.runningNow'),
         detail: startedLabel
-          ? `Started ${startedLabel} / ${durationLabel}`
-          : 'The agent is currently working in this session.',
+          ? t('workflow.nodeSession.startedDuration', {
+              started: startedLabel,
+              duration: durationLabel,
+            })
+          : t('workflow.nodeSession.agentWorking'),
       };
     }
     if (
@@ -339,25 +349,29 @@ function WorkflowNodeRunSummary({
       execution.status === 'awaiting_arena'
     ) {
       return {
-        title: getNodeStatusLabel(execution.status),
+        title: t(
+          `workflow.nodeStatus.${workflowNodeStatusKey(execution.status)}`
+        ),
         detail:
-          execution.output_text ||
-          'This step is waiting for a decision before the workflow continues.',
+          execution.output_text || t('workflow.nodeSession.waitingForDecision'),
       };
     }
     if (execution.status === 'succeeded') {
       return {
-        title: 'Last run succeeded',
+        title: t('workflow.nodeSession.lastRunSucceeded'),
         detail: finishedLabel
-          ? `Finished ${finishedLabel} / ${durationLabel}`
+          ? t('workflow.nodeSession.finishedDuration', {
+              finished: finishedLabel,
+              duration: durationLabel,
+            })
           : durationLabel,
       };
     }
     return {
-      title: 'Not started yet',
+      title: t('workflow.nodeSession.notStartedYet'),
       detail: execution.session_id
-        ? 'The session is ready for manual conversation or the next workflow run.'
-        : 'This step does not have a session yet.',
+        ? t('workflow.nodeSession.readyForConversation')
+        : t('workflow.nodeSession.noSessionYet'),
     };
   })();
 
@@ -389,23 +403,24 @@ function WorkflowNodeTechnicalDetails({
 }: {
   execution: WorkflowNodeExecutionResponse;
 }) {
+  const { t } = useTranslation('common');
   return (
     <details className="mt-half rounded border border-secondary bg-primary/50 px-half py-1 text-xs text-low">
       <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-normal text-low">
-        Technical details
+        {t('workflow.nodeSession.technicalDetails')}
       </summary>
       <div className="mt-half grid gap-half">
-        <TechnicalDetailRow label="Node ID">
+        <TechnicalDetailRow label={t('workflow.runCanvas.nodeId')}>
           {execution.node_id}
         </TechnicalDetailRow>
-        <TechnicalDetailRow label="Execution ID">
+        <TechnicalDetailRow label={t('workflow.runCanvas.executionId')}>
           {execution.id}
         </TechnicalDetailRow>
-        <TechnicalDetailRow label="Session ID">
-          {execution.session_id ?? 'Not started'}
+        <TechnicalDetailRow label={t('workflow.nodeSession.sessionId')}>
+          {execution.session_id ?? t('workflow.dashboard.notStarted')}
         </TechnicalDetailRow>
-        <TechnicalDetailRow label="Process ID">
-          {execution.execution_process_id ?? 'Not started'}
+        <TechnicalDetailRow label={t('workflow.nodeSession.processId')}>
+          {execution.execution_process_id ?? t('workflow.dashboard.notStarted')}
         </TechnicalDetailRow>
       </div>
     </details>
@@ -614,6 +629,7 @@ function WorkflowNodeSessionFallback({
   runStepDisabled,
   runStepTitle,
 }: Omit<WorkflowNodeSessionPanelProps, 'workspaceId'>) {
+  const { t } = useTranslation('common');
   return (
     <div
       data-testid="workflow-node-session-panel"
@@ -638,30 +654,31 @@ function WorkflowNodeSessionFallback({
       <div className="flex flex-1 flex-col gap-base overflow-y-auto p-base">
         <div className="rounded border border-secondary bg-primary p-half">
           <h3 className="text-xs font-semibold uppercase text-low">
-            Conversation
+            {t('workflow.nodeSession.conversation')}
           </h3>
           <p data-testid="workflow-node-session-id" className="sr-only">
-            Session: {execution.session_id ?? 'Not started'}
+            {t('workflow.nodeSession.session', {
+              id: execution.session_id ?? t('workflow.dashboard.notStarted'),
+            })}
           </p>
           <pre className="mt-half whitespace-pre-wrap text-xs text-high">
-            {execution.output_text ||
-              'No agent response has been captured yet.'}
+            {execution.output_text || t('workflow.nodeSession.noAgentResponse')}
           </pre>
         </div>
 
         <div className="rounded border border-secondary bg-primary p-half">
           <h3 className="text-xs font-semibold uppercase text-low">
-            Node Prompt
+            {t('workflow.nodeSession.nodePrompt')}
           </h3>
           <pre className="mt-half whitespace-pre-wrap text-xs text-high">
-            {execution.input_text || 'No prompt has been captured yet.'}
+            {execution.input_text || t('workflow.nodeSession.noPrompt')}
           </pre>
         </div>
 
         {execution.error_text ? (
           <div className="rounded border border-error/50 bg-error/10 p-half">
             <h3 className="text-xs font-semibold uppercase text-error">
-              Error
+              {t('workflow.dashboard.error')}
             </h3>
             <pre className="mt-half whitespace-pre-wrap text-xs text-error">
               {execution.error_text}

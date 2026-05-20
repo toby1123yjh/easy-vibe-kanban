@@ -19,7 +19,7 @@
     "discard": "放棄",
     "addItem": "新增項目",
     "reply": "回覆",
-    "retry": "Retry",
+    "retry": "重試",
     "add": "新增"
   },
   "form": {
@@ -297,14 +297,485 @@
       "cannotDeleteOpenPr": "PR 開啟時無法刪除分支",
       "unlinkFromIssueLabel": "同時取消與議題的關聯"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "關聯工作區失敗"
   },
   "attempts": {
-    "title": "Task Attempts",
-    "loading": "Loading attempts...",
-    "empty": "No task attempts yet.",
-    "newWorkflow": "New workflow attempt",
-    "newSingleAgent": "New single-agent attempt"
+    "title": "任務嘗試",
+    "loading": "正在載入任務嘗試...",
+    "empty": "暫無任務嘗試。",
+    "newWorkflow": "新增工作流程嘗試",
+    "newSingleAgent": "新增單一智慧體嘗試",
+    "workflowFallbackTitle": "工作流程嘗試",
+    "singleAgentFallbackTitle": "單一智慧體嘗試",
+    "draftWorkflow": "工作流程嘗試草稿",
+    "workflowRun": "執行 {{id}}",
+    "workspace": "工作區 {{id}}",
+    "remoteWorkspace": "遠端工作區",
+    "openCanvas": "開啟畫布",
+    "openSession": "開啟會話",
+    "runWorkflow": "執行工作流程嘗試",
+    "deleteAttempt": "刪除嘗試",
+    "deleteWorkflowTitle": "刪除工作流程嘗試？",
+    "deleteWorkflowMessage": "這會刪除此工作流程嘗試、畫布和執行記錄。此操作無法復原。",
+    "deleteWorkflowError": "刪除工作流程嘗試失敗。",
+    "status": {
+      "draft": "草稿",
+      "ready": "就緒",
+      "running": "執行中",
+      "awaitingHuman": "等待人工處理",
+      "awaitingArena": "等待 Arena",
+      "succeeded": "已成功",
+      "failed": "已失敗",
+      "canceled": "已取消",
+      "archived": "已封存",
+      "completed": "已完成",
+      "active": "活躍"
+    }
+  },
+  "workflow": {
+    "entry": {
+      "title": "工作流程嘗試",
+      "subtitle": "先設計任務嘗試，再執行智慧體",
+      "openCanvas": "開啟畫布",
+      "openCanvasAria": "開啟工作流程嘗試畫布"
+    },
+    "draft": {
+      "name": "{{title}} 的工作流程嘗試",
+      "untitledTask": "未命名任務"
+    },
+    "defaultGraph": {
+      "familiarizeLabel": "熟悉專案",
+      "agentPrompt": "熟悉目前專案結構、關鍵模組與任務背景，輸出你的理解、風險點與下一步實施方案。",
+      "stageTitle": "階段 1：理解專案",
+      "stageDescription": "預設從熟悉專案開始，後續可以繼續新增實作、審查、測試節點。",
+      "noteTitle": "筆記",
+      "noteContent": "記錄這個階段的目標、約束或注意事項。",
+      "newStageTitle": "新階段",
+      "newStageDescription": "把相關智慧體步驟放在同一階段內。"
+    },
+    "nodes": {
+      "start": {
+        "label": "開始",
+        "summary": "工作流程入口"
+      },
+      "end": {
+        "label": "結束",
+        "summary": "工作流程出口"
+      },
+      "agent": {
+        "label": "智慧體步驟",
+        "summary": "角色：{{role}}"
+      },
+      "condition": {
+        "label": "條件",
+        "summary": "分支：{{count}}"
+      },
+      "humanGate": {
+        "label": "人工確認",
+        "summary": "等待人工核准"
+      },
+      "transform": {
+        "label": "轉換",
+        "summary": "模式：{{mode}}"
+      },
+      "arena": {
+        "label": "Arena",
+        "summary": "嘗試：{{count}}",
+        "attemptA": "嘗試 A",
+        "attemptB": "嘗試 B"
+      }
+    },
+    "edges": {
+      "default": "預設",
+      "condition": "條件",
+      "approve": "核准",
+      "reject": "拒絕",
+      "winner": "勝出項",
+      "options": {
+        "default": "繼續到下一個節點。",
+        "condition_branch": "透過條件分支路由。",
+        "approval": "人工核准後繼續。",
+        "rejection": "人工拒絕後路由。",
+        "arena_winner": "提升 Arena 中的勝出嘗試。"
+      }
+    },
+    "metadata": {
+      "trigger": "觸發器",
+      "state": "狀態",
+      "role": "角色",
+      "branches": "分支",
+      "logic": "邏輯",
+      "action": "操作",
+      "mode": "模式",
+      "attempts": "嘗試",
+      "promote": "提升",
+      "branch": "分支 {{index}}"
+    },
+    "fields": {
+      "display_name": "顯示名稱",
+      "role_template_id": "角色範本 ID",
+      "prompt_template": "提示詞範本",
+      "joiner": "連接方式",
+      "conditions": "規則",
+      "branches": "分支",
+      "prompt_to_human": "給人工的提示詞",
+      "required_action": "必要操作",
+      "mode": "模式",
+      "template": "範本",
+      "regex": "正規表示式",
+      "max_chars": "最大字元數",
+      "attempts": "嘗試"
+    },
+    "fieldOptions": {
+      "joiner": {
+        "and": "並且",
+        "or": "或者"
+      },
+      "required_action": {
+        "approve": "僅核准",
+        "approve_or_reject": "核准或拒絕"
+      },
+      "mode": {
+        "template": "範本",
+        "regex_extract": "正規提取",
+        "truncate": "截斷"
+      }
+    },
+    "operators": {
+      "contains": "包含",
+      "equals": "等於",
+      "notEquals": "不等於",
+      "regex": "正規表示式"
+    },
+    "canvasState": {
+      "draft": "草稿",
+      "configured": "已設定",
+      "pending": "待開始",
+      "running": "執行中",
+      "succeeded": "已完成",
+      "failed": "已失敗",
+      "waiting": "等待中",
+      "skipped": "已跳過"
+    },
+    "errors": {
+      "createDraftFailed": "建立工作流程草稿失敗。",
+      "notLinkedToAttempt": "此工作流程未關聯到任務嘗試。",
+      "repositoryRequired": "此工作流程需要一個至少包含一個儲存庫的工作區。請在開始執行前至少選擇一個儲存庫。",
+      "runInputRequired": "請先填寫執行輸入，再啟動工作流程。",
+      "draftMissing": "這個本機工作流程草稿已不存在，請重新新增工作流程嘗試。",
+      "saveBeforeRun": "請先儲存工作流程嘗試，再開始執行。",
+      "saveBeforeSession": "請先儲存工作流程嘗試，再開啟智慧體會話。",
+      "startFailed": "啟動工作流程執行失敗。",
+      "invalidGraph": "工作流程圖 JSON 不包含有效圖。",
+      "parseGraphFailed": "無法解析工作流程圖 JSON。"
+    },
+    "repositoryDialog": {
+      "title": "新增工作流程嘗試",
+      "errors": {
+        "repositoryRequired": "建立工作流程前請至少選擇一個儲存庫。",
+        "branchRequired": "建立工作流程前請為每個儲存庫選擇分支。"
+      }
+    },
+    "runDialog": {
+      "title": "執行工作流程嘗試",
+      "description": "啟動這個關聯議題的工作流程嘗試。",
+      "mainWorkspace": "主工作區",
+      "createWorkflowWorkspace": "建立工作流程工作區",
+      "usesExistingWorkspace": "使用現有工作區。",
+      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的現有工作區。",
+      "createWorkspaceHint": "後端會為本次執行建立專用的工作流程工作區。",
+      "runInput": "執行輸入",
+      "startRun": "開始執行"
+    },
+    "editor": {
+      "runAttempt": "執行工作流程嘗試",
+      "runWorkflow": "執行工作流程",
+      "loadFailed": "載入工作流程失敗：{{message}}",
+      "backToWorkflows": "返回工作流程列表",
+      "workflowNamePlaceholder": "工作流程名稱",
+      "descriptionPlaceholder": "描述",
+      "systemTemplateReadOnly": "系統範本（唯讀）",
+      "addAgentStep": "新增智慧體步驟",
+      "addNextAgentStep": "新增下一個智慧體步驟",
+      "tidy": "整理",
+      "note": "筆記",
+      "stage": "階段",
+      "validate": "校驗",
+      "validation": "校驗",
+      "graphValid": "工作流程圖有效",
+      "validationFound": "校驗發現 {{count}} 個問題。",
+      "validationFound_other": "校驗發現 {{count}} 個問題。",
+      "openLatestRun": "開啟最新執行",
+      "copyToProject": "複製到專案",
+      "copyName": "{{name}}（副本）",
+      "copySuffix": "副本",
+      "deleteAgentStepTitle": "刪除智慧體步驟",
+      "deleteAgentStepMessage": "這會從工作流程圖中移除此步驟。既有會話歷史不會複製到其他步驟。",
+      "agentStepActions": "智慧體步驟操作",
+      "openSession": "開啟會話",
+      "duplicate": "複製",
+      "runStep": "執行步驟",
+      "edgeActions": "連線操作",
+      "insertAgentStep": "插入智慧體步驟",
+      "reconnect": "重新連接",
+      "reconnectSource": "重新連接來源節點",
+      "reconnectTarget": "重新連接目標節點",
+      "deleteEdge": "刪除連線",
+      "runWorkflowToExecuteStep": "執行工作流程以執行此步驟。"
+    },
+    "canvas": {
+      "openSession": "開啟會話",
+      "runStep": "執行步驟",
+      "runStepUnavailable": "暫不支援單步執行。",
+      "addNextAgentStep": "新增下一個智慧體步驟",
+      "nodeFallback": "節點",
+      "updatedForNextRunTitle": "設定已在最新執行後更新，會在下一次執行時生效。",
+      "updatedForNextRun": "下次執行生效",
+      "sessionReady": "會話已就緒",
+      "draftSession": "會話草稿",
+      "deleteNote": "刪除筆記",
+      "notePlaceholder": "寫一則筆記...",
+      "deleteStageGroup": "刪除階段群組",
+      "stageDescriptionPlaceholder": "階段描述",
+      "openEdgeActions": "開啟 {{id}} 的連線操作"
+    },
+    "agentEdit": {
+      "title": "編輯智慧體步驟",
+      "description": "設定此步驟的會話提示詞與執行器。",
+      "close": "關閉編輯器",
+      "runningHint": "此步驟正在執行。提示詞與智慧體設定可在執行結束後編輯。",
+      "nextRunHint": "改動會在下一次工作流程執行或下一次觸發此步驟時生效。",
+      "stepTitle": "步驟標題",
+      "defaultTitle": "智慧體步驟",
+      "defaultPrompt": "預設提示詞",
+      "promptPlaceholder": "描述這個智慧體步驟要做什麼...",
+      "executor": "執行器",
+      "selectExecutor": "選擇執行器",
+      "agent": "智慧體",
+      "saveStep": "儲存步驟"
+    },
+    "inspector": {
+      "selectNode": "選擇節點以查看詳情",
+      "selectEdge": "選擇連線以查看詳情",
+      "step": "步驟",
+      "rules": "規則",
+      "addRule": "新增規則",
+      "ruleLabel": "規則 {{index}}",
+      "removeRule": "移除規則 {{index}}",
+      "inputPlaceholder": "輸入",
+      "valuePlaceholder": "值",
+      "branches": "分支",
+      "addBranch": "新增分支",
+      "branchName": "分支 {{index}} 名稱",
+      "removeBranch": "移除分支 {{index}}",
+      "attempts": "嘗試",
+      "attemptLabel": "嘗試 {{index}}",
+      "addAttempt": "新增嘗試",
+      "removeAttempt": "移除嘗試 {{index}}",
+      "promptOverride": "提示詞範本覆寫",
+      "edgeProperties": "連線屬性",
+      "source": "來源節點",
+      "target": "目標節點",
+      "routeType": "路由類型",
+      "conditionBranch": "條件分支",
+      "selectBranch": "選擇分支",
+      "edgeId": "連線 ID"
+    },
+    "agentDraft": {
+      "defaultStepName": "智慧體步驟",
+      "promptPlaceholder": "描述這個工作流程步驟...",
+      "selectExecutor": "選擇執行器",
+      "startRun": "開始執行",
+      "starting": "正在啟動..."
+    },
+    "templates": {
+      "title": "工作流程",
+      "newCanvas": "新增畫布",
+      "newWorkflowName": "新增工作流程",
+      "loadFailed": "載入工作流程失敗：{{message}}",
+      "emptyTitle": "還沒有工作流程畫布",
+      "emptyDescription": "從這個專案的空白畫布開始。",
+      "createCanvas": "建立畫布",
+      "untitled": "未命名",
+      "noDescription": "沒有描述。",
+      "updated": "更新於 {{date}}",
+      "openCanvas": "開啟畫布"
+    },
+    "runPage": {
+      "loadingRun": "正在載入執行...",
+      "loadFailed": "載入執行 {{runId}} 失敗",
+      "canvas": "畫布",
+      "dashboard": "儀表板",
+      "taskAttempt": "任務嘗試 {{id}}",
+      "workflowRun": "工作流程執行 {{id}}"
+    },
+    "runCanvas": {
+      "loadingGraph": "正在載入工作流程圖...",
+      "loadGraphFailed": "無法載入本次執行的工作流程圖。",
+      "nodeDetails": "節點詳情",
+      "notExecutedYet": "尚未執行",
+      "selectNode": "選擇節點",
+      "nodeNotExecuted": "此節點尚未執行。",
+      "selectNodeDetails": "在畫布中選擇一個節點以查看詳情。",
+      "humanActionRequired": "需要人工操作",
+      "reviewNodeToProceed": "請檢查此節點以繼續。",
+      "approving": "正在核准...",
+      "rejecting": "正在拒絕...",
+      "conversationAgentOnly": "只有智慧體節點支援會話。",
+      "executionId": "執行 ID",
+      "nodeId": "節點 ID",
+      "nodeType": "節點類型",
+      "workspaceId": "工作區 ID",
+      "noWorkspace": "無工作區",
+      "started": "開始時間",
+      "finished": "完成時間",
+      "notFinished": "尚未完成"
+    },
+    "debug": {
+      "noDebugData": "此步驟沒有除錯資料。",
+      "runInput": "執行輸入",
+      "noRunInput": "沒有執行輸入。",
+      "promptTemplate": "提示詞範本",
+      "noPromptTemplate": "沒有提示詞範本。",
+      "renderedPrompt": "渲染後的提示詞",
+      "noRenderedPrompt": "沒有渲染後的提示詞。",
+      "upstreamOutputs": "上游輸出",
+      "noUpstreamOutput": "沒有上游輸出。",
+      "noSessionId": "沒有會話 ID。",
+      "noProcessId": "沒有處理程序 ID。"
+    },
+    "runStatus": {
+      "pending": "待開始",
+      "running": "執行中",
+      "awaitingHuman": "等待人工處理",
+      "awaitingArena": "等待 Arena",
+      "succeeded": "已成功",
+      "failed": "已失敗",
+      "canceled": "已取消"
+    },
+    "nodeStatus": {
+      "pending": "待開始",
+      "running": "執行中",
+      "succeeded": "已成功",
+      "failed": "已失敗",
+      "awaitingHuman": "等待人工處理",
+      "awaitingArena": "等待 Arena",
+      "skipped": "已跳過"
+    },
+    "dashboard": {
+      "runDetails": "執行詳情",
+      "issueId": "議題 ID",
+      "workflow": "工作流程",
+      "runId": "執行 ID",
+      "status": "狀態",
+      "progress": "進度",
+      "cancelRun": "取消執行",
+      "cancelFailed": "取消工作流程執行失敗。",
+      "retryFailed": "重試工作流程步驟失敗。",
+      "approveFailed": "核准工作流程步驟失敗。",
+      "rejectFailed": "拒絕工作流程步驟失敗。",
+      "stepsSucceeded": "{{completed}} / {{total}} 個步驟已成功",
+      "runningCount": "{{count}} 個執行中",
+      "waitingCount": "{{count}} 個等待中",
+      "failedCount": "{{count}} 個失敗",
+      "skippedCount": "{{count}} 個已跳過",
+      "stepsTimeline": "步驟時間軸",
+      "noStepsExecuted": "還沒有執行步驟。",
+      "session": "會話",
+      "retryStep": "重試步驟",
+      "codeChanges": "程式碼改動",
+      "openWorkflowWorkspace": "開啟工作流程工作區",
+      "noCodeChanges": "本次執行沒有關聯的程式碼改動。",
+      "selectedStep": "步驟：{{nodeId}}",
+      "selectStep": "選擇一個步驟",
+      "noStepSelected": "未選擇步驟。",
+      "input": "輸入",
+      "output": "輸出",
+      "noInput": "沒有輸入",
+      "noOutput": "沒有輸出",
+      "error": "錯誤",
+      "approve": "核准",
+      "reject": "拒絕",
+      "decisionsMade": "已做決策",
+      "noDecisionNodes": "本次執行沒有決策節點。",
+      "conditionMet": "符合條件",
+      "none": "無",
+      "arenaGroup": "Arena 群組",
+      "pickWinner": "選擇勝出項",
+      "winner": "勝出項",
+      "agentContribution": "智慧體貢獻",
+      "totalTokens": "Token 總數",
+      "estimatedCost": "預估成本",
+      "agentSteps": "智慧體步驟",
+      "controlSteps": "控制步驟",
+      "notStarted": "未開始",
+      "notAvailable": "不適用"
+    },
+    "agentSessions": {
+      "title": "智慧體會話",
+      "none": "這個智慧體步驟在本次執行中還沒有建立會話。",
+      "session": "會話 {{id}}",
+      "run": "執行 {{id}}",
+      "process": "處理程序 {{id}}",
+      "open": "開啟",
+      "noOutputYet": "還沒有輸出"
+    },
+    "arenaWinner": {
+      "title": "需要選擇 Arena 結果",
+      "description": "選擇一個已完成的嘗試，將它的差異套用回工作流工作區。",
+      "selectFailed": "選擇 Arena 獲勝結果失敗。",
+      "noGroupLink": "Arena 分組連結不可用。",
+      "loadingAttempts": "正在載入嘗試...",
+      "loadFailed": "載入 Arena 分組失敗：{{message}}",
+      "unknownError": "未知錯誤",
+      "noAttempts": "還沒有可用的 Arena 嘗試。",
+      "unknownExecutor": "未知執行器",
+      "changes": "有變更",
+      "noChanges": "無變更",
+      "changesUnknown": "變更未知",
+      "openWorkspace": "開啟 {{label}} 工作區",
+      "selected": "已選擇",
+      "applying": "正在套用...",
+      "selectWinner": "選擇獲勝結果",
+      "status": {
+        "notStarted": "未開始",
+        "unknown": "未知",
+        "active": "活躍",
+        "promoted": "已提升",
+        "completed": "已完成",
+        "running": "執行中",
+        "failed": "失敗",
+        "canceled": "已取消"
+      }
+    },
+    "nodeSession": {
+      "agentStepSession": "智慧體步驟會話",
+      "nodeSession": "節點會話",
+      "sessionNotStarted": "會話尚未開始",
+      "cockpit": "智慧體步驟控制台",
+      "runThisStep": "執行此步驟",
+      "editConfig": "編輯設定",
+      "openWorkspace": "開啟工作區",
+      "lastRunFailed": "上次執行失敗",
+      "failedWithoutMessage": "智慧體步驟失敗，但沒有擷取到錯誤訊息。",
+      "runningNow": "正在執行",
+      "startedDuration": "開始於 {{started}} / {{duration}}",
+      "agentWorking": "智慧體正在此會話中工作。",
+      "waitingForDecision": "此步驟正在等待決策，之後工作流程才會繼續。",
+      "lastRunSucceeded": "上次執行成功",
+      "finishedDuration": "完成於 {{finished}} / {{duration}}",
+      "notStartedYet": "尚未開始",
+      "readyForConversation": "會話已就緒，可手動對話或等待下一次工作流程執行。",
+      "noSessionYet": "此步驟尚未建立會話。",
+      "technicalDetails": "技術詳情",
+      "sessionId": "會話 ID",
+      "processId": "處理程序 ID",
+      "conversation": "會話",
+      "session": "會話：{{id}}",
+      "noAgentResponse": "尚未擷取到智慧體回應。",
+      "nodePrompt": "節點提示詞",
+      "noPrompt": "尚未擷取到提示詞。"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "搜尋檔案...",
@@ -362,8 +833,8 @@
     "noResults": "找不到結果。",
     "back": "返回",
     "defaultPlaceholder": "輸入命令或搜尋...",
-    "selectBranch": "Select Branch",
-    "selectBranchFor": "Select Branch for {{repoName}}"
+    "selectBranch": "選擇分支",
+    "selectBranchFor": "為 {{repoName}} 選擇分支"
   },
   "workspacesGuide": {
     "welcome": {
@@ -450,7 +921,7 @@
       "moveLeft": "向左移動",
       "moveRight": "向右移動",
       "openCommandBar": "開啟命令列",
-      "formatInlineCode": "Format inline code",
+      "formatInlineCode": "格式化行內程式碼",
       "sendMessage": "傳送訊息",
       "settings": "前往設定",
       "new-workspace": "前往新工作區",
@@ -554,81 +1025,81 @@
       "description": "請登入以查看此專案。",
       "action": "登入"
     },
-    "team": "Team",
-    "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
-    "filters": "Filters",
-    "clearFilters": "Clear filters",
-    "filtersDescription": "Adjust filters and sorting for this board view.",
-    "filterByTag": "Filter by tag",
-    "filterByPriority": "Filter by priority",
-    "tags": "Tags",
-    "sortBy": "Sort",
+    "team": "團隊",
+    "personal": "個人",
+    "searchPlaceholder": "搜尋議題...",
+    "filters": "篩選",
+    "clearFilters": "清除篩選",
+    "filtersDescription": "調整此看板檢視的篩選和排序。",
+    "filterByTag": "依標籤篩選",
+    "filterByPriority": "依優先級篩選",
+    "tags": "標籤",
+    "sortBy": "排序",
     "workspaceSidebar": {
-      "sortDialogTitle": "Sort workspaces",
-      "sortDialogDescription": "Choose how workspaces are ordered in the sidebar.",
-      "sortByLabel": "Sort by",
-      "sortOrderLabel": "Sort order",
-      "sortUpdatedAt": "Updated at",
-      "sortCreatedAt": "Created at",
-      "filterDialogTitle": "Filter workspaces",
-      "filterDialogDescription": "Narrow down workspaces by project and PR state.",
-      "projectFilterLabel": "Project",
+      "sortDialogTitle": "排序工作區",
+      "sortDialogDescription": "選擇側邊欄中工作區的排序方式。",
+      "sortByLabel": "排序依據",
+      "sortOrderLabel": "排序順序",
+      "sortUpdatedAt": "更新時間",
+      "sortCreatedAt": "建立時間",
+      "filterDialogTitle": "篩選工作區",
+      "filterDialogDescription": "依專案和 PR 狀態縮小工作區範圍。",
+      "projectFilterLabel": "專案",
       "prFilterLabel": "PR",
-      "prFilterAll": "All",
-      "prFilterHasPr": "Has PR",
-      "prFilterNoPr": "No PR",
-      "noProject": "No project",
-      "sortButtonTitle": "Sort workspaces",
-      "filterButtonTitle": "Filter workspaces"
+      "prFilterAll": "全部",
+      "prFilterHasPr": "有 PR",
+      "prFilterNoPr": "無 PR",
+      "noProject": "無專案",
+      "sortButtonTitle": "排序工作區",
+      "filterButtonTitle": "篩選工作區"
     },
-    "sortAscending": "Ascending",
-    "sortDescending": "Descending",
-    "assignee": "Assignee",
-    "self": "Me",
-    "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
-    "workspacesFilterLabel": "Workspaces",
-    "selectAssignees": "Select assignees...",
-    "relationships": "Relationships",
-    "noRelationships": "No relationships",
-    "openProjectsGuide": "Projects guide",
-    "editProjectSettings": "Edit project settings",
-    "linkWorkspace": "Link workspace...",
-    "createNewWorkspace": "Create new workspace",
-    "workspaces": "Workspaces",
-    "showingWorkspaces": "Showing {{count}} of {{total}}",
-    "changeColor": "Change color",
-    "editName": "Edit name",
-    "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
-    "lastVisibleStatus": "At least one status must be visible",
-    "showStatus": "Show status",
-    "hideStatus": "Hide status",
-    "newStatus": "New Status",
-    "visibleColumns": "Visible Columns",
-    "dragToRearrange": "Drag to re-arrange",
-    "addColumn": "Add column",
+    "sortAscending": "升序",
+    "sortDescending": "降序",
+    "assignee": "負責人",
+    "self": "我",
+    "priority": "優先級",
+    "subIssuesFilterLabel": "子議題",
+    "workspacesFilterLabel": "工作區",
+    "selectAssignees": "選擇負責人...",
+    "relationships": "關係",
+    "noRelationships": "無關係",
+    "openProjectsGuide": "專案指南",
+    "editProjectSettings": "編輯專案設定",
+    "linkWorkspace": "關聯工作區...",
+    "createNewWorkspace": "新增工作區",
+    "workspaces": "工作區",
+    "showingWorkspaces": "顯示 {{total}} 個中的 {{count}} 個",
+    "changeColor": "變更顏色",
+    "editName": "編輯名稱",
+    "deleteStatus": "刪除狀態",
+    "cannotDeleteWithIssues": "請先移動議題",
+    "lastVisibleStatus": "至少需要保留一個可見狀態",
+    "showStatus": "顯示狀態",
+    "hideStatus": "隱藏狀態",
+    "newStatus": "新狀態",
+    "visibleColumns": "可見欄",
+    "dragToRearrange": "拖曳以重新排序",
+    "addColumn": "新增欄",
     "projectsGuide": {
       "intro": {
-        "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "title": "歡迎",
+        "content": "歡迎使用 Vibe Kanban。使用此面板中的說明內容了解基本流程，然後建立第一個議題。你可以隨時從導覽列重新開啟此說明對話框或提交回饋。"
       },
       "welcome": {
-        "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "title": "專案",
+        "content": "專案頁面用於管理議題。你可以用看板或清單檢視議題，並依狀態、標籤、負責人等條件篩選。"
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "議題",
+        "content": "每個議題代表一個要實作的功能或要解決的問題。議題可以包含狀態、優先級、負責人、標籤、關係、留言、子議題等資訊。"
       },
       "workspaces": {
-        "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "title": "工作區",
+        "content": "開始處理議題時，請建立一個工作區。一個議題可以有多個工作區。議題描述要完成的工作，工作區承載實際執行過程。"
       },
       "organizations": {
-        "title": "Invite your team",
-        "content": "We've automatically created a personal organization and initial project so you can get started with Vibe Kanban. Export your cloud data before shutdown."
+        "title": "邀請你的團隊",
+        "content": "我們已自動建立個人組織和初始專案，方便你開始使用 Vibe Kanban。關閉前請匯出雲端資料。"
       }
     }
   },
@@ -646,7 +1117,18 @@
       "setupHintTitle": "設定腳本",
       "setupHint": "提示：在設定 → 儲存庫中為此儲存庫設定安裝腳本",
       "setupHintDismiss": "關閉",
-      "setupHintLink": "Configure in Settings"
+      "setupHintLink": "在設定中配置",
+      "selectBranch": "選擇分支",
+      "changeBranch": "變更分支",
+      "removeRepo": "移除 {{name}}",
+      "errors": {
+        "alreadySelected": "已選擇此儲存庫",
+        "noRecentRepositories": "未找到最近使用的儲存庫。請改為瀏覽儲存庫。",
+        "loadRepositoriesOrBranches": "載入儲存庫或分支失敗",
+        "registerRepository": "註冊儲存庫失敗",
+        "createRepository": "建立儲存庫失敗",
+        "loadBranches": "載入分支失敗"
+      }
     }
   },
   "modelSelector": {
@@ -676,14 +1158,14 @@
     "remoteAuthUnavailable": "遠端驗證暫時無法使用。在恢復之前，部分遠端功能可能無法使用。"
   },
   "onboardingSignIn": {
-    "subtitle": "Sign in to continue",
-    "signedInAs": "Signed in as {{name}}.",
-    "moreOptions": "More options",
-    "featureHeader": "Feature",
-    "signedInHeader": "Signed in",
-    "skipSignInHeader": "Don't sign in",
-    "yes": "Yes",
-    "no": "No"
+    "subtitle": "登入後繼續",
+    "signedInAs": "已登入為 {{name}}。",
+    "moreOptions": "更多選項",
+    "featureHeader": "功能",
+    "signedInHeader": "已登入",
+    "skipSignInHeader": "不登入",
+    "yes": "是",
+    "no": "否"
   },
   "appBar": {
     "kanban": {
@@ -693,9 +1175,9 @@
     }
   },
   "errors": {
-    "generic": "An unexpected error occurred"
+    "generic": "發生了意外錯誤"
   },
-  "personal": "Personal",
+  "personal": "個人",
   "askQuestion": {
     "title": "代理正在提問",
     "selectMultiple": "多選",

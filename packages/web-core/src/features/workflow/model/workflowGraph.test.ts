@@ -42,10 +42,10 @@ describe('workflow graph model', () => {
         id: 'familiarize',
         type: 'agent',
         data: {
-          display_name: '熟悉项目',
+          display_name: 'Understand project',
           role_template_id: 'custom',
           prompt_template:
-            '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。',
+            'Review the current project structure, key modules, and task context. Summarize your understanding, risks, and next implementation plan.',
         },
         position: { x: 420, y: 160 },
       },
@@ -77,7 +77,7 @@ describe('workflow graph model', () => {
     expect(graph.canvas?.groups?.[0]).toMatchObject({
       id: 'stage-understand',
       type: 'stage_group',
-      title: '阶段 1：理解项目',
+      title: 'Stage 1: Understand project',
       position: { x: 70, y: 105 },
       size: { width: 880, height: 240 },
     });

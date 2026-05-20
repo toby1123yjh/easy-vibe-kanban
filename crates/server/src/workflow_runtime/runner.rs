@@ -9,6 +9,7 @@ use db::models::{
     session::{CreateSession, Session},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError},
+    workspace_repo::CreateWorkspaceRepo,
 };
 use deployment::Deployment;
 use executors::profile::{ExecutorConfig, ExecutorConfigs};
@@ -73,6 +74,7 @@ pub struct WorkflowWorkspaceRequest {
     pub run_id: Uuid,
     pub project_id: Option<Uuid>,
     pub existing_workspace_id: Option<Uuid>,
+    pub repo_overrides: Vec<CreateWorkspaceRepo>,
     pub branch_name: String,
 }
 
@@ -349,6 +351,34 @@ where
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
+    trigger_workflow_run_for_attempt_with_repos(
+        pool,
+        workflow_id,
+        attempt_id,
+        request,
+        Vec::new(),
+        workspace_resolver,
+        agent_executor,
+        arena_creator,
+    )
+    .await
+}
+
+pub async fn trigger_workflow_run_for_attempt_with_repos<W, A, R>(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    attempt_id: Option<Uuid>,
+    request: TriggerWorkflowRequest,
+    repo_overrides: Vec<CreateWorkspaceRepo>,
+    workspace_resolver: &W,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
     let workflow = get_workflow_template(pool, workflow_id).await?;
     let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
@@ -365,6 +395,7 @@ where
             run_id,
             project_id,
             existing_workspace_id: request.workspace_id,
+            repo_overrides,
             branch_name: main_workflow_branch_name(request.issue_id, run_id),
         })
         .await?;

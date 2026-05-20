@@ -98,7 +98,8 @@ export function WorkflowAgentNodeDraftPanel({
 
   const isDisabled = readOnly || !onChange || isSubmitting;
   const primaryActionLabel =
-    submitLabel ?? (onSubmit ? 'Start run' : t('buttons.save'));
+    submitLabel ??
+    (onSubmit ? t('workflow.agentDraft.startRun') : t('buttons.save'));
 
   const handleDone = () => {
     if (isDisabled || !prompt.trim() || !executorConfig) return;
@@ -117,7 +118,8 @@ export function WorkflowAgentNodeDraftPanel({
               {t('createMode.headings.chatStep')}
             </h2>
             <p className="text-sm text-low">
-              {node.data.display_name || 'Agent step'}
+              {node.data.display_name ||
+                t('workflow.agentDraft.defaultStepName')}
             </p>
           </div>
 
@@ -126,7 +128,7 @@ export function WorkflowAgentNodeDraftPanel({
             error={submitError}
             editor={
               <WYSIWYGEditor
-                placeholder="Describe this workflow step..."
+                placeholder={t('workflow.agentDraft.promptPlaceholder')}
                 value={prompt}
                 onChange={handlePromptChange}
                 onCmdEnter={handleDone}
@@ -144,11 +146,13 @@ export function WorkflowAgentNodeDraftPanel({
                   label={
                     effectiveExecutor
                       ? toPrettyCase(effectiveExecutor)
-                      : 'Select Executor'
+                      : t('workflow.agentDraft.selectExecutor')
                   }
                   disabled={isDisabled}
                 >
-                  <DropdownMenuLabel>Agent</DropdownMenuLabel>
+                  <DropdownMenuLabel>
+                    {t('modelSelector.agent')}
+                  </DropdownMenuLabel>
                   {executorOptions.map((executor) => (
                     <DropdownMenuItem
                       key={executor}
@@ -183,7 +187,11 @@ export function WorkflowAgentNodeDraftPanel({
             footerLeft={null}
             footerRight={
               <PrimaryButton
-                value={isSubmitting ? 'Starting...' : primaryActionLabel}
+                value={
+                  isSubmitting
+                    ? t('workflow.agentDraft.starting')
+                    : primaryActionLabel
+                }
                 onClick={handleDone}
                 actionIcon={isSubmitting ? 'spinner' : undefined}
                 disabled={isDisabled || !prompt.trim() || !executorConfig}

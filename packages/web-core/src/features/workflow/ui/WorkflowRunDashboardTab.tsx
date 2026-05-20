@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
@@ -9,8 +10,6 @@ import {
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
-  getNodeStatusLabel,
-  getWorkflowRunStatusLabel,
 } from '../model/workflowRunView';
 import {
   Square,
@@ -46,11 +45,16 @@ export function WorkflowRunDashboardTab({
   projectId,
   run,
 }: WorkflowRunDashboardTabProps) {
+  const { t } = useTranslation('common');
   const { data: template } = useWorkflowTemplate(run.workflow_id);
   const mutations = useWorkflowRunMutations();
   const appNav = useAppNavigation();
   const summary = buildWorkflowRunDashboardSummary(run);
   const [actionError, setActionError] = useState<string | null>(null);
+  const formatDuration = (start: string | null, end: string | null) => {
+    const label = formatWorkflowDuration(start, end);
+    return label === 'Not started' ? t('workflow.dashboard.notStarted') : label;
+  };
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     getDefaultSelectedNodeId(run)
@@ -80,7 +84,9 @@ export function WorkflowRunDashboardTab({
       await mutations.cancelRun(run.id);
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to cancel workflow run.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.dashboard.cancelFailed')
       );
     }
   };
@@ -91,7 +97,7 @@ export function WorkflowRunDashboardTab({
       await mutations.retryNode({ runId: run.id, nodeId });
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to retry workflow step.'
+        err instanceof Error ? err.message : t('workflow.dashboard.retryFailed')
       );
     }
   };
@@ -106,7 +112,9 @@ export function WorkflowRunDashboardTab({
       });
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to approve workflow step.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.dashboard.approveFailed')
       );
     }
   };
@@ -121,7 +129,9 @@ export function WorkflowRunDashboardTab({
       });
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to reject workflow step.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.dashboard.rejectFailed')
       );
     }
   };
@@ -131,31 +141,39 @@ export function WorkflowRunDashboardTab({
       <div className="flex-1 space-y-4 p-base sm:w-2/3">
         {/* Header section */}
         <section className="rounded border border-secondary bg-panel p-4">
-          <h2 className="mb-2 text-sm font-semibold text-high">Run Details</h2>
+          <h2 className="mb-2 text-sm font-semibold text-high">
+            {t('workflow.dashboard.runDetails')}
+          </h2>
           <div className="grid grid-cols-2 gap-4 text-xs">
             <div>
-              <span className="text-low">Issue ID:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.issueId')}:
+              </span>
               <span className="ml-2 text-high">{run.issue_id}</span>
             </div>
             <div>
-              <span className="text-low">Workflow:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.workflow')}:
+              </span>
               <span className="ml-2 text-high">
                 {template?.name || run.workflow_id}
               </span>
             </div>
             <div>
-              <span className="text-low">Run ID:</span>
+              <span className="text-low">{t('workflow.dashboard.runId')}:</span>
               <span className="ml-2 text-high">{run.id}</span>
             </div>
             <div>
-              <span className="text-low">Status:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.status')}:
+              </span>
               <span
                 className={cn(
                   'ml-2 font-medium',
                   getNodeStatusToneClass(run.status)
                 )}
               >
-                {getWorkflowRunStatusLabel(run.status)}
+                {t(`workflow.runStatus.${statusKey(run.status)}`)}
               </span>
             </div>
           </div>
@@ -164,7 +182,9 @@ export function WorkflowRunDashboardTab({
         {/* Progress */}
         <section className="rounded border border-secondary bg-panel p-4">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-high">Progress</h2>
+            <h2 className="text-sm font-semibold text-high">
+              {t('workflow.dashboard.progress')}
+            </h2>
             {(run.status === 'running' ||
               run.status === 'pending' ||
               run.status === 'awaiting_human' ||
@@ -175,7 +195,7 @@ export function WorkflowRunDashboardTab({
                 disabled={mutations.isCanceling}
               >
                 <Square className="h-3 w-3" />
-                Cancel Run
+                {t('workflow.dashboard.cancelRun')}
               </button>
             )}
           </div>
@@ -183,8 +203,10 @@ export function WorkflowRunDashboardTab({
             <div className="flex-1">
               <div className="mb-1 flex justify-between text-low">
                 <span>
-                  {summary.completedSteps} / {summary.totalSteps} steps
-                  succeeded
+                  {t('workflow.dashboard.stepsSucceeded', {
+                    completed: summary.completedSteps,
+                    total: summary.totalSteps,
+                  })}
                 </span>
                 <span>{summary.progressPercent}%</span>
               </div>
@@ -197,7 +219,7 @@ export function WorkflowRunDashboardTab({
             </div>
             <div className="text-low">
               <Clock className="inline-block h-3 w-3 mr-1" />
-              {formatWorkflowDuration(run.started_at, run.finished_at)}
+              {formatDuration(run.started_at, run.finished_at)}
             </div>
           </div>
           {summary.failedSteps > 0 ||
@@ -207,22 +229,30 @@ export function WorkflowRunDashboardTab({
             <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-low">
               {summary.runningSteps > 0 ? (
                 <span className="rounded border border-brand/30 bg-brand/10 px-2 py-0.5 text-brand">
-                  {summary.runningSteps} running
+                  {t('workflow.dashboard.runningCount', {
+                    count: summary.runningSteps,
+                  })}
                 </span>
               ) : null}
               {summary.waitingSteps > 0 ? (
                 <span className="rounded border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
-                  {summary.waitingSteps} waiting
+                  {t('workflow.dashboard.waitingCount', {
+                    count: summary.waitingSteps,
+                  })}
                 </span>
               ) : null}
               {summary.failedSteps > 0 ? (
                 <span className="rounded border border-error/30 bg-error/10 px-2 py-0.5 text-error">
-                  {summary.failedSteps} failed
+                  {t('workflow.dashboard.failedCount', {
+                    count: summary.failedSteps,
+                  })}
                 </span>
               ) : null}
               {summary.skippedSteps > 0 ? (
                 <span className="rounded border border-secondary bg-primary px-2 py-0.5 text-low">
-                  {summary.skippedSteps} skipped
+                  {t('workflow.dashboard.skippedCount', {
+                    count: summary.skippedSteps,
+                  })}
                 </span>
               ) : null}
             </div>
@@ -232,11 +262,13 @@ export function WorkflowRunDashboardTab({
         {/* Steps Timeline */}
         <section className="rounded border border-secondary bg-panel p-4">
           <h2 className="mb-4 text-sm font-semibold text-high">
-            Steps Timeline
+            {t('workflow.dashboard.stepsTimeline')}
           </h2>
           <div className="space-y-2">
             {run.nodes.length === 0 ? (
-              <div className="text-xs text-low">No steps executed yet.</div>
+              <div className="text-xs text-low">
+                {t('workflow.dashboard.noStepsExecuted')}
+              </div>
             ) : (
               run.nodes.map((node) => {
                 const nodeSessionHref = buildWorkspaceSessionHref(
@@ -281,7 +313,7 @@ export function WorkflowRunDashboardTab({
                           getToneTextClass(getNodeStatusTone(node.status))
                         )}
                       >
-                        {getNodeStatusLabel(node.status)}
+                        {t(`workflow.nodeStatus.${statusKey(node.status)}`)}
                       </span>
                     </div>
                     <div className="flex items-center gap-3 text-low">
@@ -291,14 +323,12 @@ export function WorkflowRunDashboardTab({
                           className="flex items-center gap-1 hover:text-brand"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <ExternalLink className="h-3 w-3" /> Session
+                          <ExternalLink className="h-3 w-3" />
+                          {t('workflow.dashboard.session')}
                         </a>
                       ) : null}
                       <span>
-                        {formatWorkflowDuration(
-                          node.started_at,
-                          node.finished_at
-                        )}
+                        {formatDuration(node.started_at, node.finished_at)}
                       </span>
                       {node.status === 'failed' && (
                         <button
@@ -308,7 +338,7 @@ export function WorkflowRunDashboardTab({
                             void handleRetryNode(node.node_id);
                           }}
                           disabled={mutations.isRetrying}
-                          title="Retry step"
+                          title={t('workflow.dashboard.retryStep')}
                         >
                           <RefreshCcw className="h-3 w-3" />
                         </button>
@@ -323,7 +353,9 @@ export function WorkflowRunDashboardTab({
 
         {/* Code Changes */}
         <section className="rounded border border-secondary bg-panel p-4">
-          <h2 className="mb-2 text-sm font-semibold text-high">Code Changes</h2>
+          <h2 className="mb-2 text-sm font-semibold text-high">
+            {t('workflow.dashboard.codeChanges')}
+          </h2>
           {run.workspace_id ? (
             <button
               onClick={() =>
@@ -336,11 +368,11 @@ export function WorkflowRunDashboardTab({
               className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium text-brand hover:underline border border-secondary"
             >
               <Code className="h-4 w-4" />
-              Open Workflow Workspace
+              {t('workflow.dashboard.openWorkflowWorkspace')}
             </button>
           ) : (
             <div className="text-xs text-low italic">
-              No code changes associated with this run.
+              {t('workflow.dashboard.noCodeChanges')}
             </div>
           )}
         </section>
@@ -351,10 +383,16 @@ export function WorkflowRunDashboardTab({
         {/* Selected Step Detail */}
         <section className="rounded border border-secondary bg-panel p-4">
           <h2 className="mb-4 text-sm font-semibold text-high">
-            {selectedNode ? `Step: ${selectedNode.node_id}` : 'Select a step'}
+            {selectedNode
+              ? t('workflow.dashboard.selectedStep', {
+                  nodeId: selectedNode.node_id,
+                })
+              : t('workflow.dashboard.selectStep')}
           </h2>
           {!selectedNode ? (
-            <div className="text-xs text-low">No step selected.</div>
+            <div className="text-xs text-low">
+              {t('workflow.dashboard.noStepSelected')}
+            </div>
           ) : (
             <div className="space-y-4 text-xs">
               {actionError ? (
@@ -371,26 +409,36 @@ export function WorkflowRunDashboardTab({
               ) : null}
 
               <div>
-                <h3 className="font-medium text-low mb-1">Input</h3>
+                <h3 className="font-medium text-low mb-1">
+                  {t('workflow.dashboard.input')}
+                </h3>
                 <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-primary p-2 text-high border border-secondary font-mono text-[10px]">
                   {selectedNode.input_text || (
-                    <span className="italic text-low">No input</span>
+                    <span className="italic text-low">
+                      {t('workflow.dashboard.noInput')}
+                    </span>
                   )}
                 </pre>
               </div>
 
               <div>
-                <h3 className="font-medium text-low mb-1">Output</h3>
+                <h3 className="font-medium text-low mb-1">
+                  {t('workflow.dashboard.output')}
+                </h3>
                 <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-primary p-2 text-high border border-secondary font-mono text-[10px]">
                   {selectedNode.output_text || (
-                    <span className="italic text-low">No output</span>
+                    <span className="italic text-low">
+                      {t('workflow.dashboard.noOutput')}
+                    </span>
                   )}
                 </pre>
               </div>
 
               {selectedNode.error_text && (
                 <div>
-                  <h3 className="font-medium text-error mb-1">Error</h3>
+                  <h3 className="font-medium text-error mb-1">
+                    {t('workflow.dashboard.error')}
+                  </h3>
                   <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-primary p-2 text-error border border-error/50 bg-error/10 font-mono text-[10px]">
                     {selectedNode.error_text}
                   </pre>
@@ -404,14 +452,14 @@ export function WorkflowRunDashboardTab({
                     onClick={() => void handleApproveNode(selectedNode.node_id)}
                     disabled={mutations.isApproving || mutations.isRejecting}
                   >
-                    Approve
+                    {t('workflow.dashboard.approve')}
                   </button>
                   <button
                     className="flex-1 rounded bg-error px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
                     onClick={() => void handleRejectNode(selectedNode.node_id)}
                     disabled={mutations.isApproving || mutations.isRejecting}
                   >
-                    Reject
+                    {t('workflow.dashboard.reject')}
                   </button>
                 </div>
               )}
@@ -432,7 +480,7 @@ export function WorkflowRunDashboardTab({
         {/* Decisions Made */}
         <section className="rounded border border-secondary bg-panel p-4">
           <h2 className="mb-3 text-sm font-semibold text-high">
-            Decisions Made
+            {t('workflow.dashboard.decisionsMade')}
           </h2>
           <div className="space-y-3 text-xs">
             {run.nodes.filter(
@@ -442,7 +490,7 @@ export function WorkflowRunDashboardTab({
                 n.node_type === 'arena'
             ).length === 0 ? (
               <div className="text-low italic">
-                No decision nodes in this run.
+                {t('workflow.dashboard.noDecisionNodes')}
               </div>
             ) : (
               run.nodes
@@ -465,36 +513,36 @@ export function WorkflowRunDashboardTab({
                     </div>
                     {node.node_type === 'condition' && (
                       <div className="text-low mt-1">
-                        Condition met:{' '}
+                        {t('workflow.dashboard.conditionMet')}:{' '}
                         <span className="text-high">
-                          {node.output_text || 'None'}
+                          {node.output_text || t('workflow.dashboard.none')}
                         </span>
                       </div>
                     )}
                     {node.node_type === 'human_gate' && (
                       <div className="text-low mt-1">
-                        Status:{' '}
+                        {t('workflow.dashboard.status')}:{' '}
                         <span
                           className={cn(
                             'font-medium',
                             getToneTextClass(getNodeStatusTone(node.status))
                           )}
                         >
-                          {getNodeStatusLabel(node.status)}
+                          {t(`workflow.nodeStatus.${statusKey(node.status)}`)}
                         </span>
                       </div>
                     )}
                     {node.node_type === 'arena' && (
                       <div className="text-low mt-1 space-y-1">
                         <div>
-                          Status:{' '}
+                          {t('workflow.dashboard.status')}:{' '}
                           <span className="text-high">
-                            {getNodeStatusLabel(node.status)}
+                            {t(`workflow.nodeStatus.${statusKey(node.status)}`)}
                           </span>
                         </div>
                         {node.arena_group_id && (
                           <div>
-                            Arena Group:{' '}
+                            {t('workflow.dashboard.arenaGroup')}:{' '}
                             <a
                               className="inline-flex items-center gap-1 text-brand hover:underline"
                               href={`/projects/${projectId}/issues/${run.issue_id}/arena/${node.arena_group_id}`}
@@ -510,12 +558,12 @@ export function WorkflowRunDashboardTab({
                             className="text-brand hover:underline"
                             onClick={() => setSelectedNodeId(node.node_id)}
                           >
-                            Pick winner
+                            {t('workflow.dashboard.pickWinner')}
                           </button>
                         )}
                         {node.output_text && (
                           <div>
-                            Winner:{' '}
+                            {t('workflow.dashboard.winner')}:{' '}
                             <span className="text-success">
                               {node.output_text}
                             </span>
@@ -532,33 +580,41 @@ export function WorkflowRunDashboardTab({
         {/* Agent Contribution */}
         <section className="rounded border border-secondary bg-panel p-4">
           <h2 className="mb-3 text-sm font-semibold text-high">
-            Agent Contribution
+            {t('workflow.dashboard.agentContribution')}
           </h2>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-low">Total Tokens:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.totalTokens')}:
+              </span>
               <span className="text-high font-medium">
                 {summary.totalTokens > 0
                   ? summary.totalTokens.toLocaleString()
-                  : 'N/A'}
+                  : t('workflow.dashboard.notAvailable')}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-low">Estimated Cost:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.estimatedCost')}:
+              </span>
               <span className="text-high font-medium">
                 {summary.totalCostEstimate > 0
                   ? `$${summary.totalCostEstimate.toFixed(4)}`
-                  : 'N/A'}
+                  : t('workflow.dashboard.notAvailable')}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-low">Agent Steps:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.agentSteps')}:
+              </span>
               <span className="text-high font-medium">
                 {run.nodes.filter((n) => n.node_type === 'agent').length}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-low">Control Steps:</span>
+              <span className="text-low">
+                {t('workflow.dashboard.controlSteps')}:
+              </span>
               <span className="text-high font-medium">
                 {run.nodes.filter((n) => n.node_type !== 'agent').length}
               </span>
@@ -571,6 +627,17 @@ export function WorkflowRunDashboardTab({
 }
 
 // Helpers for styling
+function statusKey(status: string): string {
+  switch (status) {
+    case 'awaiting_human':
+      return 'awaitingHuman';
+    case 'awaiting_arena':
+      return 'awaitingArena';
+    default:
+      return status;
+  }
+}
+
 function getToneTextClass(tone: string) {
   switch (tone) {
     case 'success':

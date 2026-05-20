@@ -2,7 +2,7 @@
   "settings": {
     "common": {
       "unsavedChanges": "• 您有未保存的更改",
-      "discardChangesConfirm": "Discard unsaved changes?"
+      "discardChangesConfirm": "放弃未保存的更改？"
     },
     "unsavedChanges": {
       "title": "未保存的更改",
@@ -27,12 +27,12 @@
         "organizationsDesc": "管理组织成员和权限",
         "remote-projects": "项目",
         "remote-projectsDesc": "管理项目",
-        "relay": "Remote Access",
-        "relayDesc": "Relay tunnel and enrollment",
-        "machineSettings": "Machine Settings",
-        "accountSettings": "Account Settings",
-        "pairOtherMachines": "Pair other machines",
-        "selectHost": "Select host"
+        "relay": "远程访问",
+        "relayDesc": "中继隧道和配对",
+        "machineSettings": "机器设置",
+        "accountSettings": "账号设置",
+        "pairOtherMachines": "配对其他机器",
+        "selectHost": "选择主机"
       }
     },
     "general": {
@@ -96,8 +96,8 @@
           }
         },
         "autoInstallExtension": {
-          "label": "Auto-install VS Code Extension",
-          "helper": "Automatically install the Vibe Kanban extension when opening a project in VS Code or Cursor. This runs in the background and has no effect if the extension is already installed."
+          "label": "自动安装 VS Code 扩展",
+          "helper": "在 VS Code 或 Cursor 中打开项目时自动安装 Vibe Kanban 扩展。此操作在后台运行；如果扩展已安装，则不会产生影响。"
         },
         "availability": {
           "checking": "检查可用性...",
@@ -418,7 +418,7 @@
         "unsavedChanges": "• 您有未保存的更改",
         "discard": "放弃",
         "confirmSwitch": "您有未保存的更改。您确定要切换项目吗？您的更改将丢失。",
-        "saving": "Saving..."
+        "saving": "正在保存..."
       },
       "repositories": {
         "title": "仓库",
@@ -523,18 +523,18 @@
       }
     },
     "relay": {
-      "title": "Remote Access",
-      "description": "Allow access to this instance from the web via relay tunnel.",
+      "title": "远程访问",
+      "description": "允许通过中继隧道从网页访问此实例。",
       "enabled": {
-        "label": "Enable remote access",
-        "helper": "When enabled, this instance can be accessed remotely through a relay tunnel."
+        "label": "启用远程访问",
+        "helper": "启用后，可以通过中继隧道远程访问此实例。"
       },
       "enrollmentCode": {
-        "label": "Pairing Code",
-        "helper": "Enter this code in the browser to pair with this instance.",
-        "loginRequired": "Log in to generate a pairing code.",
-        "fetchError": "Failed to fetch pairing code.",
-        "show": "Show pairing code"
+        "label": "配对码",
+        "helper": "在浏览器中输入此代码以配对此实例。",
+        "loginRequired": "登录后才能生成配对码。",
+        "fetchError": "获取配对码失败。",
+        "show": "显示配对码"
       },
       "host": {
         "label": "主机"
@@ -543,66 +543,67 @@
         "label": "客户端"
       },
       "overview": {
-        "available": "Available",
-        "unavailable": "Unavailable"
+        "available": "可用",
+        "unavailable": "不可用"
       }
     },
     "remoteProjects": {
-      "title": "Remote Projects",
-      "description": "Manage cloud-synced projects across organizations.",
-      "loading": "Loading remote projects...",
-      "loadError": "Failed to load organizations",
-      "noProjects": "No projects yet. Create one to get started.",
-      "selectOrg": "Select an organization",
-      "createSuccess": "Project created successfully",
-      "deleteSuccess": "Project deleted successfully",
-      "nameRequired": "Project name is required",
-      "saveSuccess": "Project updated successfully",
-      "saveError": "Failed to update project",
+      "title": "远程项目",
+      "description": "管理跨组织同步的云端项目。",
+      "loading": "正在加载远程项目...",
+      "loadError": "加载组织失败",
+      "noProjects": "暂无项目。创建一个项目后即可开始。",
+      "selectOrg": "选择一个组织",
+      "createSuccess": "项目创建成功",
+      "deleteSuccess": "项目删除成功",
+      "nameRequired": "请输入项目名称",
+      "saveSuccess": "项目更新成功",
+      "saveError": "更新项目失败",
       "columns": {
-        "organizations": "Organizations",
-        "projects": "Projects"
+        "organizations": "组织",
+        "projects": "项目"
       },
       "actions": {
-        "addProject": "Add Project"
+        "addProject": "添加项目"
       },
       "form": {
         "name": {
-          "label": "Project Name",
-          "placeholder": "Enter project name"
+          "label": "项目名称",
+          "placeholder": "输入项目名称"
         },
         "color": {
-          "label": "Project Color"
+          "label": "项目颜色"
         },
         "statuses": {
-          "label": "Project Statuses",
-          "description": "Manage kanban columns for this project."
+          "label": "项目状态",
+          "description": "管理此项目的看板列。"
         },
         "defaultRepos": {
-          "label": "Default Repositories",
-          "description": "Repositories that are automatically added when creating workspaces from this project's issues.",
-          "empty": "No default repositories configured",
-          "addButton": "Add",
-          "addNew": "Add new repository...",
-          "branchLabel": "Branch",
-          "noBranches": "No branches found for this repository",
-          "fetchError": "Could not load repositories",
-          "saveError": "Failed to save default repositories"
+          "label": "默认仓库",
+          "description": "从此项目的问题创建工作区时，会自动添加这些仓库。",
+          "empty": "尚未配置默认仓库",
+          "addButton": "添加",
+          "addNew": "添加新仓库...",
+          "branchLabel": "分支",
+          "current": "当前",
+          "noBranches": "此仓库没有分支",
+          "fetchError": "无法加载仓库",
+          "saveError": "保存默认仓库失败"
         }
       },
       "loginRequired": {
-        "title": "Sign in required",
-        "description": "Sign in to manage your remote projects.",
-        "action": "Sign in"
+        "title": "需要登录",
+        "description": "登录后才能管理远程项目。",
+        "action": "登录"
       }
     },
     "hostPicker": {
-      "thisMachine": "This machine",
-      "localHost": "Local host",
-      "remoteHost": "Remote host",
-      "noHostAvailable": "No host is available for host-specific settings yet.",
-      "pairMachineHint": "Pair a machine to open machine settings.",
-      "selectMachineHint": "Select a machine to open machine settings."
+      "thisMachine": "本机",
+      "localHost": "本地主机",
+      "remoteHost": "远程主机",
+      "noHostAvailable": "暂无可用于主机特定设置的主机。",
+      "pairMachineHint": "配对一台机器后即可打开机器设置。",
+      "selectMachineHint": "选择一台机器以打开机器设置。"
     }
   },
   "integrations": {

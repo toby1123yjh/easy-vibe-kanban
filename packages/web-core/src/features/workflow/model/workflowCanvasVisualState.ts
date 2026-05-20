@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type {
   NodeExecutionStatus,
   WorkflowNodeExecutionResponse,
@@ -113,9 +114,14 @@ export function getWorkflowCanvasNodeState({
 }
 
 export function getWorkflowCanvasNodeStateLabel(
-  state: WorkflowCanvasNodeState
+  state: WorkflowCanvasNodeState,
+  t?: TFunction<'common'>
 ): string {
-  return NODE_STATE_LABELS[state];
+  return t
+    ? t(`workflow.canvasState.${state}`, {
+        defaultValue: NODE_STATE_LABELS[state],
+      })
+    : NODE_STATE_LABELS[state];
 }
 
 export function getWorkflowCanvasEdgeState(

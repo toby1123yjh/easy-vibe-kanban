@@ -2,7 +2,7 @@
   "settings": {
     "common": {
       "unsavedChanges": "• 您有未儲存的變更",
-      "discardChangesConfirm": "Discard unsaved changes?"
+      "discardChangesConfirm": "放棄未儲存的變更？"
     },
     "unsavedChanges": {
       "title": "未儲存的變更",
@@ -27,12 +27,12 @@
         "organizationsDesc": "管理組織成員與權限",
         "remote-projects": "專案",
         "remote-projectsDesc": "管理專案",
-        "relay": "Remote Access",
-        "relayDesc": "Relay tunnel and enrollment",
-        "machineSettings": "Machine Settings",
-        "accountSettings": "Account Settings",
-        "pairOtherMachines": "Pair other machines",
-        "selectHost": "Select host"
+        "relay": "遠端存取",
+        "relayDesc": "中繼通道和配對",
+        "machineSettings": "機器設定",
+        "accountSettings": "帳號設定",
+        "pairOtherMachines": "配對其他機器",
+        "selectHost": "選擇主機"
       }
     },
     "general": {
@@ -96,8 +96,8 @@
           }
         },
         "autoInstallExtension": {
-          "label": "Auto-install VS Code Extension",
-          "helper": "Automatically install the Vibe Kanban extension when opening a project in VS Code or Cursor. This runs in the background and has no effect if the extension is already installed."
+          "label": "自動安裝 VS Code 擴充功能",
+          "helper": "在 VS Code 或 Cursor 中開啟專案時自動安裝 Vibe Kanban 擴充功能。此操作在背景執行；如果擴充功能已安裝，則不會產生影響。"
         },
         "availability": {
           "checking": "檢查可用性...",
@@ -418,7 +418,7 @@
         "unsavedChanges": "• 您有未儲存的變更",
         "discard": "放棄",
         "confirmSwitch": "您有未儲存的變更。確定要切換專案嗎？您的變更將會遺失。",
-        "saving": "Saving..."
+        "saving": "正在儲存..."
       },
       "repositories": {
         "title": "儲存庫",
@@ -523,18 +523,18 @@
       }
     },
     "relay": {
-      "title": "Remote Access",
-      "description": "Allow access to this instance from the web via relay tunnel.",
+      "title": "遠端存取",
+      "description": "允許透過中繼通道從網頁存取此實例。",
       "enabled": {
-        "label": "Enable remote access",
-        "helper": "When enabled, this instance can be accessed remotely through a relay tunnel."
+        "label": "啟用遠端存取",
+        "helper": "啟用後，可以透過中繼通道遠端存取此實例。"
       },
       "enrollmentCode": {
-        "label": "Pairing Code",
-        "helper": "Enter this code in the browser to pair with this instance.",
-        "loginRequired": "Log in to generate a pairing code.",
-        "fetchError": "Failed to fetch pairing code.",
-        "show": "Show pairing code"
+        "label": "配對碼",
+        "helper": "在瀏覽器中輸入此代碼以配對此實例。",
+        "loginRequired": "登入後才能產生配對碼。",
+        "fetchError": "取得配對碼失敗。",
+        "show": "顯示配對碼"
       },
       "host": {
         "label": "主機"
@@ -543,66 +543,67 @@
         "label": "用戶端"
       },
       "overview": {
-        "available": "Available",
-        "unavailable": "Unavailable"
+        "available": "可用",
+        "unavailable": "不可用"
       }
     },
     "remoteProjects": {
-      "title": "Remote Projects",
-      "description": "Manage cloud-synced projects across organizations.",
-      "loading": "Loading remote projects...",
-      "loadError": "Failed to load organizations",
-      "noProjects": "No projects yet. Create one to get started.",
-      "selectOrg": "Select an organization",
-      "createSuccess": "Project created successfully",
-      "deleteSuccess": "Project deleted successfully",
-      "nameRequired": "Project name is required",
-      "saveSuccess": "Project updated successfully",
-      "saveError": "Failed to update project",
+      "title": "遠端專案",
+      "description": "管理跨組織同步的雲端專案。",
+      "loading": "正在載入遠端專案...",
+      "loadError": "載入組織失敗",
+      "noProjects": "尚無專案。建立一個專案後即可開始。",
+      "selectOrg": "選擇一個組織",
+      "createSuccess": "專案建立成功",
+      "deleteSuccess": "專案刪除成功",
+      "nameRequired": "請輸入專案名稱",
+      "saveSuccess": "專案更新成功",
+      "saveError": "更新專案失敗",
       "columns": {
-        "organizations": "Organizations",
-        "projects": "Projects"
+        "organizations": "組織",
+        "projects": "專案"
       },
       "actions": {
-        "addProject": "Add Project"
+        "addProject": "新增專案"
       },
       "form": {
         "name": {
-          "label": "Project Name",
-          "placeholder": "Enter project name"
+          "label": "專案名稱",
+          "placeholder": "輸入專案名稱"
         },
         "color": {
-          "label": "Project Color"
+          "label": "專案顏色"
         },
         "statuses": {
-          "label": "Project Statuses",
-          "description": "Manage kanban columns for this project."
+          "label": "專案狀態",
+          "description": "管理此專案的看板欄。"
         },
         "defaultRepos": {
-          "label": "Default Repositories",
-          "description": "Repositories that are automatically added when creating workspaces from this project's issues.",
-          "empty": "No default repositories configured",
-          "addButton": "Add",
-          "addNew": "Add new repository...",
-          "branchLabel": "Branch",
-          "noBranches": "No branches found for this repository",
-          "fetchError": "Could not load repositories",
-          "saveError": "Failed to save default repositories"
+          "label": "預設儲存庫",
+          "description": "從此專案的議題建立工作區時，會自動加入這些儲存庫。",
+          "empty": "尚未設定預設儲存庫",
+          "addButton": "新增",
+          "addNew": "新增儲存庫...",
+          "branchLabel": "分支",
+          "current": "目前",
+          "noBranches": "此儲存庫沒有分支",
+          "fetchError": "無法載入儲存庫",
+          "saveError": "儲存預設儲存庫失敗"
         }
       },
       "loginRequired": {
-        "title": "Sign in required",
-        "description": "Sign in to manage your remote projects.",
-        "action": "Sign in"
+        "title": "需要登入",
+        "description": "登入後才能管理遠端專案。",
+        "action": "登入"
       }
     },
     "hostPicker": {
-      "thisMachine": "This machine",
-      "localHost": "Local host",
-      "remoteHost": "Remote host",
-      "noHostAvailable": "No host is available for host-specific settings yet.",
-      "pairMachineHint": "Pair a machine to open machine settings.",
-      "selectMachineHint": "Select a machine to open machine settings."
+      "thisMachine": "本機",
+      "localHost": "本地主機",
+      "remoteHost": "遠端主機",
+      "noHostAvailable": "暫無可用於主機特定設定的主機。",
+      "pairMachineHint": "配對一台機器後即可開啟機器設定。",
+      "selectMachineHint": "選擇一台機器以開啟機器設定。"
     }
   },
   "integrations": {

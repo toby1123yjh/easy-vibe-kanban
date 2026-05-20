@@ -20,7 +20,7 @@ pub struct WorkspaceRepo {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
 pub struct CreateWorkspaceRepo {
     pub repo_id: Uuid,
     pub target_branch: String,

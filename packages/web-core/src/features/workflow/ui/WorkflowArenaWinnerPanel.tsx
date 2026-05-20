@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   AlertCircle,
   CheckCircle,
@@ -33,6 +35,7 @@ export function WorkflowArenaWinnerPanel({
   projectId,
   runId,
 }: WorkflowArenaWinnerPanelProps) {
+  const { t } = useTranslation('common');
   const { selectArenaWinner, isSelectingArenaWinner } =
     useWorkflowRunMutations();
   const { invalidateGroup } = useArenaInvalidators();
@@ -71,7 +74,9 @@ export function WorkflowArenaWinnerPanel({
       }
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to select arena winner.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.arenaWinner.selectFailed')
       );
     } finally {
       setSelectingWorkspaceId(null);
@@ -89,11 +94,10 @@ export function WorkflowArenaWinnerPanel({
         <div className="min-w-0">
           <h4 className="flex items-center gap-half text-sm font-semibold text-warning">
             <Swords className="h-4 w-4" />
-            Arena selection required
+            {t('workflow.arenaWinner.title')}
           </h4>
           <p className="mt-1 text-xs text-high">
-            Pick a completed attempt to apply its diff back to the workflow
-            workspace.
+            {t('workflow.arenaWinner.description')}
           </p>
         </div>
         {arenaHref ? (
@@ -108,19 +112,27 @@ export function WorkflowArenaWinnerPanel({
       </div>
 
       {!arenaGroupId ? (
-        <p className="text-xs text-low">Arena group link is not available.</p>
+        <p className="text-xs text-low">
+          {t('workflow.arenaWinner.noGroupLink')}
+        </p>
       ) : isLoading ? (
         <div className="flex items-center gap-half text-xs text-low">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading attempts...
+          {t('workflow.arenaWinner.loadingAttempts')}
         </div>
       ) : arenaError ? (
         <p className="text-xs text-error" role="alert">
-          Failed to load arena group:{' '}
-          {arenaError instanceof Error ? arenaError.message : 'Unknown error'}
+          {t('workflow.arenaWinner.loadFailed', {
+            message:
+              arenaError instanceof Error
+                ? arenaError.message
+                : t('workflow.arenaWinner.unknownError'),
+          })}
         </p>
       ) : options.length === 0 ? (
-        <p className="text-xs text-low">No arena attempts are available yet.</p>
+        <p className="text-xs text-low">
+          {t('workflow.arenaWinner.noAttempts')}
+        </p>
       ) : (
         <div className="space-y-half">
           {options.map((option) => {
@@ -152,15 +164,21 @@ export function WorkflowArenaWinnerPanel({
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-half gap-y-1 text-low">
-                      <span>{option.executorLabel}</span>
-                      <span>{option.executionStatusLabel}</span>
-                      <span>{option.arenaStatusLabel}</span>
+                      <span>
+                        {formatArenaExecutorLabel(option.executorLabel, t)}
+                      </span>
+                      <span>
+                        {formatArenaStatusLabel(option.executionStatusLabel, t)}
+                      </span>
+                      <span>
+                        {formatArenaStatusLabel(option.arenaStatusLabel, t)}
+                      </span>
                       <span>
                         {option.hasUncommittedChanges === true
-                          ? 'changes'
+                          ? t('workflow.arenaWinner.changes')
                           : option.hasUncommittedChanges === false
-                            ? 'no changes'
-                            : 'changes unknown'}
+                            ? t('workflow.arenaWinner.noChanges')
+                            : t('workflow.arenaWinner.changesUnknown')}
                       </span>
                     </div>
                     <div className="flex min-w-0 items-center gap-half text-low">
@@ -175,7 +193,9 @@ export function WorkflowArenaWinnerPanel({
                     <a
                       className="inline-flex min-h-8 items-center rounded border border-secondary px-half py-1 text-xs font-medium text-brand hover:bg-secondary"
                       href={workspaceHref}
-                      aria-label={`Open ${option.label} workspace`}
+                      aria-label={t('workflow.arenaWinner.openWorkspace', {
+                        label: option.label,
+                      })}
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
@@ -186,10 +206,10 @@ export function WorkflowArenaWinnerPanel({
                       onClick={() => void handleSelect(option.workspaceId)}
                     >
                       {option.isPromoted
-                        ? 'Selected'
+                        ? t('workflow.arenaWinner.selected')
                         : isApplying
-                          ? 'Applying...'
-                          : 'Select winner'}
+                          ? t('workflow.arenaWinner.applying')
+                          : t('workflow.arenaWinner.selectWinner')}
                     </Button>
                   </div>
                 </div>
@@ -206,4 +226,36 @@ export function WorkflowArenaWinnerPanel({
       ) : null}
     </div>
   );
+}
+
+function formatArenaExecutorLabel(
+  label: string,
+  t: TFunction<'common'>
+): string {
+  return label === 'Unknown executor'
+    ? t('workflow.arenaWinner.unknownExecutor')
+    : label;
+}
+
+function formatArenaStatusLabel(label: string, t: TFunction<'common'>): string {
+  switch (label) {
+    case 'not started':
+      return t('workflow.arenaWinner.status.notStarted');
+    case 'unknown':
+      return t('workflow.arenaWinner.status.unknown');
+    case 'active':
+      return t('workflow.arenaWinner.status.active');
+    case 'promoted':
+      return t('workflow.arenaWinner.status.promoted');
+    case 'completed':
+      return t('workflow.arenaWinner.status.completed');
+    case 'running':
+      return t('workflow.arenaWinner.status.running');
+    case 'failed':
+      return t('workflow.arenaWinner.status.failed');
+    case 'canceled':
+      return t('workflow.arenaWinner.status.canceled');
+    default:
+      return label;
+  }
 }

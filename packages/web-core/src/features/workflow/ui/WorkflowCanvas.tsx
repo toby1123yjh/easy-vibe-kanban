@@ -6,6 +6,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
   BaseEdge,
@@ -274,6 +275,7 @@ function WorkflowNodeHoverToolbar({
   nodeId: string;
   selected?: boolean;
 }) {
+  const { t } = useTranslation('common');
   const readOnly = actions.readOnly === true;
 
   return (
@@ -286,28 +288,32 @@ function WorkflowNodeHoverToolbar({
       )}
     >
       <WorkflowNodeActionButton
-        label="Open Session"
+        label={t('workflow.canvas.openSession')}
         disabled={!actions.open}
         onClick={() => actions.open?.(nodeId)}
       >
         <MessageSquare className="h-3.5 w-3.5" />
       </WorkflowNodeActionButton>
       <WorkflowNodeActionButton
-        label="Edit"
+        label={t('buttons.edit')}
         disabled={readOnly || !actions.edit}
         onClick={() => actions.edit?.(nodeId)}
       >
         <Pencil className="h-3.5 w-3.5" />
       </WorkflowNodeActionButton>
       <WorkflowNodeActionButton
-        label={actions.runStep ? 'Run Step' : 'Run Step (not available yet)'}
+        label={
+          actions.runStep
+            ? t('workflow.canvas.runStep')
+            : t('workflow.canvas.runStepUnavailable')
+        }
         disabled={readOnly || !actions.runStep}
         onClick={() => actions.runStep?.(nodeId)}
       >
         <Play className="h-3.5 w-3.5" />
       </WorkflowNodeActionButton>
       <WorkflowNodeActionButton
-        label="Duplicate"
+        label={t('workflow.editor.duplicate')}
         disabled={readOnly || !actions.duplicate}
         onClick={() => actions.duplicate?.(nodeId)}
       >
@@ -315,7 +321,7 @@ function WorkflowNodeHoverToolbar({
       </WorkflowNodeActionButton>
       <WorkflowNodeActionButton
         danger
-        label="Delete"
+        label={t('buttons.delete')}
         disabled={readOnly || !actions.delete}
         onClick={() => void actions.delete?.(nodeId)}
       >
@@ -334,7 +340,9 @@ function WorkflowAddNextButton({
   nodeId: string;
   selected?: boolean;
 }) {
+  const { t } = useTranslation('common');
   const disabled = actions.readOnly === true || !actions.addNext;
+  const label = t('workflow.canvas.addNextAgentStep');
 
   return (
     <button
@@ -346,8 +354,8 @@ function WorkflowAddNextButton({
           ? 'translate-x-0 opacity-100'
           : 'pointer-events-none translate-x-1 opacity-0'
       )}
-      aria-label="Add next Agent Step"
-      title="Add next Agent Step"
+      aria-label={label}
+      title={label}
       disabled={disabled}
       onPointerDown={(event) => event.stopPropagation()}
       onDoubleClick={stopCanvasObjectAction}
@@ -412,11 +420,12 @@ function renderWorkflowHandles({
 }
 
 const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
+  const { t } = useTranslation('common');
   const nodeKind = type ?? 'agent';
   const Icon = getWorkflowNodeIcon(nodeKind);
   const visual = getWorkflowNodeVisual(nodeKind);
-  const metadata = getWorkflowNodeMetadata(nodeKind, data);
-  const routeHints = getWorkflowNodeRouteHints(nodeKind, data);
+  const metadata = getWorkflowNodeMetadata(nodeKind, data, t);
+  const routeHints = getWorkflowNodeRouteHints(nodeKind, data, t);
   const validationIssues = getValidationIssues(data);
   const issueCount = validationIssues.length;
   const structural = nodeKind === 'start' || nodeKind === 'end';
@@ -424,7 +433,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const sessionReady = hasSession(data);
   const agentDisplay = compactAgent ? getWorkflowAgentDisplay(data) : null;
   const nodeState = getNodeUiState(data);
-  const nodeStateLabel = getWorkflowCanvasNodeStateLabel(nodeState);
+  const nodeStateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
   const isRunning = nodeState === 'running';
   const isStale = isNodeStaleForNextRun(data);
   const actions = getNodeActions(data);
@@ -489,13 +498,13 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         </div>
         <div className="min-w-0">
           <div className="truncate text-xs font-semibold">
-            {data.display_name || getWorkflowNodeKindLabel(nodeKind)}
+            {data.display_name || getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
             className="text-[9px] font-semibold uppercase tracking-normal text-low"
           >
-            {getWorkflowNodeKindLabel(nodeKind)}
+            {getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
         </div>
       </div>
@@ -572,10 +581,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       {isStale ? (
         <span
           data-testid={`workflow-node-stale-${id}`}
-          title="Configuration was updated after the latest run and applies to the next run."
+          title={t('workflow.canvas.updatedForNextRunTitle')}
           className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.staleBadge}
         >
-          Updated for next run
+          {t('workflow.canvas.updatedForNextRun')}
         </span>
       ) : null}
 
@@ -594,7 +603,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-high">
-            {data.display_name || type || 'Node'}
+            {data.display_name || type || t('workflow.canvas.nodeFallback')}
           </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
@@ -605,7 +614,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           >
             {agentDisplay
               ? agentDisplay.detailLabel
-              : getWorkflowNodeKindLabel(nodeKind)}
+              : getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
         </div>
       </div>
@@ -616,7 +625,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             data-testid={`workflow-node-summary-${id}`}
             className="truncate text-normal"
           >
-            {getWorkflowNodeSummary(nodeKind, data)}
+            {getWorkflowNodeSummary(nodeKind, data, t)}
           </div>
         ) : null}
 
@@ -640,11 +649,13 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
                   : 'border-white/10 bg-white/[0.04] text-low'
               )}
             >
-              {sessionReady ? 'Session ready' : 'Draft session'}
+              {sessionReady
+                ? t('workflow.canvas.sessionReady')
+                : t('workflow.canvas.draftSession')}
             </span>
           ) : (
             <span className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chip}>
-              {getWorkflowNodeKindLabel(nodeKind)}
+              {getWorkflowNodeKindLabel(nodeKind, t)}
             </span>
           )}
           {agentDisplay ? (
@@ -703,6 +714,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
 };
 
 function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
+  const { t } = useTranslation('common');
   const actions = getCanvasObjectActions(data);
   const readOnly = actions.readOnly === true;
   const color = data.color ?? 'amber';
@@ -732,7 +744,7 @@ function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
         <input
           className="nodrag nopan min-w-0 flex-1 bg-transparent text-xs font-semibold text-high outline-none placeholder:text-low"
           value={data.title ?? ''}
-          placeholder="Note"
+          placeholder={t('workflow.defaultGraph.noteTitle')}
           readOnly={readOnly}
           onChange={(event) =>
             actions.update?.(id, { title: event.target.value })
@@ -742,8 +754,8 @@ function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
         <button
           type="button"
           className="nodrag nopan flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/10 bg-black/20 text-low transition-colors hover:border-error/50 hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label="Delete note"
-          title="Delete note"
+          aria-label={t('workflow.canvas.deleteNote')}
+          title={t('workflow.canvas.deleteNote')}
           disabled={readOnly}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
@@ -757,7 +769,7 @@ function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
       <textarea
         className="nodrag nopan h-[calc(100%-2.25rem)] w-full resize-none bg-transparent text-xs leading-5 text-normal outline-none placeholder:text-low"
         value={data.content ?? ''}
-        placeholder="Write a note..."
+        placeholder={t('workflow.canvas.notePlaceholder')}
         readOnly={readOnly}
         onChange={(event) =>
           actions.update?.(id, { content: event.target.value })
@@ -769,6 +781,7 @@ function WorkflowStickyNoteNode({ id, data, selected }: CanvasObjectNodeProps) {
 }
 
 function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
+  const { t } = useTranslation('common');
   const actions = getCanvasObjectActions(data);
   const readOnly = actions.readOnly === true;
   const color = data.color ?? 'neutral';
@@ -799,7 +812,7 @@ function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
           <input
             className="min-w-0 flex-1 bg-transparent text-xs font-semibold uppercase tracking-normal text-low outline-none placeholder:text-low"
             value={data.title ?? ''}
-            placeholder="Stage"
+            placeholder={t('workflow.editor.stage')}
             readOnly={readOnly}
             onChange={(event) =>
               actions.update?.(id, { title: event.target.value })
@@ -809,8 +822,8 @@ function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
           <button
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/10 bg-black/15 text-low transition-colors hover:border-error/50 hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Delete stage group"
-            title="Delete stage group"
+            aria-label={t('workflow.canvas.deleteStageGroup')}
+            title={t('workflow.canvas.deleteStageGroup')}
             disabled={readOnly}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
@@ -824,7 +837,7 @@ function WorkflowStageGroupNode({ id, data, selected }: CanvasObjectNodeProps) {
         <textarea
           className="h-10 resize-none bg-transparent text-[11px] leading-4 text-low outline-none placeholder:text-low/70"
           value={data.description ?? ''}
-          placeholder="Stage description"
+          placeholder={t('workflow.canvas.stageDescriptionPlaceholder')}
           readOnly={readOnly}
           onChange={(event) =>
             actions.update?.(id, { description: event.target.value })
@@ -900,12 +913,13 @@ const WorkflowEdge = ({
   data,
   selected,
 }: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
+  const { t } = useTranslation('common');
   const workflowType = data?.workflowType ?? 'default';
   const onSelect = data?.onSelect;
   const onActionMenu = data?.onActionMenu;
   const visualStatus = data?.visualStatus ?? 'idle';
   const isRunning = visualStatus === 'running';
-  const visual = getWorkflowEdgeVisual(workflowType);
+  const visual = getWorkflowEdgeVisual(workflowType, t);
   const statusPathClass = WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES[visualStatus];
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -974,8 +988,8 @@ const WorkflowEdge = ({
                   y: event.clientY,
                 });
               }}
-              aria-label={`Open edge actions for ${id}`}
-              title="Edge actions"
+              aria-label={t('workflow.canvas.openEdgeActions', { id })}
+              title={t('workflow.editor.edgeActions')}
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>

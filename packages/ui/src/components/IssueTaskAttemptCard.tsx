@@ -116,7 +116,7 @@ export function IssueTaskAttemptCard({
                     className="text-destructive focus:text-destructive"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {t('workspaces.deleteWorkspace')}
+                    {t('attempts.deleteAttempt', 'Delete attempt')}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -130,7 +130,9 @@ export function IssueTaskAttemptCard({
           <span className="truncate">{attempt.subtitle}</span>
           {hasStats && (
             <span className="ml-half whitespace-nowrap">
-              {attempt.filesChanged ?? 0} files
+              {t('workspaces.filesChanged', {
+                count: attempt.filesChanged ?? 0,
+              })}
               {(attempt.linesAdded ?? 0) > 0 && (
                 <span className="ml-half text-success">
                   +{attempt.linesAdded}
@@ -150,7 +152,8 @@ export function IssueTaskAttemptCard({
               type="button"
               onClick={onRun}
               className="rounded-sm border border-secondary bg-primary p-half text-low transition-colors hover:text-high"
-              aria-label="Run workflow attempt"
+              aria-label={t('attempts.runWorkflow', 'Run workflow attempt')}
+              title={t('attempts.runWorkflow', 'Run workflow attempt')}
             >
               <Play className="h-3.5 w-3.5" />
             </button>

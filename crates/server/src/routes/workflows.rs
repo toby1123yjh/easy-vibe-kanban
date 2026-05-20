@@ -10,8 +10,10 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use db::models::{
+    scratch::DraftWorkspaceRepo,
     session::{CreateSession, Session},
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
+    workspace_repo::CreateWorkspaceRepo,
 };
 use deployment::Deployment;
 use futures_util::{StreamExt, stream};
@@ -40,7 +42,8 @@ use crate::{
             cancel_workflow_run_runtime, get_workflow_run_response,
             reconcile_workflow_run_with_arena, reject_human_node, retry_workflow_node_with_arena,
             select_arena_winner_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_for_attempt_with_arena, trigger_workflow_run_with_arena,
+            trigger_workflow_run_for_attempt_with_arena,
+            trigger_workflow_run_for_attempt_with_repos, trigger_workflow_run_with_arena,
             workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
@@ -90,6 +93,9 @@ pub struct TriggerWorkflowRequest {
 pub struct CreateWorkflowAttemptRequest {
     pub name: Option<String>,
     pub graph_json: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub repos: Vec<DraftWorkspaceRepo>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -97,6 +103,9 @@ pub struct RunWorkflowAttemptRequest {
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
     pub input_text: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub repos: Vec<DraftWorkspaceRepo>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -275,7 +284,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
         .route(
             "/v1/workflow-attempts/{attempt_id}",
-            get(get_workflow_attempt),
+            get(get_workflow_attempt).delete(delete_workflow_attempt),
         )
         .route(
             "/v1/workflow-attempts/{attempt_id}/run",
@@ -371,6 +380,14 @@ async fn get_workflow_attempt(
             .await?
             .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?,
     ))
+}
+
+async fn delete_workflow_attempt(
+    State(deployment): State<DeploymentImpl>,
+    Path(attempt_id): Path<Uuid>,
+) -> Result<ResponseJson<DeleteResponse>, ApiError> {
+    delete_issue_workflow_attempt(&deployment.db().pool, attempt_id).await?;
+    Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn get_workflow_attempt_by_workflow(
@@ -545,6 +562,7 @@ pub async fn create_issue_workflow_attempt_with_resources<W>(
 where
     W: WorkflowWorkspaceResolver,
 {
+    let repo_overrides = workflow_workspace_repo_overrides(&request.repos)?;
     let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
     let workspace_id = workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
@@ -552,6 +570,7 @@ where
             run_id: attempt.id,
             project_id: Some(project_id),
             existing_workspace_id: None,
+            repo_overrides,
             branch_name: main_workflow_branch_name(issue_id, attempt.id),
         })
         .await?;
@@ -568,7 +587,7 @@ where
         attempt.id,
         None,
         Some(workspace_id),
-        WorkflowAttemptStatus::Draft,
+        WorkflowAttemptStatus::Ready,
     )
     .await?;
 
@@ -577,6 +596,27 @@ where
         .ok_or_else(|| {
             ApiError::BadRequest("Workflow attempt not found after resource bind".to_string())
         })
+}
+
+fn workflow_workspace_repo_overrides(
+    repos: &[DraftWorkspaceRepo],
+) -> Result<Vec<CreateWorkspaceRepo>, ApiError> {
+    repos
+        .iter()
+        .map(|repo| {
+            let target_branch = repo.target_branch.trim();
+            if target_branch.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "Every selected workflow repository must include a target branch.".to_string(),
+                ));
+            }
+
+            Ok(CreateWorkspaceRepo {
+                repo_id: repo.repo_id,
+                target_branch: target_branch.to_string(),
+            })
+        })
+        .collect()
 }
 
 pub async fn ensure_agent_node_sessions(
@@ -767,6 +807,93 @@ pub async fn update_workflow_attempt_runtime(
     Ok(())
 }
 
+pub async fn mark_workflow_attempt_ready(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+) -> Result<(), ApiError> {
+    let result = sqlx::query(
+        r#"
+        UPDATE workflow_attempts
+        SET status = 'ready',
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ? AND status = 'draft'
+        "#,
+    )
+    .bind(attempt_id)
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 && workflow_attempt_by_id(pool, attempt_id).await?.is_none() {
+        return Err(ApiError::BadRequest(
+            "Workflow attempt not found".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+pub async fn delete_issue_workflow_attempt(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+) -> Result<(), ApiError> {
+    let attempt = workflow_attempt_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
+
+    if matches!(
+        attempt.status,
+        WorkflowAttemptStatus::Running
+            | WorkflowAttemptStatus::AwaitingHuman
+            | WorkflowAttemptStatus::AwaitingArena
+    ) {
+        return Err(ApiError::BadRequest(
+            "Cancel the running workflow attempt before deleting it.".to_string(),
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("UPDATE workflow_attempts SET latest_run_id = NULL WHERE id = ?")
+        .bind(attempt.id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM node_executions
+        WHERE run_id IN (
+            SELECT id
+            FROM workflow_runs
+            WHERE attempt_id = ? OR workflow_id = ?
+        )
+        "#,
+    )
+    .bind(attempt.id)
+    .bind(attempt.workflow_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM workflow_runs WHERE attempt_id = ? OR workflow_id = ?")
+        .bind(attempt.id)
+        .bind(attempt.workflow_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM workflow_attempts WHERE id = ?")
+        .bind(attempt.id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM workflows WHERE id = ?")
+        .bind(attempt.workflow_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(())
+}
+
 pub async fn run_workflow_attempt_runtime<W, A>(
     pool: &SqlitePool,
     attempt_id: Uuid,
@@ -806,8 +933,9 @@ where
     let attempt = workflow_attempt_by_id(pool, attempt_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
+    let repo_overrides = workflow_workspace_repo_overrides(&request.repos)?;
 
-    let run = trigger_workflow_run_for_attempt_with_arena(
+    let run = trigger_workflow_run_for_attempt_with_repos(
         pool,
         attempt.workflow_id,
         Some(attempt.id),
@@ -817,6 +945,7 @@ where
             trigger_source: request.trigger_source,
             input_text: request.input_text,
         },
+        repo_overrides,
         workspace_resolver,
         agent_executor,
         arena_creator,
@@ -902,6 +1031,10 @@ pub async fn update_workflow_template(
     .bind(workflow_id)
     .execute(pool)
     .await?;
+
+    if let Some(workflow_attempt) = workflow_attempt_by_workflow_id(pool, workflow_id).await? {
+        mark_workflow_attempt_ready(pool, workflow_attempt.id).await?;
+    }
 
     workflow_by_id(pool, workflow_id)
         .await?

@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use db::models::{
     execution_process::ExecutionProcessStatus,
+    scratch::DraftWorkspaceRepo,
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
 };
 use serde_json::{Value, json};
@@ -14,10 +15,10 @@ use server::{
         WorkflowNodeExecutionResponse, WorkflowRunResponse, WorkflowTemplateListResponse,
         WorkflowTemplateResponse, create_issue_workflow_attempt,
         create_issue_workflow_attempt_with_resources, create_project_workflow,
-        delete_workflow_template, fallback_node_executions_payload, fallback_workflow_runs_payload,
-        fallback_workflows_payload, list_project_workflows, run_workflow_attempt_runtime,
-        sync_attempt_from_run, update_workflow_template, workflow_attempt_by_id,
-        workflow_attempt_by_workflow_id,
+        delete_issue_workflow_attempt, delete_workflow_template, fallback_node_executions_payload,
+        fallback_workflow_runs_payload, fallback_workflows_payload, list_project_workflows,
+        run_workflow_attempt_runtime, sync_attempt_from_run, update_workflow_template,
+        workflow_attempt_by_id, workflow_attempt_by_workflow_id,
     },
     workflow_runtime::{
         arena::{
@@ -999,6 +1000,7 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
         CreateWorkflowAttemptRequest {
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1012,11 +1014,12 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
 }
 
 #[tokio::test]
-async fn create_workflow_attempt_with_resources_binds_workspace_before_canvas() {
+async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
+    let repo_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
     insert_local_issue(&pool, project_id, issue_id, "Build workflow attempt").await;
 
@@ -1028,6 +1031,10 @@ async fn create_workflow_attempt_with_resources_binds_workspace_before_canvas() 
         CreateWorkflowAttemptRequest {
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
+            repos: vec![DraftWorkspaceRepo {
+                repo_id,
+                target_branch: "main".to_string(),
+            }],
         },
         &workspace_resolver,
     )
@@ -1036,7 +1043,7 @@ async fn create_workflow_attempt_with_resources_binds_workspace_before_canvas() 
 
     assert_eq!(attempt.project_id, project_id);
     assert_eq!(attempt.issue_id, issue_id);
-    assert_eq!(attempt.status, WorkflowAttemptStatus::Draft);
+    assert_eq!(attempt.status, WorkflowAttemptStatus::Ready);
     assert_eq!(attempt.workspace_id, Some(workspace_id));
 
     let requests = workspace_resolver.requests();
@@ -1044,6 +1051,9 @@ async fn create_workflow_attempt_with_resources_binds_workspace_before_canvas() 
     assert_eq!(requests[0].issue_id, issue_id);
     assert_eq!(requests[0].project_id, Some(project_id));
     assert!(requests[0].existing_workspace_id.is_none());
+    assert_eq!(requests[0].repo_overrides.len(), 1);
+    assert_eq!(requests[0].repo_overrides[0].repo_id, repo_id);
+    assert_eq!(requests[0].repo_overrides[0].target_branch, "main");
 }
 
 #[tokio::test]
@@ -1061,6 +1071,7 @@ async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
         CreateWorkflowAttemptRequest {
             name: Some("Hidden attempt graph".to_string()),
             graph_json: valid_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1093,6 +1104,7 @@ async fn workflow_attempt_can_be_resolved_from_backing_workflow() {
         CreateWorkflowAttemptRequest {
             name: Some("Canvas-owned attempt".to_string()),
             graph_json: valid_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1106,6 +1118,94 @@ async fn workflow_attempt_can_be_resolved_from_backing_workflow() {
     assert_eq!(resolved.id, attempt.id);
     assert_eq!(resolved.issue_id, issue_id);
     assert_eq!(resolved.workflow_id, attempt.workflow_id);
+}
+
+#[tokio::test]
+async fn delete_workflow_attempt_removes_backing_graph_runs_and_nodes() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Delete attempt").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Delete me".to_string()),
+            graph_json: valid_graph_json(),
+            repos: Vec::new(),
+        },
+    )
+    .await
+    .expect("create workflow attempt");
+    let run_id = Uuid::new_v4();
+    let node_execution_id = Uuid::new_v4();
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs
+            (id, workflow_id, attempt_id, issue_id, trigger_source, input_text, status)
+        VALUES (?, ?, ?, ?, 'manual', 'run it', 'failed')
+        "#,
+    )
+    .bind(run_id)
+    .bind(attempt.workflow_id)
+    .bind(attempt.id)
+    .bind(issue_id)
+    .execute(&pool)
+    .await
+    .expect("insert workflow run");
+    sqlx::query("UPDATE workflow_attempts SET latest_run_id = ?, status = 'failed' WHERE id = ?")
+        .bind(run_id)
+        .bind(attempt.id)
+        .execute(&pool)
+        .await
+        .expect("link latest run");
+    sqlx::query(
+        r#"
+        INSERT INTO node_executions
+            (id, run_id, node_id, node_type, iteration, status)
+        VALUES (?, ?, 'agent', 'agent', 0, 'failed')
+        "#,
+    )
+    .bind(node_execution_id)
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("insert node execution");
+
+    delete_issue_workflow_attempt(&pool, attempt.id)
+        .await
+        .expect("delete workflow attempt");
+
+    let attempt_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM workflow_attempts WHERE id = ?")
+            .bind(attempt.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count attempts");
+    let workflow_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflows WHERE id = ?")
+        .bind(attempt.workflow_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count workflows");
+    let run_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs WHERE id = ?")
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count runs");
+    let node_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_executions WHERE id = ?")
+        .bind(node_execution_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count node executions");
+
+    assert_eq!(attempt_count, 0);
+    assert_eq!(workflow_count, 0);
+    assert_eq!(run_count, 0);
+    assert_eq!(node_count, 0);
 }
 
 #[tokio::test]
@@ -1125,6 +1225,7 @@ async fn workflow_attempt_create_rejects_issue_from_another_project() {
         CreateWorkflowAttemptRequest {
             name: Some("Invalid".to_string()),
             graph_json: valid_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1390,6 +1491,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
+    let repo_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
     insert_local_issue(&pool, project_id, issue_id, "Run workflow attempt").await;
 
@@ -1400,6 +1502,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
         CreateWorkflowAttemptRequest {
             name: Some("Attempt run".to_string()),
             graph_json: valid_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1414,6 +1517,10 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Implement by workflow".to_string(),
+            repos: vec![DraftWorkspaceRepo {
+                repo_id,
+                target_branch: "develop".to_string(),
+            }],
         },
         &workspace,
         &agent,
@@ -1429,6 +1536,15 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
     assert_eq!(refreshed.latest_run_id, Some(run.id));
     assert_eq!(refreshed.workspace_id, Some(workspace_id));
     assert_eq!(refreshed.status, WorkflowAttemptStatus::Succeeded);
+
+    let workspace_requests = workspace.requests();
+    assert_eq!(workspace_requests.len(), 1);
+    assert_eq!(workspace_requests[0].repo_overrides.len(), 1);
+    assert_eq!(workspace_requests[0].repo_overrides[0].repo_id, repo_id);
+    assert_eq!(
+        workspace_requests[0].repo_overrides[0].target_branch,
+        "develop"
+    );
 }
 
 #[tokio::test]
@@ -1448,6 +1564,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
         CreateWorkflowAttemptRequest {
             name: Some("Cancel attempt".to_string()),
             graph_json: agent_graph_json(),
+            repos: Vec::new(),
         },
     )
     .await
@@ -1462,6 +1579,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Long task".to_string(),
+            repos: Vec::new(),
         },
         &workspace,
         &agent,

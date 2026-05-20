@@ -269,8 +269,8 @@ mod tests {
                 ],
             ),
             (
-                "npx -y --package @openai/codex@0.124.0 codex",
-                vec!["-y", "--package", "@openai/codex@0.124.0", "codex"],
+                "npx -y --package @openai/codex@0.132.0 codex",
+                vec!["-y", "--package", "@openai/codex@0.132.0", "codex"],
             ),
             (
                 "npx -y --package @qwen-code/qwen-code@0.9.1 qwen",

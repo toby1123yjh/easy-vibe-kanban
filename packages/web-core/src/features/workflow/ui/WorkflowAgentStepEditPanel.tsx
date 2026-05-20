@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckIcon } from '@phosphor-icons/react';
 import { Loader2, X } from 'lucide-react';
 import { AgentIcon } from '@/shared/components/AgentIcon';
@@ -46,6 +47,7 @@ export function WorkflowAgentStepEditPanel({
   onClose,
   onSave,
 }: WorkflowAgentStepEditPanelProps) {
+  const { t } = useTranslation('common');
   const { profiles, config } = useUserSystem();
   const [displayName, setDisplayName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -91,7 +93,7 @@ export function WorkflowAgentStepEditPanel({
   const handleSave = () => {
     if (!canSave) return;
     onSave({
-      displayName: displayName.trim() || 'Agent Step',
+      displayName: displayName.trim() || t('workflow.agentEdit.defaultTitle'),
       prompt,
       executorConfig,
     });
@@ -105,10 +107,10 @@ export function WorkflowAgentStepEditPanel({
       <div className="flex shrink-0 items-start justify-between gap-base border-b border-secondary p-base">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-high">
-            Edit Agent Step
+            {t('workflow.agentEdit.title')}
           </h2>
           <p className="mt-1 text-xs text-low">
-            Configure the session prompt and executor for this step.
+            {t('workflow.agentEdit.description')}
           </p>
         </div>
         <Button
@@ -117,7 +119,7 @@ export function WorkflowAgentStepEditPanel({
           size="icon"
           className="h-8 w-8 shrink-0"
           onClick={onClose}
-          aria-label="Close editor"
+          aria-label={t('workflow.agentEdit.close')}
         >
           <X className="h-4 w-4" />
         </Button>
@@ -125,35 +127,35 @@ export function WorkflowAgentStepEditPanel({
 
       {isRunning ? (
         <div className="border-b border-brand/30 bg-brand/10 px-base py-half text-xs text-brand">
-          This step is currently running. Prompt and agent settings can be
-          edited after it finishes.
+          {t('workflow.agentEdit.runningHint')}
         </div>
       ) : hasExistingRun ? (
         <div className="border-b border-secondary bg-primary/40 px-base py-half text-xs text-low">
-          Changes apply to the next workflow run or the next trigger of this
-          step.
+          {t('workflow.agentEdit.nextRunHint')}
         </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col gap-base overflow-y-auto p-base">
         <label className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-high">Step title</span>
+          <span className="text-xs font-semibold text-high">
+            {t('workflow.agentEdit.stepTitle')}
+          </span>
           <input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             disabled={isTitleDisabled}
             className="h-10 rounded border border-secondary bg-primary px-3 text-sm text-high outline-none transition-colors placeholder:text-low focus:border-brand focus:ring-1 focus:ring-brand disabled:opacity-50"
-            placeholder="Agent Step"
+            placeholder={t('workflow.agentEdit.defaultTitle')}
           />
         </label>
 
         <div className="flex flex-col gap-2">
           <label className="text-xs font-semibold text-high">
-            Default prompt
+            {t('workflow.agentEdit.defaultPrompt')}
           </label>
           <div className="rounded border border-secondary bg-primary">
             <WYSIWYGEditor
-              placeholder="Describe what this agent step should do..."
+              placeholder={t('workflow.agentEdit.promptPlaceholder')}
               value={prompt}
               onChange={setPrompt}
               onCmdEnter={handleSave}
@@ -166,7 +168,9 @@ export function WorkflowAgentStepEditPanel({
         </div>
 
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-high">Executor</span>
+          <span className="text-xs font-semibold text-high">
+            {t('workflow.agentEdit.executor')}
+          </span>
           <div className="rounded border border-secondary bg-primary p-2">
             <div
               className={cn(
@@ -183,11 +187,13 @@ export function WorkflowAgentStepEditPanel({
                 label={
                   effectiveExecutor
                     ? toPrettyCase(effectiveExecutor)
-                    : 'Select Executor'
+                    : t('workflow.agentEdit.selectExecutor')
                 }
                 disabled={isConfigDisabled}
               >
-                <DropdownMenuLabel>Agent</DropdownMenuLabel>
+                <DropdownMenuLabel>
+                  {t('workflow.agentEdit.agent')}
+                </DropdownMenuLabel>
                 {executorOptions.map((executor) => (
                   <DropdownMenuItem
                     key={executor}
@@ -229,11 +235,11 @@ export function WorkflowAgentStepEditPanel({
 
       <div className="flex shrink-0 justify-end gap-half border-t border-secondary p-base">
         <Button variant="outline" disabled={isSaving} onClick={onClose}>
-          Cancel
+          {t('buttons.cancel')}
         </Button>
         <Button disabled={!canSave} onClick={handleSave}>
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Save step
+          {t('workflow.agentEdit.saveStep')}
         </Button>
       </div>
     </aside>

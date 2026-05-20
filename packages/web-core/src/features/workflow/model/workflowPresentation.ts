@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type {
   WorkflowEdgeKind,
   WorkflowNodeData,
@@ -14,12 +15,41 @@ const NODE_KIND_LABELS: Record<WorkflowNodeKind, string> = {
   arena: 'Arena',
 };
 
+const NODE_KIND_I18N_KEYS: Record<WorkflowNodeKind, string> = {
+  start: 'workflow.nodes.start.label',
+  end: 'workflow.nodes.end.label',
+  agent: 'workflow.nodes.agent.label',
+  condition: 'workflow.nodes.condition.label',
+  human_gate: 'workflow.nodes.humanGate.label',
+  transform: 'workflow.nodes.transform.label',
+  arena: 'workflow.nodes.arena.label',
+};
+
 const EDGE_LABELS: Record<Exclude<WorkflowEdgeKind, 'default'>, string> = {
   condition_branch: 'Condition',
   approval: 'Approve',
   rejection: 'Reject',
   arena_winner: 'Winner',
 };
+
+const EDGE_LABEL_I18N_KEYS: Record<
+  Exclude<WorkflowEdgeKind, 'default'>,
+  string
+> = {
+  condition_branch: 'workflow.edges.condition',
+  approval: 'workflow.edges.approve',
+  rejection: 'workflow.edges.reject',
+  arena_winner: 'workflow.edges.winner',
+};
+
+function translate(
+  t: TFunction<'common'> | undefined,
+  key: string,
+  fallback: string,
+  options?: Record<string, unknown>
+): string {
+  return t ? t(key, { defaultValue: fallback, ...options }) : fallback;
+}
 
 export interface WorkflowNodeVisual {
   accentClass: string;
@@ -142,29 +172,58 @@ const EDGE_KIND_OPTIONS: WorkflowEdgeKindOption[] = [
   },
 ];
 
-export function getWorkflowNodeKindLabel(kind: WorkflowNodeKind): string {
-  return NODE_KIND_LABELS[kind];
+export function getWorkflowNodeKindLabel(
+  kind: WorkflowNodeKind,
+  t?: TFunction<'common'>
+): string {
+  return translate(t, NODE_KIND_I18N_KEYS[kind], NODE_KIND_LABELS[kind]);
 }
 
 export function getWorkflowNodeSummary(
   kind: WorkflowNodeKind,
-  data: WorkflowNodeData
+  data: WorkflowNodeData,
+  t?: TFunction<'common'>
 ): string {
   switch (kind) {
     case 'start':
-      return 'Entry point';
+      return translate(t, 'workflow.nodes.start.summary', 'Entry point');
     case 'end':
-      return 'Exit point';
+      return translate(t, 'workflow.nodes.end.summary', 'Exit point');
     case 'agent':
-      return `Role: ${String(data.role_template_id || 'custom')}`;
+      return translate(t, 'workflow.nodes.agent.summary', 'Role: {{role}}', {
+        role: String(data.role_template_id || 'custom'),
+      });
     case 'condition':
-      return `Branches: ${Array.isArray(data.branches) ? data.branches.length : 0}`;
+      return translate(
+        t,
+        'workflow.nodes.condition.summary',
+        'Branches: {{count}}',
+        { count: Array.isArray(data.branches) ? data.branches.length : 0 }
+      );
     case 'human_gate':
-      return 'Waits for approval';
+      return translate(
+        t,
+        'workflow.nodes.humanGate.summary',
+        'Waits for approval'
+      );
     case 'transform':
-      return `Mode: ${String(data.mode || 'template')}`;
+      return translate(
+        t,
+        'workflow.nodes.transform.summary',
+        'Mode: {{mode}}',
+        {
+          mode: String(data.mode || 'template'),
+        }
+      );
     case 'arena':
-      return `Attempts: ${Array.isArray(data.attempts) ? data.attempts.length : 0}`;
+      return translate(
+        t,
+        'workflow.nodes.arena.summary',
+        'Attempts: {{count}}',
+        {
+          count: Array.isArray(data.attempts) ? data.attempts.length : 0,
+        }
+      );
   }
 }
 
@@ -180,46 +239,68 @@ function formatToken(value: unknown, fallback: string): string {
 
 export function getWorkflowNodeMetadata(
   kind: WorkflowNodeKind,
-  data: WorkflowNodeData
+  data: WorkflowNodeData,
+  t?: TFunction<'common'>
 ): WorkflowNodeMetadataChip[] {
   switch (kind) {
     case 'start':
-      return [{ label: 'Trigger', value: 'manual' }];
+      return [
+        {
+          label: translate(t, 'workflow.metadata.trigger', 'Trigger'),
+          value: 'manual',
+        },
+      ];
     case 'end':
-      return [{ label: 'State', value: 'terminal' }];
+      return [
+        {
+          label: translate(t, 'workflow.metadata.state', 'State'),
+          value: 'terminal',
+        },
+      ];
     case 'agent':
       return [
-        { label: 'Role', value: formatToken(data.role_template_id, 'custom') },
+        {
+          label: translate(t, 'workflow.metadata.role', 'Role'),
+          value: formatToken(data.role_template_id, 'custom'),
+        },
       ];
     case 'condition':
       return [
         {
-          label: 'Branches',
+          label: translate(t, 'workflow.metadata.branches', 'Branches'),
           value: String(
             Array.isArray(data.branches) ? data.branches.length : 0
           ),
         },
-        { label: 'Logic', value: String(data.joiner || 'and').toUpperCase() },
+        {
+          label: translate(t, 'workflow.metadata.logic', 'Logic'),
+          value: String(data.joiner || 'and').toUpperCase(),
+        },
       ];
     case 'human_gate':
       return [
         {
-          label: 'Action',
+          label: translate(t, 'workflow.metadata.action', 'Action'),
           value: formatToken(data.required_action, 'approve or reject'),
         },
       ];
     case 'transform':
-      return [{ label: 'Mode', value: formatToken(data.mode, 'template') }];
+      return [
+        {
+          label: translate(t, 'workflow.metadata.mode', 'Mode'),
+          value: formatToken(data.mode, 'template'),
+        },
+      ];
     case 'arena':
       return [
         {
-          label: 'Attempts',
+          label: translate(t, 'workflow.metadata.attempts', 'Attempts'),
           value: String(
             Array.isArray(data.attempts) ? data.attempts.length : 0
           ),
         },
         {
-          label: 'Promote',
+          label: translate(t, 'workflow.metadata.promote', 'Promote'),
           value: formatToken(data.promote_strategy, 'manual'),
         },
       ];
@@ -228,44 +309,76 @@ export function getWorkflowNodeMetadata(
 
 export function getWorkflowNodeRouteHints(
   kind: WorkflowNodeKind,
-  data: WorkflowNodeData
+  data: WorkflowNodeData,
+  t?: TFunction<'common'>
 ): WorkflowNodeRouteHint[] {
   if (kind === 'condition') {
     return (data.branches ?? []).slice(0, 3).map((branch, index) => ({
-      label: branch.name || `Branch ${index + 1}`,
+      label:
+        branch.name ||
+        translate(t, 'workflow.metadata.branch', 'Branch {{index}}', {
+          index: index + 1,
+        }),
       tone: index === 0 ? 'success' : 'warning',
     }));
   }
 
   if (kind === 'human_gate') {
     return [
-      { label: 'Approve', tone: 'success' },
-      { label: 'Reject', tone: 'danger' },
+      {
+        label: translate(t, 'workflow.edges.approve', 'Approve'),
+        tone: 'success',
+      },
+      {
+        label: translate(t, 'workflow.edges.reject', 'Reject'),
+        tone: 'danger',
+      },
     ];
   }
 
   if (kind === 'arena') {
-    return [{ label: 'Winner', tone: 'brand' }];
+    return [
+      { label: translate(t, 'workflow.edges.winner', 'Winner'), tone: 'brand' },
+    ];
   }
 
   return [];
 }
 
 export function getWorkflowEdgeLabel(
-  kind: WorkflowEdgeKind
+  kind: WorkflowEdgeKind,
+  t?: TFunction<'common'>
 ): string | undefined {
   if (kind === 'default') {
     return undefined;
   }
-  return EDGE_LABELS[kind];
+  return translate(t, EDGE_LABEL_I18N_KEYS[kind], EDGE_LABELS[kind]);
 }
 
 export function getWorkflowEdgeVisual(
-  kind: WorkflowEdgeKind
+  kind: WorkflowEdgeKind,
+  t?: TFunction<'common'>
 ): WorkflowEdgeVisual {
-  return EDGE_VISUALS[kind];
+  const visual = EDGE_VISUALS[kind];
+  if (kind === 'default') {
+    return visual;
+  }
+  return {
+    ...visual,
+    label: getWorkflowEdgeLabel(kind, t),
+  };
 }
 
-export function getWorkflowEdgeKindOptions(): WorkflowEdgeKindOption[] {
-  return EDGE_KIND_OPTIONS;
+export function getWorkflowEdgeKindOptions(
+  t?: TFunction<'common'>
+): WorkflowEdgeKindOption[] {
+  if (!t) return EDGE_KIND_OPTIONS;
+  return EDGE_KIND_OPTIONS.map((option) => ({
+    ...option,
+    label:
+      option.value === 'default'
+        ? t('workflow.edges.default')
+        : (getWorkflowEdgeLabel(option.value, t) ?? option.label),
+    description: t(`workflow.edges.options.${option.value}`),
+  }));
 }

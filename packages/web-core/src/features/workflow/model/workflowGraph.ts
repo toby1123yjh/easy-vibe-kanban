@@ -209,8 +209,25 @@ const DEFAULT_WORKFLOW_LAYOUT = {
   end: { x: 780, y: 190 },
 } as const satisfies Record<string, WorkflowNodePosition>;
 
-const DEFAULT_AGENT_PROMPT =
-  '熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。';
+export interface WorkflowGraphDefaultLabels {
+  startLabel: string;
+  endLabel: string;
+  familiarizeLabel: string;
+  agentPrompt: string;
+  stageTitle: string;
+  stageDescription: string;
+}
+
+const DEFAULT_WORKFLOW_GRAPH_LABELS: WorkflowGraphDefaultLabels = {
+  startLabel: 'Start',
+  endLabel: 'End',
+  familiarizeLabel: 'Understand project',
+  agentPrompt:
+    'Review the current project structure, key modules, and task context. Summarize your understanding, risks, and next implementation plan.',
+  stageTitle: 'Stage 1: Understand project',
+  stageDescription:
+    'Start by understanding the project, then add implementation, review, or test nodes as needed.',
+};
 
 const DEFAULT_NOTE_SIZE: WorkflowCanvasObjectSize = {
   width: 280,
@@ -360,30 +377,34 @@ export function clearConditionBranchTargetForEdge(
   };
 }
 
-export function createDefaultWorkflowGraph(): WorkflowGraph {
+export function createDefaultWorkflowGraph(
+  labels: Partial<WorkflowGraphDefaultLabels> = {}
+): WorkflowGraph {
+  const copy = { ...DEFAULT_WORKFLOW_GRAPH_LABELS, ...labels };
+
   return {
     version: WORKFLOW_GRAPH_VERSION,
     nodes: [
       {
         id: 'start',
         type: 'start',
-        data: { display_name: 'Start' },
+        data: { display_name: copy.startLabel },
         position: DEFAULT_WORKFLOW_LAYOUT.start,
       },
       {
         id: 'familiarize',
         type: 'agent',
         data: {
-          display_name: '熟悉项目',
+          display_name: copy.familiarizeLabel,
           role_template_id: 'custom',
-          prompt_template: DEFAULT_AGENT_PROMPT,
+          prompt_template: copy.agentPrompt,
         },
         position: DEFAULT_WORKFLOW_LAYOUT.agent,
       },
       {
         id: 'end',
         type: 'end',
-        data: { display_name: 'End' },
+        data: { display_name: copy.endLabel },
         position: DEFAULT_WORKFLOW_LAYOUT.end,
       },
     ],
@@ -410,9 +431,8 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
         {
           id: 'stage-understand',
           type: 'stage_group',
-          title: '阶段 1：理解项目',
-          description:
-            '默认从熟悉项目开始，后续可以继续添加实现、评审、测试节点。',
+          title: copy.stageTitle,
+          description: copy.stageDescription,
           position: { x: 70, y: 105 },
           size: DEFAULT_GROUP_SIZE,
           color: 'neutral',

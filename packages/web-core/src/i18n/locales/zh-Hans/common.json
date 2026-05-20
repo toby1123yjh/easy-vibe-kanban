@@ -19,7 +19,7 @@
     "discard": "放弃",
     "addItem": "添加项目",
     "reply": "回复",
-    "retry": "Retry",
+    "retry": "重试",
     "add": "添加"
   },
   "form": {
@@ -297,14 +297,485 @@
       "cannotDeleteOpenPr": "PR 开启时无法删除分支",
       "unlinkFromIssueLabel": "同时取消与议题的关联"
     },
-    "linkError": "Failed to link workspace"
+    "linkError": "关联工作区失败"
   },
   "attempts": {
     "title": "\u4efb\u52a1\u5c1d\u8bd5",
     "loading": "\u6b63\u5728\u52a0\u8f7d\u4efb\u52a1\u5c1d\u8bd5...",
     "empty": "\u6682\u65e0\u4efb\u52a1\u5c1d\u8bd5\u3002",
     "newWorkflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41\u5c1d\u8bd5",
-    "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u5c1d\u8bd5"
+    "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u5c1d\u8bd5",
+    "workflowFallbackTitle": "工作流尝试",
+    "singleAgentFallbackTitle": "单智能体尝试",
+    "draftWorkflow": "工作流尝试草稿",
+    "workflowRun": "运行 {{id}}",
+    "workspace": "工作区 {{id}}",
+    "remoteWorkspace": "远程工作区",
+    "openCanvas": "打开画布",
+    "openSession": "打开会话",
+    "runWorkflow": "运行工作流尝试",
+    "deleteAttempt": "删除尝试",
+    "deleteWorkflowTitle": "删除工作流尝试？",
+    "deleteWorkflowMessage": "这会删除该工作流尝试、画布和运行记录。此操作无法撤销。",
+    "deleteWorkflowError": "删除工作流尝试失败。",
+    "status": {
+      "draft": "草稿",
+      "ready": "就绪",
+      "running": "运行中",
+      "awaitingHuman": "等待人工处理",
+      "awaitingArena": "等待 Arena",
+      "succeeded": "已成功",
+      "failed": "已失败",
+      "canceled": "已取消",
+      "archived": "已归档",
+      "completed": "已完成",
+      "active": "活跃"
+    }
+  },
+  "workflow": {
+    "entry": {
+      "title": "工作流尝试",
+      "subtitle": "先设计任务尝试，再运行智能体",
+      "openCanvas": "打开画布",
+      "openCanvasAria": "打开工作流尝试画布"
+    },
+    "draft": {
+      "name": "{{title}} 的工作流尝试",
+      "untitledTask": "未命名任务"
+    },
+    "defaultGraph": {
+      "familiarizeLabel": "熟悉项目",
+      "agentPrompt": "熟悉当前项目结构、关键模块和任务背景，输出你的理解、风险点和下一步实施方案。",
+      "stageTitle": "阶段 1：理解项目",
+      "stageDescription": "默认从熟悉项目开始，后续可以继续添加实现、评审、测试节点。",
+      "noteTitle": "笔记",
+      "noteContent": "记录这个阶段的目标、约束或注意事项。",
+      "newStageTitle": "新阶段",
+      "newStageDescription": "把相关智能体步骤放在同一阶段内。"
+    },
+    "nodes": {
+      "start": {
+        "label": "开始",
+        "summary": "工作流入口"
+      },
+      "end": {
+        "label": "结束",
+        "summary": "工作流出口"
+      },
+      "agent": {
+        "label": "智能体步骤",
+        "summary": "角色：{{role}}"
+      },
+      "condition": {
+        "label": "条件",
+        "summary": "分支：{{count}}"
+      },
+      "humanGate": {
+        "label": "人工确认",
+        "summary": "等待人工批准"
+      },
+      "transform": {
+        "label": "转换",
+        "summary": "模式：{{mode}}"
+      },
+      "arena": {
+        "label": "Arena",
+        "summary": "尝试：{{count}}",
+        "attemptA": "尝试 A",
+        "attemptB": "尝试 B"
+      }
+    },
+    "edges": {
+      "default": "默认",
+      "condition": "条件",
+      "approve": "批准",
+      "reject": "拒绝",
+      "winner": "胜出项",
+      "options": {
+        "default": "继续到下一个节点。",
+        "condition_branch": "通过条件分支路由。",
+        "approval": "人工批准后继续。",
+        "rejection": "人工拒绝后路由。",
+        "arena_winner": "提升 Arena 中的胜出尝试。"
+      }
+    },
+    "metadata": {
+      "trigger": "触发器",
+      "state": "状态",
+      "role": "角色",
+      "branches": "分支",
+      "logic": "逻辑",
+      "action": "操作",
+      "mode": "模式",
+      "attempts": "尝试",
+      "promote": "提升",
+      "branch": "分支 {{index}}"
+    },
+    "fields": {
+      "display_name": "显示名称",
+      "role_template_id": "角色模板 ID",
+      "prompt_template": "提示词模板",
+      "joiner": "连接方式",
+      "conditions": "规则",
+      "branches": "分支",
+      "prompt_to_human": "给人工的提示词",
+      "required_action": "必需操作",
+      "mode": "模式",
+      "template": "模板",
+      "regex": "正则表达式",
+      "max_chars": "最大字符数",
+      "attempts": "尝试"
+    },
+    "fieldOptions": {
+      "joiner": {
+        "and": "并且",
+        "or": "或者"
+      },
+      "required_action": {
+        "approve": "仅批准",
+        "approve_or_reject": "批准或拒绝"
+      },
+      "mode": {
+        "template": "模板",
+        "regex_extract": "正则提取",
+        "truncate": "截断"
+      }
+    },
+    "operators": {
+      "contains": "包含",
+      "equals": "等于",
+      "notEquals": "不等于",
+      "regex": "正则表达式"
+    },
+    "canvasState": {
+      "draft": "草稿",
+      "configured": "已配置",
+      "pending": "待开始",
+      "running": "运行中",
+      "succeeded": "已完成",
+      "failed": "已失败",
+      "waiting": "等待中",
+      "skipped": "已跳过"
+    },
+    "errors": {
+      "createDraftFailed": "创建工作流草稿失败。",
+      "notLinkedToAttempt": "此工作流未关联到任务尝试。",
+      "repositoryRequired": "此工作流需要一个至少包含一个仓库的工作区。请在开始运行前至少选择一个仓库。",
+      "runInputRequired": "请先填写运行输入，再启动工作流。",
+      "draftMissing": "这个本地工作流草稿已不存在，请重新新建工作流尝试。",
+      "saveBeforeRun": "请先保存工作流尝试，再启动运行。",
+      "saveBeforeSession": "请先保存工作流尝试，再打开智能体会话。",
+      "startFailed": "启动工作流运行失败。",
+      "invalidGraph": "工作流图 JSON 不包含有效图。",
+      "parseGraphFailed": "无法解析工作流图 JSON。"
+    },
+    "repositoryDialog": {
+      "title": "新建工作流尝试",
+      "errors": {
+        "repositoryRequired": "创建工作流前请至少选择一个仓库。",
+        "branchRequired": "创建工作流前请为每个仓库选择分支。"
+      }
+    },
+    "runDialog": {
+      "title": "运行工作流尝试",
+      "description": "启动这个关联议题的工作流尝试。",
+      "mainWorkspace": "主工作区",
+      "createWorkflowWorkspace": "创建工作流工作区",
+      "usesExistingWorkspace": "使用现有工作区。",
+      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的现有工作区。",
+      "createWorkspaceHint": "后端会为本次运行创建专用的工作流工作区。",
+      "runInput": "运行输入",
+      "startRun": "开始运行"
+    },
+    "editor": {
+      "runAttempt": "运行工作流尝试",
+      "runWorkflow": "运行工作流",
+      "loadFailed": "加载工作流失败：{{message}}",
+      "backToWorkflows": "返回工作流列表",
+      "workflowNamePlaceholder": "工作流名称",
+      "descriptionPlaceholder": "描述",
+      "systemTemplateReadOnly": "系统模板（只读）",
+      "addAgentStep": "添加智能体步骤",
+      "addNextAgentStep": "添加下一个智能体步骤",
+      "tidy": "整理",
+      "note": "笔记",
+      "stage": "阶段",
+      "validate": "校验",
+      "validation": "校验",
+      "graphValid": "工作流图有效",
+      "validationFound": "校验发现 {{count}} 个问题。",
+      "validationFound_other": "校验发现 {{count}} 个问题。",
+      "openLatestRun": "打开最新运行",
+      "copyToProject": "复制到项目",
+      "copyName": "{{name}}（副本）",
+      "copySuffix": "副本",
+      "deleteAgentStepTitle": "删除智能体步骤",
+      "deleteAgentStepMessage": "这会从工作流图中移除此步骤。现有会话历史不会复制到其他步骤。",
+      "agentStepActions": "智能体步骤操作",
+      "openSession": "打开会话",
+      "duplicate": "复制",
+      "runStep": "运行步骤",
+      "edgeActions": "连线操作",
+      "insertAgentStep": "插入智能体步骤",
+      "reconnect": "重新连接",
+      "reconnectSource": "重新连接源节点",
+      "reconnectTarget": "重新连接目标节点",
+      "deleteEdge": "删除连线",
+      "runWorkflowToExecuteStep": "运行工作流以执行此步骤。"
+    },
+    "canvas": {
+      "openSession": "打开会话",
+      "runStep": "运行步骤",
+      "runStepUnavailable": "暂不支持单步运行。",
+      "addNextAgentStep": "添加下一个智能体步骤",
+      "nodeFallback": "节点",
+      "updatedForNextRunTitle": "配置已在最新运行后更新，会在下一次运行时生效。",
+      "updatedForNextRun": "下次运行生效",
+      "sessionReady": "会话已就绪",
+      "draftSession": "会话草稿",
+      "deleteNote": "删除笔记",
+      "notePlaceholder": "写一条笔记...",
+      "deleteStageGroup": "删除阶段组",
+      "stageDescriptionPlaceholder": "阶段描述",
+      "openEdgeActions": "打开 {{id}} 的连线操作"
+    },
+    "agentEdit": {
+      "title": "编辑智能体步骤",
+      "description": "配置此步骤的会话提示词和执行器。",
+      "close": "关闭编辑器",
+      "runningHint": "此步骤正在运行。提示词和智能体设置可在运行结束后编辑。",
+      "nextRunHint": "改动会在下一次工作流运行或下一次触发此步骤时生效。",
+      "stepTitle": "步骤标题",
+      "defaultTitle": "智能体步骤",
+      "defaultPrompt": "默认提示词",
+      "promptPlaceholder": "描述这个智能体步骤要做什么...",
+      "executor": "执行器",
+      "selectExecutor": "选择执行器",
+      "agent": "智能体",
+      "saveStep": "保存步骤"
+    },
+    "inspector": {
+      "selectNode": "选择节点以查看详情",
+      "selectEdge": "选择连线以查看详情",
+      "step": "步骤",
+      "rules": "规则",
+      "addRule": "添加规则",
+      "ruleLabel": "规则 {{index}}",
+      "removeRule": "移除规则 {{index}}",
+      "inputPlaceholder": "输入",
+      "valuePlaceholder": "值",
+      "branches": "分支",
+      "addBranch": "添加分支",
+      "branchName": "分支 {{index}} 名称",
+      "removeBranch": "移除分支 {{index}}",
+      "attempts": "尝试",
+      "attemptLabel": "尝试 {{index}}",
+      "addAttempt": "添加尝试",
+      "removeAttempt": "移除尝试 {{index}}",
+      "promptOverride": "提示词模板覆盖",
+      "edgeProperties": "连线属性",
+      "source": "源节点",
+      "target": "目标节点",
+      "routeType": "路由类型",
+      "conditionBranch": "条件分支",
+      "selectBranch": "选择分支",
+      "edgeId": "连线 ID"
+    },
+    "agentDraft": {
+      "defaultStepName": "智能体步骤",
+      "promptPlaceholder": "描述这个工作流步骤...",
+      "selectExecutor": "选择执行器",
+      "startRun": "开始运行",
+      "starting": "正在启动..."
+    },
+    "templates": {
+      "title": "工作流",
+      "newCanvas": "新建画布",
+      "newWorkflowName": "新建工作流",
+      "loadFailed": "加载工作流失败：{{message}}",
+      "emptyTitle": "还没有工作流画布",
+      "emptyDescription": "从这个项目的空白画布开始。",
+      "createCanvas": "创建画布",
+      "untitled": "未命名",
+      "noDescription": "没有描述。",
+      "updated": "更新于 {{date}}",
+      "openCanvas": "打开画布"
+    },
+    "runPage": {
+      "loadingRun": "正在加载运行...",
+      "loadFailed": "加载运行 {{runId}} 失败",
+      "canvas": "画布",
+      "dashboard": "仪表盘",
+      "taskAttempt": "任务尝试 {{id}}",
+      "workflowRun": "工作流运行 {{id}}"
+    },
+    "runCanvas": {
+      "loadingGraph": "正在加载工作流图...",
+      "loadGraphFailed": "无法加载本次运行的工作流图。",
+      "nodeDetails": "节点详情",
+      "notExecutedYet": "尚未执行",
+      "selectNode": "选择节点",
+      "nodeNotExecuted": "此节点尚未执行。",
+      "selectNodeDetails": "在画布中选择一个节点以查看详情。",
+      "humanActionRequired": "需要人工操作",
+      "reviewNodeToProceed": "请检查此节点以继续。",
+      "approving": "正在批准...",
+      "rejecting": "正在拒绝...",
+      "conversationAgentOnly": "只有智能体节点支持会话。",
+      "executionId": "执行 ID",
+      "nodeId": "节点 ID",
+      "nodeType": "节点类型",
+      "workspaceId": "工作区 ID",
+      "noWorkspace": "无工作区",
+      "started": "开始时间",
+      "finished": "完成时间",
+      "notFinished": "尚未完成"
+    },
+    "debug": {
+      "noDebugData": "此步骤没有调试数据。",
+      "runInput": "运行输入",
+      "noRunInput": "没有运行输入。",
+      "promptTemplate": "提示词模板",
+      "noPromptTemplate": "没有提示词模板。",
+      "renderedPrompt": "渲染后的提示词",
+      "noRenderedPrompt": "没有渲染后的提示词。",
+      "upstreamOutputs": "上游输出",
+      "noUpstreamOutput": "没有上游输出。",
+      "noSessionId": "没有会话 ID。",
+      "noProcessId": "没有进程 ID。"
+    },
+    "runStatus": {
+      "pending": "待开始",
+      "running": "运行中",
+      "awaitingHuman": "等待人工处理",
+      "awaitingArena": "等待 Arena",
+      "succeeded": "已成功",
+      "failed": "已失败",
+      "canceled": "已取消"
+    },
+    "nodeStatus": {
+      "pending": "待开始",
+      "running": "运行中",
+      "succeeded": "已成功",
+      "failed": "已失败",
+      "awaitingHuman": "等待人工处理",
+      "awaitingArena": "等待 Arena",
+      "skipped": "已跳过"
+    },
+    "dashboard": {
+      "runDetails": "运行详情",
+      "issueId": "议题 ID",
+      "workflow": "工作流",
+      "runId": "运行 ID",
+      "status": "状态",
+      "progress": "进度",
+      "cancelRun": "取消运行",
+      "cancelFailed": "取消工作流运行失败。",
+      "retryFailed": "重试工作流步骤失败。",
+      "approveFailed": "批准工作流步骤失败。",
+      "rejectFailed": "拒绝工作流步骤失败。",
+      "stepsSucceeded": "{{completed}} / {{total}} 个步骤已成功",
+      "runningCount": "{{count}} 个运行中",
+      "waitingCount": "{{count}} 个等待中",
+      "failedCount": "{{count}} 个失败",
+      "skippedCount": "{{count}} 个已跳过",
+      "stepsTimeline": "步骤时间线",
+      "noStepsExecuted": "还没有执行步骤。",
+      "session": "会话",
+      "retryStep": "重试步骤",
+      "codeChanges": "代码改动",
+      "openWorkflowWorkspace": "打开工作流工作区",
+      "noCodeChanges": "本次运行没有关联的代码改动。",
+      "selectedStep": "步骤：{{nodeId}}",
+      "selectStep": "选择一个步骤",
+      "noStepSelected": "未选择步骤。",
+      "input": "输入",
+      "output": "输出",
+      "noInput": "没有输入",
+      "noOutput": "没有输出",
+      "error": "错误",
+      "approve": "批准",
+      "reject": "拒绝",
+      "decisionsMade": "已做决策",
+      "noDecisionNodes": "本次运行没有决策节点。",
+      "conditionMet": "满足条件",
+      "none": "无",
+      "arenaGroup": "Arena 组",
+      "pickWinner": "选择胜出项",
+      "winner": "胜出项",
+      "agentContribution": "智能体贡献",
+      "totalTokens": "Token 总数",
+      "estimatedCost": "预估成本",
+      "agentSteps": "智能体步骤",
+      "controlSteps": "控制步骤",
+      "notStarted": "未开始",
+      "notAvailable": "不适用"
+    },
+    "agentSessions": {
+      "title": "智能体会话",
+      "none": "这个智能体步骤在本次运行中还没有创建会话。",
+      "session": "会话 {{id}}",
+      "run": "运行 {{id}}",
+      "process": "进程 {{id}}",
+      "open": "打开",
+      "noOutputYet": "还没有输出"
+    },
+    "arenaWinner": {
+      "title": "需要选择 Arena 结果",
+      "description": "选择一个已完成的尝试，将它的差异应用回工作流工作区。",
+      "selectFailed": "选择 Arena 获胜结果失败。",
+      "noGroupLink": "Arena 分组链接不可用。",
+      "loadingAttempts": "正在加载尝试...",
+      "loadFailed": "加载 Arena 分组失败：{{message}}",
+      "unknownError": "未知错误",
+      "noAttempts": "还没有可用的 Arena 尝试。",
+      "unknownExecutor": "未知执行器",
+      "changes": "有变更",
+      "noChanges": "无变更",
+      "changesUnknown": "变更未知",
+      "openWorkspace": "打开 {{label}} 工作区",
+      "selected": "已选择",
+      "applying": "正在应用...",
+      "selectWinner": "选择获胜结果",
+      "status": {
+        "notStarted": "未开始",
+        "unknown": "未知",
+        "active": "活跃",
+        "promoted": "已提升",
+        "completed": "已完成",
+        "running": "运行中",
+        "failed": "失败",
+        "canceled": "已取消"
+      }
+    },
+    "nodeSession": {
+      "agentStepSession": "智能体步骤会话",
+      "nodeSession": "节点会话",
+      "sessionNotStarted": "会话尚未开始",
+      "cockpit": "智能体步骤控制台",
+      "runThisStep": "运行此步骤",
+      "editConfig": "编辑配置",
+      "openWorkspace": "打开工作区",
+      "lastRunFailed": "上次运行失败",
+      "failedWithoutMessage": "智能体步骤失败，但没有捕获到错误消息。",
+      "runningNow": "正在运行",
+      "startedDuration": "开始于 {{started}} / {{duration}}",
+      "agentWorking": "智能体正在此会话中工作。",
+      "waitingForDecision": "此步骤正在等待决策，之后工作流才会继续。",
+      "lastRunSucceeded": "上次运行成功",
+      "finishedDuration": "完成于 {{finished}} / {{duration}}",
+      "notStartedYet": "尚未开始",
+      "readyForConversation": "会话已就绪，可手动对话或等待下一次工作流运行。",
+      "noSessionYet": "此步骤尚未创建会话。",
+      "technicalDetails": "技术详情",
+      "sessionId": "会话 ID",
+      "processId": "进程 ID",
+      "conversation": "会话",
+      "session": "会话：{{id}}",
+      "noAgentResponse": "尚未捕获到智能体响应。",
+      "nodePrompt": "节点提示词",
+      "noPrompt": "尚未捕获到提示词。"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "搜索文件...",
@@ -362,8 +833,8 @@
     "noResults": "未找到结果。",
     "back": "返回",
     "defaultPlaceholder": "输入命令或搜索...",
-    "selectBranch": "Select Branch",
-    "selectBranchFor": "Select Branch for {{repoName}}"
+    "selectBranch": "选择分支",
+    "selectBranchFor": "为 {{repoName}} 选择分支"
   },
   "workspacesGuide": {
     "welcome": {
@@ -450,7 +921,7 @@
       "moveLeft": "向左移动",
       "moveRight": "向右移动",
       "openCommandBar": "打开命令栏",
-      "formatInlineCode": "Format inline code",
+      "formatInlineCode": "格式化行内代码",
       "sendMessage": "发送消息",
       "settings": "前往设置",
       "new-workspace": "前往新工作区",
@@ -554,81 +1025,81 @@
       "description": "请登录以查看此项目。",
       "action": "登录"
     },
-    "team": "Team",
-    "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
-    "filters": "Filters",
-    "clearFilters": "Clear filters",
-    "filtersDescription": "Adjust filters and sorting for this board view.",
-    "filterByTag": "Filter by tag",
-    "filterByPriority": "Filter by priority",
-    "tags": "Tags",
-    "sortBy": "Sort",
+    "team": "团队",
+    "personal": "个人",
+    "searchPlaceholder": "搜索问题...",
+    "filters": "筛选",
+    "clearFilters": "清除筛选",
+    "filtersDescription": "调整此看板视图的筛选和排序。",
+    "filterByTag": "按标签筛选",
+    "filterByPriority": "按优先级筛选",
+    "tags": "标签",
+    "sortBy": "排序",
     "workspaceSidebar": {
-      "sortDialogTitle": "Sort workspaces",
-      "sortDialogDescription": "Choose how workspaces are ordered in the sidebar.",
-      "sortByLabel": "Sort by",
-      "sortOrderLabel": "Sort order",
-      "sortUpdatedAt": "Updated at",
-      "sortCreatedAt": "Created at",
-      "filterDialogTitle": "Filter workspaces",
-      "filterDialogDescription": "Narrow down workspaces by project and PR state.",
-      "projectFilterLabel": "Project",
+      "sortDialogTitle": "排序工作区",
+      "sortDialogDescription": "选择侧边栏中工作区的排序方式。",
+      "sortByLabel": "排序依据",
+      "sortOrderLabel": "排序顺序",
+      "sortUpdatedAt": "更新时间",
+      "sortCreatedAt": "创建时间",
+      "filterDialogTitle": "筛选工作区",
+      "filterDialogDescription": "按项目和 PR 状态缩小工作区范围。",
+      "projectFilterLabel": "项目",
       "prFilterLabel": "PR",
-      "prFilterAll": "All",
-      "prFilterHasPr": "Has PR",
-      "prFilterNoPr": "No PR",
-      "noProject": "No project",
-      "sortButtonTitle": "Sort workspaces",
-      "filterButtonTitle": "Filter workspaces"
+      "prFilterAll": "全部",
+      "prFilterHasPr": "有 PR",
+      "prFilterNoPr": "无 PR",
+      "noProject": "无项目",
+      "sortButtonTitle": "排序工作区",
+      "filterButtonTitle": "筛选工作区"
     },
-    "sortAscending": "Ascending",
-    "sortDescending": "Descending",
-    "assignee": "Assignee",
-    "self": "Me",
-    "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
-    "workspacesFilterLabel": "Workspaces",
-    "selectAssignees": "Select assignees...",
-    "relationships": "Relationships",
-    "noRelationships": "No relationships",
-    "openProjectsGuide": "Projects guide",
-    "editProjectSettings": "Edit project settings",
-    "linkWorkspace": "Link workspace...",
-    "createNewWorkspace": "Create new workspace",
-    "workspaces": "Workspaces",
-    "showingWorkspaces": "Showing {{count}} of {{total}}",
-    "changeColor": "Change color",
-    "editName": "Edit name",
-    "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
-    "lastVisibleStatus": "At least one status must be visible",
-    "showStatus": "Show status",
-    "hideStatus": "Hide status",
-    "newStatus": "New Status",
-    "visibleColumns": "Visible Columns",
-    "dragToRearrange": "Drag to re-arrange",
-    "addColumn": "Add column",
+    "sortAscending": "升序",
+    "sortDescending": "降序",
+    "assignee": "负责人",
+    "self": "我",
+    "priority": "优先级",
+    "subIssuesFilterLabel": "子问题",
+    "workspacesFilterLabel": "工作区",
+    "selectAssignees": "选择负责人...",
+    "relationships": "关系",
+    "noRelationships": "无关系",
+    "openProjectsGuide": "项目指南",
+    "editProjectSettings": "编辑项目设置",
+    "linkWorkspace": "关联工作区...",
+    "createNewWorkspace": "新建工作区",
+    "workspaces": "工作区",
+    "showingWorkspaces": "显示 {{total}} 个中的 {{count}} 个",
+    "changeColor": "更改颜色",
+    "editName": "编辑名称",
+    "deleteStatus": "删除状态",
+    "cannotDeleteWithIssues": "请先移动问题",
+    "lastVisibleStatus": "至少需要保留一个可见状态",
+    "showStatus": "显示状态",
+    "hideStatus": "隐藏状态",
+    "newStatus": "新状态",
+    "visibleColumns": "可见列",
+    "dragToRearrange": "拖动以重新排序",
+    "addColumn": "添加列",
     "projectsGuide": {
       "intro": {
-        "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "title": "欢迎",
+        "content": "欢迎使用 Vibe Kanban。使用此面板中的帮助内容了解基本流程，然后创建第一个问题。你可以随时从导航栏重新打开此帮助对话框或提交反馈。"
       },
       "welcome": {
-        "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "title": "项目",
+        "content": "项目页面用于管理问题。你可以用看板或列表查看问题，并按状态、标签、负责人等条件筛选。"
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "问题",
+        "content": "每个问题代表一个要实现的功能或要解决的问题。问题可以包含状态、优先级、负责人、标签、关系、评论、子问题等信息。"
       },
       "workspaces": {
-        "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "title": "工作区",
+        "content": "开始处理问题时，请创建一个工作区。一个问题可以有多个工作区。问题描述要完成的工作，工作区承载实际执行过程。"
       },
       "organizations": {
-        "title": "Invite your team",
-        "content": "We've automatically created a personal organization and initial project so you can get started with Vibe Kanban. Export your cloud data before shutdown."
+        "title": "邀请你的团队",
+        "content": "我们已自动创建个人组织和初始项目，方便你开始使用 Vibe Kanban。关闭前请导出云端数据。"
       }
     }
   },
@@ -646,7 +1117,18 @@
       "setupHintTitle": "设置脚本",
       "setupHint": "提示：在设置 → 仓库中为此仓库配置设置脚本",
       "setupHintDismiss": "关闭",
-      "setupHintLink": "Configure in Settings"
+      "setupHintLink": "在设置中配置",
+      "selectBranch": "选择分支",
+      "changeBranch": "更改分支",
+      "removeRepo": "移除 {{name}}",
+      "errors": {
+        "alreadySelected": "已选择此仓库",
+        "noRecentRepositories": "未找到最近使用的仓库。请改为浏览仓库。",
+        "loadRepositoriesOrBranches": "加载仓库或分支失败",
+        "registerRepository": "注册仓库失败",
+        "createRepository": "创建仓库失败",
+        "loadBranches": "加载分支失败"
+      }
     }
   },
   "modelSelector": {
@@ -676,14 +1158,14 @@
     "remoteAuthUnavailable": "远程身份验证暂时不可用。在恢复之前，部分远程功能可能无法使用。"
   },
   "onboardingSignIn": {
-    "subtitle": "Sign in to continue",
-    "signedInAs": "Signed in as {{name}}.",
-    "moreOptions": "More options",
-    "featureHeader": "Feature",
-    "signedInHeader": "Signed in",
-    "skipSignInHeader": "Don't sign in",
-    "yes": "Yes",
-    "no": "No"
+    "subtitle": "登录后继续",
+    "signedInAs": "已登录为 {{name}}。",
+    "moreOptions": "更多选项",
+    "featureHeader": "功能",
+    "signedInHeader": "已登录",
+    "skipSignInHeader": "不登录",
+    "yes": "是",
+    "no": "否"
   },
   "appBar": {
     "kanban": {
@@ -693,9 +1175,9 @@
     }
   },
   "errors": {
-    "generic": "An unexpected error occurred"
+    "generic": "发生了意外错误"
   },
-  "personal": "Personal",
+  "personal": "个人",
   "askQuestion": {
     "title": "代理正在提问",
     "selectMultiple": "多选",

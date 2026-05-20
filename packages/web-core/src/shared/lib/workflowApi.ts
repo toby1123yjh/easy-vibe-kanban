@@ -6,6 +6,7 @@ import type {
   UpdateWorkflowRequest,
   TriggerWorkflowRequest,
   CreateWorkflowAttemptRequest,
+  DraftWorkspaceRepo,
   RunWorkflowAttemptRequest,
   WorkflowAttemptListResponse,
   WorkflowAttemptResponse,
@@ -19,6 +20,14 @@ interface MutationResponse<T> {
   data: T;
   txid: number;
 }
+
+export type CreateWorkflowAttemptPayload = CreateWorkflowAttemptRequest & {
+  repos?: DraftWorkspaceRepo[];
+};
+
+export type RunWorkflowAttemptPayload = RunWorkflowAttemptRequest & {
+  repos?: DraftWorkspaceRepo[];
+};
 
 export type WorkflowEventKind =
   | 'run_status'
@@ -198,7 +207,7 @@ export const workflowApi = {
   async createAttempt(
     projectId: string,
     issueId: string,
-    payload: CreateWorkflowAttemptRequest
+    payload: CreateWorkflowAttemptPayload
   ): Promise<WorkflowAttemptResponse> {
     return mutate(
       await localFetch(
@@ -219,6 +228,16 @@ export const workflowApi = {
     );
   },
 
+  async deleteAttempt(attemptId: string): Promise<void> {
+    const response = await localFetch(`/workflow-attempts/${attemptId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw await parseError(response, 'Failed to delete workflow attempt');
+    }
+    await response.json();
+  },
+
   async getAttemptForWorkflow(
     workflowId: string
   ): Promise<WorkflowAttemptResponse | null> {
@@ -230,7 +249,7 @@ export const workflowApi = {
 
   async runAttempt(
     attemptId: string,
-    payload: RunWorkflowAttemptRequest
+    payload: RunWorkflowAttemptPayload
   ): Promise<WorkflowRunResponse> {
     return mutate(
       await localFetch(`/workflow-attempts/${attemptId}/run`, {

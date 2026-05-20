@@ -168,7 +168,7 @@ mod tests {
         let args = vec![
             "-y".to_string(),
             "--package".to_string(),
-            "@openai/codex@0.124.0".to_string(),
+            "@openai/codex@0.132.0".to_string(),
             "codex".to_string(),
             "login".to_string(),
             "--flag=value with spaces".to_string(),
@@ -178,12 +178,12 @@ mod tests {
         if cfg!(windows) {
             assert_eq!(
                 line,
-                r#""C:\Program Files\nodejs\npx.cmd" -y --package @openai/codex@0.124.0 codex login "--flag=value with spaces""#
+                r#""C:\Program Files\nodejs\npx.cmd" -y --package @openai/codex@0.132.0 codex login "--flag=value with spaces""#
             );
         } else {
             assert_eq!(
                 line,
-                r#"'C:\Program Files\nodejs\npx.cmd' -y --package @openai/codex@0.124.0 codex login '--flag=value with spaces'"#
+                r#"'C:\Program Files\nodejs\npx.cmd' -y --package @openai/codex@0.132.0 codex login '--flag=value with spaces'"#
             );
         }
     }

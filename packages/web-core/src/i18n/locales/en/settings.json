@@ -593,6 +593,7 @@
           "addButton": "Add",
           "addNew": "Add new repository...",
           "branchLabel": "Branch",
+          "current": "current",
           "noBranches": "No branches found for this repository",
           "fetchError": "Could not load repositories",
           "saveError": "Failed to save default repositories"

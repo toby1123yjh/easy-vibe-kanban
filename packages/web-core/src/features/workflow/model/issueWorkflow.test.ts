@@ -1,24 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ISSUE_WORKFLOW_ENTRY_COPY,
   buildIssueWorkflowDraft,
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
 } from './issueWorkflow';
 
 describe('issue workflow helpers', () => {
-  it('presents workflow as an issue task attempt', () => {
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.title).toBe('Workflow attempt');
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionLabel).toBe('Open canvas');
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.primaryActionAriaLabel).toBe(
-      'Open workflow attempt canvas'
-    );
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionLabel).toBe('Open canvas');
-    expect(ISSUE_WORKFLOW_ENTRY_COPY.secondaryActionAriaLabel).toBe(
-      'Open workflow attempt canvas'
-    );
-  });
-
   it('builds default run input from issue title and description', () => {
     expect(
       buildWorkflowRunInput({
@@ -51,12 +38,21 @@ describe('issue workflow helpers', () => {
     const draft = buildIssueWorkflowDraft({
       title: 'Fix workflow drag handles',
       description: 'The canvas should support editing before execution.',
+      repos: [
+        {
+          repo_id: 'repo-1',
+          target_branch: 'main',
+        },
+      ],
     });
 
     expect(draft.name).toBe('Workflow attempt for Fix workflow drag handles');
-    expect(draft.description).toBe(
-      'Issue-bound workflow task attempt. Design the canvas before starting the run.'
-    );
+    expect(draft.repos).toEqual([
+      {
+        repo_id: 'repo-1',
+        target_branch: 'main',
+      },
+    ]);
 
     const graph = JSON.parse(draft.graph_json);
     expect(graph.version).toBe(2);
@@ -74,5 +70,15 @@ describe('issue workflow helpers', () => {
       'start-familiarize',
       'familiarize-end',
     ]);
+  });
+
+  it('allows callers to provide localized draft names and untitled text', () => {
+    const draft = buildIssueWorkflowDraft({
+      title: '   ',
+      name: 'Localized workflow: Untitled task',
+      untitledTitle: 'Untitled task',
+    });
+
+    expect(draft.name).toBe('Localized workflow: Untitled task');
   });
 });

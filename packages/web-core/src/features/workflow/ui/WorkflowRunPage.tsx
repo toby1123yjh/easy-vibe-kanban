@@ -1,10 +1,7 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowRunEvents } from '@/shared/hooks/useWorkflowRunEvents';
-import {
-  getWorkflowRunStatusLabel,
-  getWorkflowRunTaskAttemptLabel,
-} from '../model/workflowRunView';
 import { WorkflowRunCanvasTab } from './WorkflowRunCanvasTab';
 import { WorkflowRunDashboardTab } from './WorkflowRunDashboardTab';
 import { Activity, LayoutDashboard, Workflow } from 'lucide-react';
@@ -16,6 +13,7 @@ export interface WorkflowRunPageProps {
 }
 
 export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
+  const { t } = useTranslation('common');
   const { data: run, isLoading, error } = useWorkflowRun(runId);
   const [activeTab, setActiveTab] = useState<'canvas' | 'dashboard'>('canvas');
   const shouldStreamEvents =
@@ -33,7 +31,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
     return (
       <div className="flex h-full items-center justify-center text-low">
         <Activity className="mr-2 h-4 w-4 animate-spin" />
-        Loading run...
+        {t('workflow.runPage.loadingRun')}
       </div>
     );
   }
@@ -41,7 +39,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
   if (error || !run) {
     return (
       <div className="flex h-full items-center justify-center text-error">
-        Failed to load run {runId}
+        {t('workflow.runPage.loadFailed', { runId })}
       </div>
     );
   }
@@ -60,7 +58,13 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
       <header className="flex flex-none flex-col gap-half border-b border-secondary bg-panel px-base py-half sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-base">
           <h1 className="max-w-[240px] truncate text-sm font-medium text-high sm:max-w-md">
-            {getWorkflowRunTaskAttemptLabel(run)}
+            {run.attempt_id
+              ? t('workflow.runPage.taskAttempt', {
+                  id: run.attempt_id.slice(0, 9),
+                })
+              : t('workflow.runPage.workflowRun', {
+                  id: run.id.slice(0, 8),
+                })}
           </h1>
           <div
             className={cn(
@@ -68,7 +72,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
               statusTone
             )}
           >
-            {getWorkflowRunStatusLabel(run.status)}
+            {t(`workflow.runStatus.${statusKey(run.status)}`)}
           </div>
         </div>
 
@@ -84,7 +88,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
             )}
           >
             <Workflow className="h-3 w-3" />
-            <span>Canvas</span>
+            <span>{t('workflow.runPage.canvas')}</span>
           </button>
           <button
             type="button"
@@ -97,7 +101,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
             )}
           >
             <LayoutDashboard className="h-3 w-3" />
-            <span>Dashboard</span>
+            <span>{t('workflow.runPage.dashboard')}</span>
           </button>
         </div>
       </header>
@@ -112,4 +116,15 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
       </main>
     </div>
   );
+}
+
+function statusKey(status: string): string {
+  switch (status) {
+    case 'awaiting_human':
+      return 'awaitingHuman';
+    case 'awaiting_arena':
+      return 'awaitingArena';
+    default:
+      return status;
+  }
 }

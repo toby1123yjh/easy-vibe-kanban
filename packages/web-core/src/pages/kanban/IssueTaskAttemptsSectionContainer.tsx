@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { GitBranchIcon, LinkIcon, PlusIcon } from '@phosphor-icons/react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
@@ -17,7 +18,10 @@ import {
   buildWorkspaceCreateInitialState,
   buildWorkspaceCreatePrompt,
 } from '@/shared/lib/workspaceCreateState';
-import { useWorkflowAttempts } from '@/shared/hooks/useWorkflowAttempts';
+import {
+  useWorkflowAttemptMutations,
+  useWorkflowAttempts,
+} from '@/shared/hooks/useWorkflowAttempts';
 import {
   buildTaskAttempts,
   type TaskAttemptView,
@@ -59,6 +63,8 @@ export function IssueTaskAttemptsSectionContainer({
   const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
   const { data: workflowAttemptData, isLoading: workflowAttemptsLoading } =
     useWorkflowAttempts(projectId, issueId, { enabled: !!projectId });
+  const { deleteAttempt: deleteWorkflowAttempt } =
+    useWorkflowAttemptMutations();
   const { createWorkflowAttempt, workflowCreateError } =
     useCreateIssueWorkflowAttempt({
       issueId,
@@ -131,8 +137,8 @@ export function IssueTaskAttemptsSectionContainer({
       buildTaskAttempts({
         workspaceAttempts: workspacesWithStats,
         workflowAttempts: workflowAttemptData?.attempts ?? [],
-      }),
-    [workspacesWithStats, workflowAttemptData]
+      }).map((attempt) => localizeTaskAttemptView(attempt, t)),
+    [workspacesWithStats, workflowAttemptData, t]
   );
 
   const handleAddWorkspace = useCallback(async () => {
@@ -256,7 +262,37 @@ export function IssueTaskAttemptsSectionContainer({
   const handleDeleteAttempt = useCallback(
     async (attemptData: IssueTaskAttemptCardData) => {
       const attempt = attemptData as TaskAttemptView;
-      if (attempt.kind !== 'single_agent' || !attempt.localWorkspaceId) return;
+      if (attempt.kind === 'workflow') {
+        if (!attempt.workflowAttemptId) return;
+
+        const result = await ConfirmDialog.show({
+          title: t('attempts.deleteWorkflowTitle'),
+          message: t('attempts.deleteWorkflowMessage'),
+          confirmText: t('attempts.deleteAttempt'),
+          variant: 'destructive',
+        });
+
+        if (result !== 'confirmed') {
+          return;
+        }
+
+        try {
+          await deleteWorkflowAttempt(attempt.workflowAttemptId);
+        } catch (err) {
+          ConfirmDialog.show({
+            title: t('common:error'),
+            message:
+              err instanceof Error
+                ? err.message
+                : t('attempts.deleteWorkflowError'),
+            confirmText: t('common:ok'),
+            showCancelButton: false,
+          });
+        }
+        return;
+      }
+
+      if (!attempt.localWorkspaceId) return;
 
       const localWorkspace = localWorkspacesById.get(attempt.localWorkspaceId);
       if (!localWorkspace) {
@@ -304,7 +340,14 @@ export function IssueTaskAttemptsSectionContainer({
         });
       }
     },
-    [localWorkspacesById, workspacesWithStats, getIssue, issueId, t]
+    [
+      deleteWorkflowAttempt,
+      localWorkspacesById,
+      workspacesWithStats,
+      getIssue,
+      issueId,
+      t,
+    ]
   );
 
   const actions: SectionAction[] = useMemo(
@@ -347,4 +390,73 @@ export function IssueTaskAttemptsSectionContainer({
       ) : null}
     </div>
   );
+}
+
+function localizeTaskAttemptView(
+  attempt: TaskAttemptView,
+  t: TFunction<'common'>
+): TaskAttemptView {
+  if (attempt.kind === 'workflow') {
+    return {
+      ...attempt,
+      title:
+        attempt.title === 'Workflow attempt'
+          ? t('attempts.workflowFallbackTitle')
+          : attempt.title,
+      subtitle: attempt.latestRunId
+        ? t('attempts.workflowRun', {
+            id: attempt.latestRunId.slice(0, 8),
+          })
+        : t('attempts.draftWorkflow'),
+      statusLabel: localizeAttemptStatus(attempt.statusLabel, t),
+      primaryActionLabel: t('attempts.openCanvas'),
+    };
+  }
+
+  return {
+    ...attempt,
+    title:
+      attempt.title === 'Single agent attempt'
+        ? t('attempts.singleAgentFallbackTitle')
+        : attempt.title,
+    subtitle: attempt.localWorkspaceId
+      ? t('attempts.workspace', {
+          id: attempt.localWorkspaceId.slice(0, 8),
+        })
+      : t('attempts.remoteWorkspace'),
+    statusLabel: localizeAttemptStatus(attempt.statusLabel, t),
+    primaryActionLabel: t('attempts.openSession'),
+  };
+}
+
+function localizeAttemptStatus(
+  statusLabel: string,
+  t: TFunction<'common'>
+): string {
+  switch (statusLabel) {
+    case 'Draft':
+      return t('attempts.status.draft');
+    case 'Ready':
+      return t('attempts.status.ready');
+    case 'Running':
+      return t('attempts.status.running');
+    case 'Waiting for human':
+      return t('attempts.status.awaitingHuman');
+    case 'Waiting for arena':
+      return t('attempts.status.awaitingArena');
+    case 'Succeeded':
+      return t('attempts.status.succeeded');
+    case 'Failed':
+      return t('attempts.status.failed');
+    case 'Canceled':
+      return t('attempts.status.canceled');
+    case 'Archived':
+      return t('attempts.status.archived');
+    case 'Completed':
+      return t('attempts.status.completed');
+    case 'Active':
+      return t('attempts.status.active');
+    default:
+      return statusLabel;
+  }
 }

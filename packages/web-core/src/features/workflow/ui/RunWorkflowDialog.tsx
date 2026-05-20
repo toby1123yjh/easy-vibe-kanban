@@ -1,5 +1,6 @@
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useMemo, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, Play } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
 import { Textarea } from '@vibe/ui/components/Textarea';
@@ -18,6 +19,8 @@ import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
+import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
+import type { DraftWorkspaceRepo } from 'shared/types';
 
 const CREATE_WORKFLOW_WORKSPACE_VALUE = '__create_workflow_workspace__';
 
@@ -44,15 +47,22 @@ export type RunWorkflowDialogResult =
 const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
   ({
     projectId,
+    issueId,
     issueTitle,
     issueDescription,
     attemptId,
     attemptName,
     workspaces = [],
   }) => {
+    const { t } = useTranslation('common');
     const modal = useModal();
     const navigation = useAppNavigation();
     const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
+    const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
+      projectId,
+      issueId,
+      issueTitle,
+    });
 
     const [selectedWorkspaceValue, setSelectedWorkspaceValue] = useState(
       CREATE_WORKFLOW_WORKSPACE_VALUE
@@ -64,6 +74,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
       })
     );
     const [error, setError] = useState<string | null>(null);
+    const [isPreparingRun, setIsPreparingRun] = useState(false);
 
     const selectedWorkspace = useMemo(
       () =>
@@ -87,7 +98,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
 
       const trimmedInput = inputText.trim();
       if (!trimmedInput) {
-        setError('Add run input before starting the workflow.');
+        setError(t('workflow.errors.runInputRequired'));
         return;
       }
 
@@ -97,13 +108,24 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
           ? null
           : selectedWorkspaceValue;
 
+      setIsPreparingRun(true);
       try {
+        let repos: DraftWorkspaceRepo[] = [];
+        if (workspaceId === null) {
+          const selectedRepos = await selectWorkflowRepositories();
+          if (!selectedRepos) {
+            return;
+          }
+          repos = selectedRepos;
+        }
+
         const run = await runAttempt({
           attemptId,
           payload: {
             workspace_id: workspaceId,
             trigger_source: 'manual',
             input_text: trimmedInput,
+            repos,
           },
         });
         modal.resolve({
@@ -113,26 +135,36 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
         modal.hide();
         navigation.goToProjectWorkflowRun(projectId, run.id);
       } catch (err) {
-        setError(getWorkflowRunErrorMessage(err));
+        setError(
+          getWorkflowRunErrorMessage(err, {
+            repositoryMessage: t('workflow.errors.repositoryRequired'),
+            fallbackMessage: t('workflow.errors.startFailed'),
+          })
+        );
+      } finally {
+        setIsPreparingRun(false);
       }
     };
 
     const canSubmit =
-      !isRunningAttempt && inputText.trim().length > 0 && attemptId.length > 0;
+      !isRunningAttempt &&
+      !isPreparingRun &&
+      inputText.trim().length > 0 &&
+      attemptId.length > 0;
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
-            <DialogTitle>Run workflow attempt</DialogTitle>
+            <DialogTitle>{t('workflow.runDialog.title')}</DialogTitle>
             <DialogDescription>
-              Start this issue-bound workflow attempt.
+              {t('workflow.runDialog.description')}
             </DialogDescription>
           </DialogHeader>
 
           <form className="flex flex-col gap-base" onSubmit={handleSubmit}>
             <div className="rounded-sm border border-secondary bg-panel p-base text-sm text-normal">
-              {attemptName || 'Workflow attempt'}
+              {attemptName || t('workflow.entry.title')}
             </div>
 
             <div className="flex flex-col gap-half">
@@ -140,7 +172,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 htmlFor="workflow-workspace"
                 className="text-xs font-medium text-low"
               >
-                Main workspace
+                {t('workflow.runDialog.mainWorkspace')}
               </label>
               <select
                 id="workflow-workspace"
@@ -148,11 +180,11 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 onChange={(event) =>
                   setSelectedWorkspaceValue(event.target.value)
                 }
-                disabled={isRunningAttempt}
+                disabled={isRunningAttempt || isPreparingRun}
                 className="h-10 w-full rounded border bg-secondary px-2 text-sm text-normal"
               >
                 <option value={CREATE_WORKFLOW_WORKSPACE_VALUE}>
-                  Create workflow workspace
+                  {t('workflow.runDialog.createWorkflowWorkspace')}
                 </option>
                 {workspaces.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>
@@ -162,12 +194,12 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
               </select>
               <p className="text-xs text-low">
                 {selectedWorkspace
-                  ? `Uses existing workspace${
-                      selectedWorkspace.branch
-                        ? ` on ${selectedWorkspace.branch}`
-                        : ''
-                    }.`
-                  : 'The backend will create a dedicated workflow workspace for this run.'}
+                  ? selectedWorkspace.branch
+                    ? t('workflow.runDialog.usesExistingWorkspaceWithBranch', {
+                        branch: selectedWorkspace.branch,
+                      })
+                    : t('workflow.runDialog.usesExistingWorkspace')
+                  : t('workflow.runDialog.createWorkspaceHint')}
               </p>
             </div>
 
@@ -176,14 +208,14 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 htmlFor="workflow-input"
                 className="text-xs font-medium text-low"
               >
-                Run input
+                {t('workflow.runDialog.runInput')}
               </label>
               <Textarea
                 id="workflow-input"
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}
                 rows={7}
-                disabled={isRunningAttempt}
+                disabled={isRunningAttempt || isPreparingRun}
                 className="font-ibm-plex-mono"
               />
             </div>
@@ -199,17 +231,17 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
                 type="button"
                 variant="outline"
                 onClick={handleCancel}
-                disabled={isRunningAttempt}
+                disabled={isRunningAttempt || isPreparingRun}
               >
-                Cancel
+                {t('buttons.cancel')}
               </Button>
               <Button type="submit" disabled={!canSubmit}>
-                {isRunningAttempt ? (
+                {isRunningAttempt || isPreparingRun ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                Start run
+                {t('workflow.runDialog.startRun')}
               </Button>
             </DialogFooter>
           </form>

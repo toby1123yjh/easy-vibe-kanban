@@ -73,7 +73,7 @@ interface CreateModeRepoPickerBarProps {
 
 export function CreateModeRepoPickerBar({
   onContinueToPrompt,
-  continueLabel = 'Continue',
+  continueLabel,
 }: CreateModeRepoPickerBarProps) {
   const { t } = useTranslation('common');
   const queryClient = useQueryClient();
@@ -136,7 +136,7 @@ export function CreateModeRepoPickerBar({
   const addRepoWithBranchSelection = useCallback(
     async (repo: Repo) => {
       if (selectedRepoIds.has(repo.id)) {
-        setPickerError('Repository is already selected');
+        setPickerError(t('createMode.repoPicker.errors.alreadySelected'));
         return false;
       }
 
@@ -147,7 +147,7 @@ export function CreateModeRepoPickerBar({
       setTargetBranch(repo.id, selectedBranch);
       return true;
     },
-    [addRepo, pickBranchForRepo, selectedRepoIds, setTargetBranch]
+    [addRepo, pickBranchForRepo, selectedRepoIds, setTargetBranch, t]
   );
 
   const handleChooseRepo = useCallback(async () => {
@@ -161,7 +161,7 @@ export function CreateModeRepoPickerBar({
 
         if (availableRepos.length === 0) {
           setPickerError(
-            'No recently used repositories found, please browse repositories instead'
+            t('createMode.repoPicker.errors.noRecentRepositories')
           );
           return;
         }
@@ -182,9 +182,9 @@ export function CreateModeRepoPickerBar({
 
         await addRepoWithBranchSelection(selectedRepo);
       },
-      'Failed to load repositories or branches'
+      t('createMode.repoPicker.errors.loadRepositoriesOrBranches')
     );
-  }, [addRepoWithBranchSelection, runPickerAction, selectedRepoIds]);
+  }, [addRepoWithBranchSelection, runPickerAction, selectedRepoIds, t]);
 
   const handleBrowseRepo = useCallback(async () => {
     await runPickerAction(
@@ -200,7 +200,7 @@ export function CreateModeRepoPickerBar({
         queryClient.invalidateQueries({ queryKey: ['repos'] });
         await addRepoWithBranchSelection(repo);
       },
-      'Failed to register repository'
+      t('createMode.repoPicker.errors.registerRepository')
     );
   }, [addRepoWithBranchSelection, runPickerAction, t]);
 
@@ -225,7 +225,7 @@ export function CreateModeRepoPickerBar({
           },
         });
       },
-      'Failed to create repository'
+      t('createMode.repoPicker.errors.createRepository')
     );
   }, [addRepoWithBranchSelection, runPickerAction, t]);
 
@@ -239,10 +239,10 @@ export function CreateModeRepoPickerBar({
           if (!selectedBranch) return;
           setTargetBranch(repo.id, selectedBranch);
         },
-        'Failed to load branches'
+        t('createMode.repoPicker.errors.loadBranches')
       );
     },
-    [pickBranchForRepo, runPickerAction, setTargetBranch]
+    [pickBranchForRepo, runPickerAction, setTargetBranch, t]
   );
 
   return (
@@ -252,7 +252,9 @@ export function CreateModeRepoPickerBar({
           <div>
             <div className="rounded-sm border border-border/60">
               {repos.map((repo, index) => {
-                const branch = targetBranches[repo.id] ?? 'Select branch';
+                const branch =
+                  targetBranches[repo.id] ??
+                  t('createMode.repoPicker.selectBranch');
                 const repoDisplayName = getRepoDisplayName(repo);
                 const isChangingBranch =
                   pendingAction === 'branch' && branchRepoId === repo.id;
@@ -274,7 +276,7 @@ export function CreateModeRepoPickerBar({
                       onClick={() => handleChangeBranch(repo)}
                       disabled={isBusy}
                       className={repoRowButtonClassName}
-                      title="Change branch"
+                      title={t('createMode.repoPicker.changeBranch')}
                     >
                       {isChangingBranch ? (
                         <SpinnerIcon className="size-icon-xs animate-spin" />
@@ -288,8 +290,12 @@ export function CreateModeRepoPickerBar({
                       type="button"
                       onClick={() => removeRepo(repo.id)}
                       disabled={isBusy}
-                      aria-label={`Remove ${repoDisplayName}`}
-                      title={`Remove ${repoDisplayName}`}
+                      aria-label={t('createMode.repoPicker.removeRepo', {
+                        name: repoDisplayName,
+                      })}
+                      title={t('createMode.repoPicker.removeRepo', {
+                        name: repoDisplayName,
+                      })}
                       className={cn(repoRowButtonClassName, 'hover:text-error')}
                     >
                       <XIcon className="size-icon-xs" weight="bold" />
@@ -353,7 +359,7 @@ export function CreateModeRepoPickerBar({
           <div className="ml-auto">
             <PrimaryButton
               variant="default"
-              value={continueLabel}
+              value={continueLabel ?? t('buttons.continue')}
               onClick={onContinueToPrompt}
               disabled={isBusy || repos.length === 0}
             />

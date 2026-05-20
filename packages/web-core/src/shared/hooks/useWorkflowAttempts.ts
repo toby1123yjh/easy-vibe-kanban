@@ -4,10 +4,12 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { workflowApi } from '@/shared/lib/workflowApi';
+import {
+  workflowApi,
+  type CreateWorkflowAttemptPayload,
+  type RunWorkflowAttemptPayload,
+} from '@/shared/lib/workflowApi';
 import type {
-  CreateWorkflowAttemptRequest,
-  RunWorkflowAttemptRequest,
   WorkflowAttemptListResponse,
   WorkflowAttemptResponse,
 } from 'shared/types';
@@ -85,7 +87,7 @@ export function useWorkflowAttemptMutations() {
     }: {
       projectId: string;
       issueId: string;
-      payload: CreateWorkflowAttemptRequest;
+      payload: CreateWorkflowAttemptPayload;
     }) => workflowApi.createAttempt(projectId, issueId, payload),
     onSuccess: (attempt, variables) => {
       void queryClient.invalidateQueries({
@@ -117,7 +119,7 @@ export function useWorkflowAttemptMutations() {
       payload,
     }: {
       attemptId: string;
-      payload: RunWorkflowAttemptRequest;
+      payload: RunWorkflowAttemptPayload;
     }) => workflowApi.runAttempt(attemptId, payload),
     onSuccess: (run) => {
       queryClient.setQueryData(workflowRunQueryKeys.detail(run.id), run);
@@ -132,10 +134,24 @@ export function useWorkflowAttemptMutations() {
     },
   });
 
+  const deleteAttemptMutation = useMutation({
+    mutationFn: (attemptId: string) => workflowApi.deleteAttempt(attemptId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: workflowAttemptQueryKeys.all,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: workflowTemplateQueryKeys.all,
+      });
+    },
+  });
+
   return {
     createAttempt: createAttemptMutation.mutateAsync,
     isCreatingAttempt: createAttemptMutation.isPending,
     runAttempt: runAttemptMutation.mutateAsync,
     isRunningAttempt: runAttemptMutation.isPending,
+    deleteAttempt: deleteAttemptMutation.mutateAsync,
+    isDeletingAttempt: deleteAttemptMutation.isPending,
   };
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useWorkflowTemplate,
   useWorkflowTemplateMutations,
@@ -38,6 +39,13 @@ import {
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
 import { buildWorkflowNodeExecutionStatusMap } from '../model/workflowCanvasVisualState';
+import {
+  deleteIssueWorkflowAttemptDraft,
+  parseIssueWorkflowAttemptDraftRouteId,
+  readIssueWorkflowAttemptDraft,
+  saveIssueWorkflowAttemptDraft,
+  type IssueWorkflowAttemptDraft,
+} from '../model/workflowAttemptDraftStorage';
 import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
@@ -49,6 +57,11 @@ import {
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
+import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
+import {
+  getWorkflowDefaultGraphLabels,
+  getWorkflowDefaultNodeData,
+} from './workflowI18n';
 import {
   applyWorkflowNodeDataPatch,
   getWorkflowTemplateInspectorPanel,
@@ -72,7 +85,10 @@ import {
 } from 'lucide-react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
-import type { WorkflowNodeExecutionResponse } from 'shared/types';
+import type {
+  DraftWorkspaceRepo,
+  WorkflowNodeExecutionResponse,
+} from 'shared/types';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -221,7 +237,9 @@ function parsePersistedWorkflowGraph(
 
 function duplicateWorkflowAgentNode(
   graph: WorkflowGraph,
-  node: WorkflowNode
+  node: WorkflowNode,
+  fallbackName: string,
+  copySuffix: string
 ): WorkflowNode {
   const duplicatedData = { ...node.data };
   delete duplicatedData.session_id;
@@ -229,7 +247,7 @@ function duplicateWorkflowAgentNode(
   return createWorkflowNode('agent', {
     data: {
       ...duplicatedData,
-      display_name: `${node.data.display_name || 'Agent Step'} copy`,
+      display_name: `${node.data.display_name || fallbackName} ${copySuffix}`,
     },
     position: getNewWorkflowNodePosition({
       graph,
@@ -251,15 +269,27 @@ export function WorkflowTemplateEditorPage({
   projectId,
   workflowId,
 }: WorkflowTemplateEditorPageProps) {
-  const { data: template, isLoading, error } = useWorkflowTemplate(workflowId);
+  const { t } = useTranslation('common');
+  const localDraftId = parseIssueWorkflowAttemptDraftRouteId(workflowId);
+  const isLocalDraft = localDraftId !== null;
+  const [localDraft, setLocalDraft] =
+    useState<IssueWorkflowAttemptDraft | null>(() =>
+      localDraftId ? readIssueWorkflowAttemptDraft(localDraftId) : null
+    );
+  const {
+    data: loadedTemplate,
+    isLoading,
+    error,
+  } = useWorkflowTemplate(workflowId, { enabled: !isLocalDraft });
   const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
-    useWorkflowAttemptForWorkflow(workflowId);
+    useWorkflowAttemptForWorkflow(workflowId, { enabled: !isLocalDraft });
   const { data: latestRun } = useWorkflowRun(workflowAttempt?.latest_run_id, {
     enabled: !!workflowAttempt?.latest_run_id,
   });
   const { updateTemplate, createTemplate, isUpdating, isCreating } =
     useWorkflowTemplateMutations();
-  const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
+  const { createAttempt, isCreatingAttempt, runAttempt, isRunningAttempt } =
+    useWorkflowAttemptMutations();
   const navigation = useAppNavigation();
   const { getIssue } = useProjectContext();
 
@@ -287,6 +317,46 @@ export function WorkflowTemplateEditorPage({
     () => new Set()
   );
   const consumedQueuedFocusForWorkflowRef = useRef<string | null>(null);
+  const template = useMemo(
+    () =>
+      localDraft
+        ? {
+            id: workflowId,
+            source: 'project' as const,
+            project_id: projectId,
+            name: localDraft.name,
+            description: localDraft.issueDescription ?? null,
+            graph_json: localDraft.graphJson,
+            created_at: localDraft.createdAt,
+            updated_at: localDraft.createdAt,
+          }
+        : loadedTemplate,
+    [loadedTemplate, localDraft, projectId, workflowId]
+  );
+  const draftIssue = localDraft ? getIssue(localDraft.issueId) : null;
+  const issue = workflowAttempt
+    ? getIssue(workflowAttempt.issue_id)
+    : draftIssue;
+  const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
+    projectId,
+    issueId: workflowAttempt?.issue_id ?? localDraft?.issueId ?? '',
+    issueTitle: issue?.title ?? localDraft?.issueTitle ?? name,
+  });
+  const formatWorkflowRunError = (err: unknown) =>
+    getWorkflowRunErrorMessage(err, {
+      repositoryMessage: t('workflow.errors.repositoryRequired'),
+      fallbackMessage: t('workflow.errors.startFailed'),
+    });
+  const defaultGraphLabels = useMemo(
+    () => getWorkflowDefaultGraphLabels(t),
+    [t]
+  );
+
+  useEffect(() => {
+    setLocalDraft(
+      localDraftId ? readIssueWorkflowAttemptDraft(localDraftId) : null
+    );
+  }, [localDraftId]);
 
   const isSystem = template?.source === 'system';
   const readOnly = isSystem;
@@ -302,15 +372,15 @@ export function WorkflowTemplateEditorPage({
           setGraph(migrateWorkflowGraph(parsed));
           setGraphParseError(null);
         } else {
-          setGraph(createDefaultWorkflowGraph());
-          setGraphParseError('Workflow graph JSON did not contain a graph.');
+          setGraph(createDefaultWorkflowGraph(defaultGraphLabels));
+          setGraphParseError(t('workflow.errors.invalidGraph'));
         }
       } catch {
-        setGraph(createDefaultWorkflowGraph());
-        setGraphParseError('Workflow graph JSON could not be parsed.');
+        setGraph(createDefaultWorkflowGraph(defaultGraphLabels));
+        setGraphParseError(t('workflow.errors.parseGraphFailed'));
       }
     }
-  }, [template]);
+  }, [defaultGraphLabels, t, template]);
 
   useEffect(() => {
     setStaleNodeIds(new Set());
@@ -353,6 +423,18 @@ export function WorkflowTemplateEditorPage({
   }, [graph, workflowId]);
 
   const persistWorkflowGraph = async (nextGraph: WorkflowGraph) => {
+    if (isLocalDraft && localDraft) {
+      const nextDraft = {
+        ...localDraft,
+        name,
+        graphJson: JSON.stringify(nextGraph),
+      };
+      saveIssueWorkflowAttemptDraft(nextDraft);
+      setLocalDraft(nextDraft);
+      setGraph(nextGraph);
+      return nextGraph;
+    }
+
     const updatedTemplate = await updateTemplate({
       workflowId,
       payload: {
@@ -369,16 +451,52 @@ export function WorkflowTemplateEditorPage({
     return persistedGraph;
   };
 
+  const createAttemptFromLocalDraft = async (nextGraph: WorkflowGraph) => {
+    if (!localDraft || !localDraftId) return null;
+
+    let repos = localDraft.repos;
+    if (repos.length === 0) {
+      const selectedRepos = await selectWorkflowRepositories();
+      if (!selectedRepos) {
+        return null;
+      }
+      repos = selectedRepos;
+    }
+
+    const attempt = await createAttempt({
+      projectId,
+      issueId: localDraft.issueId,
+      payload: {
+        name,
+        graph_json: JSON.stringify(nextGraph),
+        repos,
+      },
+    });
+
+    deleteIssueWorkflowAttemptDraft(localDraftId);
+    navigation.goToProjectWorkflowEdit(projectId, attempt.workflow_id, {
+      replace: true,
+    });
+    return attempt;
+  };
+
   const handleSave = async () => {
     if (!graph || readOnly) return;
+    if (isLocalDraft) {
+      await createAttemptFromLocalDraft(graph);
+      return;
+    }
     await persistWorkflowGraph(graph);
   };
 
-  const issue = workflowAttempt ? getIssue(workflowAttempt.issue_id) : null;
-
   const handleStartRunFromGraph = async (nextGraph: WorkflowGraph) => {
+    if (isLocalDraft) {
+      setRunStartError(t('workflow.errors.saveBeforeRun'));
+      return;
+    }
+
     if (!workflowAttempt || readOnly) {
-      setRunStartError('This workflow is not linked to a task attempt.');
+      setRunStartError(t('workflow.errors.notLinkedToAttempt'));
       return;
     }
 
@@ -391,6 +509,15 @@ export function WorkflowTemplateEditorPage({
     setIsStartingRun(true);
     setRunStartError(null);
     try {
+      let repoOverrides: DraftWorkspaceRepo[] = [];
+      if (!workflowAttempt.workspace_id) {
+        const selectedRepos = await selectWorkflowRepositories();
+        if (!selectedRepos) {
+          return;
+        }
+        repoOverrides = selectedRepos;
+      }
+
       await persistWorkflowGraph(nextGraph);
       const run = await runAttempt({
         attemptId: workflowAttempt.id,
@@ -401,13 +528,14 @@ export function WorkflowTemplateEditorPage({
             title: issue?.title ?? name,
             description: issue?.description ?? description,
           }),
+          repos: repoOverrides,
         },
       });
 
       setStaleNodeIds(new Set());
       navigation.goToProjectWorkflowRun(projectId, run.id);
     } catch (err) {
-      setRunStartError(getWorkflowRunErrorMessage(err));
+      setRunStartError(formatWorkflowRunError(err));
     } finally {
       setIsStartingRun(false);
     }
@@ -423,7 +551,9 @@ export function WorkflowTemplateEditorPage({
     const result = await createTemplate({
       projectId,
       payload: {
-        name: `${name || 'Workflow'} (Copy)`,
+        name: t('workflow.editor.copyName', {
+          name: name || t('workflow.templates.newWorkflowName'),
+        }),
         description,
         graph_json: JSON.stringify(graph),
       },
@@ -432,6 +562,11 @@ export function WorkflowTemplateEditorPage({
   };
 
   const handleBack = () => {
+    if (localDraft) {
+      deleteIssueWorkflowAttemptDraft(localDraft.id);
+      navigation.goToProjectIssue(projectId, localDraft.issueId);
+      return;
+    }
     if (workflowAttempt) {
       navigation.goToProjectIssue(projectId, workflowAttempt.issue_id);
       return;
@@ -454,7 +589,10 @@ export function WorkflowTemplateEditorPage({
       selectedNodeId: sourceNodeId,
       requestedPosition: position,
     });
-    const newNode = createWorkflowNode(kind, { position: newPosition });
+    const newNode = createWorkflowNode(kind, {
+      position: newPosition,
+      data: getWorkflowDefaultNodeData(kind, t),
+    });
     const selectedNode = graph.nodes.find((node) => node.id === sourceNodeId);
     const shouldConnectFromSelected =
       selectedNode && selectedNode.type !== 'end' && newNode.type !== 'start';
@@ -524,8 +662,8 @@ export function WorkflowTemplateEditorPage({
         notes: [
           ...(graph.canvas?.notes ?? []),
           createWorkflowCanvasStickyNote({
-            title: 'Note',
-            content: '记录这个阶段的目标、约束或注意事项。',
+            title: t('workflow.defaultGraph.noteTitle'),
+            content: t('workflow.defaultGraph.noteContent'),
             position: getNewStickyNotePosition(graph),
           }),
         ],
@@ -543,8 +681,8 @@ export function WorkflowTemplateEditorPage({
         groups: [
           ...(graph.canvas?.groups ?? []),
           createWorkflowCanvasStageGroup({
-            title: '新阶段',
-            description: '把相关 Agent Step 放在同一阶段内。',
+            title: t('workflow.defaultGraph.newStageTitle'),
+            description: t('workflow.defaultGraph.newStageDescription'),
             position,
             size,
           }),
@@ -596,7 +734,7 @@ export function WorkflowTemplateEditorPage({
       }
       setEditPanelNodeId(null);
     } catch (err) {
-      setRunStartError(getWorkflowRunErrorMessage(err));
+      setRunStartError(formatWorkflowRunError(err));
     }
   };
 
@@ -613,11 +751,16 @@ export function WorkflowTemplateEditorPage({
     setEditPanelNodeId(null);
     setRunStartError(null);
 
+    if (isLocalDraft) {
+      setRunStartError(t('workflow.errors.saveBeforeSession'));
+      return;
+    }
+
     if (!node.data.session_id && !readOnly) {
       try {
         await persistWorkflowGraph(graph);
       } catch (err) {
-        setRunStartError(getWorkflowRunErrorMessage(err));
+        setRunStartError(formatWorkflowRunError(err));
         return;
       }
     }
@@ -630,7 +773,12 @@ export function WorkflowTemplateEditorPage({
     const node = graph.nodes.find((candidate) => candidate.id === nodeId);
     if (!node || node.type !== 'agent') return;
 
-    const duplicate = duplicateWorkflowAgentNode(graph, node);
+    const duplicate = duplicateWorkflowAgentNode(
+      graph,
+      node,
+      t('workflow.agentEdit.defaultTitle'),
+      t('workflow.editor.copySuffix')
+    );
     setGraph({
       ...graph,
       nodes: [...graph.nodes, duplicate],
@@ -651,10 +799,9 @@ export function WorkflowTemplateEditorPage({
 
     if (node.data.session_id) {
       const result = await ConfirmDialog.show({
-        title: 'Delete Agent Step',
-        message:
-          'This removes the step from the workflow graph. The existing session history is not copied into another step.',
-        confirmText: 'Delete',
+        title: t('workflow.editor.deleteAgentStepTitle'),
+        message: t('workflow.editor.deleteAgentStepMessage'),
+        confirmText: t('buttons.delete'),
         variant: 'destructive',
       });
       if (result !== 'confirmed') return;
@@ -678,7 +825,7 @@ export function WorkflowTemplateEditorPage({
     try {
       await persistWorkflowGraph(nextGraph);
     } catch (err) {
-      setRunStartError(getWorkflowRunErrorMessage(err));
+      setRunStartError(formatWorkflowRunError(err));
     }
   };
 
@@ -768,7 +915,10 @@ export function WorkflowTemplateEditorPage({
         ((sourceNode?.position?.y ?? 160) + (targetNode?.position?.y ?? 160)) /
         2,
     });
-    const insertedNode = createWorkflowNode('agent', { position });
+    const insertedNode = createWorkflowNode('agent', {
+      position,
+      data: getWorkflowDefaultNodeData('agent', t),
+    });
     const firstEdge = createWorkflowEdge({
       id: `${edge.source}-${insertedNode.id}`,
       source: edge.source,
@@ -930,10 +1080,17 @@ export function WorkflowTemplateEditorPage({
   }
 
   if (error || !template || !graph) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : error
+          ? String(error)
+          : t('workflow.errors.draftMissing');
     return (
       <div className="flex h-full items-center justify-center bg-primary text-error">
-        Failed to load workflow:{' '}
-        {error instanceof Error ? error.message : String(error)}
+        {t('workflow.editor.loadFailed', {
+          message,
+        })}
       </div>
     );
   }
@@ -946,6 +1103,7 @@ export function WorkflowTemplateEditorPage({
     !isStartingRun &&
     !isRunningAttempt &&
     !isUpdating &&
+    !isLocalDraft &&
     isValid &&
     !readOnly;
   const inspectorPanel = getWorkflowTemplateInspectorPanel({
@@ -977,7 +1135,7 @@ export function WorkflowTemplateEditorPage({
             variant="outline"
             onClick={handleBack}
             className="flex h-9 w-9 items-center justify-center p-0 transition-colors hover:bg-secondary/20"
-            aria-label="Back to workflows"
+            aria-label={t('workflow.editor.backToWorkflows')}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -988,7 +1146,7 @@ export function WorkflowTemplateEditorPage({
               onChange={(e) => setName(e.target.value)}
               disabled={readOnly}
               className="bg-transparent text-base font-semibold text-high outline-none transition-colors hover:text-brand focus:text-brand disabled:opacity-50"
-              placeholder="Workflow Name"
+              placeholder={t('workflow.editor.workflowNamePlaceholder')}
             />
             <input
               type="text"
@@ -996,11 +1154,11 @@ export function WorkflowTemplateEditorPage({
               onChange={(e) => setDescription(e.target.value)}
               disabled={readOnly}
               className="min-w-[280px] bg-transparent text-xs text-low outline-none transition-colors focus:text-high disabled:opacity-50"
-              placeholder="Description"
+              placeholder={t('workflow.editor.descriptionPlaceholder')}
             />
             {isSystem && (
               <span className="text-xs text-brand">
-                System Template (Read-only)
+                {t('workflow.editor.systemTemplateReadOnly')}
               </span>
             )}
           </div>
@@ -1013,7 +1171,7 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Add Agent Step
+            {t('workflow.editor.addAgentStep')}
           </Button>
           <Button
             variant="outline"
@@ -1022,7 +1180,7 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
           >
             <LayoutGrid className="h-4 w-4" />
-            Tidy
+            {t('workflow.editor.tidy')}
           </Button>
           <Button
             variant="outline"
@@ -1031,7 +1189,7 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
           >
             <StickyNote className="h-4 w-4" />
-            Note
+            {t('workflow.editor.note')}
           </Button>
           <Button
             variant="outline"
@@ -1040,7 +1198,7 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
           >
             <Ungroup className="h-4 w-4" />
-            Stage
+            {t('workflow.editor.stage')}
           </Button>
           <Button
             variant="outline"
@@ -1048,18 +1206,20 @@ export function WorkflowTemplateEditorPage({
             className="flex items-center gap-2"
           >
             <CheckCircle2 className="h-4 w-4" />
-            Validate
+            {t('workflow.editor.validate')}
           </Button>
           <Button
             variant="outline"
             disabled={!canRunWorkflowAttempt}
             onClick={() => void handleStartRunFromGraph(graph)}
             className="flex items-center gap-2"
-            aria-label="Run workflow attempt"
+            aria-label={t('workflow.editor.runAttempt')}
             title={
               workflowAttempt
                 ? undefined
-                : 'This workflow is not linked to a task attempt.'
+                : isLocalDraft
+                  ? t('workflow.errors.saveBeforeRun')
+                  : t('workflow.errors.notLinkedToAttempt')
             }
           >
             {isStartingRun || isRunningAttempt || isWorkflowAttemptLoading ? (
@@ -1067,7 +1227,7 @@ export function WorkflowTemplateEditorPage({
             ) : (
               <PlayIcon className="h-4 w-4" />
             )}
-            Run Workflow
+            {t('workflow.editor.runWorkflow')}
           </Button>
           {workflowAttempt?.latest_run_id ? (
             <Button
@@ -1075,7 +1235,7 @@ export function WorkflowTemplateEditorPage({
               onClick={handleOpenLatestRun}
               className="flex items-center gap-2"
             >
-              Open latest run
+              {t('workflow.editor.openLatestRun')}
             </Button>
           ) : null}
           {isSystem ? (
@@ -1089,20 +1249,20 @@ export function WorkflowTemplateEditorPage({
               ) : (
                 <Copy className="h-4 w-4" />
               )}
-              Copy to Project
+              {t('workflow.editor.copyToProject')}
             </Button>
           ) : (
             <Button
               onClick={handleSave}
-              disabled={isUpdating || !isValid}
+              disabled={isUpdating || isCreatingAttempt || !isValid}
               className="flex items-center gap-2"
             >
-              {isUpdating ? (
+              {isUpdating || isCreatingAttempt ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Save
+              {t('buttons.save')}
             </Button>
           )}
         </div>
@@ -1121,8 +1281,9 @@ export function WorkflowTemplateEditorPage({
         </div>
       ) : validationTouched && validationIssues.length > 0 ? (
         <div className="border-b border-brand/30 bg-brand/10 px-base py-half text-xs text-brand">
-          Validation found {validationIssues.length} issue
-          {validationIssues.length === 1 ? '' : 's'}.
+          {t('workflow.editor.validationFound', {
+            count: validationIssues.length,
+          })}
         </div>
       ) : null}
 
@@ -1136,7 +1297,7 @@ export function WorkflowTemplateEditorPage({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Agent step actions"
+              aria-label={t('workflow.editor.agentStepActions')}
               style={{
                 position: 'fixed',
                 left: contextMenu.x,
@@ -1154,33 +1315,35 @@ export function WorkflowTemplateEditorPage({
             <DropdownMenuItem
               onClick={() => void handleOpenAgentSession(contextMenu.nodeId)}
             >
-              Open Session
+              {t('workflow.editor.openSession')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => handleOpenAgentStepEdit(contextMenu.nodeId)}
             >
-              Edit
+              {t('buttons.edit')}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={readOnly}
               onClick={() => handleAddAgentStepAfterNode(contextMenu.nodeId)}
             >
-              Add Next Agent Step
+              {t('workflow.editor.addNextAgentStep')}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={readOnly}
               onClick={() => handleDuplicateAgentStep(contextMenu.nodeId)}
             >
-              Duplicate
+              {t('workflow.editor.duplicate')}
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>Run Step</DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              {t('workflow.editor.runStep')}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
               disabled={readOnly}
               onClick={() => void handleDeleteAgentStep(contextMenu.nodeId)}
             >
-              Delete
+              {t('buttons.delete')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1196,7 +1359,7 @@ export function WorkflowTemplateEditorPage({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Workflow edge actions"
+              aria-label={t('workflow.editor.edgeActions')}
               style={{
                 position: 'fixed',
                 left: edgeActionMenu.x,
@@ -1215,21 +1378,21 @@ export function WorkflowTemplateEditorPage({
               disabled={readOnly}
               onClick={() => handleInsertAgentStepOnEdge(edgeActionMenu.edgeId)}
             >
-              Insert Agent Step
+              {t('workflow.editor.insertAgentStep')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
                 handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'source')
               }
             >
-              Reconnect Source
+              {t('workflow.editor.reconnectSource')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
                 handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'target')
               }
             >
-              Reconnect Target
+              {t('workflow.editor.reconnectTarget')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -1237,7 +1400,7 @@ export function WorkflowTemplateEditorPage({
               disabled={readOnly}
               onClick={() => handleDeleteEdge(edgeActionMenu.edgeId)}
             >
-              Delete Edge
+              {t('workflow.editor.deleteEdge')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1350,14 +1513,14 @@ export function WorkflowTemplateEditorPage({
                   workspaceHref={null}
                   nodeTitle={sessionPanelNode?.data.display_name}
                   nodeData={sessionPanelNode?.data ?? null}
-                  statusLabel="Draft"
+                  statusLabel={t('attempts.status.draft')}
                   onEditConfig={() => {
                     if (sessionPanelNodeId) {
                       handleOpenAgentStepEdit(sessionPanelNodeId);
                     }
                   }}
                   runStepDisabled
-                  runStepTitle="Run the workflow to execute this step."
+                  runStepTitle={t('workflow.editor.runWorkflowToExecuteStep')}
                 />
               </div>
             ) : inspectorPanel.kind === 'edge' ? (

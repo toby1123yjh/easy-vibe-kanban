@@ -2,10 +2,12 @@ import {
   useWorkflowTemplates,
   useWorkflowTemplateMutations,
 } from '@/shared/hooks/useWorkflowTemplates';
+import { useTranslation } from 'react-i18next';
 import { createDefaultWorkflowGraph } from '../model/workflowGraph';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { Button } from '@vibe/ui/components/Button';
 import { ArrowRight, FileText, GitBranch, Loader2, Plus } from 'lucide-react';
+import { getWorkflowDefaultGraphLabels } from './workflowI18n';
 
 export interface WorkflowTemplateListPageProps {
   projectId: string;
@@ -14,16 +16,19 @@ export interface WorkflowTemplateListPageProps {
 export function WorkflowTemplateListPage({
   projectId,
 }: WorkflowTemplateListPageProps) {
+  const { t } = useTranslation('common');
   const { data, isLoading, error } = useWorkflowTemplates(projectId);
   const { createTemplate, isCreating } = useWorkflowTemplateMutations();
   const navigation = useAppNavigation();
 
   const handleCreate = async () => {
-    const defaultGraph = createDefaultWorkflowGraph();
+    const defaultGraph = createDefaultWorkflowGraph(
+      getWorkflowDefaultGraphLabels(t)
+    );
     const result = await createTemplate({
       projectId,
       payload: {
-        name: 'New workflow',
+        name: t('workflow.templates.newWorkflowName'),
         description: '',
         graph_json: JSON.stringify(defaultGraph),
       },
@@ -44,10 +49,10 @@ export function WorkflowTemplateListPage({
   }
 
   if (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return (
       <div className="flex h-full items-center justify-center text-error">
-        Failed to load workflows:{' '}
-        {error instanceof Error ? error.message : String(error)}
+        {t('workflow.templates.loadFailed', { message })}
       </div>
     );
   }
@@ -57,7 +62,9 @@ export function WorkflowTemplateListPage({
   return (
     <div className="flex h-full flex-col bg-primary p-base">
       <div className="mb-base flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-high">Workflows</h1>
+        <h1 className="text-xl font-semibold text-high">
+          {t('workflow.templates.title')}
+        </h1>
         <Button
           onClick={handleCreate}
           disabled={isCreating}
@@ -68,7 +75,7 @@ export function WorkflowTemplateListPage({
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          New canvas
+          {t('workflow.templates.newCanvas')}
         </Button>
       </div>
 
@@ -87,10 +94,10 @@ export function WorkflowTemplateListPage({
               <GitBranch className="h-5 w-5 text-brand" />
             </div>
             <h2 className="text-base font-semibold text-high">
-              No workflow canvases yet
+              {t('workflow.templates.emptyTitle')}
             </h2>
             <p className="mt-1 text-sm text-low">
-              Start from a blank canvas for this project.
+              {t('workflow.templates.emptyDescription')}
             </p>
             <Button
               onClick={handleCreate}
@@ -102,7 +109,7 @@ export function WorkflowTemplateListPage({
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              Create canvas
+              {t('workflow.templates.createCanvas')}
             </Button>
           </div>
         </div>
@@ -121,7 +128,7 @@ export function WorkflowTemplateListPage({
                     <FileText className="h-4 w-4 text-brand" />
                   </div>
                   <h3 className="truncate text-sm font-semibold text-high">
-                    {template.name || 'Untitled'}
+                    {template.name || t('workflow.templates.untitled')}
                   </h3>
                 </div>
                 <span
@@ -135,13 +142,17 @@ export function WorkflowTemplateListPage({
                 </span>
               </div>
               <p className="line-clamp-2 text-sm text-low">
-                {template.description || 'No description provided.'}
+                {template.description || t('workflow.templates.noDescription')}
               </p>
               <div className="mt-auto flex items-center justify-between border-t border-secondary/50 pt-3 text-xs text-low">
                 <span>
-                  Updated {new Date(template.updated_at).toLocaleDateString()}
+                  {t('workflow.templates.updated', {
+                    date: new Date(template.updated_at).toLocaleDateString(),
+                  })}
                 </span>
-                <span className="text-brand">Open canvas</span>
+                <span className="text-brand">
+                  {t('workflow.templates.openCanvas')}
+                </span>
                 <ArrowRight className="h-4 w-4 text-brand opacity-0 transition-opacity group-hover:opacity-100" />
               </div>
             </button>

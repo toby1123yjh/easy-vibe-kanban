@@ -1,27 +1,45 @@
 import { cn } from '@/shared/lib/utils';
 import type { WorkflowNodeDebugView } from '../model/workflowRunView';
+import { useTranslation } from 'react-i18next';
 
 export function WorkflowRunDebugPanel({
   debug,
 }: {
   debug: WorkflowNodeDebugView | null;
 }) {
+  const { t } = useTranslation('common');
   if (!debug) {
-    return <div className="text-sm text-low">No debug data for this step.</div>;
+    return (
+      <div className="text-sm text-low">{t('workflow.debug.noDebugData')}</div>
+    );
   }
 
   return (
     <div data-testid="workflow-node-debug-panel" className="space-y-base">
-      <DebugBlock title="Run Input" value={debug.rawInput} />
-      <DebugBlock title="Prompt Template" value={debug.promptTemplate} />
-      <DebugBlock title="Rendered Prompt" value={debug.renderedPrompt} />
+      <DebugBlock
+        title={t('workflow.debug.runInput')}
+        emptyLabel={t('workflow.debug.noRunInput')}
+        value={debug.rawInput}
+      />
+      <DebugBlock
+        title={t('workflow.debug.promptTemplate')}
+        emptyLabel={t('workflow.debug.noPromptTemplate')}
+        value={debug.promptTemplate}
+      />
+      <DebugBlock
+        title={t('workflow.debug.renderedPrompt')}
+        emptyLabel={t('workflow.debug.noRenderedPrompt')}
+        value={debug.renderedPrompt}
+      />
       <div>
         <h3 className="mb-half text-xs font-semibold uppercase text-low">
-          Upstream Outputs
+          {t('workflow.debug.upstreamOutputs')}
         </h3>
         <div className="space-y-half">
           {debug.upstreamOutputs.length === 0 ? (
-            <p className="text-xs text-low">No upstream output.</p>
+            <p className="text-xs text-low">
+              {t('workflow.debug.noUpstreamOutput')}
+            </p>
           ) : (
             debug.upstreamOutputs.map((output) => (
               <DebugBlock
@@ -33,22 +51,40 @@ export function WorkflowRunDebugPanel({
           )}
         </div>
       </div>
-      <DebugBlock title="Output" value={debug.outputText} />
+      <DebugBlock
+        title={t('workflow.dashboard.output')}
+        emptyLabel={t('workflow.dashboard.noOutput')}
+        value={debug.outputText}
+      />
       {debug.errorText ? (
-        <DebugBlock title="Error" value={debug.errorText} tone="danger" />
+        <DebugBlock
+          title={t('workflow.dashboard.error')}
+          value={debug.errorText}
+          tone="danger"
+        />
       ) : null}
-      <DebugBlock title="Session ID" value={debug.sessionId} />
-      <DebugBlock title="Process ID" value={debug.executionProcessId} />
+      <DebugBlock
+        title={t('workflow.nodeSession.sessionId')}
+        emptyLabel={t('workflow.debug.noSessionId')}
+        value={debug.sessionId}
+      />
+      <DebugBlock
+        title={t('workflow.nodeSession.processId')}
+        emptyLabel={t('workflow.debug.noProcessId')}
+        value={debug.executionProcessId}
+      />
     </div>
   );
 }
 
 function DebugBlock({
   title,
+  emptyLabel,
   value,
   tone = 'normal',
 }: {
   title: string;
+  emptyLabel?: string;
   value: string | null;
   tone?: 'normal' | 'danger';
 }) {
@@ -70,7 +106,7 @@ function DebugBlock({
             : 'border-secondary bg-primary text-high'
         )}
       >
-        {value || `No ${title.toLowerCase()}.`}
+        {value || emptyLabel || title}
       </pre>
     </div>
   );

@@ -3,10 +3,13 @@ import type {
   WorkflowNodeData,
   WorkflowNodeKind,
 } from '../model/workflowGraph';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import {
   getWorkflowNodeSchema,
   type WorkflowNodeFieldSchema,
 } from '../model/workflowNodeSchemas';
+import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
 import { WorkflowNodeFieldRenderer } from './WorkflowNodeFieldRenderer';
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import { Plus, Trash2 } from 'lucide-react';
@@ -44,15 +47,32 @@ function shouldRenderSimpleField(
   return true;
 }
 
+function getLocalizedField(
+  field: WorkflowNodeFieldSchema,
+  t: TFunction<'common'>
+): WorkflowNodeFieldSchema {
+  const label = t(`workflow.fields.${String(field.key)}`, {
+    defaultValue: field.label,
+  });
+  const options = field.options?.map((option) => ({
+    ...option,
+    label: t(`workflow.fieldOptions.${String(field.key)}.${option.value}`, {
+      defaultValue: option.label,
+    }),
+  }));
+  return { ...field, label, ...(options ? { options } : {}) };
+}
+
 export function WorkflowNodeInspector({
   node,
   readOnly,
   onChange,
 }: WorkflowNodeInspectorProps) {
+  const { t } = useTranslation('common');
   if (!node) {
     return (
       <div className="flex h-full items-center justify-center p-base text-center text-low text-sm">
-        Select a node to inspect
+        {t('workflow.inspector.selectNode')}
       </div>
     );
   }
@@ -68,7 +88,8 @@ export function WorkflowNodeInspector({
   const schemaFields = schema.fields;
   const simpleFields = schemaFields
     .filter(isSimpleField)
-    .filter((field) => shouldRenderSimpleField(type, data, field));
+    .filter((field) => shouldRenderSimpleField(type, data, field))
+    .map((field) => getLocalizedField(field, t));
   const hasConditionRules = schemaFields.some(
     (field) => field.type === 'condition_rules'
   );
@@ -97,10 +118,10 @@ export function WorkflowNodeInspector({
         </div>
         <div className="flex flex-col">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-low">
-            Step
+            {t('workflow.inspector.step')}
           </span>
           <span className="text-sm font-semibold text-high">
-            {schema.label}
+            {getWorkflowNodeKindLabel(type, t)}
           </span>
         </div>
       </div>
@@ -121,7 +142,9 @@ export function WorkflowNodeInspector({
           {hasConditionRules ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-high">Rules</label>
+                <label className="text-xs font-semibold text-high">
+                  {t('workflow.inspector.rules')}
+                </label>
                 <button
                   type="button"
                   className={secondaryButtonClass}
@@ -138,7 +161,7 @@ export function WorkflowNodeInspector({
                   }
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add rule
+                  {t('workflow.inspector.addRule')}
                 </button>
               </div>
               {conditions.map((condition, index) => (
@@ -148,12 +171,16 @@ export function WorkflowNodeInspector({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-semibold text-high">
-                      Rule {index + 1}
+                      {t('workflow.inspector.ruleLabel', {
+                        index: index + 1,
+                      })}
                     </label>
                     <button
                       type="button"
                       className={iconButtonClass}
-                      aria-label={`Remove rule ${index + 1}`}
+                      aria-label={t('workflow.inspector.removeRule', {
+                        index: index + 1,
+                      })}
                       disabled={readOnly}
                       onClick={() =>
                         handleChange(
@@ -167,7 +194,7 @@ export function WorkflowNodeInspector({
                   </div>
                   <input
                     type="text"
-                    placeholder="Input"
+                    placeholder={t('workflow.inspector.inputPlaceholder')}
                     className={inputClass}
                     value={condition.input ?? ''}
                     onChange={(e) => {
@@ -194,14 +221,22 @@ export function WorkflowNodeInspector({
                     }}
                     disabled={readOnly}
                   >
-                    <option value="contains">Contains</option>
-                    <option value="equals">Equals</option>
-                    <option value="not_equals">Not Equals</option>
-                    <option value="regex">Regex</option>
+                    <option value="contains">
+                      {t('workflow.operators.contains')}
+                    </option>
+                    <option value="equals">
+                      {t('workflow.operators.equals')}
+                    </option>
+                    <option value="not_equals">
+                      {t('workflow.operators.notEquals')}
+                    </option>
+                    <option value="regex">
+                      {t('workflow.operators.regex')}
+                    </option>
                   </select>
                   <input
                     type="text"
-                    placeholder="Value"
+                    placeholder={t('workflow.inspector.valuePlaceholder')}
                     className={inputClass}
                     value={condition.value ?? ''}
                     onChange={(e) => {
@@ -223,7 +258,7 @@ export function WorkflowNodeInspector({
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-high">
-                  Branches
+                  {t('workflow.inspector.branches')}
                 </label>
                 <button
                   type="button"
@@ -237,7 +272,7 @@ export function WorkflowNodeInspector({
                   }
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add branch
+                  {t('workflow.inspector.addBranch')}
                 </button>
               </div>
               {branches.map((branch, index) => (
@@ -247,7 +282,9 @@ export function WorkflowNodeInspector({
                 >
                   <input
                     type="text"
-                    aria-label={`Branch ${index + 1} name`}
+                    aria-label={t('workflow.inspector.branchName', {
+                      index: index + 1,
+                    })}
                     className={inputClass}
                     value={branch.name ?? ''}
                     onChange={(e) => {
@@ -263,7 +300,9 @@ export function WorkflowNodeInspector({
                   <button
                     type="button"
                     className={iconButtonClass}
-                    aria-label={`Remove branch ${index + 1}`}
+                    aria-label={t('workflow.inspector.removeBranch', {
+                      index: index + 1,
+                    })}
                     disabled={readOnly || branches.length <= 1}
                     onClick={() =>
                       handleChange(
@@ -284,7 +323,9 @@ export function WorkflowNodeInspector({
       {type === 'arena' && hasArenaAttempts && (
         <>
           <div className="flex items-center justify-between gap-2">
-            <label className="text-xs font-semibold text-high">Attempts</label>
+            <label className="text-xs font-semibold text-high">
+              {t('workflow.inspector.attempts')}
+            </label>
             <button
               type="button"
               className={secondaryButtonClass}
@@ -294,7 +335,9 @@ export function WorkflowNodeInspector({
                   ...attempts,
                   {
                     id: `attempt-${attempts.length + 1}`,
-                    display_name: `Attempt ${attempts.length + 1}`,
+                    display_name: t('workflow.inspector.attemptLabel', {
+                      index: attempts.length + 1,
+                    }),
                     role_template_id: 'custom',
                     prompt_template: '',
                   },
@@ -302,7 +345,7 @@ export function WorkflowNodeInspector({
               }
             >
               <Plus className="h-3.5 w-3.5" />
-              Add attempt
+              {t('workflow.inspector.addAttempt')}
             </button>
           </div>
           {attempts.map((attempt, i) => (
@@ -312,12 +355,15 @@ export function WorkflowNodeInspector({
             >
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-high">
-                  {attempt.display_name ?? `Attempt ${i + 1}`}
+                  {attempt.display_name ??
+                    t('workflow.inspector.attemptLabel', { index: i + 1 })}
                 </label>
                 <button
                   type="button"
                   className={iconButtonClass}
-                  aria-label={`Remove attempt ${i + 1}`}
+                  aria-label={t('workflow.inspector.removeAttempt', {
+                    index: i + 1,
+                  })}
                   disabled={readOnly || attempts.length <= 1}
                   onClick={() =>
                     handleChange(
@@ -331,7 +377,7 @@ export function WorkflowNodeInspector({
               </div>
               <input
                 type="text"
-                placeholder="Display Name"
+                placeholder={t('workflow.fields.display_name')}
                 className={inputClass}
                 value={attempt.display_name ?? ''}
                 onChange={(e) => {
@@ -346,7 +392,7 @@ export function WorkflowNodeInspector({
               />
               <input
                 type="text"
-                placeholder="Role Template ID"
+                placeholder={t('workflow.fields.role_template_id')}
                 className={inputClass}
                 value={attempt.role_template_id ?? ''}
                 onChange={(e) => {
@@ -360,7 +406,7 @@ export function WorkflowNodeInspector({
                 disabled={readOnly}
               />
               <textarea
-                placeholder="Prompt Template Override"
+                placeholder={t('workflow.inspector.promptOverride')}
                 className={inputClass}
                 rows={2}
                 value={attempt.prompt_template ?? ''}

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowDown, GitBranch, Trash2 } from 'lucide-react';
 import {
   DEFAULT_SOURCE_HANDLE,
@@ -37,6 +38,7 @@ export function WorkflowEdgeInspector({
   onConditionBranchChange,
   onDelete,
 }: WorkflowEdgeInspectorProps) {
+  const { t } = useTranslation('common');
   const sourceSelectRef = useRef<HTMLSelectElement>(null);
   const targetSelectRef = useRef<HTMLSelectElement>(null);
 
@@ -51,12 +53,12 @@ export function WorkflowEdgeInspector({
   if (!edge) {
     return (
       <div className="flex h-full items-center justify-center p-base text-center text-low text-sm">
-        Select an edge to inspect
+        {t('workflow.inspector.selectEdge')}
       </div>
     );
   }
 
-  const edgeKindOptions = getWorkflowEdgeKindOptions();
+  const edgeKindOptions = getWorkflowEdgeKindOptions(t);
   const selectedOption = edgeKindOptions.find(
     (option) => option.value === edge.type
   );
@@ -97,7 +99,9 @@ export function WorkflowEdgeInspector({
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-secondary/20">
           <GitBranch className="h-4 w-4 text-high" />
         </div>
-        <span className="font-semibold text-high">Edge Properties</span>
+        <span className="font-semibold text-high">
+          {t('workflow.inspector.edgeProperties')}
+        </span>
       </div>
 
       <button
@@ -107,7 +111,7 @@ export function WorkflowEdgeInspector({
         onClick={() => onDelete?.(edge.id)}
       >
         <Trash2 className="h-4 w-4" />
-        Delete edge
+        {t('workflow.editor.deleteEdge')}
       </button>
 
       <div className="rounded border border-secondary bg-primary/40 p-3">
@@ -124,10 +128,12 @@ export function WorkflowEdgeInspector({
 
       <div className="flex flex-col gap-3 rounded border border-secondary bg-primary/40 p-3">
         <div className="text-xs font-semibold uppercase tracking-normal text-low">
-          Reconnect
+          {t('workflow.editor.reconnect')}
         </div>
         <div className="flex flex-col gap-1">
-          <label className="font-semibold text-high">Source</label>
+          <label className="font-semibold text-high">
+            {t('workflow.inspector.source')}
+          </label>
           <select
             ref={sourceSelectRef}
             className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
@@ -147,7 +153,9 @@ export function WorkflowEdgeInspector({
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="font-semibold text-high">Target</label>
+          <label className="font-semibold text-high">
+            {t('workflow.inspector.target')}
+          </label>
           <select
             ref={targetSelectRef}
             className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
@@ -169,7 +177,9 @@ export function WorkflowEdgeInspector({
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="font-semibold text-high">Route Type</label>
+        <label className="font-semibold text-high">
+          {t('workflow.inspector.routeType')}
+        </label>
         <select
           className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
           value={edge.type}
@@ -191,7 +201,9 @@ export function WorkflowEdgeInspector({
 
       {edge.type === 'condition_branch' && conditionBranchNames.length > 0 ? (
         <div className="flex flex-col gap-1">
-          <label className="font-semibold text-high">Condition Branch</label>
+          <label className="font-semibold text-high">
+            {t('workflow.inspector.conditionBranch')}
+          </label>
           <select
             className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
             value={conditionBranchName ?? ''}
@@ -201,7 +213,7 @@ export function WorkflowEdgeInspector({
             disabled={readOnly}
           >
             <option value="" disabled>
-              Select branch
+              {t('workflow.inspector.selectBranch')}
             </option>
             {conditionBranchNames.map((name) => (
               <option key={name} value={name}>
@@ -213,7 +225,9 @@ export function WorkflowEdgeInspector({
       ) : null}
 
       <div className="flex flex-col gap-1">
-        <label className="font-semibold text-high">Edge ID</label>
+        <label className="font-semibold text-high">
+          {t('workflow.inspector.edgeId')}
+        </label>
         <div className="truncate rounded border border-secondary bg-primary px-2 py-1 text-xs text-low">
           {edge.id}
         </div>

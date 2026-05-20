@@ -178,7 +178,11 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
                     .to_string(),
             )
         })?;
-        let repos = self.project_workspace_repos(project_id).await?;
+        let repos = if request.repo_overrides.is_empty() {
+            self.project_workspace_repos(project_id).await?
+        } else {
+            request.repo_overrides
+        };
         if repos.is_empty() {
             return Err(ApiError::BadRequest(
                 "Project has no repositories configured for workflow runs.".to_string(),

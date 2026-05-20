@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Background,
   BackgroundVariant,
@@ -41,7 +42,6 @@ import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
 import {
   buildWorkspaceSessionHref,
-  getNodeStatusLabel,
   getNodeStatusTone,
   type StatusTone,
 } from '../model/workflowRunView';
@@ -65,17 +65,26 @@ import {
   getWorkflowCanvasNodeState,
   getWorkflowCanvasNodeStateLabel,
 } from '../model/workflowCanvasVisualState';
+import {
+  getWorkflowNodeKindLabel,
+  getWorkflowNodeVisual,
+} from '../model/workflowPresentation';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { workflowCanvasEdgeTypes } from './WorkflowCanvas';
+import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
   WORKFLOW_CANVAS_COLOR_TOKENS,
+  WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES,
+  WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
+  WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
   WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES,
   WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES,
 } from './workflowCanvasTokens';
+import { workflowNodeStatusKey } from './workflowI18n';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -125,18 +134,82 @@ const runPortHandles = [
 ] as const;
 
 function RunNode({ data }: { data: RunNodeData }) {
+  const { t } = useTranslation('common');
   const status = data.execution?.status ?? 'pending';
   const tone = data.execution ? getNodeStatusTone(status) : 'neutral';
-  const type = data.nodeType;
+  const type = data.nodeType ?? 'agent';
+  const structural = type === 'start' || type === 'end';
+  const visual = getWorkflowNodeVisual(type);
+  const Icon = getWorkflowNodeIcon(type);
   const nodeState = getWorkflowCanvasNodeState({
     data,
     executionStatus: data.execution?.status,
-    nodeType: type ?? 'agent',
+    nodeType: type,
   });
-  const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState);
+  const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
   const isRunning = status === 'running';
   const isWaiting = status === 'awaiting_human' || status === 'awaiting_arena';
   const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
+  const handles = runPortHandles.map((handle) => (
+    <Handle
+      key={handle.id}
+      id={handle.id}
+      type={type === 'end' ? 'target' : 'source'}
+      position={handle.position}
+      className="opacity-0"
+    />
+  ));
+
+  if (structural) {
+    return (
+      <div
+        style={{ pointerEvents: 'all' }}
+        data-testid={
+          data.nodeId ? `workflow-run-node-${data.nodeId}` : undefined
+        }
+        onClick={(event) => {
+          if (!data.nodeId) return;
+          event.stopPropagation();
+          data.onSelectNode?.(data.nodeId);
+        }}
+        className={cn(
+          'relative flex min-w-[112px] cursor-pointer items-center gap-2 overflow-visible rounded-full border px-2.5 py-1.5 text-normal backdrop-blur transition-all duration-150',
+          WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.structural,
+          WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
+          isRunning && 'workflow-node-running',
+          data.isSelected
+            ? 'ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
+            : 'hover:border-brand/40'
+        )}
+      >
+        {handles}
+        <span
+          className={cn(
+            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-port-ring)]',
+            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
+            isRunning ? 'workflow-status-dot-running' : ''
+          )}
+          title={stateLabel}
+        />
+        <div
+          className={cn(
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 opacity-80',
+            visual.iconClass
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-xs font-semibold">
+            {data.display_name || getWorkflowNodeKindLabel(type, t)}
+          </div>
+          <div className="text-[9px] font-semibold uppercase tracking-normal text-low">
+            {getWorkflowNodeKindLabel(type, t)}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -146,14 +219,16 @@ function RunNode({ data }: { data: RunNodeData }) {
         if (!data.nodeId) return;
         event.stopPropagation();
         data.onSelectNode?.(data.nodeId);
-        if (event.detail >= 2) {
+        if (event.detail >= 2 && !structural) {
           data.onOpenConversation?.(data.nodeId);
         }
       }}
       onDoubleClick={(event) => {
         if (!data.nodeId) return;
         event.stopPropagation();
-        data.onOpenConversation?.(data.nodeId);
+        if (!structural) {
+          data.onOpenConversation?.(data.nodeId);
+        }
       }}
       className={cn(
         'relative min-w-[170px] cursor-pointer overflow-visible rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
@@ -177,15 +252,7 @@ function RunNode({ data }: { data: RunNodeData }) {
           isRunning ? 'workflow-status-dot-running' : ''
         )}
       />
-      {runPortHandles.map((handle) => (
-        <Handle
-          key={handle.id}
-          id={handle.id}
-          type={type === 'end' ? 'target' : 'source'}
-          position={handle.position}
-          className="opacity-0"
-        />
-      ))}
+      {handles}
       <div className="flex items-center gap-3 pr-4">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/60 bg-primary/70 shadow-sm">
           {agentDisplay?.executor ? (
@@ -196,12 +263,12 @@ function RunNode({ data }: { data: RunNodeData }) {
         </div>
         <div className="flex min-w-0 flex-col">
           <span className="truncate text-sm font-semibold">
-            {data.display_name || type || 'Node'}
+            {data.display_name || type || t('workflow.canvas.nodeFallback')}
           </span>
           <span className="truncate text-[10px] font-semibold tracking-normal opacity-80">
             {agentDisplay
               ? `${agentDisplay.agentLabel} / ${agentDisplay.modelLabel}`
-              : getNodeStatusLabel(status)}
+              : t(`workflow.nodeStatus.${workflowNodeStatusKey(status)}`)}
           </span>
           <span
             className={cn(
@@ -276,6 +343,7 @@ export function WorkflowRunCanvasTab({
   projectId,
   run,
 }: WorkflowRunCanvasTabProps) {
+  const { t } = useTranslation('common');
   const { data: template, isLoading: isTemplateLoading } = useWorkflowTemplate(
     run.workflow_id
   );
@@ -452,7 +520,9 @@ export function WorkflowRunCanvasTab({
       });
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to approve node.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.dashboard.approveFailed')
       );
     }
   };
@@ -468,7 +538,9 @@ export function WorkflowRunCanvasTab({
       });
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Failed to reject node.'
+        err instanceof Error
+          ? err.message
+          : t('workflow.dashboard.rejectFailed')
       );
     }
   };
@@ -477,7 +549,7 @@ export function WorkflowRunCanvasTab({
     return (
       <div className="flex h-full items-center justify-center text-low">
         <Activity className="mr-2 h-4 w-4 animate-spin" />
-        Loading graph...
+        {t('workflow.runCanvas.loadingGraph')}
       </div>
     );
   }
@@ -485,7 +557,7 @@ export function WorkflowRunCanvasTab({
   if (!graph) {
     return (
       <div className="flex h-full items-center justify-center p-base text-sm text-error">
-        Workflow graph could not be loaded for this run.
+        {t('workflow.runCanvas.loadGraphFailed')}
       </div>
     );
   }
@@ -588,6 +660,7 @@ function NodeDetailPanel({
   selectedNodeId,
   onEditWorkflowConfig,
 }: NodeDetailPanelProps) {
+  const { t } = useTranslation('common');
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
   const sessionHref =
     selectedExecution?.node_type === 'agent'
@@ -602,12 +675,16 @@ function NodeDetailPanel({
       : null;
   const title =
     selectedGraphNode?.data.display_name ||
-    (isAgent ? 'Agent Step Session' : 'Node Details');
+    (isAgent
+      ? t('workflow.nodeSession.agentStepSession')
+      : t('workflow.runCanvas.nodeDetails'));
   const subtitle = selectedExecution
-    ? getNodeStatusLabel(selectedExecution.status)
+    ? t(
+        `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
+      )
     : selectedNodeId
-      ? 'Not executed yet'
-      : 'Select a node';
+      ? t('workflow.runCanvas.notExecutedYet')
+      : t('workflow.runCanvas.selectNode');
 
   if (isAgent && selectedExecution) {
     return (
@@ -662,8 +739,8 @@ function NodeDetailPanel({
         {!selectedExecution ? (
           <div className="text-sm text-low">
             {selectedNodeId
-              ? 'This node has not executed yet.'
-              : 'Select a node in the canvas to view its details.'}
+              ? t('workflow.runCanvas.nodeNotExecuted')
+              : t('workflow.runCanvas.selectNodeDetails')}
           </div>
         ) : isAgent ? (
           <WorkflowNodeConversationPanel
@@ -713,16 +790,19 @@ function NodeDetailsTab({
   selectedExecution: WorkflowNodeExecutionResponse;
   workspaceHref: string | null;
 }) {
+  const { t } = useTranslation('common');
   return (
     <div className="space-y-base">
       <div>
         <h3 className="mb-half text-xs font-semibold uppercase text-low">
-          Status
+          {t('workflow.dashboard.status')}
         </h3>
         <div className="flex items-center gap-half">
           {statusIconMap[selectedExecution.status]}
           <span className="text-sm capitalize text-high">
-            {getNodeStatusLabel(selectedExecution.status)}
+            {t(
+              `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
+            )}
           </span>
         </div>
       </div>
@@ -730,10 +810,11 @@ function NodeDetailsTab({
       {selectedExecution.status === 'awaiting_human' ? (
         <div className="space-y-half rounded border border-warning/50 bg-warning/10 p-half">
           <h4 className="text-sm font-semibold text-warning">
-            Human action required
+            {t('workflow.runCanvas.humanActionRequired')}
           </h4>
           <p className="text-xs text-high">
-            {selectedExecution.output_text || 'Review this node to proceed.'}
+            {selectedExecution.output_text ||
+              t('workflow.runCanvas.reviewNodeToProceed')}
           </p>
           <div className="flex flex-wrap gap-half">
             <Button
@@ -742,7 +823,9 @@ function NodeDetailsTab({
               disabled={isApproving || isRejecting}
               onClick={onApprove}
             >
-              {isApproving ? 'Approving...' : 'Approve'}
+              {isApproving
+                ? t('workflow.runCanvas.approving')
+                : t('workflow.dashboard.approve')}
             </Button>
             <Button
               type="button"
@@ -751,7 +834,9 @@ function NodeDetailsTab({
               disabled={isApproving || isRejecting}
               onClick={onReject}
             >
-              {isRejecting ? 'Rejecting...' : 'Reject'}
+              {isRejecting
+                ? t('workflow.runCanvas.rejecting')
+                : t('workflow.dashboard.reject')}
             </Button>
           </div>
         </div>
@@ -775,7 +860,9 @@ function NodeDetailsTab({
 
       {selectedExecution.error_text ? (
         <div className="rounded border border-error/50 bg-error/10 p-half">
-          <h3 className="text-xs font-semibold uppercase text-error">Error</h3>
+          <h3 className="text-xs font-semibold uppercase text-error">
+            {t('workflow.dashboard.error')}
+          </h3>
           <pre className="mt-half whitespace-pre-wrap text-xs text-error">
             {selectedExecution.error_text}
           </pre>
@@ -807,13 +894,14 @@ function WorkflowNodeConversationPanel({
   workspaceHref: string | null;
   onEditConfig: () => void;
 }) {
+  const { t } = useTranslation('common');
   if (selectedExecution.node_type !== 'agent') {
     return (
       <div
         data-testid="workflow-node-conversation-panel"
         className="text-sm text-low"
       >
-        Conversation is available for Agent nodes.
+        {t('workflow.runCanvas.conversationAgentOnly')}
       </div>
     );
   }
@@ -827,10 +915,12 @@ function WorkflowNodeConversationPanel({
         workspaceHref={workspaceHref}
         nodeTitle={selectedGraphNode?.data.display_name}
         nodeData={selectedGraphNode?.data ?? null}
-        statusLabel={getNodeStatusLabel(selectedExecution.status)}
+        statusLabel={t(
+          `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
+        )}
         onEditConfig={onEditConfig}
         runStepDisabled
-        runStepTitle="Single-step run is not available yet."
+        runStepTitle={t('workflow.canvas.runStepUnavailable')}
       />
     </div>
   );
@@ -847,41 +937,51 @@ function NodeExecutionTab({
   sessionHref: string | null;
   workspaceHref: string | null;
 }) {
+  const { t } = useTranslation('common');
   return (
     <div className="space-y-base">
       <div className="space-y-half">
-        <MetadataRow label="Run ID">{run.id}</MetadataRow>
-        <MetadataRow label="Execution ID">{selectedExecution.id}</MetadataRow>
-        <MetadataRow label="Node ID">{selectedExecution.node_id}</MetadataRow>
-        <MetadataRow label="Node Type">
+        <MetadataRow label={t('workflow.dashboard.runId')}>
+          {run.id}
+        </MetadataRow>
+        <MetadataRow label={t('workflow.runCanvas.executionId')}>
+          {selectedExecution.id}
+        </MetadataRow>
+        <MetadataRow label={t('workflow.runCanvas.nodeId')}>
+          {selectedExecution.node_id}
+        </MetadataRow>
+        <MetadataRow label={t('workflow.runCanvas.nodeType')}>
           {selectedExecution.node_type}
         </MetadataRow>
-        <MetadataRow label="Session ID">
-          {selectedExecution.session_id ?? 'Not started'}
+        <MetadataRow label={t('workflow.nodeSession.sessionId')}>
+          {selectedExecution.session_id ?? t('workflow.dashboard.notStarted')}
         </MetadataRow>
-        <MetadataRow label="Process ID">
-          {selectedExecution.execution_process_id ?? 'Not started'}
+        <MetadataRow label={t('workflow.nodeSession.processId')}>
+          {selectedExecution.execution_process_id ??
+            t('workflow.dashboard.notStarted')}
         </MetadataRow>
-        <MetadataRow label="Workspace ID">
-          {run.workspace_id ?? 'No workspace'}
+        <MetadataRow label={t('workflow.runCanvas.workspaceId')}>
+          {run.workspace_id ?? t('workflow.runCanvas.noWorkspace')}
         </MetadataRow>
-        <MetadataRow label="Started">
-          {selectedExecution.started_at ?? 'Not started'}
+        <MetadataRow label={t('workflow.runCanvas.started')}>
+          {selectedExecution.started_at ?? t('workflow.dashboard.notStarted')}
         </MetadataRow>
-        <MetadataRow label="Finished">
-          {selectedExecution.finished_at ?? 'Not finished'}
+        <MetadataRow label={t('workflow.runCanvas.finished')}>
+          {selectedExecution.finished_at ?? t('workflow.runCanvas.notFinished')}
         </MetadataRow>
       </div>
 
       <div className="flex flex-wrap gap-half">
         {sessionHref ? (
           <Button asChild size="xs" variant="outline">
-            <a href={sessionHref}>Open session</a>
+            <a href={sessionHref}>{t('attempts.openSession')}</a>
           </Button>
         ) : null}
         {workspaceHref ? (
           <Button asChild size="xs" variant="outline">
-            <a href={workspaceHref}>Open workspace</a>
+            <a href={workspaceHref}>
+              {t('workflow.dashboard.openWorkflowWorkspace')}
+            </a>
           </Button>
         ) : null}
       </div>

@@ -61,14 +61,12 @@ function WorkflowRepositoryDialogContent() {
     );
 
     if (selectedRepos.length === 0) {
-      setError('Select at least one repository before creating a workflow.');
+      setError(t('workflow.repositoryDialog.errors.repositoryRequired'));
       return;
     }
 
     if (hasMissingBranch) {
-      setError(
-        'Select a branch for every repository before creating a workflow.'
-      );
+      setError(t('workflow.repositoryDialog.errors.branchRequired'));
       return;
     }
 
@@ -86,15 +84,13 @@ function WorkflowRepositoryDialogContent() {
     <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[min(720px,calc(100vw-32px))] max-w-none">
         <DialogHeader>
-          <DialogTitle>
-            {t('attempts.newWorkflow', 'New workflow attempt')}
-          </DialogTitle>
+          <DialogTitle>{t('workflow.repositoryDialog.title')}</DialogTitle>
         </DialogHeader>
 
         {isLoading ? (
           <div className="flex min-h-[220px] items-center justify-center text-low">
             <Loader2 className="mr-half size-icon-sm animate-spin" />
-            <span>{t('common:loading', 'Loading...')}</span>
+            <span>{t('states.loading')}</span>
           </div>
         ) : (
           <div className="py-base">
@@ -102,7 +98,7 @@ function WorkflowRepositoryDialogContent() {
               {t('createMode.headings.repoStep')}
             </h2>
             <CreateModeRepoPickerBar
-              continueLabel={t('common:create', 'Create')}
+              continueLabel={t('buttons.create')}
               onContinueToPrompt={handleCreateCanvas}
             />
             {error ? (
@@ -118,7 +114,7 @@ function WorkflowRepositoryDialogContent() {
 
         <div className="flex justify-end border-t border-border/60 pt-base">
           <Button variant="ghost" onClick={handleCancel}>
-            {t('common:cancel', 'Cancel')}
+            {t('buttons.cancel')}
           </Button>
         </div>
       </DialogContent>
