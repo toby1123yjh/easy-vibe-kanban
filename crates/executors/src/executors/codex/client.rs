@@ -242,7 +242,6 @@ impl AppServerClient {
             params: SkillsListParams {
                 cwds: vec![cwd],
                 force_reload: false,
-                per_cwd_extra_user_roots: None,
             },
         };
         self.send_request(request, "skills/list").await
@@ -443,6 +442,7 @@ impl AppServerClient {
                 Ok(())
             }
             ServerRequest::ChatgptAuthTokensRefresh { .. }
+            | ServerRequest::AttestationGenerate { .. }
             | ServerRequest::McpServerElicitationRequest { .. }
             | ServerRequest::PermissionsRequestApproval { .. } => {
                 tracing::warn!("received unhandled v2 server request: {:?}", request);

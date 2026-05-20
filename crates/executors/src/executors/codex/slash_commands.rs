@@ -251,7 +251,7 @@ impl Codex {
                             .await
                             .ok()
                             .and_then(|r| r.config.service_tier)
-                            .map(|t| matches!(t, ServiceTier::Fast))
+                            .map(|t| t == ServiceTier::Fast.request_value())
                             .unwrap_or(false);
                         if status {
                             let message = if current_is_fast || session_fast {
@@ -271,7 +271,7 @@ impl Codex {
                         };
                         // Persist service_tier to codex config via config/batchWrite
                         let config_value = if want_fast {
-                            json!("fast")
+                            json!(ServiceTier::Fast.request_value())
                         } else {
                             json!(null)
                         };
@@ -456,7 +456,7 @@ async fn fetch_status_message(
     let global_fast = config_resp
         .as_ref()
         .and_then(|r| r.config.service_tier.as_ref())
-        .map(|t| matches!(t, ServiceTier::Fast))
+        .map(|t| t == ServiceTier::Fast.request_value())
         .unwrap_or(false);
     if global_fast || session_fast {
         lines.push("- **Service Tier**: `fast ⚡`".to_string());
