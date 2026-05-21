@@ -341,6 +341,7 @@ export function RemoteProjectsSettingsSection({
   const { isSignedIn, isLoaded } = useAuth();
   const machineClient = useSettingsMachineClient();
   const machineScopeKey = machineClient?.queryScopeKey.join(':') ?? 'none';
+  const repoDefaultsHostId = machineClient?.target.apiHostId;
 
   // Selection state - initialize with provided values
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(
@@ -512,7 +513,7 @@ export function RemoteProjectsSettingsSection({
     setLoadingBranches(new Set());
 
     Promise.all([
-      getProjectRepoDefaults(selectedProjectId),
+      getProjectRepoDefaults(selectedProjectId, repoDefaultsHostId),
       machineClient?.listRepos().catch(() => {
         setDefaultReposError(
           t('settings:settings.remoteProjects.form.defaultRepos.fetchError')
@@ -526,7 +527,13 @@ export function RemoteProjectsSettingsSection({
       })
       .catch(() => setDefaultRepos([]))
       .finally(() => setIsLoadingDefaults(false));
-  }, [machineClient, machineScopeKey, selectedProjectId, t]);
+  }, [
+    machineClient,
+    machineScopeKey,
+    repoDefaultsHostId,
+    selectedProjectId,
+    t,
+  ]);
 
   const defaultRepoIds = useMemo(
     () => new Set(defaultRepos.map((r) => r.repo_id)),
@@ -583,7 +590,11 @@ export function RemoteProjectsSettingsSection({
           { repo_id: repo.id, target_branch: branch },
         ];
         setDefaultRepos(updated);
-        await saveProjectRepoDefaults(selectedProjectId, updated);
+        await saveProjectRepoDefaults(
+          selectedProjectId,
+          updated,
+          repoDefaultsHostId
+        );
       } catch (error) {
         setDefaultReposError(
           error instanceof Error
@@ -592,7 +603,14 @@ export function RemoteProjectsSettingsSection({
         );
       }
     },
-    [selectedProjectId, defaultRepos, machineClient, pickBranchForRepo, t]
+    [
+      selectedProjectId,
+      defaultRepos,
+      machineClient,
+      pickBranchForRepo,
+      repoDefaultsHostId,
+      t,
+    ]
   );
 
   const handleAddNewDefaultRepo = useCallback(async () => {
@@ -621,7 +639,11 @@ export function RemoteProjectsSettingsSection({
       const updated = defaultRepos.filter((r) => r.repo_id !== repoId);
       setDefaultRepos(updated);
       try {
-        await saveProjectRepoDefaults(selectedProjectId, updated);
+        await saveProjectRepoDefaults(
+          selectedProjectId,
+          updated,
+          repoDefaultsHostId
+        );
       } catch (error) {
         setDefaultReposError(
           error instanceof Error
@@ -630,7 +652,7 @@ export function RemoteProjectsSettingsSection({
         );
       }
     },
-    [selectedProjectId, defaultRepos, t]
+    [selectedProjectId, defaultRepos, repoDefaultsHostId, t]
   );
 
   const fetchBranchesForRepo = useCallback(
@@ -664,7 +686,11 @@ export function RemoteProjectsSettingsSection({
       );
       setDefaultRepos(updated);
       try {
-        await saveProjectRepoDefaults(selectedProjectId, updated);
+        await saveProjectRepoDefaults(
+          selectedProjectId,
+          updated,
+          repoDefaultsHostId
+        );
       } catch (error) {
         setDefaultReposError(
           error instanceof Error
@@ -673,7 +699,7 @@ export function RemoteProjectsSettingsSection({
         );
       }
     },
-    [selectedProjectId, defaultRepos, t]
+    [selectedProjectId, defaultRepos, repoDefaultsHostId, t]
   );
 
   const visibleStatusCount = useMemo(

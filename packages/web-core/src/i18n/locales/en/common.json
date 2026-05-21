@@ -38,7 +38,7 @@
     "browserDefault": "Browser Default"
   },
   "arena": {
-    "title": "AI Arena",
+    "title": "Arena",
     "attemptCount": "{{count}} attempts",
     "memoCount": "{{count}} memo(s)",
     "headerTitle": "Arena / {{count}} attempts",
@@ -102,7 +102,8 @@
       "startImplementationFailed": "Start implementation failed",
       "promoteFailed": "Promote failed",
       "retryFailed": "Retry failed",
-      "createFailed": "Failed to create arena",
+      "createFailed": "Failed to create Arena",
+      "emptyGroupRecovered": "A failed empty Arena was cleared. Start again to create fresh attempts.",
       "retryUnknownExecutor": "Cannot retry: original executor is unknown for this attempt.",
       "diffStream": "Diff stream error: {{message}}"
     },
@@ -179,7 +180,8 @@
       "challengePrompt": "Compare your current answer with the other attempt. Call out disagreements, stronger ideas, risks, and what you would change."
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} attempts ({{running}} running)"
+      "activeSummary": "{{mode}} / {{total}} attempts ({{running}} running)",
+      "startSubtitle": "Draw mode"
     }
   },
   "conversation": {

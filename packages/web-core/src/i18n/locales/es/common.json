@@ -68,7 +68,7 @@
     "browserDefault": "Predeterminado del navegador"
   },
   "arena": {
-    "title": "Arena IA",
+    "title": "Arena",
     "attemptCount": "{{count}} intentos",
     "memoCount": "{{count}} memo(s)",
     "headerTitle": "Arena / {{count}} intentos",
@@ -133,6 +133,7 @@
       "promoteFailed": "Error al promover",
       "retryFailed": "Error al reintentar",
       "createFailed": "Error al crear Arena",
+      "emptyGroupRecovered": "Se limpió una Arena vacía fallida. Iníciala de nuevo para crear intentos nuevos.",
       "retryUnknownExecutor": "No se puede reintentar: se desconoce el ejecutor original de este intento.",
       "diffStream": "Error del flujo diff: {{message}}"
     },
@@ -209,7 +210,8 @@
       "challengePrompt": "Compara tu respuesta actual con el otro intento. Señala desacuerdos, ideas más fuertes, riesgos y qué cambiarías."
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} intentos ({{running}} en ejecución)"
+      "activeSummary": "{{mode}} / {{total}} intentos ({{running}} en ejecución)",
+      "startSubtitle": "Modo sorteo"
     }
   },
   "states": {

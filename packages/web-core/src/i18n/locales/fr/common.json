@@ -33,7 +33,7 @@
     "browserDefault": "Par défaut du navigateur"
   },
   "arena": {
-    "title": "Arena IA",
+    "title": "Arena",
     "attemptCount": "{{count}} tentatives",
     "memoCount": "{{count}} mémo(s)",
     "headerTitle": "Arena / {{count}} tentatives",
@@ -98,6 +98,7 @@
       "promoteFailed": "Échec de la promotion",
       "retryFailed": "Échec du nouvel essai",
       "createFailed": "Échec de la création de l'Arena",
+      "emptyGroupRecovered": "Une Arena vide en échec a été nettoyée. Relancez-la pour créer de nouvelles tentatives.",
       "retryUnknownExecutor": "Impossible de réessayer : l'exécuteur d'origine de cette tentative est inconnu.",
       "diffStream": "Erreur du flux de diff : {{message}}"
     },
@@ -174,7 +175,8 @@
       "challengePrompt": "Comparez votre réponse actuelle avec l'autre tentative. Signalez les désaccords, les meilleures idées, les risques et ce que vous changeriez."
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} tentatives ({{running}} en cours)"
+      "activeSummary": "{{mode}} / {{total}} tentatives ({{running}} en cours)",
+      "startSubtitle": "Mode tirage"
     }
   },
   "conversation": {

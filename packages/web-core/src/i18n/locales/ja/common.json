@@ -68,7 +68,7 @@
     "browserDefault": "ブラウザ設定"
   },
   "arena": {
-    "title": "AI Arena",
+    "title": "Arena",
     "attemptCount": "{{count}} 件の試行",
     "memoCount": "{{count}} 件のメモ",
     "headerTitle": "Arena / {{count}} 件の試行",
@@ -133,6 +133,7 @@
       "promoteFailed": "採用に失敗しました",
       "retryFailed": "再試行に失敗しました",
       "createFailed": "Arena の作成に失敗しました",
+      "emptyGroupRecovered": "失敗した空の Arena をクリーンアップしました。新しい試行を作成するにはもう一度開始してください。",
       "retryUnknownExecutor": "再試行できません: この試行の元の実行エージェントが不明です。",
       "diffStream": "Diff ストリームエラー: {{message}}"
     },
@@ -209,7 +210,8 @@
       "challengePrompt": "現在の回答を別の試行と比較してください。相違点、より強いアイデア、リスク、変更する点を指摘してください。"
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} 件の試行（{{running}} 件実行中）"
+      "activeSummary": "{{mode}} / {{total}} 件の試行（{{running}} 件実行中）",
+      "startSubtitle": "抽選モード"
     }
   },
   "states": {

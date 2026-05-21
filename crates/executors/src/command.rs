@@ -244,50 +244,83 @@ mod tests {
 
     #[test]
     fn parses_builtin_scoped_npm_executor_commands() {
+        use crate::executors::codex::Codex;
+
+        let codex_package = format!(
+            "{}@{}",
+            Codex::NPM_PACKAGE_NAME,
+            Codex::DEFAULT_NPM_PACKAGE_VERSION
+        );
+        let codex_command = format!("npx -y --package {codex_package} codex");
         let cases = [
             (
-                "npx -y --package @musistudio/claude-code-router@1.0.66 ccr code",
+                "npx -y --package @musistudio/claude-code-router@1.0.66 ccr code".to_string(),
                 vec![
-                    "-y",
-                    "--package",
-                    "@musistudio/claude-code-router@1.0.66",
-                    "ccr",
-                    "code",
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@musistudio/claude-code-router@1.0.66".to_string(),
+                    "ccr".to_string(),
+                    "code".to_string(),
                 ],
             ),
             (
-                "npx -y --package @sourcegraph/amp@latest amp",
-                vec!["-y", "--package", "@sourcegraph/amp@latest", "amp"],
-            ),
-            (
-                "npx -y --package @anthropic-ai/claude-code@2.1.119 claude",
+                "npx -y --package @sourcegraph/amp@latest amp".to_string(),
                 vec![
-                    "-y",
-                    "--package",
-                    "@anthropic-ai/claude-code@2.1.119",
-                    "claude",
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@sourcegraph/amp@latest".to_string(),
+                    "amp".to_string(),
                 ],
             ),
             (
-                "npx -y --package @openai/codex@0.132.0 codex",
-                vec!["-y", "--package", "@openai/codex@0.132.0", "codex"],
+                "npx -y --package @anthropic-ai/claude-code@2.1.119 claude".to_string(),
+                vec![
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@anthropic-ai/claude-code@2.1.119".to_string(),
+                    "claude".to_string(),
+                ],
             ),
             (
-                "npx -y --package @qwen-code/qwen-code@0.9.1 qwen",
-                vec!["-y", "--package", "@qwen-code/qwen-code@0.9.1", "qwen"],
+                codex_command,
+                vec![
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    codex_package,
+                    "codex".to_string(),
+                ],
             ),
             (
-                "npx -y --package @github/copilot@0.0.403 copilot",
-                vec!["-y", "--package", "@github/copilot@0.0.403", "copilot"],
+                "npx -y --package @qwen-code/qwen-code@0.9.1 qwen".to_string(),
+                vec![
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@qwen-code/qwen-code@0.9.1".to_string(),
+                    "qwen".to_string(),
+                ],
             ),
             (
-                "npx -y --package @google/gemini-cli@0.29.3 gemini",
-                vec!["-y", "--package", "@google/gemini-cli@0.29.3", "gemini"],
+                "npx -y --package @github/copilot@0.0.403 copilot".to_string(),
+                vec![
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@github/copilot@0.0.403".to_string(),
+                    "copilot".to_string(),
+                ],
+            ),
+            (
+                "npx -y --package @google/gemini-cli@0.29.3 gemini".to_string(),
+                vec![
+                    "-y".to_string(),
+                    "--package".to_string(),
+                    "@google/gemini-cli@0.29.3".to_string(),
+                    "gemini".to_string(),
+                ],
             ),
         ];
 
         for (command, expected_args) in cases {
-            let parts = CommandBuilder::new(command)
+            let parts = CommandBuilder::new(&command)
                 .build_initial()
                 .expect("command should parse");
 

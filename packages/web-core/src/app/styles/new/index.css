@@ -474,7 +474,9 @@ html {
     --workflow-note-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
     --workflow-edge-action-bg: #17191f;
     --workflow-edge-action-shadow: 0 0 18px rgba(249, 115, 22, 0.32);
-    --workflow-edge-beam-shadow: 0 0 8px rgba(249, 115, 22, 0.5);
+    --workflow-edge-beam-color: #fff7ed;
+    --workflow-edge-beam-shadow:
+      0 0 7px rgba(255, 247, 237, 0.78), 0 0 18px rgba(249, 115, 22, 0.58);
     --workflow-port-hover-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 16px rgba(249, 115, 22, 0.48);
     --workflow-port-active-shadow:
@@ -515,8 +517,8 @@ html {
   }
 
   .workflow-edge-beam {
-    stroke: hsl(var(--brand));
-    stroke-dasharray: 12 18;
+    stroke: var(--workflow-edge-beam-color);
+    stroke-dasharray: 8 16;
     stroke-linecap: round;
     opacity: 0;
     filter: none;
@@ -524,7 +526,7 @@ html {
   }
 
   .workflow-edge-beam-running {
-    opacity: 0.84;
+    opacity: 0.96;
     filter: drop-shadow(var(--workflow-edge-beam-shadow));
     animation: workflow-edge-flow var(--workflow-motion-beam) linear infinite;
   }
@@ -658,7 +660,7 @@ html {
 
   @keyframes workflow-edge-flow {
     to {
-      stroke-dashoffset: -30;
+      stroke-dashoffset: -48;
     }
   }
 

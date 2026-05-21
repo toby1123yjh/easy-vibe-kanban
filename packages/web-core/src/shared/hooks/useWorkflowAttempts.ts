@@ -2,6 +2,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
 import {
@@ -12,6 +13,8 @@ import {
 import type {
   WorkflowAttemptListResponse,
   WorkflowAttemptResponse,
+  WorkflowAttemptStatus,
+  WorkflowRunStatus,
 } from 'shared/types';
 import { workflowRunQueryKeys } from './useWorkflowRun';
 import { workflowTemplateQueryKeys } from './useWorkflowTemplates';
@@ -27,6 +30,46 @@ export const workflowAttemptQueryKeys = {
   workflow: (workflowId: string) =>
     ['workflow-attempts', 'workflow', workflowId] as const,
 };
+
+function workflowAttemptStatusFromRunStatus(
+  status: WorkflowRunStatus
+): WorkflowAttemptStatus {
+  return status === 'pending' ? 'ready' : status;
+}
+
+function updateCachedWorkflowAttempt(
+  queryClient: QueryClient,
+  attemptId: string,
+  updater: (attempt: WorkflowAttemptResponse) => WorkflowAttemptResponse | null
+) {
+  queryClient
+    .getQueriesData<WorkflowAttemptListResponse>({
+      queryKey: workflowAttemptQueryKeys.all,
+    })
+    .forEach(([queryKey, data]) => {
+      if (!data?.attempts) return;
+      queryClient.setQueryData<WorkflowAttemptListResponse>(queryKey, {
+        ...data,
+        attempts: data.attempts
+          .map((attempt) =>
+            attempt.id === attemptId ? updater(attempt) : attempt
+          )
+          .filter((attempt): attempt is WorkflowAttemptResponse =>
+            Boolean(attempt)
+          ),
+      });
+    });
+
+  queryClient
+    .getQueriesData<WorkflowAttemptResponse | null>({
+      queryKey: workflowAttemptQueryKeys.all,
+    })
+    .forEach(([queryKey, data]) => {
+      if (data?.id === attemptId) {
+        queryClient.setQueryData(queryKey, updater(data));
+      }
+    });
+}
 
 export function useWorkflowAttempts(
   projectId: string | null | undefined,
@@ -123,6 +166,15 @@ export function useWorkflowAttemptMutations() {
     }) => workflowApi.runAttempt(attemptId, payload),
     onSuccess: (run) => {
       queryClient.setQueryData(workflowRunQueryKeys.detail(run.id), run);
+      if (run.attempt_id) {
+        updateCachedWorkflowAttempt(queryClient, run.attempt_id, (attempt) => ({
+          ...attempt,
+          latest_run_id: run.id,
+          workspace_id: run.workspace_id ?? attempt.workspace_id,
+          status: workflowAttemptStatusFromRunStatus(run.status),
+          updated_at: run.updated_at,
+        }));
+      }
       void queryClient.invalidateQueries({
         queryKey: workflowAttemptQueryKeys.all,
       });
@@ -136,7 +188,45 @@ export function useWorkflowAttemptMutations() {
 
   const deleteAttemptMutation = useMutation({
     mutationFn: (attemptId: string) => workflowApi.deleteAttempt(attemptId),
-    onSuccess: () => {
+    onMutate: async (attemptId) => {
+      await queryClient.cancelQueries({
+        queryKey: workflowAttemptQueryKeys.all,
+      });
+
+      const previousLists =
+        queryClient.getQueriesData<WorkflowAttemptListResponse>({
+          queryKey: workflowAttemptQueryKeys.all,
+        });
+      const previousDetails =
+        queryClient.getQueriesData<WorkflowAttemptResponse | null>({
+          queryKey: workflowAttemptQueryKeys.all,
+        });
+
+      previousLists.forEach(([queryKey, data]) => {
+        if (!data?.attempts) return;
+        queryClient.setQueryData<WorkflowAttemptListResponse>(queryKey, {
+          ...data,
+          attempts: data.attempts.filter((attempt) => attempt.id !== attemptId),
+        });
+      });
+
+      previousDetails.forEach(([queryKey, data]) => {
+        if (data?.id === attemptId) {
+          queryClient.setQueryData(queryKey, null);
+        }
+      });
+
+      return { previousLists, previousDetails };
+    },
+    onError: (_error, _attemptId, context) => {
+      context?.previousLists.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+      context?.previousDetails.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: workflowAttemptQueryKeys.all,
       });

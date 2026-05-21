@@ -33,14 +33,14 @@
     "browserDefault": "瀏覽器預設"
   },
   "arena": {
-    "title": "AI Arena",
+    "title": "Arena",
     "attemptCount": "{{count}} 個嘗試",
     "memoCount": "{{count}} 份備忘錄",
     "headerTitle": "Arena / {{count}} 個嘗試",
     "headerSummary": "{{running}} 個執行中 / {{promoted}} 個已採用 / {{archived}} 個已封存",
     "headerSummaryWithMemos": "{{running}} 個執行中 / {{promoted}} 個已採用 / {{archived}} 個已封存 / {{memos}} 份備忘錄",
     "modes": {
-      "design": "設計 Arena",
+      "design": "抽卡模式",
       "implementation": "實作 Arena"
     },
     "lifecycle": {
@@ -98,6 +98,7 @@
       "promoteFailed": "採用失敗",
       "retryFailed": "重試失敗",
       "createFailed": "建立 Arena 失敗",
+      "emptyGroupRecovered": "已清理失敗的空 Arena，請重新啟動以建立新的嘗試。",
       "retryUnknownExecutor": "無法重試：此嘗試的原始執行器未知。",
       "diffStream": "Diff 串流錯誤：{{message}}"
     },
@@ -174,7 +175,8 @@
       "challengePrompt": "將你目前的回答與另一個嘗試進行比較。指出分歧、更強的想法、風險，以及你會如何修改。"
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} 個嘗試（{{running}} 個執行中）"
+      "activeSummary": "{{mode}} / {{total}} 個嘗試（{{running}} 個執行中）",
+      "startSubtitle": "抽卡模式"
     }
   },
   "conversation": {

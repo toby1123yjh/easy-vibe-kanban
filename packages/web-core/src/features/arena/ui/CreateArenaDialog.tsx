@@ -314,6 +314,15 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
             .catch(() => null);
           if (canceledRef.current) return;
           if (activeGroup) {
+            if (activeGroup.workspaces.length === 0) {
+              await arenaApi.dissolve(activeGroup.id).catch(() => null);
+              await queryClient.invalidateQueries({
+                queryKey: arenaQueryKeys.activeForIssue(issueId),
+              });
+              setError(t('arena.errors.emptyGroupRecovered'));
+              return;
+            }
+
             queryClient.setQueryData(
               arenaQueryKeys.group(activeGroup.id),
               activeGroup
@@ -348,13 +357,13 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="flex max-h-[min(720px,calc(100vh-2rem))] flex-col sm:max-w-[680px]">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-base py-half">
+          <div className="min-h-0 flex-1 space-y-base overflow-y-auto py-half pr-1">
             <div className="space-y-half">
               <label
                 htmlFor="arena-prompt"
@@ -404,7 +413,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-half">
+            <div className="grid gap-half sm:grid-cols-2">
               <div className="space-y-half">
                 <label
                   htmlFor="arena-repo"
@@ -490,7 +499,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                 {attempts.map((attempt, idx) => (
                   <li
                     key={attempt.id}
-                    className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-half rounded border border-zinc-200 bg-secondary px-half py-half dark:border-zinc-800"
+                    className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-half rounded-sm border border-zinc-200 bg-secondary px-half py-half dark:border-zinc-800"
                   >
                     <span className="w-6 text-center text-xs text-low">
                       #{idx + 1}
@@ -502,7 +511,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                           executor: e.target.value as BaseCodingAgent,
                         })
                       }
-                      className="h-9 rounded border bg-primary px-2 text-sm"
+                      className="h-9 min-w-0 rounded border bg-primary px-2 text-sm"
                       aria-label={t('arena.aria.attemptExecutor', {
                         index: idx + 1,
                       })}
@@ -521,6 +530,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                         })
                       }
                       placeholder={t('arena.create.variantPlaceholder')}
+                      className="min-w-0"
                       aria-label={t('arena.aria.attemptVariant', {
                         index: idx + 1,
                       })}

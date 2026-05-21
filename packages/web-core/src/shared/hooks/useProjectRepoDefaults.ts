@@ -12,10 +12,11 @@ const SCRATCH_TYPE = ScratchType.PROJECT_REPO_DEFAULTS;
  * Returns null if no defaults have been saved for this project.
  */
 export async function getProjectRepoDefaults(
-  projectId: string
+  projectId: string,
+  hostId?: string | null
 ): Promise<DraftWorkspaceRepo[] | null> {
   try {
-    const scratch = await scratchApi.get(SCRATCH_TYPE, projectId);
+    const scratch = await scratchApi.get(SCRATCH_TYPE, projectId, hostId);
     const payload = scratch.payload as ScratchPayload;
     if (payload?.type === 'PROJECT_REPO_DEFAULTS') {
       return payload.data.repos;
@@ -36,14 +37,20 @@ export async function getProjectRepoDefaults(
  */
 export async function saveProjectRepoDefaults(
   projectId: string,
-  repos: DraftWorkspaceRepo[]
+  repos: DraftWorkspaceRepo[],
+  hostId?: string | null
 ): Promise<void> {
-  await scratchApi.update(SCRATCH_TYPE, projectId, {
-    payload: {
-      type: 'PROJECT_REPO_DEFAULTS',
-      data: { repos },
+  await scratchApi.update(
+    SCRATCH_TYPE,
+    projectId,
+    {
+      payload: {
+        type: 'PROJECT_REPO_DEFAULTS',
+        data: { repos },
+      },
     },
-  });
+    hostId
+  );
 }
 
 /**
@@ -52,9 +59,10 @@ export async function saveProjectRepoDefaults(
  */
 export async function getValidProjectRepoDefaults(
   projectId: string,
-  availableRepoIds: Set<string>
+  availableRepoIds: Set<string>,
+  hostId?: string | null
 ): Promise<DraftWorkspaceRepo[]> {
-  const defaults = await getProjectRepoDefaults(projectId);
+  const defaults = await getProjectRepoDefaults(projectId, hostId);
   if (!defaults) {
     return [];
   }

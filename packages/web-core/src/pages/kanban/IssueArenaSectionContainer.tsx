@@ -1,30 +1,21 @@
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import {
   arenaQueryKeys,
   useActiveArenaForIssue,
 } from '@/shared/hooks/useArenaGroup';
 import { CreateArenaDialog } from '@/features/arena';
+import { arenaApi } from '@/shared/lib/arenaApi';
 
 interface IssueArenaSectionContainerProps {
   issueId: string;
-  /** Suggested initial prompt for the new arena (e.g. issue title). */
+  /** Suggested initial prompt for the new Arena. */
   initialPrompt?: string;
 }
 
-/**
- * Compact entry point for AI Arena that lives next to the
- * existing IssueWorkspacesSection on the kanban issue panel.
- *
- * - When the issue already has an active (un-promoted) arena group:
- *   shows a "Open arena · N attempts" chip that links into ArenaView.
- * - When it doesn't: shows a [Start Arena] button that opens
- *   {@link CreateArenaDialog}.
- *
- * Keeping this section minimal lets us deliver the full Step 4 entry
- * point without rewriting `IssueWorkspacesSectionContainer`.
- */
+/** Compact Arena entry point for the Kanban issue panel. */
 export function IssueArenaSectionContainer({
   issueId,
   initialPrompt,
@@ -51,8 +42,21 @@ export function IssueArenaSectionContainer({
   const handleStart = async () => {
     const latestArena = await refetch();
     if (latestArena.data) {
-      goToArena(latestArena.data.id);
-      return;
+      if (latestArena.data.workspaces.length > 0) {
+        goToArena(latestArena.data.id);
+        return;
+      }
+
+      try {
+        await arenaApi.dissolve(latestArena.data.id);
+        await queryClient.invalidateQueries({
+          queryKey: arenaQueryKeys.activeForIssue(issueId),
+        });
+      } catch (error) {
+        console.warn('[IssueArenaSection] Failed to clear empty Arena:', error);
+        goToArena(latestArena.data.id);
+        return;
+      }
     }
 
     const result = await CreateArenaDialog.show({
@@ -68,13 +72,11 @@ export function IssueArenaSectionContainer({
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────
-
   if (isLoading) {
-    return null; // hidden until the issue's arena state is known
+    return null;
   }
 
-  if (activeArena) {
+  if (activeArena && activeArena.workspaces.length > 0) {
     const total = activeArena.workspaces.length;
     const running = activeArena.workspaces.filter(
       (ws) => ws.latest_execution_status === 'running'
@@ -88,17 +90,28 @@ export function IssueArenaSectionContainer({
         <button
           type="button"
           onClick={() => goToArena(activeArena.id)}
-          className="flex w-full items-center justify-between rounded border border-emerald-500/40 bg-emerald-500/5 px-base py-half text-sm hover:bg-emerald-500/10"
+          className="group flex w-full items-center gap-base rounded-sm border border-brand/35 bg-brand/5 px-base py-half text-left text-sm transition-colors hover:bg-brand/10"
           aria-label={t('arena.aria.openArena')}
         >
-          <span className="font-medium">
-            {t('arena.issueSection.activeSummary', {
-              mode: modeLabel,
-              total,
-              running,
-            })}
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-brand/10 text-brand">
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
           </span>
-          <span className="text-xs text-low">{t('arena.actions.open')}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium text-high">
+              {t('arena.title')}
+            </span>
+            <span className="block truncate text-xs text-low">
+              {t('arena.issueSection.activeSummary', {
+                mode: modeLabel,
+                total,
+                running,
+              })}
+            </span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-low group-hover:text-high">
+            {t('arena.actions.open')}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
         </button>
       </div>
     );
@@ -109,12 +122,23 @@ export function IssueArenaSectionContainer({
       <button
         type="button"
         onClick={() => void handleStart()}
-        className="flex w-full items-center justify-between rounded border border-zinc-200 px-base py-half text-sm hover:bg-secondary dark:border-zinc-800"
+        className="group flex w-full items-center gap-base rounded-sm border border-brand/25 bg-secondary/60 px-base py-half text-left text-sm transition-colors hover:border-brand/40 hover:bg-brand/5"
         aria-label={t('arena.aria.startArena')}
       >
-        <span className="font-medium">{t('arena.title')}</span>
-        <span className="text-xs text-low">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-brand/10 text-brand">
+          <Sparkles className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-high">
+            {t('arena.title')}
+          </span>
+          <span className="block truncate text-xs text-low">
+            {t('arena.issueSection.startSubtitle')}
+          </span>
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-low group-hover:text-high">
           {t('arena.actions.startArena')}
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
       </button>
     </div>

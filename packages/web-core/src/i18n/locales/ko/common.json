@@ -68,7 +68,7 @@
     "browserDefault": "브라우저 기본값"
   },
   "arena": {
-    "title": "AI Arena",
+    "title": "Arena",
     "attemptCount": "{{count}}개 시도",
     "memoCount": "{{count}}개 메모",
     "headerTitle": "Arena / {{count}}개 시도",
@@ -133,6 +133,7 @@
       "promoteFailed": "채택 실패",
       "retryFailed": "다시 시도 실패",
       "createFailed": "Arena 생성 실패",
+      "emptyGroupRecovered": "실패한 빈 Arena를 정리했습니다. 새 시도를 만들려면 다시 시작하세요.",
       "retryUnknownExecutor": "다시 시도할 수 없습니다: 이 시도의 원래 실행기를 알 수 없습니다.",
       "diffStream": "Diff 스트림 오류: {{message}}"
     },
@@ -209,7 +210,8 @@
       "challengePrompt": "현재 답변을 다른 시도와 비교하세요. 의견 차이, 더 나은 아이디어, 위험, 변경할 점을 짚어 주세요."
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}}개 시도 ({{running}}개 실행 중)"
+      "activeSummary": "{{mode}} / {{total}}개 시도 ({{running}}개 실행 중)",
+      "startSubtitle": "뽑기 모드"
     }
   },
   "states": {

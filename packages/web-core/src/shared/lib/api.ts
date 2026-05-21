@@ -1491,36 +1491,61 @@ export const scratchApi = {
   create: async (
     scratchType: ScratchType,
     id: string,
-    data: CreateScratch
+    data: CreateScratch,
+    hostId?: string | null
   ): Promise<Scratch> => {
-    const response = await makeRequest(`/api/scratch/${scratchType}/${id}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    const response = await makeHostAwareRequest(
+      `/api/scratch/${scratchType}/${id}`,
+      hostId,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
     return handleApiResponse<Scratch>(response);
   },
 
-  get: async (scratchType: ScratchType, id: string): Promise<Scratch> => {
-    const response = await makeRequest(`/api/scratch/${scratchType}/${id}`);
+  get: async (
+    scratchType: ScratchType,
+    id: string,
+    hostId?: string | null
+  ): Promise<Scratch> => {
+    const response = await makeHostAwareRequest(
+      `/api/scratch/${scratchType}/${id}`,
+      hostId
+    );
     return handleApiResponse<Scratch>(response);
   },
 
   update: async (
     scratchType: ScratchType,
     id: string,
-    data: UpdateScratch
+    data: UpdateScratch,
+    hostId?: string | null
   ): Promise<void> => {
-    const response = await makeRequest(`/api/scratch/${scratchType}/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    const response = await makeHostAwareRequest(
+      `/api/scratch/${scratchType}/${id}`,
+      hostId,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
     return handleApiResponse<void>(response);
   },
 
-  delete: async (scratchType: ScratchType, id: string): Promise<void> => {
-    const response = await makeRequest(`/api/scratch/${scratchType}/${id}`, {
-      method: 'DELETE',
-    });
+  delete: async (
+    scratchType: ScratchType,
+    id: string,
+    hostId?: string | null
+  ): Promise<void> => {
+    const response = await makeHostAwareRequest(
+      `/api/scratch/${scratchType}/${id}`,
+      hostId,
+      {
+        method: 'DELETE',
+      }
+    );
     return handleApiResponse<void>(response);
   },
 

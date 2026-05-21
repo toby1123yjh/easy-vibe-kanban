@@ -178,8 +178,8 @@ function RunNode({ data }: { data: RunNodeData }) {
           WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
           isRunning && 'workflow-node-running',
           data.isSelected
-            ? 'ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
-            : 'hover:border-brand/40'
+            ? 'border-brand/80 ring-2 ring-brand/20'
+            : 'border-white/10 hover:border-brand/40'
         )}
       >
         {handles}

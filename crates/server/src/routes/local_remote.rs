@@ -2500,10 +2500,12 @@ async fn create_arena_group(
                     attempt_index = idx,
                     "failed to spawn arena attempt: {err:#}"
                 );
-                // Best-effort cleanup: leave the group + already-spawned
-                // workspaces in place (the user can dissolve via the
-                // DELETE endpoint). The error reflects the first failing
-                // attempt so the UI can surface it.
+                if let Err(cleanup_err) = cleanup_failed_arena_group(pool, group.id).await {
+                    tracing::warn!(
+                        arena_group_id = %group.id,
+                        "failed to clean up partially-created arena group: {cleanup_err:#}"
+                    );
+                }
                 return Err(err);
             }
         }
@@ -2528,6 +2530,20 @@ async fn create_arena_group(
         },
         txid: txid(),
     }))
+}
+
+async fn cleanup_failed_arena_group(pool: &SqlitePool, group_id: Uuid) -> Result<usize, ApiError> {
+    let siblings = DbWorkspace::find_by_arena_group_id(pool, group_id).await?;
+    let mut archived = 0usize;
+
+    for ws in siblings.iter() {
+        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
+        DbWorkspace::set_archived(pool, ws.id, true).await?;
+        archived += 1;
+    }
+
+    ArenaGroup::delete(pool, group_id).await?;
+    Ok(archived)
 }
 
 async fn get_active_arena_for_issue(

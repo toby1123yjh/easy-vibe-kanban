@@ -165,10 +165,15 @@ mod tests {
 
     #[test]
     fn setup_command_line_preserves_argument_boundaries() {
+        let package = format!(
+            "{}@{}",
+            Codex::NPM_PACKAGE_NAME,
+            Codex::DEFAULT_NPM_PACKAGE_VERSION
+        );
         let args = vec![
             "-y".to_string(),
             "--package".to_string(),
-            "@openai/codex@0.132.0".to_string(),
+            package.clone(),
             "codex".to_string(),
             "login".to_string(),
             "--flag=value with spaces".to_string(),
@@ -178,12 +183,16 @@ mod tests {
         if cfg!(windows) {
             assert_eq!(
                 line,
-                r#""C:\Program Files\nodejs\npx.cmd" -y --package @openai/codex@0.132.0 codex login "--flag=value with spaces""#
+                format!(
+                    r#""C:\Program Files\nodejs\npx.cmd" -y --package {package} codex login "--flag=value with spaces""#
+                )
             );
         } else {
             assert_eq!(
                 line,
-                r#"'C:\Program Files\nodejs\npx.cmd' -y --package @openai/codex@0.132.0 codex login '--flag=value with spaces'"#
+                format!(
+                    r#"'C:\Program Files\nodejs\npx.cmd' -y --package {package} codex login '--flag=value with spaces'"#
+                )
             );
         }
     }
