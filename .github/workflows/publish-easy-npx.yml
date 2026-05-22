@@ -41,8 +41,8 @@ env:
   VK_SHARED_API_BASE: ""
 
 jobs:
-  publish-windows-x64:
-    name: Build Windows x64 and publish npm package
+  publish-linux-windows-x64:
+    name: Build Linux/Windows x64 and publish npm package
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -75,7 +75,10 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: x86_64-pc-windows-msvc
 
-      - name: Install Windows cross-compilation dependencies
+      - name: Add Linux Rust target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y \
@@ -88,6 +91,18 @@ jobs:
             cmake \
             ninja-build
           echo "/usr/lib/llvm-19/bin" >> "$GITHUB_PATH"
+
+      - name: Install Zig
+        uses: BloopAI/setup-zig@main
+        with:
+          version: 0.15.2
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f
+        with:
+          tool: cargo-zigbuild
+          git: https://github.com/rust-cross/cargo-zigbuild
+          rev: bbb57ac6a5eb90f53617a5c218fda03080599e4a
 
       - name: Install cargo-xwin
         uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f
@@ -102,6 +117,18 @@ jobs:
       - name: Build local web app
         run: pnpm --filter @vibe/local-web run build
 
+      - name: Build Linux binaries
+        run: |
+          cargo zigbuild \
+            --release \
+            --target x86_64-unknown-linux-musl \
+            -p server \
+            -p mcp \
+            -p review \
+            --bin server \
+            --bin vibe-kanban-mcp \
+            --bin review
+
       - name: Build Windows binaries
         run: |
           cargo xwin build \
@@ -114,23 +141,39 @@ jobs:
             --bin server \
             --bin vibe-kanban-mcp \
             --bin review
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG: 0
 
-      - name: Package Windows zip files
+      - name: Package Linux and Windows zip files
         run: |
           set -euo pipefail
           rm -rf npx-cli/dist package-tmp
-          mkdir -p npx-cli/dist/windows-x64
-          mkdir -p package-tmp/vibe-kanban package-tmp/vibe-kanban-mcp package-tmp/vibe-kanban-review
+          mkdir -p npx-cli/dist/linux-x64 npx-cli/dist/windows-x64
+          mkdir -p \
+            package-tmp/linux-x64/vibe-kanban \
+            package-tmp/linux-x64/vibe-kanban-mcp \
+            package-tmp/linux-x64/vibe-kanban-review \
+            package-tmp/windows-x64/vibe-kanban \
+            package-tmp/windows-x64/vibe-kanban-mcp \
+            package-tmp/windows-x64/vibe-kanban-review
 
-          cp target/x86_64-pc-windows-msvc/release/server.exe package-tmp/vibe-kanban/vibe-kanban.exe
-          cp target/x86_64-pc-windows-msvc/release/vibe-kanban-mcp.exe package-tmp/vibe-kanban-mcp/vibe-kanban-mcp.exe
-          cp target/x86_64-pc-windows-msvc/release/review.exe package-tmp/vibe-kanban-review/vibe-kanban-review.exe
+          cp target/x86_64-unknown-linux-musl/release/server package-tmp/linux-x64/vibe-kanban/vibe-kanban
+          cp target/x86_64-unknown-linux-musl/release/vibe-kanban-mcp package-tmp/linux-x64/vibe-kanban-mcp/vibe-kanban-mcp
+          cp target/x86_64-unknown-linux-musl/release/review package-tmp/linux-x64/vibe-kanban-review/vibe-kanban-review
 
-          (cd package-tmp/vibe-kanban && zip -q ../../npx-cli/dist/windows-x64/vibe-kanban.zip vibe-kanban.exe)
-          (cd package-tmp/vibe-kanban-mcp && zip -q ../../npx-cli/dist/windows-x64/vibe-kanban-mcp.zip vibe-kanban-mcp.exe)
-          (cd package-tmp/vibe-kanban-review && zip -q ../../npx-cli/dist/windows-x64/vibe-kanban-review.zip vibe-kanban-review.exe)
+          cp target/x86_64-pc-windows-msvc/release/server.exe package-tmp/windows-x64/vibe-kanban/vibe-kanban.exe
+          cp target/x86_64-pc-windows-msvc/release/vibe-kanban-mcp.exe package-tmp/windows-x64/vibe-kanban-mcp/vibe-kanban-mcp.exe
+          cp target/x86_64-pc-windows-msvc/release/review.exe package-tmp/windows-x64/vibe-kanban-review/vibe-kanban-review.exe
 
-          ls -la npx-cli/dist/windows-x64
+          zip -j -q npx-cli/dist/linux-x64/vibe-kanban.zip package-tmp/linux-x64/vibe-kanban/vibe-kanban
+          zip -j -q npx-cli/dist/linux-x64/vibe-kanban-mcp.zip package-tmp/linux-x64/vibe-kanban-mcp/vibe-kanban-mcp
+          zip -j -q npx-cli/dist/linux-x64/vibe-kanban-review.zip package-tmp/linux-x64/vibe-kanban-review/vibe-kanban-review
+
+          zip -j -q npx-cli/dist/windows-x64/vibe-kanban.zip package-tmp/windows-x64/vibe-kanban/vibe-kanban.exe
+          zip -j -q npx-cli/dist/windows-x64/vibe-kanban-mcp.zip package-tmp/windows-x64/vibe-kanban-mcp/vibe-kanban-mcp.exe
+          zip -j -q npx-cli/dist/windows-x64/vibe-kanban-review.zip package-tmp/windows-x64/vibe-kanban-review/vibe-kanban-review.exe
+
+          find npx-cli/dist -type f -name '*.zip' -print -exec ls -lh {} \;
 
       - name: Build and pack NPX package
         id: pack
@@ -188,8 +231,9 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: easy-vibe-kanban-${{ inputs.version }}-windows-x64-npx
+          name: easy-vibe-kanban-${{ inputs.version }}-linux-windows-x64-npx
           path: |
             npx-cli/*.tgz
+            npx-cli/dist/linux-x64/*.zip
             npx-cli/dist/windows-x64/*.zip
           if-no-files-found: error
