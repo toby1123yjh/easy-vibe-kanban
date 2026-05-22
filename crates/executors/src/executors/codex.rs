@@ -491,35 +491,10 @@ impl StandardCodingAgentExecutor for Codex {
 }
 
 impl Codex {
-    pub const DEFAULT_NPM_PACKAGE_VERSION: &'static str = "0.132.0";
-    pub const NPM_PACKAGE_VERSION_ENV: &'static str = "VIBE_CODEX_NPM_PACKAGE_VERSION";
-    pub const NPM_PACKAGE_NAME: &'static str = "@openai/codex";
+    pub const DEFAULT_BASE_COMMAND: &'static str = "codex";
 
-    pub fn base_command() -> String {
-        format!(
-            "npx -y --package {}@{} codex",
-            Self::NPM_PACKAGE_NAME,
-            Self::npm_package_version()
-        )
-    }
-
-    fn npm_package_version() -> String {
-        let Ok(raw_version) = env::var(Self::NPM_PACKAGE_VERSION_ENV) else {
-            return Self::DEFAULT_NPM_PACKAGE_VERSION.to_string();
-        };
-
-        let version = raw_version.trim();
-        if is_valid_npm_package_version_selector(version) {
-            version.to_string()
-        } else {
-            tracing::warn!(
-                env_var = Self::NPM_PACKAGE_VERSION_ENV,
-                value = raw_version,
-                default = Self::DEFAULT_NPM_PACKAGE_VERSION,
-                "ignoring invalid Codex npm package version override"
-            );
-            Self::DEFAULT_NPM_PACKAGE_VERSION.to_string()
-        }
+    pub fn base_command() -> &'static str {
+        Self::DEFAULT_BASE_COMMAND
     }
 
     fn launch_context(&self, program_path: &Path, args: &[String], current_dir: &Path) -> String {
@@ -528,7 +503,13 @@ impl Codex {
             .unwrap_or_else(|| "<unresolved>".to_string());
 
         let mut lines = vec![
-            format!("base command: {}", Self::base_command()),
+            format!(
+                "base command: {}",
+                self.cmd
+                    .base_command_override
+                    .as_deref()
+                    .unwrap_or(Self::DEFAULT_BASE_COMMAND)
+            ),
             format!(
                 "base_command_override: {}",
                 if self.cmd.base_command_override.is_some() {
@@ -560,7 +541,7 @@ impl Codex {
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new(Self::base_command());
+        let mut builder = CommandBuilder::new(Self::DEFAULT_BASE_COMMAND);
         builder = builder.extend_params(["app-server"]);
         if self.oss.unwrap_or(false) {
             builder = builder.extend_params(["--oss"]);
@@ -977,14 +958,6 @@ impl Codex {
     }
 }
 
-fn is_valid_npm_package_version_selector(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 80
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'))
-}
-
 fn build_chat_input(
     combined_prompt: String,
     selected_skills: Vec<SelectedSkill>,
@@ -1052,7 +1025,7 @@ mod tests {
 
     use codex_app_server_protocol::UserInput;
 
-    use super::{build_chat_input, is_valid_npm_package_version_selector, resolve_model};
+    use super::{build_chat_input, resolve_model};
     use crate::actions::SelectedSkill;
 
     #[test]
@@ -1069,20 +1042,6 @@ mod tests {
             (Some("gpt-5.4-mini"), false)
         );
         assert_eq!(resolve_model(None), (None, false));
-    }
-
-    #[test]
-    fn codex_npm_version_selector_accepts_versions_and_tags() {
-        assert!(is_valid_npm_package_version_selector("0.132.0"));
-        assert!(is_valid_npm_package_version_selector("0.130.0"));
-        assert!(is_valid_npm_package_version_selector("latest"));
-        assert!(is_valid_npm_package_version_selector("next-2026-05-21"));
-
-        assert!(!is_valid_npm_package_version_selector(""));
-        assert!(!is_valid_npm_package_version_selector("0.132.0 codex"));
-        assert!(!is_valid_npm_package_version_selector(
-            "@openai/codex@latest"
-        ));
     }
 
     #[test]

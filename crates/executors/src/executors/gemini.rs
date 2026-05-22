@@ -26,7 +26,6 @@ const SUPPRESSED_STDERR_PATTERNS: &[&str] = &[
     "was started but never ended. Skipping metrics.",
     "YOLO mode is enabled. All tool calls will be automatically approved.",
 ];
-
 #[derive(Derivative, Clone, Serialize, Deserialize, TS, JsonSchema)]
 #[derivative(Debug, PartialEq)]
 pub struct Gemini {
@@ -46,7 +45,7 @@ pub struct Gemini {
 
 impl Gemini {
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new("npx -y --package @google/gemini-cli@0.29.3 gemini");
+        let mut builder = CommandBuilder::new("gemini");
 
         if let Some(model) = &self.model {
             builder = builder.extend_params(["--model", model.as_str()]);

@@ -60,9 +60,9 @@ const SUPPRESSED_STDERR_PATTERNS: &[&str] = &["[WARN] Fast mode requires the nat
 
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
-        "npx -y --package @musistudio/claude-code-router@1.0.66 ccr code"
+        "ccr code"
     } else {
-        "npx -y --package @anthropic-ai/claude-code@2.1.119 claude"
+        "claude"
     }
 }
 
@@ -147,8 +147,7 @@ pub struct ClaudeCode {
 
 impl ClaudeCode {
     async fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        // If base_command_override is provided and claude_code_router is also set, log a warning
-        if self.cmd.base_command_override.is_some() && self.claude_code_router.is_some() {
+        if self.cmd.base_command_override.is_some() && self.claude_code_router.unwrap_or(false) {
             tracing::warn!(
                 "base_command_override is set, this will override the claude_code_router setting"
             );
@@ -2779,6 +2778,48 @@ mod tests {
     fn normalize(json: &ClaudeJson, worktree: &str) -> Vec<NormalizedEntry> {
         let mut processor = ClaudeLogProcessor::new();
         normalize_helper(&mut processor, json, worktree)
+    }
+
+    fn test_executor(claude_code_router: Option<bool>) -> ClaudeCode {
+        ClaudeCode {
+            claude_code_router,
+            plan: None,
+            approvals: None,
+            model: None,
+            effort: None,
+            agent: None,
+            append_prompt: AppendPrompt::default(),
+            dangerously_skip_permissions: None,
+            cmd: crate::command::CmdOverrides::default(),
+            approvals_service: None,
+            disable_api_key: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn default_claude_uses_local_claude_command() {
+        let executor = test_executor(None);
+
+        let builder = executor
+            .build_command_builder()
+            .await
+            .expect("command should build");
+
+        assert_eq!(builder.base, "claude");
+        assert_eq!(builder.params.as_ref().unwrap()[0], "-p");
+    }
+
+    #[tokio::test]
+    async fn claude_code_router_uses_local_ccr_command() {
+        let executor = test_executor(Some(true));
+
+        let builder = executor
+            .build_command_builder()
+            .await
+            .expect("command should build");
+
+        assert_eq!(builder.base, "ccr code");
+        assert_eq!(builder.params.as_ref().unwrap()[0], "-p");
     }
 
     #[test]

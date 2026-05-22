@@ -3,7 +3,10 @@ import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
-import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
+import {
+  getExplicitProjectWorkspaceDefaults,
+  getWorkspaceDefaults,
+} from '@/shared/lib/workspaceDefaults';
 import {
   buildLinkedIssueCreateState,
   buildLocalWorkspaceIdSet,
@@ -36,6 +39,16 @@ export function useWorkflowRepositorySelection({
     DraftWorkspaceRepo[] | null
   > => {
     if (!projectId) return null;
+
+    const explicitProjectDefaults = await getExplicitProjectWorkspaceDefaults(
+      projectId
+    ).catch(() => null);
+    if (explicitProjectDefaults?.preferredRepos.length) {
+      return explicitProjectDefaults.preferredRepos.map((repo) => ({
+        repo_id: repo.repo_id,
+        target_branch: repo.target_branch ?? '',
+      }));
+    }
 
     const issue = getIssue(issueId);
     const defaults = await getWorkspaceDefaults(

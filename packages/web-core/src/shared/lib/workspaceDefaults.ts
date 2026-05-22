@@ -1,9 +1,48 @@
 import { workspacesApi, repoApi } from '@/shared/lib/api';
 import type { Workspace } from 'shared/remote-types';
+import type { DraftWorkspaceRepo } from 'shared/types';
 import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 
 export interface WorkspaceDefaults {
   preferredRepos: Array<{ repo_id: string; target_branch: string | null }>;
+}
+
+export function buildExplicitProjectWorkspaceDefaults(
+  repos: DraftWorkspaceRepo[]
+): WorkspaceDefaults | null {
+  if (repos.length === 0) {
+    return null;
+  }
+
+  if (repos.some((repo) => !repo.target_branch.trim())) {
+    return null;
+  }
+
+  return {
+    preferredRepos: repos.map((r) => ({
+      repo_id: r.repo_id,
+      target_branch: r.target_branch,
+    })),
+  };
+}
+
+/**
+ * Fetches only explicit project repo defaults saved for this project.
+ * Unlike getWorkspaceDefaults(), this never falls back to recent workspaces,
+ * so callers can safely skip a repository picker without borrowing repos from
+ * an unrelated project.
+ */
+export async function getExplicitProjectWorkspaceDefaults(
+  projectId: string
+): Promise<WorkspaceDefaults | null> {
+  const allRepos = await repoApi.list();
+  const availableRepoIds = new Set(allRepos.map((r) => r.id));
+  const scratchDefaults = await getValidProjectRepoDefaults(
+    projectId,
+    availableRepoIds
+  );
+
+  return buildExplicitProjectWorkspaceDefaults(scratchDefaults);
 }
 
 /**

@@ -62,7 +62,7 @@ pub struct CmdOverrides {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
 pub struct CommandBuilder {
-    /// Base executable command (e.g., "npx -y --package @anthropic-ai/claude-code@latest claude")
+    /// Base executable command (e.g., "claude", "codex", or "droid exec")
     pub base: String,
     /// Optional parameters to append to the base command
     pub params: Option<Vec<String>>,
@@ -223,120 +223,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_scoped_npm_package_names() {
-        let parts = CommandBuilder::new("npx -y @google/gemini-cli@0.29.3")
-            .build_initial()
-            .expect("command should parse");
-
-        assert_eq!(parts.program, "npx");
-        assert_eq!(parts.args, vec!["-y", "@google/gemini-cli@0.29.3"]);
-    }
-
-    #[test]
-    fn parses_anthropic_scoped_npm_package_name() {
-        let parts = CommandBuilder::new("npx -y @anthropic-ai/claude-code@2.1.119")
-            .build_initial()
-            .expect("command should parse");
-
-        assert_eq!(parts.program, "npx");
-        assert_eq!(parts.args, vec!["-y", "@anthropic-ai/claude-code@2.1.119"]);
-    }
-
-    #[test]
-    fn parses_builtin_scoped_npm_executor_commands() {
-        use crate::executors::codex::Codex;
-
-        let codex_package = format!(
-            "{}@{}",
-            Codex::NPM_PACKAGE_NAME,
-            Codex::DEFAULT_NPM_PACKAGE_VERSION
-        );
-        let codex_command = format!("npx -y --package {codex_package} codex");
+    fn parses_builtin_local_executor_commands() {
         let cases = [
-            (
-                "npx -y --package @musistudio/claude-code-router@1.0.66 ccr code".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@musistudio/claude-code-router@1.0.66".to_string(),
-                    "ccr".to_string(),
-                    "code".to_string(),
-                ],
-            ),
-            (
-                "npx -y --package @sourcegraph/amp@latest amp".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@sourcegraph/amp@latest".to_string(),
-                    "amp".to_string(),
-                ],
-            ),
-            (
-                "npx -y --package @anthropic-ai/claude-code@2.1.119 claude".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@anthropic-ai/claude-code@2.1.119".to_string(),
-                    "claude".to_string(),
-                ],
-            ),
-            (
-                codex_command,
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    codex_package,
-                    "codex".to_string(),
-                ],
-            ),
-            (
-                "npx -y --package @qwen-code/qwen-code@0.9.1 qwen".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@qwen-code/qwen-code@0.9.1".to_string(),
-                    "qwen".to_string(),
-                ],
-            ),
-            (
-                "npx -y --package @github/copilot@0.0.403 copilot".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@github/copilot@0.0.403".to_string(),
-                    "copilot".to_string(),
-                ],
-            ),
-            (
-                "npx -y --package @google/gemini-cli@0.29.3 gemini".to_string(),
-                vec![
-                    "-y".to_string(),
-                    "--package".to_string(),
-                    "@google/gemini-cli@0.29.3".to_string(),
-                    "gemini".to_string(),
-                ],
-            ),
-        ];
-
-        for (command, expected_args) in cases {
-            let parts = CommandBuilder::new(&command)
-                .build_initial()
-                .expect("command should parse");
-
-            assert_eq!(parts.program, "npx");
-            assert_eq!(parts.args, expected_args);
-        }
-    }
-
-    #[test]
-    fn parses_builtin_unscoped_and_binary_executor_commands() {
-        let cases = [
-            (
-                "npx -y opencode-ai@1.4.7",
-                "npx",
-                vec!["-y", "opencode-ai@1.4.7"],
-            ),
+            ("amp", "amp", vec![]),
+            ("claude", "claude", vec![]),
+            ("codex", "codex", vec![]),
+            ("qwen", "qwen", vec![]),
+            ("copilot", "copilot", vec![]),
+            ("gemini", "gemini", vec![]),
+            ("opencode", "opencode", vec![]),
+            ("ccr code", "ccr", vec!["code"]),
             ("droid exec", "droid", vec!["exec"]),
             ("cursor-agent", "cursor-agent", vec![]),
         ];
@@ -352,24 +248,34 @@ mod tests {
     }
 
     #[test]
-    fn parses_quoted_windows_paths() {
-        let parts = CommandBuilder::new(
-            r#""C:\Program Files\nodejs\npx.cmd" -y @google/gemini-cli@0.29.3"#,
-        )
-        .build_initial()
-        .expect("command should parse");
+    fn parses_explicit_scoped_npm_override_command() {
+        let parts = CommandBuilder::new("npx -y --package @example/agent@1.2.3 agent")
+            .build_initial()
+            .expect("command should parse");
 
-        assert_eq!(parts.program, r#"C:\Program Files\nodejs\npx.cmd"#);
-        assert_eq!(parts.args, vec!["-y", "@google/gemini-cli@0.29.3"]);
+        assert_eq!(parts.program, "npx");
+        assert_eq!(
+            parts.args,
+            vec!["-y", "--package", "@example/agent@1.2.3", "agent"]
+        );
     }
 
     #[test]
-    fn base_command_override_preserves_scoped_package_and_params() {
-        let builder = CommandBuilder::new("npx -y @google/gemini-cli@0.29.3")
-            .extend_params(["--experimental-acp"]);
+    fn parses_quoted_windows_paths() {
+        let parts = CommandBuilder::new(r#""C:\Program Files\OpenAI Codex\codex.exe" app-server"#)
+            .build_initial()
+            .expect("command should parse");
+
+        assert_eq!(parts.program, r#"C:\Program Files\OpenAI Codex\codex.exe"#);
+        assert_eq!(parts.args, vec!["app-server"]);
+    }
+
+    #[test]
+    fn base_command_override_preserves_custom_base_and_params() {
+        let builder = CommandBuilder::new("gemini").extend_params(["--experimental-acp"]);
         let overrides = CmdOverrides {
             base_command_override: Some(
-                r#""C:\Program Files\nodejs\npx.cmd" -y @google/gemini-cli@0.29.3"#.to_string(),
+                r#""C:\Program Files\Google Gemini\gemini.cmd""#.to_string(),
             ),
             ..Default::default()
         };
@@ -379,16 +285,42 @@ mod tests {
             .build_initial()
             .expect("command should parse");
 
-        assert_eq!(parts.program, r#"C:\Program Files\nodejs\npx.cmd"#);
+        assert_eq!(
+            parts.program,
+            r#"C:\Program Files\Google Gemini\gemini.cmd"#
+        );
+        assert_eq!(parts.args, vec!["--experimental-acp"]);
+    }
+
+    #[test]
+    fn base_command_override_preserves_explicit_npm_command_and_params() {
+        let builder = CommandBuilder::new("gemini").extend_params(["--experimental-acp"]);
+        let overrides = CmdOverrides {
+            base_command_override: Some("npx -y --package @google/gemini-cli gemini".to_string()),
+            ..Default::default()
+        };
+
+        let parts = apply_overrides(builder, &overrides)
+            .expect("overrides should apply")
+            .build_initial()
+            .expect("command should parse");
+
+        assert_eq!(parts.program, "npx");
         assert_eq!(
             parts.args,
-            vec!["-y", "@google/gemini-cli@0.29.3", "--experimental-acp"]
+            vec![
+                "-y",
+                "--package",
+                "@google/gemini-cli",
+                "gemini",
+                "--experimental-acp"
+            ]
         );
     }
 
     #[test]
     fn additional_params_preserve_argument_boundaries() {
-        let builder = CommandBuilder::new("npx -y @anthropic-ai/claude-code@2.1.119");
+        let builder = CommandBuilder::new("claude");
         let overrides = CmdOverrides {
             additional_params: Some(vec![
                 "--model".to_string(),
@@ -405,13 +337,7 @@ mod tests {
 
         assert_eq!(
             parts.args,
-            vec![
-                "-y",
-                "@anthropic-ai/claude-code@2.1.119",
-                "--model",
-                "claude sonnet",
-                "--flag=value with spaces",
-            ]
+            vec!["--model", "claude sonnet", "--flag=value with spaces",]
         );
     }
 }

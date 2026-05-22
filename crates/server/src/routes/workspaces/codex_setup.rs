@@ -150,8 +150,8 @@ mod tests {
     #[test]
     fn quotes_windows_cmd_program_files_paths() {
         assert_eq!(
-            quote_cmd_arg(r#"C:\Program Files\nodejs\npx.cmd"#),
-            r#""C:\Program Files\nodejs\npx.cmd""#
+            quote_cmd_arg(r#"C:\Program Files\OpenAI Codex\codex.exe"#),
+            r#""C:\Program Files\OpenAI Codex\codex.exe""#
         );
     }
 
@@ -165,34 +165,21 @@ mod tests {
 
     #[test]
     fn setup_command_line_preserves_argument_boundaries() {
-        let package = format!(
-            "{}@{}",
-            Codex::NPM_PACKAGE_NAME,
-            Codex::DEFAULT_NPM_PACKAGE_VERSION
+        let args = vec!["login".to_string(), "--flag=value with spaces".to_string()];
+        let line = script_command_line(
+            Path::new(r#"C:\Program Files\OpenAI Codex\codex.exe"#),
+            &args,
         );
-        let args = vec![
-            "-y".to_string(),
-            "--package".to_string(),
-            package.clone(),
-            "codex".to_string(),
-            "login".to_string(),
-            "--flag=value with spaces".to_string(),
-        ];
-        let line = script_command_line(Path::new(r#"C:\Program Files\nodejs\npx.cmd"#), &args);
 
         if cfg!(windows) {
             assert_eq!(
                 line,
-                format!(
-                    r#""C:\Program Files\nodejs\npx.cmd" -y --package {package} codex login "--flag=value with spaces""#
-                )
+                r#""C:\Program Files\OpenAI Codex\codex.exe" login "--flag=value with spaces""#
             );
         } else {
             assert_eq!(
                 line,
-                format!(
-                    r#"'C:\Program Files\nodejs\npx.cmd' -y --package {package} codex login '--flag=value with spaces'"#
-                )
+                r#"'C:\Program Files\OpenAI Codex\codex.exe' login '--flag=value with spaces'"#
             );
         }
     }
