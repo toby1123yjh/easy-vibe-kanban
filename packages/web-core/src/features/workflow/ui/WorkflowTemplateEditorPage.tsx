@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useWorkflowTemplate,
@@ -34,6 +34,12 @@ import {
   createWorkflowAgentNodeDraftPatch,
   isWorkflowAgentDraftNode,
 } from '../model/workflowAgentNodeDraft';
+import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
+import {
+  getWorkflowNodeKindLabel,
+  getWorkflowNodeSummary,
+  getWorkflowNodeVisual,
+} from '../model/workflowPresentation';
 import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
@@ -104,6 +110,7 @@ const NODE_COLLISION_X = 320;
 const NODE_COLLISION_Y = 160;
 const DUPLICATE_NODE_OFFSET_X = 80;
 const DUPLICATE_NODE_OFFSET_Y = 80;
+const ADD_STEP_CATALOG_SECTIONS = getWorkflowNodeCatalogSections();
 
 interface AgentStepContextMenuState {
   nodeId: string;
@@ -1164,15 +1171,57 @@ export function WorkflowTemplateEditorPage({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            disabled={readOnly}
-            onClick={() => handleAddNode('agent')}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            {t('workflow.editor.addAgentStep')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={readOnly}
+                className="flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                {t('workflow.editor.addStep', { defaultValue: 'Add Step' })}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="workflow-popover-surface w-64 rounded-xl border p-2 text-white"
+            >
+              {ADD_STEP_CATALOG_SECTIONS.map((section, sectionIndex) => (
+                <Fragment key={section.id}>
+                  {sectionIndex > 0 ? (
+                    <DropdownMenuSeparator className="my-1.5 bg-white/5" />
+                  ) : null}
+                  <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/40">
+                    {t(section.labelKey, { defaultValue: section.label })}
+                  </div>
+                  {section.entries.map((entry) => {
+                    const visual = getWorkflowNodeVisual(entry.type);
+                    return (
+                      <DropdownMenuItem
+                        key={entry.type}
+                        onClick={() => handleAddNode(entry.type)}
+                        className="flex cursor-pointer flex-col items-start gap-0.5 rounded-lg px-3 py-2 hover:bg-white/[0.04] focus:bg-white/[0.04] focus:text-white"
+                      >
+                        <span className="flex items-center gap-2 text-xs font-semibold text-high">
+                          <span
+                            className={`h-2 w-2 rounded-full shadow-sm ${visual.accentClass}`}
+                          />
+                          {getWorkflowNodeKindLabel(entry.type, t)}
+                        </span>
+                        <span className="text-[10px] text-low/80">
+                          {getWorkflowNodeSummary(
+                            entry.type,
+                            entry.defaultData,
+                            t
+                          )}
+                        </span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             disabled={readOnly}

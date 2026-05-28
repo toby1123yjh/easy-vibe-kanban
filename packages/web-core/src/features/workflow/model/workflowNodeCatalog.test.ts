@@ -5,13 +5,30 @@ describe('workflow node catalog sections', () => {
   it('groups node catalog entries into authoring sections', () => {
     expect(
       getWorkflowNodeCatalogSections().map((section) => ({
+        id: section.id,
         label: section.label,
+        labelKey: section.labelKey,
         types: section.entries.map((entry) => entry.type),
       }))
     ).toEqual([
-      { label: 'Entry', types: ['start', 'end'] },
-      { label: 'AI', types: ['agent', 'arena'] },
-      { label: 'Control', types: ['condition', 'human_gate', 'transform'] },
+      {
+        id: 'execution',
+        label: 'Execution',
+        labelKey: 'workflow.editor.sections.execution',
+        types: ['agent', 'arena'],
+      },
+      {
+        id: 'control',
+        label: 'Control',
+        labelKey: 'workflow.editor.sections.control',
+        types: ['condition', 'human_gate'],
+      },
+      {
+        id: 'structure',
+        label: 'Structure',
+        labelKey: 'workflow.editor.sections.structure',
+        types: ['start', 'end'],
+      },
     ]);
   });
 });

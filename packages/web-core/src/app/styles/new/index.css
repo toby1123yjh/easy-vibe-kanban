@@ -441,12 +441,163 @@ html {
     }
   }
 
+  /* Premium Dark Linkchart-style Nodes */
+  .node-premium-dark {
+    --node-border-color: rgba(var(--node-color-rgb), 0.22);
+    background: rgba(18, 20, 26, 0.75) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--node-border-color) !important;
+    box-shadow:
+      0 4px 16px -4px rgba(0, 0, 0, 0.7),
+      0 0 10px -2px rgba(var(--node-color-rgb), 0.12) !important;
+    transition:
+      transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      background-color 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  }
+
+  /* Hover glow */
+  .node-premium-dark:hover {
+    border-color: rgba(var(--node-color-rgb), 0.45) !important;
+    box-shadow:
+      0 6px 20px -4px rgba(0, 0, 0, 0.8),
+      0 0 14px -1px rgba(var(--node-color-rgb), 0.25) !important;
+  }
+
+  /* Selected slight lift/scale and active frame */
+  .node-premium-dark.node-selected {
+    transform: translateY(-2px) scale(1.015);
+    border-color: rgba(var(--node-color-rgb), 0.9) !important;
+    box-shadow:
+      0 12px 28px -6px rgba(0, 0, 0, 0.85),
+      0 0 20px 1px rgba(var(--node-color-rgb), 0.4) !important;
+  }
+
+  /* Condition / Human Gate lower visual weight */
+  .node-premium-dark.node-lower-weight {
+    --node-border-color: rgba(var(--node-color-rgb), 0.14);
+    background: rgba(18, 20, 26, 0.6) !important;
+    box-shadow:
+      0 3px 12px -4px rgba(0, 0, 0, 0.6),
+      0 0 8px -3px rgba(var(--node-color-rgb), 0.08) !important;
+    border: 1px solid var(--node-border-color) !important;
+  }
+  .node-premium-dark.node-lower-weight:hover {
+    border-color: rgba(var(--node-color-rgb), 0.3) !important;
+    box-shadow:
+      0 4px 16px -4px rgba(0, 0, 0, 0.7),
+      0 0 10px -2px rgba(var(--node-color-rgb), 0.15) !important;
+  }
+  .node-premium-dark.node-lower-weight.node-selected {
+    transform: translateY(-1px) scale(1.01);
+    border-color: rgba(var(--node-color-rgb), 0.7) !important;
+    box-shadow:
+      0 8px 24px -5px rgba(0, 0, 0, 0.8),
+      0 0 14px 0px rgba(var(--node-color-rgb), 0.3) !important;
+  }
+
+  /* Active frame glow when running */
+  .node-premium-dark.node-status-running {
+    animation: node-running-pulse var(--workflow-motion-node-pulse) infinite
+      ease-in-out;
+  }
+
+  @keyframes node-running-pulse {
+    0%,
+    100% {
+      border-color: rgba(var(--node-color-rgb), 0.4);
+      box-shadow:
+        0 6px 24px -4px rgba(0, 0, 0, 0.6),
+        0 0 16px -2px rgba(var(--node-color-rgb), 0.2);
+    }
+    50% {
+      border-color: rgba(var(--node-color-rgb), 0.85);
+      box-shadow:
+        0 8px 28px -4px rgba(0, 0, 0, 0.6),
+        0 0 24px 2px rgba(var(--node-color-rgb), 0.45);
+    }
+  }
+
+  /* Identity Colors (RGB) */
+  .node-identity-claude {
+    --node-color-rgb: 249, 115, 22;
+  } /* Claude Orange */
+  .node-identity-codex {
+    --node-color-rgb: 20, 184, 166;
+  } /* Codex Green/Teal */
+  .node-identity-gemini {
+    --node-color-rgb: 139, 92, 246;
+  } /* Gemini Blue-Violet */
+  .node-identity-qwen {
+    --node-color-rgb: 244, 63, 94;
+  } /* Qwen Red/Rose */
+  .node-identity-opencode {
+    --node-color-rgb: 6, 182, 212;
+  } /* OpenCode Cyan */
+  .node-identity-cursor {
+    --node-color-rgb: 59, 130, 246;
+  } /* Cursor Blue */
+  .node-identity-copilot {
+    --node-color-rgb: 34, 197, 94;
+  } /* Copilot Green */
+  .node-identity-amp {
+    --node-color-rgb: 245, 158, 11;
+  } /* AMP Amber */
+  .node-identity-droid {
+    --node-color-rgb: 132, 204, 22;
+  } /* Droid Lime */
+  .node-identity-default {
+    --node-color-rgb: 14, 165, 233;
+  } /* Default Sky */
+
+  .node-identity-arena {
+    --node-color-rgb: 236, 72, 153;
+  } /* Arena Rose/Purple */
+  .node-identity-condition {
+    --node-color-rgb: 245, 158, 11;
+  } /* Condition Amber/Gold */
+  .node-identity-human-gate {
+    --node-color-rgb: 99, 102, 241;
+  } /* Human Gate Indigo/Blue-Violet */
+  .node-identity-start {
+    --node-color-rgb: 16, 185, 129;
+  } /* Start Restrained Teal/Green */
+  .node-identity-end {
+    --node-color-rgb: 148, 163, 184;
+  } /* End Slate/Blue-White */
+
+  /* Status overrides - active statuses override identity colors */
+  .node-status-pending {
+    --node-color-rgb: 148, 163, 184;
+  } /* Slate */
+  .node-status-running {
+    --node-color-rgb: 249, 115, 22;
+  } /* Orange (running) */
+  .node-status-succeeded {
+    --node-color-rgb: 34, 197, 94;
+  } /* Green */
+  .node-status-failed {
+    --node-color-rgb: 239, 68, 68;
+  } /* Red */
+  .node-status-waiting {
+    --node-color-rgb: 245, 158, 11;
+  } /* Amber */
+  .node-status-skipped {
+    --node-color-rgb: 100, 116, 139;
+  } /* Muted slate */
+
   .workflow-canvas-surface,
   .workflow-canvas-product,
   .workflow-side-panel-surface {
     --workflow-canvas-bg: #101114;
     --workflow-canvas-bg-end: #121418;
     --workflow-canvas-grid: #2e333b;
+    --workflow-canvas-grid-dot: rgba(255, 255, 255, 0.07);
+    --workflow-canvas-grid-line: rgba(255, 255, 255, 0.02);
     --workflow-canvas-control-bg: #1d2028;
     --workflow-canvas-control-border: rgba(255, 255, 255, 0.14);
     --workflow-canvas-control-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
@@ -511,9 +662,24 @@ html {
     z-index: 1 !important;
   }
 
+  .workflow-popover-surface {
+    border-color: var(--workflow-popover-border, rgba(255, 255, 255, 0.1));
+    background: var(--workflow-popover-bg, rgba(21, 23, 29, 0.96));
+    box-shadow: var(--workflow-popover-shadow, 0 14px 34px rgba(0, 0, 0, 0.35));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
   .workflow-canvas-product .react-flow__node-sticky_note textarea,
   .workflow-canvas-product .react-flow__node-stage_group textarea {
     font-family: inherit;
+  }
+
+  .workflow-edge-path {
+    transition:
+      stroke 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      stroke-width 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .workflow-edge-beam {
@@ -704,6 +870,7 @@ html {
 
   @media (prefers-reduced-motion: reduce) {
     .workflow-edge-beam-running,
+    .node-premium-dark.node-status-running,
     .workflow-node-running::before,
     .workflow-status-dot-running,
     .workflow-side-panel-content {
@@ -711,6 +878,9 @@ html {
     }
 
     .workflow-edge-action,
+    .workflow-edge-beam,
+    .workflow-edge-path,
+    .node-premium-dark,
     .workflow-node-toolbar,
     .workflow-node-add-next,
     .workflow-canvas-product .react-flow__node,

@@ -40,11 +40,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
-import {
-  buildWorkspaceSessionHref,
-  getNodeStatusTone,
-  type StatusTone,
-} from '../model/workflowRunView';
+import { buildWorkspaceSessionHref } from '../model/workflowRunView';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { queueWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import {
@@ -65,10 +61,7 @@ import {
   getWorkflowCanvasNodeState,
   getWorkflowCanvasNodeStateLabel,
 } from '../model/workflowCanvasVisualState';
-import {
-  getWorkflowNodeKindLabel,
-  getWorkflowNodeVisual,
-} from '../model/workflowPresentation';
+import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
@@ -78,11 +71,10 @@ import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
   WORKFLOW_CANVAS_COLOR_TOKENS,
-  WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES,
   WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
-  WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
   WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES,
-  WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES,
+  getWorkflowNodeIdentityClass,
+  getWorkflowNodeStatusClass,
 } from './workflowCanvasTokens';
 import { workflowNodeStatusKey } from './workflowI18n';
 
@@ -110,22 +102,6 @@ const statusIconMap: Record<NodeExecutionStatus, ReactNode> = {
   skipped: <Clock className="h-4 w-4 text-low" />,
 };
 
-const toneClassMap: Record<StatusTone, string> = {
-  neutral: 'border-secondary bg-panel text-low',
-  active: 'border-brand bg-brand/10 text-high',
-  success: 'border-success bg-success/10 text-high',
-  danger: 'border-error bg-error/10 text-high',
-  warning: 'border-warning bg-warning/10 text-high',
-};
-
-const statusDotClassMap: Record<StatusTone, string> = {
-  neutral: 'bg-low',
-  active: 'bg-brand',
-  success: 'bg-success',
-  danger: 'bg-error',
-  warning: 'bg-warning',
-};
-
 const runPortHandles = [
   { id: DEFAULT_TARGET_HANDLE, position: Position.Left },
   { id: WORKFLOW_PORT_HANDLE_IDS.top, position: Position.Top },
@@ -136,10 +112,8 @@ const runPortHandles = [
 function RunNode({ data }: { data: RunNodeData }) {
   const { t } = useTranslation('common');
   const status = data.execution?.status ?? 'pending';
-  const tone = data.execution ? getNodeStatusTone(status) : 'neutral';
   const type = data.nodeType ?? 'agent';
   const structural = type === 'start' || type === 'end';
-  const visual = getWorkflowNodeVisual(type);
   const Icon = getWorkflowNodeIcon(type);
   const nodeState = getWorkflowCanvasNodeState({
     data,
@@ -148,7 +122,6 @@ function RunNode({ data }: { data: RunNodeData }) {
   });
   const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
   const isRunning = status === 'running';
-  const isWaiting = status === 'awaiting_human' || status === 'awaiting_arena';
   const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
   const handles = runPortHandles.map((handle) => (
     <Handle
@@ -159,6 +132,19 @@ function RunNode({ data }: { data: RunNodeData }) {
       className="opacity-0"
     />
   ));
+
+  const premiumClasses = cn(
+    'node-premium-dark',
+    getWorkflowNodeIdentityClass(type, agentDisplay?.executor),
+    getWorkflowNodeStatusClass(nodeState),
+    data.isSelected && 'node-selected',
+    (type === 'condition' || type === 'human_gate') && 'node-lower-weight'
+  );
+  const nodeAccentStyle = {
+    borderColor: 'rgba(var(--node-color-rgb), 0.25)',
+    backgroundColor: 'rgba(var(--node-color-rgb), 0.08)',
+    color: 'rgb(var(--node-color-rgb))',
+  };
 
   if (structural) {
     return (
@@ -173,13 +159,8 @@ function RunNode({ data }: { data: RunNodeData }) {
           data.onSelectNode?.(data.nodeId);
         }}
         className={cn(
-          'relative flex min-w-[112px] cursor-pointer items-center gap-2 overflow-visible rounded-full border px-2.5 py-1.5 text-normal backdrop-blur transition-all duration-150',
-          WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.structural,
-          WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
-          isRunning && 'workflow-node-running',
-          data.isSelected
-            ? 'border-brand/80 ring-2 ring-brand/20'
-            : 'border-white/10 hover:border-brand/40'
+          'relative flex min-w-[120px] cursor-pointer items-center gap-2 overflow-visible px-3 py-2 text-normal',
+          premiumClasses
         )}
       >
         {handles}
@@ -192,15 +173,13 @@ function RunNode({ data }: { data: RunNodeData }) {
           title={stateLabel}
         />
         <div
-          className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 opacity-80',
-            visual.iconClass
-          )}
+          style={nodeAccentStyle}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border opacity-80"
         >
           <Icon className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-xs font-semibold">
+          <div className="truncate text-xs font-semibold text-high">
             {data.display_name || getWorkflowNodeKindLabel(type, t)}
           </div>
           <div className="text-[9px] font-semibold uppercase tracking-normal text-low">
@@ -231,55 +210,53 @@ function RunNode({ data }: { data: RunNodeData }) {
         }
       }}
       className={cn(
-        'relative min-w-[170px] cursor-pointer overflow-visible rounded-lg border px-4 py-3 shadow-sm transition-all duration-200 hover:shadow-md',
-        WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES[nodeState] ?? toneClassMap[tone],
-        isRunning && 'workflow-node-running',
-        data.isSelected
-          ? 'shadow-md ring-2 ring-brand/30 ring-offset-2 ring-offset-primary'
-          : ''
+        'relative min-w-[210px] cursor-pointer overflow-visible text-high active:cursor-grabbing',
+        premiumClasses
       )}
     >
-      {isRunning ? (
-        <div className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
-      ) : null}
-      {isWaiting ? (
-        <div className="absolute inset-y-0 left-0 w-1 bg-warning" />
-      ) : null}
       <span
         className={cn(
           'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
-          statusDotClassMap[tone],
+          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
           isRunning ? 'workflow-status-dot-running' : ''
         )}
       />
       {handles}
-      <div className="flex items-center gap-3 pr-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary/60 bg-primary/70 shadow-sm">
+      <div className="flex items-start gap-3 border-b border-white/5 bg-white/[0.02] px-3 py-2.5 pl-4">
+        <div
+          style={nodeAccentStyle}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border"
+        >
           {agentDisplay?.executor ? (
             <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
           ) : (
-            statusIconMap[status]
+            (statusIconMap[status] ?? <Icon className="h-4 w-4" />)
           )}
         </div>
         <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-semibold">
+          <span className="truncate text-sm font-semibold text-high">
             {data.display_name || type || t('workflow.canvas.nodeFallback')}
           </span>
-          <span className="truncate text-[10px] font-semibold tracking-normal opacity-80">
+          <span className="truncate text-[10px] font-semibold tracking-normal text-low opacity-80 mt-0.5">
             {agentDisplay
               ? `${agentDisplay.agentLabel} / ${agentDisplay.modelLabel}`
               : t(`workflow.nodeStatus.${workflowNodeStatusKey(status)}`)}
           </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 px-3 py-2 pl-4 text-xs text-low">
+        <div className="flex flex-wrap gap-1">
           <span
             className={cn(
-              'mt-1 w-fit rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+              'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
               WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES[nodeState]
             )}
           >
             {stateLabel}
           </span>
           {agentDisplay?.reasoningLabel ? (
-            <span className="mt-1 text-[10px] font-semibold tracking-normal opacity-70">
+            <span className="inline-flex items-center rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
               {agentDisplay.reasoningLabel}
             </span>
           ) : null}

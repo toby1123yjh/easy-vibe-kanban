@@ -8,7 +8,9 @@ export interface CatalogEntry {
 }
 
 export interface WorkflowNodeCatalogSection {
+  id: 'execution' | 'control' | 'structure';
   label: string;
+  labelKey: string;
   entries: CatalogEntry[];
 }
 
@@ -112,14 +114,36 @@ export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
   const entryByType = new Map(
     WORKFLOW_NODE_CATALOG.map((entry) => [entry.type, entry])
   );
-  const sections: Array<{ label: string; types: WorkflowNodeKind[] }> = [
-    { label: 'Entry', types: ['start', 'end'] },
-    { label: 'AI', types: ['agent', 'arena'] },
-    { label: 'Control', types: ['condition', 'human_gate', 'transform'] },
+  const sections: Array<{
+    id: WorkflowNodeCatalogSection['id'];
+    label: string;
+    labelKey: string;
+    types: WorkflowNodeKind[];
+  }> = [
+    {
+      id: 'execution',
+      label: 'Execution',
+      labelKey: 'workflow.editor.sections.execution',
+      types: ['agent', 'arena'],
+    },
+    {
+      id: 'control',
+      label: 'Control',
+      labelKey: 'workflow.editor.sections.control',
+      types: ['condition', 'human_gate'],
+    },
+    {
+      id: 'structure',
+      label: 'Structure',
+      labelKey: 'workflow.editor.sections.structure',
+      types: ['start', 'end'],
+    },
   ];
 
   return sections.map((section) => ({
+    id: section.id,
     label: section.label,
+    labelKey: section.labelKey,
     entries: section.types
       .map((type) => entryByType.get(type))
       .filter((entry): entry is CatalogEntry => Boolean(entry)),

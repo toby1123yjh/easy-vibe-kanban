@@ -69,6 +69,7 @@ import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
+import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
 import {
   buildWorkflowEdgeStateMap,
   getWorkflowCanvasNodeState,
@@ -88,15 +89,15 @@ import {
 } from 'lucide-react';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
-  WORKFLOW_CANVAS_COLOR_TOKENS,
   WORKFLOW_CANVAS_EDGE_CLASSES,
   WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES,
   WORKFLOW_CANVAS_GROUP_COLOR_CLASSES,
   WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES,
   WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
-  WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES,
   WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
   WORKFLOW_CANVAS_NOTE_COLOR_CLASSES,
+  getWorkflowNodeIdentityClass,
+  getWorkflowNodeStatusClass,
 } from './workflowCanvasTokens';
 
 export const WORKFLOW_CANVAS_NODE_ACTIONS = [
@@ -439,21 +440,28 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const actions = getNodeActions(data);
   const canAddNext = Boolean(actions.addNext) && nodeKind !== 'end';
 
+  const premiumClasses = cn(
+    'node-premium-dark',
+    getWorkflowNodeIdentityClass(nodeKind, agentDisplay?.executor),
+    getWorkflowNodeStatusClass(nodeState),
+    selected && 'node-selected',
+    (nodeKind === 'condition' || nodeKind === 'human_gate') &&
+      'node-lower-weight'
+  );
+  const nodeAccentStyle = {
+    borderColor: 'rgba(var(--node-color-rgb), 0.25)',
+    backgroundColor: 'rgba(var(--node-color-rgb), 0.08)',
+    color: 'rgb(var(--node-color-rgb))',
+  };
+
   if (structural) {
     return (
       <div
         data-testid={`workflow-node-${id}`}
         style={{ pointerEvents: 'all' }}
         className={cn(
-          'relative flex min-w-[112px] cursor-grab items-center gap-2 overflow-visible rounded-full border px-2.5 py-1.5 text-normal backdrop-blur transition-all duration-150 active:cursor-grabbing',
-          WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.structural,
-          selected
-            ? 'border-brand/80 ring-2 ring-brand/20'
-            : issueCount > 0
-              ? 'border-amber-500/70'
-              : 'border-white/10 hover:border-brand/40',
-          WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
-          isRunning && 'workflow-node-running'
+          'relative flex min-w-[120px] cursor-grab items-center gap-2 overflow-visible px-3 py-2 text-normal active:cursor-grabbing',
+          premiumClasses
         )}
       >
         {renderWorkflowHandles({
@@ -489,15 +497,13 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           )}
         />
         <div
-          className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 opacity-80',
-            visual.iconClass
-          )}
+          style={nodeAccentStyle}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border opacity-80"
         >
           <Icon className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-xs font-semibold">
+          <div className="truncate text-xs font-semibold text-high">
             {data.display_name || getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
           <div
@@ -516,24 +522,14 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible rounded-lg border text-high backdrop-blur transition-all duration-150 active:cursor-grabbing',
-        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.agent,
-        selected
-          ? 'border-brand shadow-[var(--workflow-node-shadow-selected)] ring-2 ring-brand/25'
-          : issueCount > 0
-            ? 'border-amber-500/70 shadow-amber-500/10 hover:border-amber-500'
-            : cn(
-                'border-white/12 hover:border-brand/60',
-                WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.agentHover
-              ),
-        WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState],
-        isRunning && 'workflow-node-running',
+        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible text-high active:cursor-grabbing',
+        premiumClasses,
         isStale && 'border-amber-400/70 shadow-amber-500/10'
       )}
     >
       {renderWorkflowHandles({
-        canReceive: type !== 'start',
-        canStart: type !== 'end',
+        canReceive: true,
+        canStart: true,
       })}
       {compactAgent ? (
         <WorkflowNodeHoverToolbar
@@ -549,13 +545,6 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           selected={selected}
         />
       ) : null}
-
-      <div
-        className={cn(
-          'absolute inset-y-0 left-0 w-1 rounded-l-lg',
-          visual.accentClass
-        )}
-      />
 
       {issueCount > 0 ? (
         <div
@@ -588,12 +577,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         </span>
       ) : null}
 
-      <div className="flex items-start gap-3 border-b border-white/10 bg-white/[0.03] px-3 py-2 pl-4">
+      <div className="flex items-start gap-3 border-b border-white/5 bg-white/[0.02] px-3 py-2 pl-4">
         <div
-          className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10',
-            visual.iconClass
-          )}
+          style={nodeAccentStyle}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border"
         >
           {agentDisplay?.executor ? (
             <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
@@ -629,7 +616,44 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap gap-1">
+        {nodeKind === 'arena' &&
+        Array.isArray(data.attempts) &&
+        data.attempts.length > 0 ? (
+          <div className="text-[10px] text-low/80 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 mt-1">
+              <span>
+                {t('workflow.metadata.attempts', { defaultValue: 'Attempts' })}
+              </span>
+              <div className="flex -space-x-1.5 overflow-hidden">
+                {data.attempts.map((attempt, idx) => {
+                  const execConfig = coerceWorkflowNodeExecutorConfig(
+                    attempt.executor_config
+                  );
+                  const exec = execConfig?.executor ?? 'default_agent';
+                  const identityClass = getWorkflowNodeIdentityClass(
+                    'agent',
+                    exec
+                  );
+                  return (
+                    <span
+                      key={attempt.id ?? idx}
+                      title={attempt.display_name || exec}
+                      className={cn(
+                        'inline-block h-2.5 w-2.5 rounded-full ring-2 ring-[rgba(23,25,31,0.95)]',
+                        identityClass
+                      )}
+                      style={{
+                        backgroundColor: 'rgba(var(--node-color-rgb), 1)',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-1 mt-1">
           <span
             data-testid={`workflow-node-status-${id}`}
             className={cn(
@@ -940,7 +964,7 @@ const WorkflowEdge = ({
           markerEnd={markerEnd}
           interactionWidth={32}
           className={cn(
-            'workflow-edge-path transition-all',
+            'workflow-edge-path',
             selected ? 'stroke-brand' : statusPathClass
           )}
           style={{
@@ -1579,10 +1603,18 @@ export function WorkflowCanvas({
         className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
       >
         <Background
+          id="bg-grid-dots"
           variant={BackgroundVariant.Dots}
           gap={WORKFLOW_CANVAS_SNAP_GRID[0]}
           size={1.5}
-          color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
+          color="var(--workflow-canvas-grid-dot)"
+        />
+        <Background
+          id="bg-grid-lines"
+          variant={BackgroundVariant.Lines}
+          gap={WORKFLOW_CANVAS_SNAP_GRID[0] * 5}
+          size={1}
+          color="var(--workflow-canvas-grid-line)"
         />
         <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
       </ReactFlow>

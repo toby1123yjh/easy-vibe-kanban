@@ -497,8 +497,17 @@
       "workflowNamePlaceholder": "工作流名称",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系统模板（只读）",
+      "addStep": "添加步骤",
+      "addWorkflowStep": "添加工作流步骤",
       "addAgentStep": "添加智能体步骤",
       "addNextAgentStep": "添加下一个智能体步骤",
+      "searchSteps": "搜索步骤...",
+      "noStepTypesFound": "未找到步骤类型",
+      "sections": {
+        "execution": "执行",
+        "control": "控制",
+        "structure": "结构"
+      },
       "tidy": "整理",
       "note": "笔记",
       "stage": "阶段",

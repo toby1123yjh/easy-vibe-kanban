@@ -511,8 +511,17 @@
       "workflowNamePlaceholder": "Workflow name",
       "descriptionPlaceholder": "Description",
       "systemTemplateReadOnly": "System template (read-only)",
+      "addStep": "Add Step",
+      "addWorkflowStep": "Add workflow step",
       "addAgentStep": "Add Agent Step",
       "addNextAgentStep": "Add next Agent Step",
+      "searchSteps": "Search steps...",
+      "noStepTypesFound": "No step types found",
+      "sections": {
+        "execution": "Execution",
+        "control": "Control",
+        "structure": "Structure"
+      },
       "tidy": "Tidy",
       "note": "Note",
       "stage": "Stage",
