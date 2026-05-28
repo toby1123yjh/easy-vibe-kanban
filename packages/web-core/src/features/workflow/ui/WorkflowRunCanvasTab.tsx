@@ -141,9 +141,12 @@ function RunNode({ data }: { data: RunNodeData }) {
     (type === 'condition' || type === 'human_gate') && 'node-lower-weight'
   );
   const nodeAccentStyle = {
-    borderColor: 'rgba(var(--node-color-rgb), 0.25)',
-    backgroundColor: 'rgba(var(--node-color-rgb), 0.08)',
+    borderColor: 'rgba(var(--node-color-rgb), 0.58)',
+    background:
+      'linear-gradient(135deg, rgba(var(--node-color-rgb), 0.24), rgba(var(--node-color-rgb), 0.08))',
     color: 'rgb(var(--node-color-rgb))',
+    boxShadow:
+      '0 0 18px rgba(var(--node-color-rgb), 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.06)',
   };
 
   if (structural) {
@@ -540,7 +543,7 @@ export function WorkflowRunCanvasTab({
   }
 
   return (
-    <div className="h-full w-full bg-primary">
+    <div className="workflow-canvas-shell h-full w-full bg-primary">
       <Group
         orientation="horizontal"
         className="h-full min-w-0 overflow-hidden"

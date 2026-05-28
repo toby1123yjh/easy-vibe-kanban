@@ -13,7 +13,7 @@ export const WORKFLOW_CANVAS_TOKEN_GROUPS = [
 ] as const;
 
 export const WORKFLOW_CANVAS_CLASS_NAMES = {
-  root: 'workflow-canvas-surface relative h-full w-full bg-[var(--workflow-canvas-bg)]',
+  root: 'workflow-canvas-shell workflow-canvas-surface relative h-full w-full bg-[var(--workflow-canvas-bg)]',
   reactFlow:
     'workflow-canvas workflow-canvas-product bg-[var(--workflow-canvas-bg)]',
   controls:

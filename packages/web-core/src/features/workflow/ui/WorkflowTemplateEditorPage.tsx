@@ -1134,7 +1134,7 @@ export function WorkflowTemplateEditorPage({
         : `node-${inspectorPanel.node?.id ?? 'empty'}`;
 
   return (
-    <div className="flex h-full flex-col bg-primary">
+    <div className="workflow-canvas-shell flex h-full flex-col bg-primary">
       {/* Toolbar */}
       <div className="flex shrink-0 items-center justify-between border-b border-secondary bg-panel p-base">
         <div className="flex items-center gap-4">
