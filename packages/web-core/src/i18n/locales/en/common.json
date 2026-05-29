@@ -515,6 +515,8 @@
       "addWorkflowStep": "Add workflow step",
       "addAgentStep": "Add Agent Step",
       "addNextAgentStep": "Add next Agent Step",
+      "nodePalette": "Node library",
+      "nodePaletteReadOnly": "Copy this template to add or drag steps.",
       "searchSteps": "Search steps...",
       "noStepTypesFound": "No step types found",
       "sections": {

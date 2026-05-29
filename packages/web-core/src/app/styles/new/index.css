@@ -679,11 +679,24 @@ html {
     --workflow-node-shadow-dot-failed: 0 0 16px rgba(239, 68, 68, 0.46);
     --workflow-node-shadow-dot-waiting: 0 0 16px rgba(245, 158, 11, 0.4);
     --workflow-note-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+    --workflow-edge-track: rgba(122, 148, 186, 0.1);
+    --workflow-edge-track-active: rgba(249, 115, 22, 0.11);
+    --workflow-edge-hover-filter: drop-shadow(
+      0 0 10px rgba(249, 115, 22, 0.26)
+    );
+    --workflow-edge-selected-filter: drop-shadow(
+        0 0 10px rgba(249, 115, 22, 0.46)
+      )
+      drop-shadow(0 0 22px rgba(249, 115, 22, 0.26));
     --workflow-edge-action-bg: rgba(12, 16, 24, 0.96);
     --workflow-edge-action-shadow: 0 0 22px rgba(249, 115, 22, 0.48);
+    --workflow-edge-action-shadow-hover:
+      0 12px 26px rgba(0, 0, 0, 0.34), 0 0 24px rgba(249, 115, 22, 0.62);
     --workflow-edge-beam-color: #fff7ed;
     --workflow-edge-beam-shadow:
       0 0 7px rgba(255, 247, 237, 0.78), 0 0 18px rgba(249, 115, 22, 0.58);
+    --workflow-edge-beam-filter: drop-shadow(0 0 7px rgba(255, 247, 237, 0.78))
+      drop-shadow(0 0 18px rgba(249, 115, 22, 0.58));
     --workflow-port-hover-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 16px rgba(249, 115, 22, 0.48);
     --workflow-port-active-shadow:
@@ -696,6 +709,11 @@ html {
     --workflow-panel-border: rgba(122, 148, 186, 0.18);
     --workflow-panel-shadow:
       -14px 0 28px rgba(0, 0, 0, 0.36), -1px 0 0 rgba(255, 255, 255, 0.04);
+    --workflow-palette-shadow:
+      12px 0 30px rgba(0, 0, 0, 0.3), 1px 0 0 rgba(255, 255, 255, 0.035);
+    --workflow-palette-item-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    --workflow-palette-item-shadow-hover:
+      0 14px 30px rgba(0, 0, 0, 0.26), 0 0 18px rgba(59, 130, 246, 0.09);
     --workflow-motion-fast: 140ms;
     --workflow-motion-base: 160ms;
     --workflow-motion-panel: 160ms;
@@ -741,9 +759,15 @@ html {
     color: hsl(var(--text-normal));
   }
 
+  .workflow-node-palette-surface {
+    color-scheme: dark;
+    color: hsl(var(--text-normal));
+  }
+
   .workflow-side-panel-surface input,
   .workflow-side-panel-surface textarea,
-  .workflow-side-panel-surface select {
+  .workflow-side-panel-surface select,
+  .workflow-node-palette-surface input {
     color-scheme: dark;
   }
 
@@ -768,25 +792,58 @@ html {
     font-family: inherit;
   }
 
-  .workflow-edge-path {
+  .workflow-edge-track {
+    stroke: var(--workflow-edge-track);
+    stroke-linecap: round;
+    opacity: 0.52;
+    pointer-events: none;
     transition:
-      stroke 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      stroke-width 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      stroke var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1),
+      stroke-width var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .workflow-edge-group:hover .workflow-edge-track,
+  .workflow-edge-group-selected .workflow-edge-track {
+    stroke: var(--workflow-edge-track-active);
+    opacity: 0.72;
+  }
+
+  .workflow-edge-path {
+    stroke-linecap: round;
+    transition:
+      stroke var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1),
+      filter var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1),
+      stroke-width var(--workflow-motion-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .workflow-edge-group:hover .workflow-edge-path {
+    opacity: 0.94 !important;
+    filter: var(--workflow-edge-hover-filter);
+  }
+
+  .workflow-edge-path-selected {
+    opacity: 1 !important;
+    filter: var(--workflow-edge-selected-filter);
   }
 
   .workflow-edge-beam {
     stroke: var(--workflow-edge-beam-color);
-    stroke-dasharray: 8 16;
+    stroke-dasharray: 10 14;
     stroke-linecap: round;
     opacity: 0;
     filter: none;
     animation: none;
+    pointer-events: none;
+    transition:
+      opacity var(--workflow-motion-base) ease,
+      filter var(--workflow-motion-base) ease;
   }
 
   .workflow-edge-beam-running {
     opacity: 0.96;
-    filter: drop-shadow(var(--workflow-edge-beam-shadow));
+    filter: var(--workflow-edge-beam-filter);
     animation: workflow-edge-flow var(--workflow-motion-beam) linear infinite;
   }
 
@@ -885,7 +942,61 @@ html {
   }
 
   .workflow-canvas-product .workflow-edge-action {
+    pointer-events: none;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      opacity var(--workflow-motion-fast) ease,
+      transform var(--workflow-motion-fast) cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .workflow-edge-group:hover .workflow-edge-action,
+  .workflow-edge-group-selected .workflow-edge-action {
+    opacity: 1;
     pointer-events: all;
+    transform: translateY(-1px) scale(1.03);
+  }
+
+  .workflow-edge-action-button {
+    isolation: isolate;
+  }
+
+  .workflow-edge-action-button::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from 0deg,
+      rgba(249, 115, 22, 0.18),
+      rgba(255, 247, 237, 0.94),
+      rgba(59, 130, 246, 0.42),
+      rgba(249, 115, 22, 0.18)
+    );
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--workflow-motion-fast) ease;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .workflow-edge-action-button:hover,
+  .workflow-edge-action-button:focus-visible,
+  .workflow-edge-group-selected .workflow-edge-action-button {
+    box-shadow: var(--workflow-edge-action-shadow-hover);
+    transform: translateY(-1px) scale(1.04);
+  }
+
+  .workflow-edge-action-button:hover::before,
+  .workflow-edge-action-button:focus-visible::before,
+  .workflow-edge-group-selected .workflow-edge-action-button::before {
+    opacity: 1;
+    animation: workflow-edge-action-border-flow 1.8s linear infinite;
   }
 
   .workflow-side-panel-content {
@@ -920,6 +1031,12 @@ html {
   @keyframes workflow-edge-flow {
     to {
       stroke-dashoffset: -48;
+    }
+  }
+
+  @keyframes workflow-edge-action-border-flow {
+    to {
+      transform: rotate(1turn);
     }
   }
 
@@ -985,6 +1102,7 @@ html {
     .workflow-edge-action,
     .workflow-edge-beam,
     .workflow-edge-path,
+    .workflow-edge-track,
     .node-premium-dark,
     .workflow-node-toolbar,
     .workflow-node-add-next,
@@ -992,6 +1110,10 @@ html {
     .workflow-canvas-product .react-flow__edge,
     .workflow-canvas-product .react-flow__handle.workflow-handle-visible {
       transition-duration: 0ms !important;
+    }
+
+    .workflow-edge-action-button::before {
+      animation: none !important;
     }
   }
 }

@@ -15,6 +15,7 @@ import {
 } from './WorkflowCanvas';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
+  WORKFLOW_CANVAS_EDGE_CLASSES,
   WORKFLOW_CANVAS_TOKEN_GROUPS,
 } from './workflowCanvasTokens';
 
@@ -47,6 +48,9 @@ describe('workflow canvas interaction settings', () => {
     );
     expect(WORKFLOW_CANVAS_CLASS_NAMES.sidePanel).toContain(
       '--workflow-panel-bg'
+    );
+    expect(WORKFLOW_CANVAS_EDGE_CLASSES.actionButton).toContain(
+      'workflow-edge-action-button'
     );
   });
 

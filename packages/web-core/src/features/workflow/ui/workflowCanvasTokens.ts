@@ -140,7 +140,7 @@ export const WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES: Record<
 
 export const WORKFLOW_CANVAS_EDGE_CLASSES = {
   actionButton:
-    'nodrag nopan flex h-7 w-7 items-center justify-center rounded-full border border-brand/50 bg-[var(--workflow-edge-action-bg)] text-brand shadow-[var(--workflow-edge-action-shadow)] transition-colors hover:border-brand hover:bg-brand hover:text-white',
+    'workflow-edge-action-button nodrag nopan relative flex h-8 w-8 items-center justify-center rounded-full border border-brand/50 bg-[var(--workflow-edge-action-bg)] text-brand shadow-[var(--workflow-edge-action-shadow)] transition-[transform,border-color,background-color,color,box-shadow] duration-150 hover:border-brand hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/55 active:scale-95',
 } as const;
 
 export const WORKFLOW_CANVAS_NOTE_COLOR_CLASSES = {

@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useWorkflowTemplate,
@@ -34,12 +34,6 @@ import {
   createWorkflowAgentNodeDraftPatch,
   isWorkflowAgentDraftNode,
 } from '../model/workflowAgentNodeDraft';
-import { getWorkflowNodeCatalogSections } from '../model/workflowNodeCatalog';
-import {
-  getWorkflowNodeKindLabel,
-  getWorkflowNodeSummary,
-  getWorkflowNodeVisual,
-} from '../model/workflowPresentation';
 import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
@@ -55,6 +49,7 @@ import {
 import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { WorkflowCanvas } from './WorkflowCanvas';
+import { WorkflowNodePalette } from './WorkflowNodePalette';
 import { WORKFLOW_CANVAS_CLASS_NAMES } from './workflowCanvasTokens';
 import {
   WorkflowAgentStepEditPanel,
@@ -82,7 +77,6 @@ import {
   ArrowLeft,
   Save,
   Copy,
-  Plus,
   CheckCircle2,
   LayoutGrid,
   Play as PlayIcon,
@@ -110,7 +104,6 @@ const NODE_COLLISION_X = 320;
 const NODE_COLLISION_Y = 160;
 const DUPLICATE_NODE_OFFSET_X = 80;
 const DUPLICATE_NODE_OFFSET_Y = 80;
-const ADD_STEP_CATALOG_SECTIONS = getWorkflowNodeCatalogSections();
 
 interface AgentStepContextMenuState {
   nodeId: string;
@@ -1171,57 +1164,6 @@ export function WorkflowTemplateEditorPage({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                disabled={readOnly}
-                className="flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                {t('workflow.editor.addStep', { defaultValue: 'Add Step' })}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="workflow-popover-surface w-64 rounded-xl border p-2 text-white"
-            >
-              {ADD_STEP_CATALOG_SECTIONS.map((section, sectionIndex) => (
-                <Fragment key={section.id}>
-                  {sectionIndex > 0 ? (
-                    <DropdownMenuSeparator className="my-1.5 bg-white/5" />
-                  ) : null}
-                  <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/40">
-                    {t(section.labelKey, { defaultValue: section.label })}
-                  </div>
-                  {section.entries.map((entry) => {
-                    const visual = getWorkflowNodeVisual(entry.type);
-                    return (
-                      <DropdownMenuItem
-                        key={entry.type}
-                        onClick={() => handleAddNode(entry.type)}
-                        className="flex cursor-pointer flex-col items-start gap-0.5 rounded-lg px-3 py-2 hover:bg-white/[0.04] focus:bg-white/[0.04] focus:text-white"
-                      >
-                        <span className="flex items-center gap-2 text-xs font-semibold text-high">
-                          <span
-                            className={`h-2 w-2 rounded-full shadow-sm ${visual.accentClass}`}
-                          />
-                          {getWorkflowNodeKindLabel(entry.type, t)}
-                        </span>
-                        <span className="text-[10px] text-low/80">
-                          {getWorkflowNodeSummary(
-                            entry.type,
-                            entry.defaultData,
-                            t
-                          )}
-                        </span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
           <Button
             variant="outline"
             disabled={readOnly}
@@ -1399,60 +1341,55 @@ export function WorkflowTemplateEditorPage({
       ) : null}
 
       {edgeActionMenu && selectedEdge ? (
-        <DropdownMenu
-          open
-          onOpenChange={(open) => {
-            if (!open) setEdgeActionMenu(null);
+        <div
+          role="menu"
+          aria-label={t('workflow.editor.edgeActions')}
+          className="workflow-popover-surface fixed z-[10000] min-w-44 rounded-sm border py-half text-high shadow-md"
+          style={{
+            left: edgeActionMenu.x,
+            top: edgeActionMenu.y + 2,
           }}
         >
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={t('workflow.editor.edgeActions')}
-              style={{
-                position: 'fixed',
-                left: edgeActionMenu.x,
-                top: edgeActionMenu.y,
-                width: 1,
-                height: 1,
-                padding: 0,
-                border: 0,
-                background: 'transparent',
-                zIndex: 10000,
-              }}
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
-            <DropdownMenuItem
-              disabled={readOnly}
-              onClick={() => handleInsertAgentStepOnEdge(edgeActionMenu.edgeId)}
-            >
-              {t('workflow.editor.insertAgentStep')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'source')
-              }
-            >
-              {t('workflow.editor.reconnectSource')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'target')
-              }
-            >
-              {t('workflow.editor.reconnectTarget')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={readOnly}
-              onClick={() => handleDeleteEdge(edgeActionMenu.edgeId)}
-            >
-              {t('workflow.editor.deleteEdge')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={readOnly}
+            className="mx-half flex w-[calc(100%-8px)] cursor-pointer items-center rounded-sm px-base py-half text-left text-sm outline-none transition-colors hover:bg-secondary focus:bg-secondary disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => handleInsertAgentStepOnEdge(edgeActionMenu.edgeId)}
+          >
+            {t('workflow.editor.insertAgentStep')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="mx-half flex w-[calc(100%-8px)] cursor-pointer items-center rounded-sm px-base py-half text-left text-sm outline-none transition-colors hover:bg-secondary focus:bg-secondary"
+            onClick={() =>
+              handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'source')
+            }
+          >
+            {t('workflow.editor.reconnectSource')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="mx-half flex w-[calc(100%-8px)] cursor-pointer items-center rounded-sm px-base py-half text-left text-sm outline-none transition-colors hover:bg-secondary focus:bg-secondary"
+            onClick={() =>
+              handleSelectEdgeForReconnect(edgeActionMenu.edgeId, 'target')
+            }
+          >
+            {t('workflow.editor.reconnectTarget')}
+          </button>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <button
+            type="button"
+            role="menuitem"
+            disabled={readOnly}
+            className="mx-half flex w-[calc(100%-8px)] cursor-pointer items-center rounded-sm px-base py-half text-left text-sm text-error outline-none transition-colors hover:bg-secondary focus:bg-secondary disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => handleDeleteEdge(edgeActionMenu.edgeId)}
+          >
+            {t('workflow.editor.deleteEdge')}
+          </button>
+        </div>
       ) : null}
 
       <Group
@@ -1465,61 +1402,77 @@ export function WorkflowTemplateEditorPage({
           minSize="35%"
           className="min-w-0 overflow-hidden"
         >
-          <div className="relative flex h-full min-h-0 flex-col">
-            <div className="relative min-h-0 flex-1">
-              <ReactFlowProvider>
-                <WorkflowCanvas
-                  graph={graph}
-                  validationIssues={validationIssues}
-                  nodeStatuses={nodeStatuses}
-                  staleNodeIds={staleNodeIdList}
-                  readOnly={readOnly}
-                  onChange={handleGraphChange}
-                  onSelectionChange={(selection) => {
-                    setSelectedNodeId(selection.nodeId);
-                    setSelectedEdgeId(selection.edgeId);
-                    setEdgeReconnectFocus(null);
-                    setContextMenu(null);
-                    setEdgeActionMenu(null);
-                    setSessionPanelNodeId((currentPanelNodeId) =>
-                      selection.edgeId ||
-                      selection.nodeId !== currentPanelNodeId
-                        ? null
-                        : currentPanelNodeId
-                    );
-                    setEditPanelNodeId((currentPanelNodeId) =>
-                      selection.edgeId ||
-                      selection.nodeId !== currentPanelNodeId
-                        ? null
-                        : currentPanelNodeId
-                    );
-                  }}
-                  onNodeDrop={handleAddNode}
-                  onNodeOpen={(nodeId) => void handleOpenAgentSession(nodeId)}
-                  onNodeEdit={handleOpenAgentStepEdit}
-                  onNodeAddNext={handleAddAgentStepAfterNode}
-                  onNodeDuplicate={handleDuplicateAgentStep}
-                  onNodeDelete={(nodeId) => void handleDeleteAgentStep(nodeId)}
-                  onNodeContextMenu={(event) => {
-                    const node = graph.nodes.find(
-                      (candidate) => candidate.id === event.nodeId
-                    );
-                    setEdgeActionMenu(null);
-                    setContextMenu(node?.type === 'agent' ? event : null);
-                  }}
-                  onEdgeActionMenu={(event) => {
-                    setSelectedNodeId(null);
-                    setSelectedEdgeId(event.edgeId);
-                    setEdgeReconnectFocus(null);
-                    setSessionPanelNodeId(null);
-                    setEditPanelNodeId(null);
-                    setContextMenu(null);
-                    setEdgeActionMenu(event);
-                  }}
-                />
-              </ReactFlowProvider>
+          <div className="relative flex h-full min-h-0 overflow-hidden">
+            <WorkflowNodePalette
+              readOnly={readOnly}
+              onSelect={(kind) => handleAddNode(kind)}
+            />
+            <div className="relative flex min-w-0 flex-1 flex-col">
+              <div className="relative min-h-0 flex-1">
+                <ReactFlowProvider>
+                  <WorkflowCanvas
+                    graph={graph}
+                    validationIssues={validationIssues}
+                    nodeStatuses={nodeStatuses}
+                    staleNodeIds={staleNodeIdList}
+                    selectedNodeId={selectedNodeId}
+                    selectedEdgeId={selectedEdgeId}
+                    readOnly={readOnly}
+                    onChange={handleGraphChange}
+                    onSelectionChange={(selection) => {
+                      setSelectedNodeId(selection.nodeId);
+                      setSelectedEdgeId(selection.edgeId);
+                      setEdgeReconnectFocus(null);
+                      setContextMenu(null);
+                      setEdgeActionMenu((currentMenu) =>
+                        currentMenu &&
+                        selection.edgeId === currentMenu.edgeId &&
+                        !selection.nodeId
+                          ? currentMenu
+                          : null
+                      );
+                      setSessionPanelNodeId((currentPanelNodeId) =>
+                        selection.edgeId ||
+                        selection.nodeId !== currentPanelNodeId
+                          ? null
+                          : currentPanelNodeId
+                      );
+                      setEditPanelNodeId((currentPanelNodeId) =>
+                        selection.edgeId ||
+                        selection.nodeId !== currentPanelNodeId
+                          ? null
+                          : currentPanelNodeId
+                      );
+                    }}
+                    onNodeDrop={handleAddNode}
+                    onNodeOpen={(nodeId) => void handleOpenAgentSession(nodeId)}
+                    onNodeEdit={handleOpenAgentStepEdit}
+                    onNodeAddNext={handleAddAgentStepAfterNode}
+                    onNodeDuplicate={handleDuplicateAgentStep}
+                    onNodeDelete={(nodeId) =>
+                      void handleDeleteAgentStep(nodeId)
+                    }
+                    onNodeContextMenu={(event) => {
+                      const node = graph.nodes.find(
+                        (candidate) => candidate.id === event.nodeId
+                      );
+                      setEdgeActionMenu(null);
+                      setContextMenu(node?.type === 'agent' ? event : null);
+                    }}
+                    onEdgeActionMenu={(event) => {
+                      setSelectedNodeId(null);
+                      setSelectedEdgeId(event.edgeId);
+                      setEdgeReconnectFocus(null);
+                      setSessionPanelNodeId(null);
+                      setEditPanelNodeId(null);
+                      setContextMenu(null);
+                      setEdgeActionMenu(event);
+                    }}
+                  />
+                </ReactFlowProvider>
+              </div>
+              <WorkflowValidationPanel graph={graph} />
             </div>
-            <WorkflowValidationPanel graph={graph} />
           </div>
         </Panel>
 

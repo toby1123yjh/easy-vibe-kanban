@@ -501,6 +501,8 @@
       "addWorkflowStep": "添加工作流步骤",
       "addAgentStep": "添加智能体步骤",
       "addNextAgentStep": "添加下一个智能体步骤",
+      "nodePalette": "节点库",
+      "nodePaletteReadOnly": "复制此模板后即可添加或拖拽步骤。",
       "searchSteps": "搜索步骤...",
       "noStepTypesFound": "未找到步骤类型",
       "sections": {

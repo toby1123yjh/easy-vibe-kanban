@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   type DragEvent,
+  type PointerEvent,
   type MouseEvent,
   type ReactNode,
 } from 'react';
@@ -120,6 +121,8 @@ export interface WorkflowCanvasProps {
   validationIssues?: ValidationIssue[];
   nodeStatuses?: WorkflowNodeExecutionStatusMap;
   staleNodeIds?: readonly string[];
+  selectedNodeId?: string | null;
+  selectedEdgeId?: string | null;
   readOnly?: boolean;
   onChange?: (graph: WorkflowGraph) => void;
   onSelectionChange?: (selection: WorkflowCanvasSelection) => void;
@@ -957,10 +960,39 @@ const WorkflowEdge = ({
     targetPosition,
     borderRadius: 18,
   });
+  const openActionMenu = (
+    event: PointerEvent<HTMLButtonElement> | MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (onActionMenu) {
+      onActionMenu({
+        edgeId: id,
+        x: event.clientX,
+        y: event.clientY,
+      });
+      return;
+    }
+    onSelect?.(id);
+  };
 
   return (
     <>
-      <g data-testid={`workflow-edge-${id}`} className="group">
+      <g
+        data-testid={`workflow-edge-${id}`}
+        className={cn(
+          'group workflow-edge-group',
+          selected && 'workflow-edge-group-selected',
+          isRunning && 'workflow-edge-group-running'
+        )}
+      >
+        <BaseEdge
+          id={`${id}-track`}
+          path={edgePath}
+          interactionWidth={0}
+          className="workflow-edge-track"
+          style={{ strokeWidth: selected || isRunning ? 4.5 : 3.5 }}
+        />
         <BaseEdge
           id={id}
           path={edgePath}
@@ -968,6 +1000,7 @@ const WorkflowEdge = ({
           interactionWidth={32}
           className={cn(
             'workflow-edge-path',
+            selected && 'workflow-edge-path-selected',
             selected ? 'stroke-brand' : statusPathClass
           )}
           style={{
@@ -975,8 +1008,8 @@ const WorkflowEdge = ({
               selected ||
               visualStatus === 'running' ||
               visualStatus === 'failed'
-                ? 3
-                : 2,
+                ? 2.25
+                : 1.5,
             opacity: visualStatus === 'idle' ? 0.58 : 0.86,
           }}
         />
@@ -989,37 +1022,41 @@ const WorkflowEdge = ({
             isRunning && 'workflow-edge-beam-running',
             selected && isRunning && 'opacity-100'
           )}
-          style={{ strokeWidth: selected || isRunning ? 3 : 2 }}
+          style={{ strokeWidth: selected || isRunning ? 2.25 : 1.5 }}
         />
         {onSelect ? (
           <foreignObject
-            x={labelX - 14}
-            y={labelY - 14}
-            width={28}
-            height={28}
+            x={labelX - 20}
+            y={labelY - 20}
+            width={40}
+            height={40}
             className={cn(
-              'workflow-edge-action overflow-visible opacity-0 transition-opacity group-hover:opacity-100',
+              'workflow-edge-action overflow-visible opacity-0 group-hover:opacity-100',
               selected && 'opacity-100'
             )}
           >
-            <button
-              type="button"
-              data-testid={`workflow-edge-action-${id}`}
-              className={WORKFLOW_CANVAS_EDGE_CLASSES.actionButton}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelect(id);
-                onActionMenu?.({
-                  edgeId: id,
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-              aria-label={t('workflow.canvas.openEdgeActions', { id })}
-              title={t('workflow.editor.edgeActions')}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
+            <div className="flex h-10 w-10 items-center justify-center">
+              <button
+                type="button"
+                data-testid={`workflow-edge-action-${id}`}
+                className={WORKFLOW_CANVAS_EDGE_CLASSES.actionButton}
+                onPointerDown={openActionMenu}
+                onPointerUp={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  if (event.detail === 0) {
+                    openActionMenu(event);
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                aria-label={t('workflow.canvas.openEdgeActions', { id })}
+                title={t('workflow.editor.edgeActions')}
+              >
+                <MoreHorizontal className="relative z-10 h-4 w-4" />
+              </button>
+            </div>
           </foreignObject>
         ) : null}
       </g>
@@ -1028,7 +1065,9 @@ const WorkflowEdge = ({
           <div
             className="nodrag nopan absolute"
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${
+                labelY + (onSelect ? 30 : 0)
+              }px)`,
               pointerEvents: 'none',
             }}
           >
@@ -1093,6 +1132,8 @@ export function WorkflowCanvas({
   validationIssues = EMPTY_VALIDATION_ISSUES,
   nodeStatuses,
   staleNodeIds = EMPTY_STALE_NODE_IDS,
+  selectedNodeId,
+  selectedEdgeId,
   readOnly = false,
   onChange,
   onSelectionChange,
@@ -1222,6 +1263,7 @@ export function WorkflowCanvas({
                 } satisfies WorkflowCanvasObjectActions,
               },
               position: n.position,
+              selected: selectedNodeId === n.id,
             } satisfies WorkflowCanvasFlowNode;
           }
 
@@ -1249,6 +1291,7 @@ export function WorkflowCanvas({
               } satisfies WorkflowNodeActions,
             },
             position: n.position,
+            selected: selectedNodeId === n.id,
           } satisfies WorkflowCanvasFlowNode;
         }
       );
@@ -1263,6 +1306,7 @@ export function WorkflowCanvas({
         onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
         onActionMenu: onEdgeActionMenu,
       },
+      selected: selectedEdgeId === edge.id,
     })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
@@ -1277,6 +1321,8 @@ export function WorkflowCanvas({
     onNodeOpen,
     onNodeRunStep,
     readOnly,
+    selectedEdgeId,
+    selectedNodeId,
     setNodes,
     setEdges,
     staleNodeIds,
@@ -1489,9 +1535,6 @@ export function WorkflowCanvas({
     }) => {
       const hasSingleNode = selectedNodes.length === 1;
       const hasSingleEdge = selectedEdges.length === 1;
-      if (!hasSingleNode && !hasSingleEdge) {
-        return;
-      }
       emitSelectionChange({
         nodeId: hasSingleNode && !hasSingleEdge ? selectedNodes[0].id : null,
         edgeId: hasSingleEdge && !hasSingleNode ? selectedEdges[0].id : null,
