@@ -1,6 +1,6 @@
 {
   "name": "easy-vibe-kanban",
-  "version": "0.1.44-easy.33",
+  "version": "0.1.44-easy.34",
   "private": true,
   "bin": {
     "easy-vibe-kanban": "npx-cli/bin/cli.js"
