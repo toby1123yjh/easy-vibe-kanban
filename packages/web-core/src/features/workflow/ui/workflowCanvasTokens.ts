@@ -37,8 +37,6 @@ export const WORKFLOW_CANVAS_NODE_SURFACE_CLASSES = {
     'workflow-node-toolbar nodrag nopan absolute -top-9 right-2 z-20 flex items-center gap-1 rounded-lg border border-[var(--workflow-popover-border)] bg-[var(--workflow-popover-bg)] p-1 shadow-[var(--workflow-popover-shadow)] backdrop-blur transition-[opacity,transform,border-color,background-color,color,box-shadow] duration-150',
   actionButton:
     'border-[var(--workflow-popover-border)] bg-[var(--workflow-node-action-bg)] hover:border-brand/60 hover:bg-brand/15 hover:text-brand',
-  addNext:
-    'workflow-node-add-next nodrag nopan absolute -right-12 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-brand/40 bg-[var(--workflow-popover-bg)] text-brand shadow-[var(--workflow-node-shadow-add-next)] backdrop-blur transition-[opacity,transform,border-color,background-color,color,box-shadow] duration-150 hover:border-brand hover:bg-brand hover:text-white disabled:cursor-not-allowed disabled:opacity-40',
   handle:
     'h-4 w-4 border-[3px] border-[var(--workflow-node-port-ring)] bg-brand/80 shadow-[var(--workflow-node-shadow-port)] transition-colors hover:bg-brand',
   issueBadgeBorder: 'border-[var(--workflow-node-issue-border)]',

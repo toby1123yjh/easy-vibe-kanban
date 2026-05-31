@@ -24,7 +24,7 @@ describe('workflow presentation helpers', () => {
       getWorkflowNodeSummary('condition', {
         branches: [{ name: 'Matched' }, { name: 'Fallback' }],
       })
-    ).toBe('Branches: 2');
+    ).toBe('2 branches');
     expect(getWorkflowNodeSummary('human_gate', {})).toBe('Waits for approval');
   });
 
@@ -86,12 +86,22 @@ describe('workflow presentation helpers', () => {
     ).toEqual([{ label: 'Role', value: 'reviewer' }]);
 
     expect(
+      getWorkflowNodeMetadata('condition', {
+        branches: [{ name: 'Matched' }, { name: 'Fallback' }],
+        joiner: 'or',
+      })
+    ).toEqual([
+      { label: 'Branches', value: '2 branches' },
+      { label: 'Logic', value: 'OR' },
+    ]);
+
+    expect(
       getWorkflowNodeMetadata('arena', {
         attempts: [{ id: 'a' }, { id: 'b' }],
         promote_strategy: 'manual',
       })
     ).toEqual([
-      { label: 'Attempts', value: '2' },
+      { label: 'Attempts', value: '2 attempts' },
       { label: 'Promote', value: 'manual' },
     ]);
   });

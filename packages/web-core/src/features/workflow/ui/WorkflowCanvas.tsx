@@ -85,7 +85,6 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
-  Plus,
   Trash2,
 } from 'lucide-react';
 import {
@@ -130,7 +129,6 @@ export interface WorkflowCanvasProps {
   onNodeOpen?: (nodeId: string) => void;
   onNodeEdit?: (nodeId: string) => void;
   onNodeRunStep?: (nodeId: string) => void;
-  onNodeAddNext?: (nodeId: string) => void;
   onNodeDuplicate?: (nodeId: string) => void;
   onNodeDelete?: (nodeId: string) => void | Promise<void>;
   onNodeContextMenu?: (event: WorkflowNodeContextMenuEvent) => void;
@@ -159,7 +157,6 @@ interface WorkflowNodeActions {
   open?: (nodeId: string) => void;
   edit?: (nodeId: string) => void;
   runStep?: (nodeId: string) => void;
-  addNext?: (nodeId: string) => void;
   duplicate?: (nodeId: string) => void;
   delete?: (nodeId: string) => void | Promise<void>;
 }
@@ -335,44 +332,6 @@ function WorkflowNodeHoverToolbar({
   );
 }
 
-function WorkflowAddNextButton({
-  actions,
-  nodeId,
-  selected,
-}: {
-  actions: WorkflowNodeActions;
-  nodeId: string;
-  selected?: boolean;
-}) {
-  const { t } = useTranslation('common');
-  const disabled = actions.readOnly === true || !actions.addNext;
-  const label = t('workflow.canvas.addNextAgentStep');
-
-  return (
-    <button
-      type="button"
-      data-testid={`workflow-node-add-next-${nodeId}`}
-      className={cn(
-        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.addNext,
-        selected
-          ? 'translate-x-0 opacity-100'
-          : 'pointer-events-none translate-x-1 opacity-0'
-      )}
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onPointerDown={(event) => event.stopPropagation()}
-      onDoubleClick={stopCanvasObjectAction}
-      onClick={(event) => {
-        stopCanvasObjectAction(event);
-        if (!disabled) actions.addNext?.(nodeId);
-      }}
-    >
-      <Plus className="h-4 w-4" />
-    </button>
-  );
-}
-
 const workflowHandleClass = WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.handle;
 
 const workflowHandlePoints = [
@@ -441,7 +400,6 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const isRunning = nodeState === 'running';
   const isStale = isNodeStaleForNextRun(data);
   const actions = getNodeActions(data);
-  const canAddNext = Boolean(actions.addNext) && nodeKind !== 'end';
 
   const premiumClasses = cn(
     'node-premium-dark',
@@ -474,13 +432,6 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           canReceive: nodeKind !== 'start',
           canStart: nodeKind !== 'end',
         })}
-        {canAddNext ? (
-          <WorkflowAddNextButton
-            actions={actions}
-            nodeId={id}
-            selected={selected}
-          />
-        ) : null}
         {issueCount > 0 ? (
           <div
             data-testid={`workflow-node-issue-${id}`}
@@ -537,15 +488,8 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         canReceive: true,
         canStart: true,
       })}
-      {compactAgent ? (
+      {!structural ? (
         <WorkflowNodeHoverToolbar
-          actions={actions}
-          nodeId={id}
-          selected={selected}
-        />
-      ) : null}
-      {canAddNext ? (
-        <WorkflowAddNextButton
           actions={actions}
           nodeId={id}
           selected={selected}
@@ -1141,7 +1085,6 @@ export function WorkflowCanvas({
   onNodeOpen,
   onNodeEdit,
   onNodeRunStep,
-  onNodeAddNext,
   onNodeDuplicate,
   onNodeDelete,
   onNodeContextMenu,
@@ -1282,10 +1225,9 @@ export function WorkflowCanvas({
               __workflowIsStale: staleNodeIdSet.has(n.id),
               __workflowActions: {
                 readOnly,
-                open: onNodeOpen,
+                open: nodeType === 'agent' ? onNodeOpen : undefined,
                 edit: onNodeEdit,
-                runStep: onNodeRunStep,
-                addNext: onNodeAddNext,
+                runStep: nodeType === 'agent' ? onNodeRunStep : undefined,
                 duplicate: onNodeDuplicate,
                 delete: onNodeDelete,
               } satisfies WorkflowNodeActions,
@@ -1314,7 +1256,6 @@ export function WorkflowCanvas({
     graph,
     nodeStatuses,
     onEdgeActionMenu,
-    onNodeAddNext,
     onNodeDelete,
     onNodeDuplicate,
     onNodeEdit,
@@ -1450,8 +1391,7 @@ export function WorkflowCanvas({
       if (
         !node?.type ||
         !isWorkflowNodeKind(String(node.type)) ||
-        node.type === 'start' ||
-        node.type === 'end'
+        node.type !== 'agent'
       ) {
         return;
       }
@@ -1599,8 +1539,7 @@ export function WorkflowCanvas({
           if (
             !node.type ||
             !isWorkflowNodeKind(String(node.type)) ||
-            node.type === 'start' ||
-            node.type === 'end'
+            node.type !== 'agent'
           ) {
             return;
           }

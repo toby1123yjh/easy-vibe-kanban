@@ -384,7 +384,7 @@
       },
       "condition": {
         "label": "Condition",
-        "summary": "Branches: {{count}}"
+        "summary": "{{count}} branches"
       },
       "humanGate": {
         "label": "Human Gate",
@@ -396,7 +396,7 @@
       },
       "arena": {
         "label": "Arena",
-        "summary": "Attempts: {{count}}",
+        "summary": "{{count}} attempts",
         "attemptA": "Attempt A",
         "attemptB": "Attempt B"
       }
@@ -420,10 +420,14 @@
       "state": "State",
       "role": "Role",
       "branches": "Branches",
+      "branchCount": "Branches",
+      "branchCountValue": "{{count}} branches",
       "logic": "Logic",
       "action": "Action",
       "mode": "Mode",
       "attempts": "Attempts",
+      "attemptCount": "Attempts",
+      "attemptCountValue": "{{count}} attempts",
       "promote": "Promote",
       "branch": "Branch {{index}}"
     },
@@ -514,7 +518,6 @@
       "addStep": "Add Step",
       "addWorkflowStep": "Add workflow step",
       "addAgentStep": "Add Agent Step",
-      "addNextAgentStep": "Add next Agent Step",
       "nodePalette": "Node library",
       "nodePaletteReadOnly": "Copy this template to add or drag steps.",
       "searchSteps": "Search steps...",
@@ -539,6 +542,7 @@
       "deleteAgentStepTitle": "Delete Agent Step",
       "deleteAgentStepMessage": "This removes the step from the workflow graph. The existing session history is not copied into another step.",
       "agentStepActions": "Agent step actions",
+      "nodeActions": "Node actions",
       "openSession": "Open session",
       "duplicate": "Duplicate",
       "runStep": "Run step",
@@ -554,7 +558,6 @@
       "openSession": "Open session",
       "runStep": "Run step",
       "runStepUnavailable": "Single-step run is not available yet.",
-      "addNextAgentStep": "Add next Agent Step",
       "nodeFallback": "Node",
       "updatedForNextRunTitle": "Configuration was updated after the latest run and applies to the next run.",
       "updatedForNextRun": "Updated for next run",

@@ -911,9 +911,7 @@ html {
   }
 
   .workflow-canvas-product .react-flow__node:hover .workflow-node-toolbar,
-  .workflow-canvas-product .react-flow__node:hover .workflow-node-add-next,
-  .workflow-node-toolbar:focus-within,
-  .workflow-node-add-next:focus-visible {
+  .workflow-node-toolbar:focus-within {
     pointer-events: auto;
     opacity: 1;
   }
@@ -921,11 +919,6 @@ html {
   .workflow-canvas-product .react-flow__node:hover .workflow-node-toolbar,
   .workflow-node-toolbar:focus-within {
     transform: translateY(0);
-  }
-
-  .workflow-canvas-product .react-flow__node:hover .workflow-node-add-next,
-  .workflow-node-add-next:focus-visible {
-    transform: translate(0, -50%);
   }
 
   .workflow-canvas-product .react-flow__edgeupdater,
@@ -1105,7 +1098,6 @@ html {
     .workflow-edge-track,
     .node-premium-dark,
     .workflow-node-toolbar,
-    .workflow-node-add-next,
     .workflow-canvas-product .react-flow__node,
     .workflow-canvas-product .react-flow__edge,
     .workflow-canvas-product .react-flow__handle.workflow-handle-visible {

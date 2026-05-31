@@ -314,15 +314,113 @@ describe('workflow graph model', () => {
     const tidy = tidyWorkflowGraph(graph);
 
     expect(tidy.nodes.map((node) => [node.id, node.position])).toEqual([
-      ['start', { x: 120, y: 170 }],
-      ['research', { x: 480, y: 170 }],
-      ['review', { x: 840, y: 170 }],
-      ['end', { x: 1200, y: 170 }],
+      ['start', { x: 120, y: 148 }],
+      ['research', { x: 420, y: 105 }],
+      ['review', { x: 860, y: 105 }],
+      ['end', { x: 1300, y: 148 }],
     ]);
     expect(tidy.edges[0]).toMatchObject({
       source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
       target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
     });
+  });
+
+  it('tidies mixed-size nodes with enough lane spacing for readable edges', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        createWorkflowNode('start', {
+          id: 'start',
+          position: { x: 0, y: 0 },
+        }),
+        createWorkflowNode('condition', {
+          id: 'branch',
+          position: { x: 200, y: 60 },
+        }),
+        createWorkflowNode('arena', {
+          id: 'arena',
+          position: { x: 500, y: 20 },
+        }),
+        createWorkflowNode('human_gate', {
+          id: 'approval',
+          position: { x: 500, y: 600 },
+        }),
+        createWorkflowNode('end', {
+          id: 'end',
+          position: { x: 900, y: 120 },
+        }),
+      ],
+      edges: [
+        createWorkflowEdge({
+          id: 'start-branch',
+          source: 'start',
+          target: 'branch',
+        }),
+        createWorkflowEdge({
+          id: 'branch-arena',
+          source: 'branch',
+          target: 'arena',
+        }),
+        createWorkflowEdge({
+          id: 'branch-approval',
+          source: 'branch',
+          target: 'approval',
+        }),
+        createWorkflowEdge({
+          id: 'arena-end',
+          source: 'arena',
+          target: 'end',
+        }),
+        createWorkflowEdge({
+          id: 'approval-end',
+          source: 'approval',
+          target: 'end',
+        }),
+      ],
+    };
+
+    const tidy = tidyWorkflowGraph(graph);
+
+    expect(tidy.nodes.map((node) => [node.id, node.position])).toEqual([
+      ['start', { x: 120, y: 148 }],
+      ['branch', { x: 420, y: 114 }],
+      ['arena', { x: 840, y: 70 }],
+      ['approval', { x: 850, y: 296 }],
+      ['end', { x: 1280, y: 148 }],
+    ]);
+    expect(
+      tidy.edges.map((edge) => [
+        edge.id,
+        edge.source_handle,
+        edge.target_handle,
+      ])
+    ).toEqual([
+      [
+        'start-branch',
+        WORKFLOW_PORT_HANDLE_IDS.right,
+        WORKFLOW_PORT_HANDLE_IDS.left,
+      ],
+      [
+        'branch-arena',
+        WORKFLOW_PORT_HANDLE_IDS.right,
+        WORKFLOW_PORT_HANDLE_IDS.left,
+      ],
+      [
+        'branch-approval',
+        WORKFLOW_PORT_HANDLE_IDS.right,
+        WORKFLOW_PORT_HANDLE_IDS.left,
+      ],
+      [
+        'arena-end',
+        WORKFLOW_PORT_HANDLE_IDS.right,
+        WORKFLOW_PORT_HANDLE_IDS.left,
+      ],
+      [
+        'approval-end',
+        WORKFLOW_PORT_HANDLE_IDS.right,
+        WORKFLOW_PORT_HANDLE_IDS.left,
+      ],
+    ]);
   });
 
   it('keeps workflow edge semantics separate from React Flow edge renderer type', () => {

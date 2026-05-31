@@ -353,7 +353,7 @@
       "noteTitle": "筆記",
       "noteContent": "記錄這個階段的目標、約束或注意事項。",
       "newStageTitle": "新階段",
-      "newStageDescription": "把相關智慧體步驟放在同一階段內。"
+      "newStageDescription": "把相關智慧體放在同一階段內。"
     },
     "nodes": {
       "start": {
@@ -365,12 +365,12 @@
         "summary": "工作流程出口"
       },
       "agent": {
-        "label": "智慧體步驟",
+        "label": "智慧體",
         "summary": "角色：{{role}}"
       },
       "condition": {
         "label": "條件",
-        "summary": "分支：{{count}}"
+        "summary": "{{count}} 個分支"
       },
       "humanGate": {
         "label": "人工確認",
@@ -382,7 +382,7 @@
       },
       "arena": {
         "label": "Arena",
-        "summary": "嘗試：{{count}}",
+        "summary": "{{count}} 個嘗試",
         "attemptA": "嘗試 A",
         "attemptB": "嘗試 B"
       }
@@ -406,10 +406,14 @@
       "state": "狀態",
       "role": "角色",
       "branches": "分支",
+      "branchCount": "分支數",
+      "branchCountValue": "{{count}} 個分支",
       "logic": "邏輯",
       "action": "操作",
       "mode": "模式",
       "attempts": "嘗試",
+      "attemptCount": "嘗試數",
+      "attemptCountValue": "{{count}} 個嘗試",
       "promote": "提升",
       "branch": "分支 {{index}}"
     },
@@ -499,8 +503,7 @@
       "systemTemplateReadOnly": "系統範本（唯讀）",
       "addStep": "新增步驟",
       "addWorkflowStep": "新增工作流程步驟",
-      "addAgentStep": "新增智慧體步驟",
-      "addNextAgentStep": "新增下一個智慧體步驟",
+      "addAgentStep": "新增智慧體",
       "nodePalette": "節點庫",
       "nodePaletteReadOnly": "複製此範本後即可新增或拖曳步驟。",
       "searchSteps": "搜尋步驟...",
@@ -522,14 +525,15 @@
       "copyToProject": "複製到專案",
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
-      "deleteAgentStepTitle": "刪除智慧體步驟",
+      "deleteAgentStepTitle": "刪除智慧體",
       "deleteAgentStepMessage": "這會從工作流程圖中移除此步驟。既有會話歷史不會複製到其他步驟。",
-      "agentStepActions": "智慧體步驟操作",
+      "agentStepActions": "智慧體操作",
+      "nodeActions": "節點操作",
       "openSession": "開啟會話",
       "duplicate": "複製",
       "runStep": "執行步驟",
       "edgeActions": "連線操作",
-      "insertAgentStep": "插入智慧體步驟",
+      "insertAgentStep": "插入智慧體",
       "reconnect": "重新連接",
       "reconnectSource": "重新連接來源節點",
       "reconnectTarget": "重新連接目標節點",
@@ -540,7 +544,6 @@
       "openSession": "開啟會話",
       "runStep": "執行步驟",
       "runStepUnavailable": "暫不支援單步執行。",
-      "addNextAgentStep": "新增下一個智慧體步驟",
       "nodeFallback": "節點",
       "updatedForNextRunTitle": "設定已在最新執行後更新，會在下一次執行時生效。",
       "updatedForNextRun": "下次執行生效",
@@ -553,15 +556,15 @@
       "openEdgeActions": "開啟 {{id}} 的連線操作"
     },
     "agentEdit": {
-      "title": "編輯智慧體步驟",
+      "title": "編輯智慧體",
       "description": "設定此步驟的會話提示詞與執行器。",
       "close": "關閉編輯器",
       "runningHint": "此步驟正在執行。提示詞與智慧體設定可在執行結束後編輯。",
       "nextRunHint": "改動會在下一次工作流程執行或下一次觸發此步驟時生效。",
       "stepTitle": "步驟標題",
-      "defaultTitle": "智慧體步驟",
+      "defaultTitle": "智慧體",
       "defaultPrompt": "預設提示詞",
-      "promptPlaceholder": "描述這個智慧體步驟要做什麼...",
+      "promptPlaceholder": "描述這個智慧體要做什麼...",
       "executor": "執行器",
       "selectExecutor": "選擇執行器",
       "agent": "智慧體",
@@ -595,7 +598,7 @@
       "edgeId": "連線 ID"
     },
     "agentDraft": {
-      "defaultStepName": "智慧體步驟",
+      "defaultStepName": "智慧體",
       "promptPlaceholder": "描述這個工作流程步驟...",
       "selectExecutor": "選擇執行器",
       "startRun": "開始執行",
@@ -719,14 +722,14 @@
       "agentContribution": "智慧體貢獻",
       "totalTokens": "Token 總數",
       "estimatedCost": "預估成本",
-      "agentSteps": "智慧體步驟",
+      "agentSteps": "智慧體",
       "controlSteps": "控制步驟",
       "notStarted": "未開始",
       "notAvailable": "不適用"
     },
     "agentSessions": {
       "title": "智慧體會話",
-      "none": "這個智慧體步驟在本次執行中還沒有建立會話。",
+      "none": "這個智慧體在本次執行中還沒有建立會話。",
       "session": "會話 {{id}}",
       "run": "執行 {{id}}",
       "process": "處理程序 {{id}}",
@@ -762,15 +765,15 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "智慧體步驟會話",
+      "agentStepSession": "智慧體會話",
       "nodeSession": "節點會話",
       "sessionNotStarted": "會話尚未開始",
-      "cockpit": "智慧體步驟控制台",
+      "cockpit": "智慧體控制台",
       "runThisStep": "執行此步驟",
       "editConfig": "編輯設定",
       "openWorkspace": "開啟工作區",
       "lastRunFailed": "上次執行失敗",
-      "failedWithoutMessage": "智慧體步驟失敗，但沒有擷取到錯誤訊息。",
+      "failedWithoutMessage": "智慧體失敗，但沒有擷取到錯誤訊息。",
       "runningNow": "正在執行",
       "startedDuration": "開始於 {{started}} / {{duration}}",
       "agentWorking": "智慧體正在此會話中工作。",

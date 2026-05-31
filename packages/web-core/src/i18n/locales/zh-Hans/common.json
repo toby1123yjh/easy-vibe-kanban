@@ -353,7 +353,7 @@
       "noteTitle": "笔记",
       "noteContent": "记录这个阶段的目标、约束或注意事项。",
       "newStageTitle": "新阶段",
-      "newStageDescription": "把相关智能体步骤放在同一阶段内。"
+      "newStageDescription": "把相关智能体放在同一阶段内。"
     },
     "nodes": {
       "start": {
@@ -365,12 +365,12 @@
         "summary": "工作流出口"
       },
       "agent": {
-        "label": "智能体步骤",
+        "label": "智能体",
         "summary": "角色：{{role}}"
       },
       "condition": {
         "label": "条件",
-        "summary": "分支：{{count}}"
+        "summary": "{{count}} 个分支"
       },
       "humanGate": {
         "label": "人工确认",
@@ -382,7 +382,7 @@
       },
       "arena": {
         "label": "Arena",
-        "summary": "尝试：{{count}}",
+        "summary": "{{count}} 个尝试",
         "attemptA": "尝试 A",
         "attemptB": "尝试 B"
       }
@@ -406,10 +406,14 @@
       "state": "状态",
       "role": "角色",
       "branches": "分支",
+      "branchCount": "分支数",
+      "branchCountValue": "{{count}} 个分支",
       "logic": "逻辑",
       "action": "操作",
       "mode": "模式",
       "attempts": "尝试",
+      "attemptCount": "尝试数",
+      "attemptCountValue": "{{count}} 个尝试",
       "promote": "提升",
       "branch": "分支 {{index}}"
     },
@@ -499,8 +503,7 @@
       "systemTemplateReadOnly": "系统模板（只读）",
       "addStep": "添加步骤",
       "addWorkflowStep": "添加工作流步骤",
-      "addAgentStep": "添加智能体步骤",
-      "addNextAgentStep": "添加下一个智能体步骤",
+      "addAgentStep": "添加智能体",
       "nodePalette": "节点库",
       "nodePaletteReadOnly": "复制此模板后即可添加或拖拽步骤。",
       "searchSteps": "搜索步骤...",
@@ -522,14 +525,15 @@
       "copyToProject": "复制到项目",
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
-      "deleteAgentStepTitle": "删除智能体步骤",
+      "deleteAgentStepTitle": "删除智能体",
       "deleteAgentStepMessage": "这会从工作流图中移除此步骤。现有会话历史不会复制到其他步骤。",
-      "agentStepActions": "智能体步骤操作",
+      "agentStepActions": "智能体操作",
+      "nodeActions": "节点操作",
       "openSession": "打开会话",
       "duplicate": "复制",
       "runStep": "运行步骤",
       "edgeActions": "连线操作",
-      "insertAgentStep": "插入智能体步骤",
+      "insertAgentStep": "插入智能体",
       "reconnect": "重新连接",
       "reconnectSource": "重新连接源节点",
       "reconnectTarget": "重新连接目标节点",
@@ -540,7 +544,6 @@
       "openSession": "打开会话",
       "runStep": "运行步骤",
       "runStepUnavailable": "暂不支持单步运行。",
-      "addNextAgentStep": "添加下一个智能体步骤",
       "nodeFallback": "节点",
       "updatedForNextRunTitle": "配置已在最新运行后更新，会在下一次运行时生效。",
       "updatedForNextRun": "下次运行生效",
@@ -553,15 +556,15 @@
       "openEdgeActions": "打开 {{id}} 的连线操作"
     },
     "agentEdit": {
-      "title": "编辑智能体步骤",
+      "title": "编辑智能体",
       "description": "配置此步骤的会话提示词和执行器。",
       "close": "关闭编辑器",
       "runningHint": "此步骤正在运行。提示词和智能体设置可在运行结束后编辑。",
       "nextRunHint": "改动会在下一次工作流运行或下一次触发此步骤时生效。",
       "stepTitle": "步骤标题",
-      "defaultTitle": "智能体步骤",
+      "defaultTitle": "智能体",
       "defaultPrompt": "默认提示词",
-      "promptPlaceholder": "描述这个智能体步骤要做什么...",
+      "promptPlaceholder": "描述这个智能体要做什么...",
       "executor": "执行器",
       "selectExecutor": "选择执行器",
       "agent": "智能体",
@@ -595,7 +598,7 @@
       "edgeId": "连线 ID"
     },
     "agentDraft": {
-      "defaultStepName": "智能体步骤",
+      "defaultStepName": "智能体",
       "promptPlaceholder": "描述这个工作流步骤...",
       "selectExecutor": "选择执行器",
       "startRun": "开始运行",
@@ -719,14 +722,14 @@
       "agentContribution": "智能体贡献",
       "totalTokens": "Token 总数",
       "estimatedCost": "预估成本",
-      "agentSteps": "智能体步骤",
+      "agentSteps": "智能体",
       "controlSteps": "控制步骤",
       "notStarted": "未开始",
       "notAvailable": "不适用"
     },
     "agentSessions": {
       "title": "智能体会话",
-      "none": "这个智能体步骤在本次运行中还没有创建会话。",
+      "none": "这个智能体在本次运行中还没有创建会话。",
       "session": "会话 {{id}}",
       "run": "运行 {{id}}",
       "process": "进程 {{id}}",
@@ -762,15 +765,15 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "智能体步骤会话",
+      "agentStepSession": "智能体会话",
       "nodeSession": "节点会话",
       "sessionNotStarted": "会话尚未开始",
-      "cockpit": "智能体步骤控制台",
+      "cockpit": "智能体控制台",
       "runThisStep": "运行此步骤",
       "editConfig": "编辑配置",
       "openWorkspace": "打开工作区",
       "lastRunFailed": "上次运行失败",
-      "failedWithoutMessage": "智能体步骤失败，但没有捕获到错误消息。",
+      "failedWithoutMessage": "智能体失败，但没有捕获到错误消息。",
       "runningNow": "正在运行",
       "startedDuration": "开始于 {{started}} / {{duration}}",
       "agentWorking": "智能体正在此会话中工作。",

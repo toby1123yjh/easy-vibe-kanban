@@ -239,6 +239,21 @@ const DEFAULT_GROUP_SIZE: WorkflowCanvasObjectSize = {
   height: 240,
 };
 
+const WORKFLOW_TIDY_ORIGIN_X = 120;
+const WORKFLOW_TIDY_CENTER_Y = 180;
+const WORKFLOW_TIDY_COLUMN_GAP = 160;
+const WORKFLOW_TIDY_ROW_GAP = 56;
+
+const WORKFLOW_TIDY_NODE_SIZES = {
+  start: { width: 140, height: 64 },
+  end: { width: 140, height: 64 },
+  agent: { width: 280, height: 150 },
+  condition: { width: 260, height: 132 },
+  human_gate: { width: 260, height: 132 },
+  transform: { width: 260, height: 132 },
+  arena: { width: 280, height: 170 },
+} as const satisfies Record<WorkflowNodeKind, WorkflowCanvasObjectSize>;
+
 export function normalizeWorkflowPortHandle(
   handle: string | null | undefined,
   fallback: string
@@ -854,19 +869,49 @@ export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
 
   const positions = new Map<string, WorkflowNodePosition>();
   const sortedLevels = Array.from(buckets.keys()).sort((a, b) => a - b);
+  const levelWidths = new Map<number, number>();
+
   for (const level of sortedLevels) {
+    const width = Math.max(
+      0,
+      ...(buckets.get(level) ?? []).map(
+        (node) => getWorkflowTidyNodeSize(node).width
+      )
+    );
+    levelWidths.set(level, width);
+  }
+
+  const levelX = new Map<number, number>();
+  let nextLevelX = WORKFLOW_TIDY_ORIGIN_X;
+  for (const level of sortedLevels) {
+    levelX.set(level, nextLevelX);
+    nextLevelX += (levelWidths.get(level) ?? 0) + WORKFLOW_TIDY_COLUMN_GAP;
+  }
+
+  for (const level of sortedLevels) {
+    const x = levelX.get(level) ?? WORKFLOW_TIDY_ORIGIN_X;
+    const columnWidth = levelWidths.get(level) ?? 0;
     const bucket = [...(buckets.get(level) ?? [])].sort((a, b) => {
       const ay = a.position?.y ?? 0;
       const by = b.position?.y ?? 0;
       if (ay !== by) return ay - by;
       return (a.position?.x ?? 0) - (b.position?.x ?? 0);
     });
-    const startY = 170 - ((bucket.length - 1) * 190) / 2;
-    bucket.forEach((node, index) => {
+    const totalHeight =
+      bucket.reduce(
+        (height, node) => height + getWorkflowTidyNodeSize(node).height,
+        0
+      ) +
+      Math.max(0, bucket.length - 1) * WORKFLOW_TIDY_ROW_GAP;
+    let nextY = Math.max(70, WORKFLOW_TIDY_CENTER_Y - totalHeight / 2);
+
+    bucket.forEach((node) => {
+      const size = getWorkflowTidyNodeSize(node);
       positions.set(node.id, {
-        x: 120 + level * 360,
-        y: Math.max(80, startY + index * 190),
+        x: x + Math.max(0, (columnWidth - size.width) / 2),
+        y: nextY,
       });
+      nextY += size.height + WORKFLOW_TIDY_ROW_GAP;
     });
   }
 
@@ -875,8 +920,10 @@ export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
     position: positions.get(node.id) ?? node.position,
   }));
   const edges = graph.edges.map((edge) => {
-    const source = positions.get(edge.source);
-    const target = positions.get(edge.target);
+    const sourceNode = nodes.find((node) => node.id === edge.source);
+    const targetNode = nodes.find((node) => node.id === edge.target);
+    const source = sourceNode ? getWorkflowTidyNodeCenter(sourceNode) : null;
+    const target = targetNode ? getWorkflowTidyNodeCenter(targetNode) : null;
     if (!source || !target) return edge;
     return {
       ...edge,
@@ -885,6 +932,21 @@ export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
   });
 
   return { ...graph, nodes, edges };
+}
+
+function getWorkflowTidyNodeSize(node: WorkflowNode): WorkflowCanvasObjectSize {
+  return WORKFLOW_TIDY_NODE_SIZES[node.type];
+}
+
+function getWorkflowTidyNodeCenter(
+  node: WorkflowNode
+): WorkflowNodePosition | null {
+  if (!node.position) return null;
+  const size = getWorkflowTidyNodeSize(node);
+  return {
+    x: node.position.x + size.width / 2,
+    y: node.position.y + size.height / 2,
+  };
 }
 
 function getWorkflowNodeLevels(graph: WorkflowGraph): Map<string, number> {

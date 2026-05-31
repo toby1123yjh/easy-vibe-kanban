@@ -60,6 +60,13 @@ use worktree_manager::WorktreeError;
 use crate::services::{execution_process, notification::NotificationService};
 pub type ContainerRef = String;
 
+fn has_container_ref(workspace: &Workspace) -> bool {
+    matches!(
+        workspace.container_ref.as_deref(),
+        Some(container_ref) if !container_ref.is_empty()
+    )
+}
+
 #[derive(Debug, Error)]
 pub enum ContainerError {
     #[error(transparent)]
@@ -1172,9 +1179,24 @@ pub trait ContainerService {
             )));
         }
 
-        let workspace_root = workspace
+        let mut workspace_for_execution = workspace.clone();
+        if !has_container_ref(&workspace_for_execution)
+            && let Some(refreshed_workspace) =
+                Workspace::find_by_id(&self.db().pool, workspace.id).await?
+        {
+            workspace_for_execution = refreshed_workspace;
+        }
+        if !has_container_ref(&workspace_for_execution) {
+            workspace_for_execution.container_ref = None;
+            let container_ref = self
+                .ensure_container_exists(&workspace_for_execution)
+                .await?;
+            workspace_for_execution.container_ref = Some(container_ref);
+        }
+        let workspace_root = workspace_for_execution
             .container_ref
             .as_ref()
+            .filter(|container_ref| !container_ref.is_empty())
             .map(std::path::PathBuf::from)
             .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?;
 
@@ -1251,7 +1273,11 @@ pub trait ContainerService {
         }
 
         if let Err(start_error) = self
-            .start_execution_inner(workspace, &execution_process, executor_action)
+            .start_execution_inner(
+                &workspace_for_execution,
+                &execution_process,
+                executor_action,
+            )
             .await
         {
             self.msg_stores()

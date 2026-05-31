@@ -105,7 +105,7 @@ const NODE_COLLISION_Y = 160;
 const DUPLICATE_NODE_OFFSET_X = 80;
 const DUPLICATE_NODE_OFFSET_Y = 80;
 
-interface AgentStepContextMenuState {
+interface NodeContextMenuState {
   nodeId: string;
   x: number;
   y: number;
@@ -235,7 +235,7 @@ function parsePersistedWorkflowGraph(
   }
 }
 
-function duplicateWorkflowAgentNode(
+function duplicateWorkflowNode(
   graph: WorkflowGraph,
   node: WorkflowNode,
   fallbackName: string,
@@ -243,8 +243,15 @@ function duplicateWorkflowAgentNode(
 ): WorkflowNode {
   const duplicatedData = { ...node.data };
   delete duplicatedData.session_id;
+  if (Array.isArray(duplicatedData.branches)) {
+    duplicatedData.branches = duplicatedData.branches.map((branch) => {
+      const nextBranch = { ...branch };
+      delete nextBranch.target_node_id;
+      return nextBranch;
+    });
+  }
 
-  return createWorkflowNode('agent', {
+  return createWorkflowNode(node.type, {
     data: {
       ...duplicatedData,
       display_name: `${node.data.display_name || fallbackName} ${copySuffix}`,
@@ -300,8 +307,9 @@ export function WorkflowTemplateEditorPage({
     null
   );
   const [editPanelNodeId, setEditPanelNodeId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] =
-    useState<AgentStepContextMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<NodeContextMenuState | null>(
+    null
+  );
   const [edgeActionMenu, setEdgeActionMenu] =
     useState<EdgeActionMenuState | null>(null);
   const [edgeReconnectFocus, setEdgeReconnectFocus] = useState<
@@ -577,40 +585,24 @@ export function WorkflowTemplateEditorPage({
   const addWorkflowNode = ({
     kind,
     position,
-    sourceNodeId,
   }: {
     kind: WorkflowNodeKind;
     position?: WorkflowNodePosition;
-    sourceNodeId: string | null;
   }) => {
     if (!graph || readOnly) return;
     const newPosition = getNewWorkflowNodePosition({
       graph,
-      selectedNodeId: sourceNodeId,
+      selectedNodeId: null,
       requestedPosition: position,
     });
     const newNode = createWorkflowNode(kind, {
       position: newPosition,
       data: getWorkflowDefaultNodeData(kind, t),
     });
-    const selectedNode = graph.nodes.find((node) => node.id === sourceNodeId);
-    const shouldConnectFromSelected =
-      selectedNode && selectedNode.type !== 'end' && newNode.type !== 'start';
-    const nextEdges = shouldConnectFromSelected
-      ? [
-          ...graph.edges,
-          createWorkflowEdge({
-            id: `${selectedNode.id}-${newNode.id}`,
-            source: selectedNode.id,
-            target: newNode.id,
-          }),
-        ]
-      : graph.edges;
 
     setGraph({
       ...graph,
       nodes: [...graph.nodes, newNode],
-      edges: nextEdges,
     });
     setSelectedNodeId(newNode.id);
     setSelectedEdgeId(null);
@@ -625,18 +617,16 @@ export function WorkflowTemplateEditorPage({
     kind: WorkflowNodeKind,
     position?: WorkflowNodePosition
   ) => {
-    addWorkflowNode({ kind, position, sourceNodeId: selectedNodeId });
+    addWorkflowNode({ kind, position });
   };
 
-  const handleAddAgentStepAfterNode = (nodeId: string) => {
-    addWorkflowNode({ kind: 'agent', sourceNodeId: nodeId });
-  };
-
-  const handleOpenAgentStepEdit = (nodeId: string) => {
+  const handleOpenNodeEdit = (nodeId: string) => {
+    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node || node.type === 'start' || node.type === 'end') return;
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
     setEdgeReconnectFocus(null);
-    setEditPanelNodeId(nodeId);
+    setEditPanelNodeId(node.type === 'agent' ? nodeId : null);
     setSessionPanelNodeId(null);
     setContextMenu(null);
     setEdgeActionMenu(null);
@@ -741,7 +731,7 @@ export function WorkflowTemplateEditorPage({
   const handleOpenAgentSession = async (nodeId: string) => {
     if (!graph) return;
     const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || node.type === 'start' || node.type === 'end') return;
+    if (!node || node.type !== 'agent') return;
 
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
@@ -768,15 +758,19 @@ export function WorkflowTemplateEditorPage({
     setSessionPanelNodeId(nodeId);
   };
 
-  const handleDuplicateAgentStep = (nodeId: string) => {
+  const handleDuplicateNode = (nodeId: string) => {
     if (!graph || readOnly) return;
     const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || node.type !== 'agent') return;
+    if (!node || node.type === 'start' || node.type === 'end') return;
 
-    const duplicate = duplicateWorkflowAgentNode(
+    const duplicate = duplicateWorkflowNode(
       graph,
       node,
-      t('workflow.agentEdit.defaultTitle'),
+      String(
+        node.data.display_name ??
+          getWorkflowDefaultNodeData(node.type, t).display_name ??
+          node.type
+      ),
       t('workflow.editor.copySuffix')
     );
     setGraph({
@@ -787,17 +781,19 @@ export function WorkflowTemplateEditorPage({
     setSelectedEdgeId(null);
     setEdgeReconnectFocus(null);
     setSessionPanelNodeId(null);
-    setEditPanelNodeId(duplicate.id);
+    setEditPanelNodeId(
+      isWorkflowAgentDraftNode(duplicate) ? duplicate.id : null
+    );
     setContextMenu(null);
     setEdgeActionMenu(null);
   };
 
-  const handleDeleteAgentStep = async (nodeId: string) => {
+  const handleDeleteNode = async (nodeId: string) => {
     if (!graph || readOnly) return;
     const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node || node.type !== 'agent') return;
+    if (!node || node.type === 'start' || node.type === 'end') return;
 
-    if (node.data.session_id) {
+    if (node.type === 'agent' && node.data.session_id) {
       const result = await ConfirmDialog.show({
         title: t('workflow.editor.deleteAgentStepTitle'),
         message: t('workflow.editor.deleteAgentStepMessage'),
@@ -820,6 +816,12 @@ export function WorkflowTemplateEditorPage({
     setEdgeReconnectFocus(null);
     if (sessionPanelNodeId === nodeId) setSessionPanelNodeId(null);
     if (editPanelNodeId === nodeId) setEditPanelNodeId(null);
+    setStaleNodeIds((current) => {
+      if (!current.has(nodeId)) return current;
+      const next = new Set(current);
+      next.delete(nodeId);
+      return next;
+    });
     setContextMenu(null);
     setEdgeActionMenu(null);
     try {
@@ -1278,7 +1280,10 @@ export function WorkflowTemplateEditorPage({
         </div>
       ) : null}
 
-      {contextMenu && contextMenuNode?.type === 'agent' ? (
+      {contextMenu &&
+      contextMenuNode &&
+      contextMenuNode.type !== 'start' &&
+      contextMenuNode.type !== 'end' ? (
         <DropdownMenu
           open
           onOpenChange={(open) => {
@@ -1288,7 +1293,9 @@ export function WorkflowTemplateEditorPage({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label={t('workflow.editor.agentStepActions')}
+              aria-label={t('workflow.editor.nodeActions', {
+                defaultValue: 'Node actions',
+              })}
               style={{
                 position: 'fixed',
                 left: contextMenu.x,
@@ -1304,24 +1311,19 @@ export function WorkflowTemplateEditorPage({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
             <DropdownMenuItem
+              disabled={contextMenuNode.type !== 'agent'}
               onClick={() => void handleOpenAgentSession(contextMenu.nodeId)}
             >
               {t('workflow.editor.openSession')}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleOpenAgentStepEdit(contextMenu.nodeId)}
+              onClick={() => handleOpenNodeEdit(contextMenu.nodeId)}
             >
               {t('buttons.edit')}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={readOnly}
-              onClick={() => handleAddAgentStepAfterNode(contextMenu.nodeId)}
-            >
-              {t('workflow.editor.addNextAgentStep')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={readOnly}
-              onClick={() => handleDuplicateAgentStep(contextMenu.nodeId)}
+              onClick={() => handleDuplicateNode(contextMenu.nodeId)}
             >
               {t('workflow.editor.duplicate')}
             </DropdownMenuItem>
@@ -1332,7 +1334,7 @@ export function WorkflowTemplateEditorPage({
             <DropdownMenuItem
               variant="destructive"
               disabled={readOnly}
-              onClick={() => void handleDeleteAgentStep(contextMenu.nodeId)}
+              onClick={() => void handleDeleteNode(contextMenu.nodeId)}
             >
               {t('buttons.delete')}
             </DropdownMenuItem>
@@ -1446,18 +1448,19 @@ export function WorkflowTemplateEditorPage({
                     }}
                     onNodeDrop={handleAddNode}
                     onNodeOpen={(nodeId) => void handleOpenAgentSession(nodeId)}
-                    onNodeEdit={handleOpenAgentStepEdit}
-                    onNodeAddNext={handleAddAgentStepAfterNode}
-                    onNodeDuplicate={handleDuplicateAgentStep}
-                    onNodeDelete={(nodeId) =>
-                      void handleDeleteAgentStep(nodeId)
-                    }
+                    onNodeEdit={handleOpenNodeEdit}
+                    onNodeDuplicate={handleDuplicateNode}
+                    onNodeDelete={(nodeId) => void handleDeleteNode(nodeId)}
                     onNodeContextMenu={(event) => {
                       const node = graph.nodes.find(
                         (candidate) => candidate.id === event.nodeId
                       );
                       setEdgeActionMenu(null);
-                      setContextMenu(node?.type === 'agent' ? event : null);
+                      setContextMenu(
+                        node && node.type !== 'start' && node.type !== 'end'
+                          ? event
+                          : null
+                      );
                     }}
                     onEdgeActionMenu={(event) => {
                       setSelectedNodeId(null);
@@ -1518,7 +1521,7 @@ export function WorkflowTemplateEditorPage({
                   statusLabel={t('attempts.status.draft')}
                   onEditConfig={() => {
                     if (sessionPanelNodeId) {
-                      handleOpenAgentStepEdit(sessionPanelNodeId);
+                      handleOpenNodeEdit(sessionPanelNodeId);
                     }
                   }}
                   runStepDisabled

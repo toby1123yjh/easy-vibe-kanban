@@ -197,7 +197,7 @@ export function getWorkflowNodeSummary(
       return translate(
         t,
         'workflow.nodes.condition.summary',
-        'Branches: {{count}}',
+        '{{count}} branches',
         { count: Array.isArray(data.branches) ? data.branches.length : 0 }
       );
     case 'human_gate':
@@ -219,7 +219,7 @@ export function getWorkflowNodeSummary(
       return translate(
         t,
         'workflow.nodes.arena.summary',
-        'Attempts: {{count}}',
+        '{{count}} attempts',
         {
           count: Array.isArray(data.attempts) ? data.attempts.length : 0,
         }
@@ -267,9 +267,14 @@ export function getWorkflowNodeMetadata(
     case 'condition':
       return [
         {
-          label: translate(t, 'workflow.metadata.branches', 'Branches'),
-          value: String(
-            Array.isArray(data.branches) ? data.branches.length : 0
+          label: translate(t, 'workflow.metadata.branchCount', 'Branches'),
+          value: translate(
+            t,
+            'workflow.metadata.branchCountValue',
+            '{{count}} branches',
+            {
+              count: Array.isArray(data.branches) ? data.branches.length : 0,
+            }
           ),
         },
         {
@@ -294,9 +299,14 @@ export function getWorkflowNodeMetadata(
     case 'arena':
       return [
         {
-          label: translate(t, 'workflow.metadata.attempts', 'Attempts'),
-          value: String(
-            Array.isArray(data.attempts) ? data.attempts.length : 0
+          label: translate(t, 'workflow.metadata.attemptCount', 'Attempts'),
+          value: translate(
+            t,
+            'workflow.metadata.attemptCountValue',
+            '{{count}} attempts',
+            {
+              count: Array.isArray(data.attempts) ? data.attempts.length : 0,
+            }
           ),
         },
         {
