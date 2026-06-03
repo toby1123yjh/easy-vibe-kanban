@@ -306,7 +306,33 @@
     "loading": "Loading attempts...",
     "empty": "No task attempts yet.",
     "newWorkflow": "New workflow attempt",
-    "newSingleAgent": "New single-agent attempt"
+    "newSingleAgent": "New single-agent attempt",
+    "workflowFallbackTitle": "Workflow attempt",
+    "singleAgentFallbackTitle": "Single-agent attempt",
+    "draftWorkflow": "Draft workflow attempt",
+    "workflowRun": "Run {{id}}",
+    "workspace": "Workspace {{id}}",
+    "remoteWorkspace": "Remote workspace",
+    "openCanvas": "Open workflow",
+    "openSession": "Open session",
+    "runWorkflow": "Run workflow attempt",
+    "deleteAttempt": "Delete attempt",
+    "deleteWorkflowTitle": "Delete workflow attempt?",
+    "deleteWorkflowMessage": "This deletes the workflow attempt and run history. This cannot be undone.",
+    "deleteWorkflowError": "Failed to delete workflow attempt.",
+    "status": {
+      "draft": "Draft",
+      "ready": "Ready",
+      "running": "Running",
+      "awaitingHuman": "Waiting for human",
+      "awaitingArena": "Waiting for arena",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "archived": "Archived",
+      "completed": "Completed",
+      "active": "Active"
+    }
   },
   "fileTree": {
     "searchPlaceholder": "Buscar archivos...",
@@ -648,7 +674,18 @@
       "setupHintTitle": "Scripts de Configuración",
       "setupHint": "Consejo: Configura los scripts de instalación para este repositorio en Ajustes → Repositorios",
       "setupHintDismiss": "Cerrar",
-      "setupHintLink": "Configure in Settings"
+      "setupHintLink": "Configure in Settings",
+      "selectBranch": "Select branch",
+      "changeBranch": "Change branch",
+      "removeRepo": "Remove {{name}}",
+      "errors": {
+        "alreadySelected": "Repository is already selected",
+        "noRecentRepositories": "No recently used repositories found. Browse repositories instead.",
+        "loadRepositoriesOrBranches": "Failed to load repositories or branches",
+        "registerRepository": "Failed to register repository",
+        "createRepository": "Failed to create repository",
+        "loadBranches": "Failed to load branches"
+      }
     }
   },
   "modelSelector": {
@@ -705,5 +742,474 @@
     "submitting": "Enviando respuestas...",
     "answeredCount": "Respondió {{count}} pregunta",
     "answeredCount_other": "Respondió {{count}} preguntas"
+  },
+  "workflow": {
+    "entry": {
+      "title": "Workflow attempt",
+      "subtitle": "Design the task attempt before running agents",
+      "openCanvas": "Open workflow",
+      "openCanvasAria": "Open workflow attempt"
+    },
+    "draft": {
+      "name": "Workflow attempt for {{title}}",
+      "untitledTask": "Untitled task"
+    },
+    "defaultGraph": {
+      "familiarizeLabel": "Understand project",
+      "agentPrompt": "Review the current project structure, key modules, and task context. Summarize your understanding, risks, and next implementation plan.",
+      "stageTitle": "Stage 1: Understand project",
+      "stageDescription": "Start by understanding the project, then add implementation, review, or test nodes as needed.",
+      "noteTitle": "Note",
+      "noteContent": "Record this stage's goals, constraints, or notes.",
+      "newStageTitle": "New stage",
+      "newStageDescription": "Group related Agent Steps in one stage."
+    },
+    "nodes": {
+      "start": {
+        "label": "Start",
+        "summary": "Entry point"
+      },
+      "end": {
+        "label": "End",
+        "summary": "Exit point"
+      },
+      "agent": {
+        "label": "Agent Step",
+        "summary": "Role: {{role}}"
+      },
+      "condition": {
+        "label": "Condition",
+        "summary": "{{count}} branches"
+      },
+      "humanGate": {
+        "label": "Human Gate",
+        "summary": "Waits for approval"
+      },
+      "transform": {
+        "label": "Transform",
+        "summary": "Mode: {{mode}}"
+      },
+      "arena": {
+        "label": "Arena",
+        "summary": "{{count}} attempts",
+        "attemptA": "Attempt A",
+        "attemptB": "Attempt B"
+      }
+    },
+    "edges": {
+      "default": "Default",
+      "condition": "Condition",
+      "approve": "Approve",
+      "reject": "Reject",
+      "winner": "Winner",
+      "options": {
+        "default": "Continue to the next node.",
+        "condition_branch": "Route through a conditional branch.",
+        "approval": "Continue after a human approval.",
+        "rejection": "Route after a human rejection.",
+        "arena_winner": "Promote the winning arena attempt."
+      }
+    },
+    "metadata": {
+      "trigger": "Trigger",
+      "state": "State",
+      "role": "Role",
+      "branches": "Branches",
+      "branchCount": "Branches",
+      "branchCountValue": "{{count}} branches",
+      "routingMode": "Routing",
+      "action": "Action",
+      "mode": "Mode",
+      "attempts": "Attempts",
+      "attemptCount": "Attempts",
+      "attemptCountValue": "{{count}} attempts",
+      "promote": "Promote",
+      "branch": "Branch {{index}}"
+    },
+    "fields": {
+      "display_name": "Display name",
+      "role_template_id": "Role template ID",
+      "prompt_template": "Prompt template",
+      "joiner": "Joiner",
+      "conditions": "Rules",
+      "routing_mode": "Routing mode",
+      "branches": "Branches",
+      "prompt_to_human": "Prompt to human",
+      "required_action": "Required action",
+      "mode": "Mode",
+      "template": "Template",
+      "regex": "Regex",
+      "max_chars": "Max chars",
+      "attempts": "Attempts"
+    },
+    "fieldOptions": {
+      "joiner": {
+        "and": "AND",
+        "or": "OR"
+      },
+      "routing_mode": {
+        "single": "Single branch",
+        "multi": "Multiple branches"
+      },
+      "required_action": {
+        "approve": "Approve only",
+        "approve_or_reject": "Approve or reject"
+      },
+      "mode": {
+        "template": "Template",
+        "regex_extract": "Regex extract",
+        "truncate": "Truncate"
+      }
+    },
+    "operators": {
+      "contains": "Contains",
+      "equals": "Equals",
+      "notEquals": "Not equals",
+      "regex": "Regex"
+    },
+    "canvasState": {
+      "draft": "Draft",
+      "configured": "Configured",
+      "pending": "Pending",
+      "running": "Running",
+      "succeeded": "Done",
+      "failed": "Failed",
+      "waiting": "Waiting",
+      "skipped": "Skipped"
+    },
+    "errors": {
+      "createDraftFailed": "Failed to create workflow draft.",
+      "notLinkedToAttempt": "This workflow is not linked to a task attempt.",
+      "repositoryRequired": "This workflow needs a workspace with at least one repository. Select at least one repository before starting the run.",
+      "runInputRequired": "Add run input before starting the workflow.",
+      "draftMissing": "This local workflow draft no longer exists. Create a new workflow attempt to continue.",
+      "saveBeforeRun": "Save the workflow attempt before starting a run.",
+      "saveBeforeSession": "Save the workflow attempt before opening an agent session.",
+      "startFailed": "Failed to start workflow run.",
+      "invalidGraph": "Workflow graph JSON did not contain a graph.",
+      "parseGraphFailed": "Workflow graph JSON could not be parsed."
+    },
+    "repositoryDialog": {
+      "title": "New workflow attempt",
+      "errors": {
+        "repositoryRequired": "Select at least one repository before creating a workflow.",
+        "branchRequired": "Select a branch for every repository before creating a workflow."
+      }
+    },
+    "runDialog": {
+      "title": "Run workflow attempt",
+      "description": "Start this issue-bound workflow attempt.",
+      "mainWorkspace": "Main workspace",
+      "createWorkflowWorkspace": "Create workflow workspace",
+      "usesExistingWorkspace": "Uses existing workspace.",
+      "usesExistingWorkspaceWithBranch": "Uses existing workspace on {{branch}}.",
+      "createWorkspaceHint": "The backend will create a dedicated workflow workspace for this run.",
+      "runInput": "Run input",
+      "startRun": "Start run"
+    },
+    "editor": {
+      "runAttempt": "Run workflow attempt",
+      "runWorkflow": "Run workflow",
+      "loadFailed": "Failed to load workflow: {{message}}",
+      "backToWorkflows": "Back to workflows",
+      "workflowNamePlaceholder": "Workflow name",
+      "descriptionPlaceholder": "Description",
+      "systemTemplateReadOnly": "System template (read-only)",
+      "addStep": "Add Step",
+      "addWorkflowStep": "Add workflow step",
+      "addAgentStep": "Add Agent Step",
+      "nodePalette": "Node library",
+      "nodePaletteReadOnly": "Copy this template to add or drag steps.",
+      "searchSteps": "Search steps...",
+      "noStepTypesFound": "No step types found",
+      "sections": {
+        "execution": "Execution",
+        "control": "Control",
+        "structure": "Structure"
+      },
+      "tidy": "Tidy",
+      "note": "Note",
+      "stage": "Stage",
+      "validate": "Validate",
+      "validation": "Validation",
+      "graphValid": "Graph is valid",
+      "validationFound": "Validation found {{count}} issue.",
+      "validationFound_other": "Validation found {{count}} issues.",
+      "openLatestRun": "Open latest run",
+      "copyToProject": "Copy to project",
+      "copyName": "{{name}} (Copy)",
+      "copySuffix": "copy",
+      "deleteAgentStepTitle": "Delete Agent Step",
+      "deleteAgentStepMessage": "This removes the step from the workflow graph. The existing session history is not copied into another step.",
+      "agentStepActions": "Agent step actions",
+      "nodeActions": "Node actions",
+      "openSession": "Open session",
+      "duplicate": "Duplicate",
+      "runStep": "Run step",
+      "edgeActions": "Edge actions",
+      "insertAgentStep": "Insert Agent Step",
+      "reconnect": "Reconnect",
+      "reconnectSource": "Reconnect source",
+      "reconnectTarget": "Reconnect target",
+      "deleteEdge": "Delete edge",
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+    },
+    "canvas": {
+      "openSession": "Open session",
+      "runStep": "Run step",
+      "runStepUnavailable": "Single-step run is not available yet.",
+      "nodeFallback": "Node",
+      "updatedForNextRunTitle": "Configuration was updated after the latest run and applies to the next run.",
+      "updatedForNextRun": "Updated for next run",
+      "sessionReady": "Session ready",
+      "draftSession": "Draft session",
+      "deleteNote": "Delete note",
+      "notePlaceholder": "Write a note...",
+      "deleteStageGroup": "Delete stage group",
+      "stageDescriptionPlaceholder": "Stage description",
+      "openEdgeActions": "Open edge actions for {{id}}"
+    },
+    "agentEdit": {
+      "title": "Edit Agent Step",
+      "description": "Configure the session prompt and executor for this step.",
+      "close": "Close editor",
+      "runningHint": "This step is currently running. Prompt and agent settings can be edited after it finishes.",
+      "nextRunHint": "Changes apply to the next workflow run or the next trigger of this step.",
+      "stepTitle": "Step title",
+      "defaultTitle": "Agent Step",
+      "defaultPrompt": "Default prompt",
+      "promptPlaceholder": "Describe what this agent step should do...",
+      "executor": "Executor",
+      "selectExecutor": "Select executor",
+      "agent": "Agent",
+      "saveStep": "Save step"
+    },
+    "router": {
+      "toolbar": "Router",
+      "title": "Router agent",
+      "description": "Select the agent that evaluates Condition branches for this workflow.",
+      "close": "Close router settings",
+      "executor": "Agent",
+      "selectExecutor": "Select agent",
+      "agent": "Agent",
+      "save": "Save router"
+    },
+    "inspector": {
+      "selectNode": "Select a node to inspect",
+      "selectEdge": "Select an edge to inspect",
+      "step": "Step",
+      "branches": "Branches",
+      "noConditionBranches": "No outgoing targets",
+      "nodeIdTitle": "Node ID: {{nodeId}}",
+      "branchTarget": "Target",
+      "selectTarget": "Select target",
+      "branchCondition": "Condition",
+      "branchConditionPlaceholder": "Example: upstream work mentions UI changes",
+      "attempts": "Attempts",
+      "attemptLabel": "Attempt {{index}}",
+      "addAttempt": "Add attempt",
+      "removeAttempt": "Remove attempt {{index}}",
+      "promptOverride": "Prompt template override",
+      "edgeProperties": "Edge properties",
+      "source": "Source",
+      "target": "Target",
+      "routeType": "Route type",
+      "edgeId": "Edge ID"
+    },
+    "agentDraft": {
+      "defaultStepName": "Agent step",
+      "promptPlaceholder": "Describe this workflow step...",
+      "selectExecutor": "Select executor",
+      "startRun": "Start run",
+      "starting": "Starting..."
+    },
+    "templates": {
+      "title": "Workflows",
+      "newCanvas": "New workflow",
+      "newWorkflowName": "New workflow",
+      "loadFailed": "Failed to load workflows: {{message}}",
+      "emptyTitle": "No workflows yet",
+      "emptyDescription": "Start from a blank workflow for this project.",
+      "createCanvas": "Create workflow",
+      "untitled": "Untitled",
+      "noDescription": "No description provided.",
+      "updated": "Updated {{date}}",
+      "openCanvas": "Open workflow"
+    },
+    "runPage": {
+      "loadingRun": "Loading run...",
+      "loadFailed": "Failed to load run {{runId}}",
+      "canvas": "Workflow",
+      "dashboard": "Dashboard",
+      "taskAttempt": "Task attempt {{id}}",
+      "workflowRun": "Workflow run {{id}}"
+    },
+    "runCanvas": {
+      "loadingGraph": "Loading graph...",
+      "loadGraphFailed": "Workflow graph could not be loaded for this run.",
+      "nodeDetails": "Node details",
+      "notExecutedYet": "Not executed yet",
+      "selectNode": "Select a node",
+      "nodeNotExecuted": "This node has not executed yet.",
+      "selectNodeDetails": "Select a node in the workflow to view its details.",
+      "humanActionRequired": "Human action required",
+      "reviewNodeToProceed": "Review this node to proceed.",
+      "approving": "Approving...",
+      "rejecting": "Rejecting...",
+      "conversationAgentOnly": "Conversation is available for Agent nodes.",
+      "executionId": "Execution ID",
+      "nodeId": "Node ID",
+      "nodeType": "Node type",
+      "workspaceId": "Workspace ID",
+      "noWorkspace": "No workspace",
+      "started": "Started",
+      "finished": "Finished",
+      "notFinished": "Not finished"
+    },
+    "debug": {
+      "noDebugData": "No debug data for this step.",
+      "runInput": "Run input",
+      "noRunInput": "No run input.",
+      "promptTemplate": "Prompt template",
+      "noPromptTemplate": "No prompt template.",
+      "renderedPrompt": "Rendered prompt",
+      "noRenderedPrompt": "No rendered prompt.",
+      "upstreamOutputs": "Upstream outputs",
+      "noUpstreamOutput": "No upstream output.",
+      "noSessionId": "No session ID.",
+      "noProcessId": "No process ID."
+    },
+    "runStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "awaitingHuman": "Waiting for human",
+      "awaitingArena": "Waiting for arena",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "nodeStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "awaitingHuman": "Waiting for human",
+      "awaitingArena": "Waiting for arena",
+      "skipped": "Skipped"
+    },
+    "dashboard": {
+      "runDetails": "Run details",
+      "issueId": "Issue ID",
+      "workflow": "Workflow",
+      "runId": "Run ID",
+      "status": "Status",
+      "progress": "Progress",
+      "cancelRun": "Cancel run",
+      "cancelFailed": "Failed to cancel workflow run.",
+      "retryFailed": "Failed to retry workflow step.",
+      "approveFailed": "Failed to approve workflow step.",
+      "rejectFailed": "Failed to reject workflow step.",
+      "stepsSucceeded": "{{completed}} / {{total}} steps succeeded",
+      "runningCount": "{{count}} running",
+      "waitingCount": "{{count}} waiting",
+      "failedCount": "{{count}} failed",
+      "skippedCount": "{{count}} skipped",
+      "stepsTimeline": "Steps timeline",
+      "noStepsExecuted": "No steps executed yet.",
+      "session": "Session",
+      "retryStep": "Retry step",
+      "codeChanges": "Code changes",
+      "openWorkflowWorkspace": "Open workflow workspace",
+      "noCodeChanges": "No code changes associated with this run.",
+      "selectedStep": "Step: {{nodeId}}",
+      "selectStep": "Select a step",
+      "noStepSelected": "No step selected.",
+      "input": "Input",
+      "output": "Output",
+      "noInput": "No input",
+      "noOutput": "No output",
+      "error": "Error",
+      "approve": "Approve",
+      "reject": "Reject",
+      "decisionsMade": "Decisions made",
+      "noDecisionNodes": "No decision nodes in this run.",
+      "conditionMet": "Condition met",
+      "none": "None",
+      "arenaGroup": "Arena group",
+      "pickWinner": "Pick winner",
+      "winner": "Winner",
+      "agentContribution": "Agent contribution",
+      "totalTokens": "Total tokens",
+      "estimatedCost": "Estimated cost",
+      "agentSteps": "Agent steps",
+      "controlSteps": "Control steps",
+      "notStarted": "Not started",
+      "notAvailable": "N/A"
+    },
+    "agentSessions": {
+      "title": "Agent sessions",
+      "none": "This Agent Step has not created a Session in this run yet.",
+      "session": "Session {{id}}",
+      "run": "Run {{id}}",
+      "process": "Process {{id}}",
+      "open": "Open",
+      "noOutputYet": "No output yet"
+    },
+    "arenaWinner": {
+      "title": "Arena selection required",
+      "description": "Pick a completed attempt to apply its diff back to the workflow workspace.",
+      "selectFailed": "Failed to select arena winner.",
+      "noGroupLink": "Arena group link is not available.",
+      "loadingAttempts": "Loading attempts...",
+      "loadFailed": "Failed to load arena group: {{message}}",
+      "unknownError": "Unknown error",
+      "noAttempts": "No arena attempts are available yet.",
+      "unknownExecutor": "Unknown executor",
+      "changes": "changes",
+      "noChanges": "no changes",
+      "changesUnknown": "changes unknown",
+      "openWorkspace": "Open {{label}} workspace",
+      "selected": "Selected",
+      "applying": "Applying...",
+      "selectWinner": "Select winner",
+      "status": {
+        "notStarted": "Not started",
+        "unknown": "Unknown",
+        "active": "Active",
+        "promoted": "Promoted",
+        "completed": "Completed",
+        "running": "Running",
+        "failed": "Failed",
+        "canceled": "Canceled"
+      }
+    },
+    "nodeSession": {
+      "agentStepSession": "Agent Step Session",
+      "nodeSession": "Node Session",
+      "sessionNotStarted": "Session not started",
+      "cockpit": "Agent Step Cockpit",
+      "runThisStep": "Run this step",
+      "editConfig": "Edit config",
+      "openWorkspace": "Open workspace",
+      "lastRunFailed": "Last run failed",
+      "failedWithoutMessage": "The agent step failed without a captured error message.",
+      "runningNow": "Running now",
+      "startedDuration": "Started {{started}} / {{duration}}",
+      "agentWorking": "The agent is currently working in this session.",
+      "waitingForDecision": "This step is waiting for a decision before the workflow continues.",
+      "lastRunSucceeded": "Last run succeeded",
+      "finishedDuration": "Finished {{finished}} / {{duration}}",
+      "notStartedYet": "Not started yet",
+      "readyForConversation": "The session is ready for manual conversation or the next workflow run.",
+      "noSessionYet": "This step does not have a session yet.",
+      "technicalDetails": "Technical details",
+      "sessionId": "Session ID",
+      "processId": "Process ID",
+      "conversation": "Conversation",
+      "session": "Session: {{id}}",
+      "noAgentResponse": "No agent response has been captured yet.",
+      "nodePrompt": "Node prompt",
+      "noPrompt": "No prompt has been captured yet."
+    }
   }
 }

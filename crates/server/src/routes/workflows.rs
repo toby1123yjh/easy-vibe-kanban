@@ -38,11 +38,10 @@ use crate::{
         },
         runner::{
             DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, WorkflowAgentExecutor,
-            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_with_arena,
-            cancel_workflow_run_runtime, get_workflow_run_response,
+            WorkflowRunStartRequest, WorkflowWorkspaceRequest, WorkflowWorkspaceResolver,
+            approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
             reconcile_workflow_run_with_arena, reject_human_node, retry_workflow_node_with_arena,
             select_arena_winner_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_for_attempt_with_arena,
             trigger_workflow_run_for_attempt_with_repos, trigger_workflow_run_with_arena,
             workflow_event_history,
         },
@@ -563,7 +562,8 @@ where
     W: WorkflowWorkspaceResolver,
 {
     let repo_overrides =
-        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))?;
+        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
+            .map_err(ApiError::BadRequest)?;
     let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
     let workspace_id = workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
@@ -601,15 +601,15 @@ where
 
 fn workflow_workspace_repo_overrides(
     repos: &[DraftWorkspaceRepo],
-) -> Result<Vec<CreateWorkspaceRepo>, ApiError> {
+) -> Result<Vec<CreateWorkspaceRepo>, String> {
     repos
         .iter()
         .map(|repo| {
             let target_branch = repo.target_branch.trim();
             if target_branch.is_empty() {
-                return Err(ApiError::BadRequest(
+                return Err(
                     "Every selected workflow repository must include a target branch.".to_string(),
-                ));
+                );
             }
 
             Ok(CreateWorkspaceRepo {
@@ -935,19 +935,22 @@ where
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
     let repo_overrides =
-        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))?;
+        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
+            .map_err(ApiError::BadRequest)?;
 
     let run = trigger_workflow_run_for_attempt_with_repos(
         pool,
-        attempt.workflow_id,
-        Some(attempt.id),
-        TriggerWorkflowRequest {
-            issue_id: attempt.issue_id,
-            workspace_id: request.workspace_id.or(attempt.workspace_id),
-            trigger_source: request.trigger_source,
-            input_text: request.input_text,
+        WorkflowRunStartRequest {
+            workflow_id: attempt.workflow_id,
+            attempt_id: Some(attempt.id),
+            trigger: TriggerWorkflowRequest {
+                issue_id: attempt.issue_id,
+                workspace_id: request.workspace_id.or(attempt.workspace_id),
+                trigger_source: request.trigger_source,
+                input_text: request.input_text,
+            },
+            repo_overrides,
         },
-        repo_overrides,
         workspace_resolver,
         agent_executor,
         arena_creator,

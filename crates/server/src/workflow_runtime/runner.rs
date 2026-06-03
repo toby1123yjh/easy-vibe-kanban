@@ -78,6 +78,14 @@ pub struct WorkflowWorkspaceRequest {
     pub branch_name: String,
 }
 
+#[derive(Debug)]
+pub struct WorkflowRunStartRequest {
+    pub workflow_id: Uuid,
+    pub attempt_id: Option<Uuid>,
+    pub trigger: TriggerWorkflowRequest,
+    pub repo_overrides: Vec<CreateWorkspaceRepo>,
+}
+
 #[async_trait]
 pub trait WorkflowWorkspaceResolver: Send + Sync {
     async fn create_or_bind_main_workspace(
@@ -353,10 +361,12 @@ where
 {
     trigger_workflow_run_for_attempt_with_repos(
         pool,
-        workflow_id,
-        attempt_id,
-        request,
-        Vec::new(),
+        WorkflowRunStartRequest {
+            workflow_id,
+            attempt_id,
+            trigger: request,
+            repo_overrides: Vec::new(),
+        },
         workspace_resolver,
         agent_executor,
         arena_creator,
@@ -366,10 +376,7 @@ where
 
 pub async fn trigger_workflow_run_for_attempt_with_repos<W, A, R>(
     pool: &SqlitePool,
-    workflow_id: Uuid,
-    attempt_id: Option<Uuid>,
-    request: TriggerWorkflowRequest,
-    repo_overrides: Vec<CreateWorkspaceRepo>,
+    request: WorkflowRunStartRequest,
     workspace_resolver: &W,
     agent_executor: &A,
     arena_creator: &R,
@@ -379,6 +386,12 @@ where
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
+    let WorkflowRunStartRequest {
+        workflow_id,
+        attempt_id,
+        trigger,
+        repo_overrides,
+    } = request;
     let workflow = get_workflow_template(pool, workflow_id).await?;
     let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
@@ -388,15 +401,15 @@ where
     let run_id = Uuid::new_v4();
     let project_id = workflow
         .project_id
-        .or(resolve_issue_project_id(pool, request.issue_id).await?);
+        .or(resolve_issue_project_id(pool, trigger.issue_id).await?);
     let workspace_id = workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
-            issue_id: request.issue_id,
+            issue_id: trigger.issue_id,
             run_id,
             project_id,
-            existing_workspace_id: request.workspace_id,
+            existing_workspace_id: trigger.workspace_id,
             repo_overrides,
-            branch_name: main_workflow_branch_name(request.issue_id, run_id),
+            branch_name: main_workflow_branch_name(trigger.issue_id, run_id),
         })
         .await?;
 
@@ -410,7 +423,7 @@ where
         workflow_id,
         attempt_id,
         workspace_id,
-        &request,
+        &trigger,
     )
     .await?;
     initialize_node_executions(pool, run_id, &graph).await?;
@@ -418,9 +431,9 @@ where
         pool,
         run_id,
         &graph,
-        request.issue_id,
+        trigger.issue_id,
         workspace_id,
-        &request.input_text,
+        &trigger.input_text,
         agent_executor,
         arena_creator,
     )
@@ -1240,12 +1253,13 @@ where
     match node.kind {
         WorkflowNodeKind::Agent => {
             let prompt = render_agent_prompt(node, &context);
+            let session_id = node_session_id(node).map_err(ApiError::BadRequest)?;
             mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
             match agent_executor
                 .run_agent(AgentNodeRequest {
                     run_id,
                     node_id: node.id.clone(),
-                    session_id: node_session_id(node)?,
+                    session_id,
                     workspace_id,
                     prompt,
                     executor_config: node.data.executor_config.clone(),
@@ -1522,16 +1536,16 @@ fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> Str
     )
 }
 
-fn node_session_id(node: &WorkflowNode) -> Result<Option<Uuid>, ApiError> {
+fn node_session_id(node: &WorkflowNode) -> Result<Option<Uuid>, String> {
     node.data
         .session_id
         .as_deref()
         .map(|session_id| {
             Uuid::parse_str(session_id).map_err(|err| {
-                ApiError::BadRequest(format!(
+                format!(
                     "Workflow node `{}` has invalid session_id `{session_id}`: {err}",
                     node.id
-                ))
+                )
             })
         })
         .transpose()

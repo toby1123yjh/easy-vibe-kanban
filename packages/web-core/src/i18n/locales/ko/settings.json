@@ -587,7 +587,8 @@
           "branchLabel": "Branch",
           "noBranches": "No branches found for this repository",
           "fetchError": "Could not load repositories",
-          "saveError": "Failed to save default repositories"
+          "saveError": "Failed to save default repositories",
+          "current": "current"
         }
       },
       "loginRequired": {
