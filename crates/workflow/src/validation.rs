@@ -543,9 +543,10 @@ mod tests {
         }));
 
         let err = validate_graph_for_run(&graph).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("router runtime is not implemented"));
+        assert!(
+            err.to_string()
+                .contains("router runtime is not implemented")
+        );
     }
 
     #[test]

@@ -92,9 +92,7 @@ export function IssueTaskAttemptsSection({
                       : undefined
                   }
                   onDelete={
-                    onDeleteAttempt
-                      ? () => onDeleteAttempt(attempt)
-                      : undefined
+                    onDeleteAttempt ? () => onDeleteAttempt(attempt) : undefined
                   }
                 />
               ))
