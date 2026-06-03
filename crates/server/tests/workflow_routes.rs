@@ -532,35 +532,6 @@ fn failing_condition_graph_json() -> String {
     .to_string()
 }
 
-fn fixed_condition_graph_json() -> String {
-    json!({
-        "version": 1,
-        "nodes": [
-            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
-            {
-                "id": "condition",
-                "type": "condition",
-                "data": {
-                    "display_name": "Fixed condition",
-                    "conditions": [
-                        {
-                            "input": "run_input",
-                            "operator": "contains",
-                            "value": "LGTM"
-                        }
-                    ]
-                }
-            },
-            { "id": "end", "type": "end", "data": { "display_name": "End" } }
-        ],
-        "edges": [
-            { "id": "e1", "source": "start", "target": "condition", "type": "default" },
-            { "id": "e2", "source": "condition", "target": "end", "type": "default" }
-        ]
-    })
-    .to_string()
-}
-
 fn graph_without_start_json() -> String {
     json!({
         "version": 1,
@@ -2708,7 +2679,7 @@ async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
 }
 
 #[tokio::test]
-async fn workflow_human_retry_failed_condition_node_uses_updated_graph() {
+async fn workflow_run_rejects_condition_without_router_config() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
@@ -2733,7 +2704,7 @@ async fn workflow_human_retry_failed_condition_node_uses_updated_graph() {
     let workspace = FakeWorkspaceResolver::new(workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "unused");
 
-    let failed = trigger_workflow_run(
+    let result = trigger_workflow_run(
         &pool,
         workflow_id,
         TriggerWorkflowRequest {
@@ -2745,29 +2716,15 @@ async fn workflow_human_retry_failed_condition_node_uses_updated_graph() {
         &workspace,
         &agent,
     )
-    .await
-    .expect("trigger workflow run");
-    assert_eq!(failed.status, WorkflowRunStatus::Failed);
-    assert_eq!(
-        node_status(&failed.nodes, "condition"),
-        NodeExecutionStatus::Failed
-    );
+    .await;
 
-    sqlx::query("UPDATE workflows SET graph_json = ? WHERE id = ?")
-        .bind(fixed_condition_graph_json())
-        .bind(workflow_id)
-        .execute(&pool)
-        .await
-        .expect("fix condition workflow");
-
-    let retried = retry_workflow_node(&pool, failed.id, "condition", &agent)
-        .await
-        .expect("retry condition node");
-
-    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
-    assert_eq!(
-        node_status(&retried.nodes, "condition"),
-        NodeExecutionStatus::Succeeded
+    assert!(
+        matches!(
+            result,
+            Err(ApiError::BadRequest(message))
+                if message.contains("workflow with condition nodes requires router executor config")
+        ),
+        "condition workflows without an explicit router config must be blocked before run"
     );
 }
 
