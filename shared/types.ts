@@ -271,9 +271,9 @@ export type UpdateWorkflowRequest = { name: string | null, description: string |
 
 export type TriggerWorkflowRequest = { issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
-export type CreateWorkflowAttemptRequest = { name: string | null, graph_json: string, };
+export type CreateWorkflowAttemptRequest = { name: string | null, graph_json: string, repos?: Array<DraftWorkspaceRepo>, };
 
-export type RunWorkflowAttemptRequest = { workspace_id: string | null, trigger_source: string, input_text: string, };
+export type RunWorkflowAttemptRequest = { workspace_id: string | null, trigger_source: string, input_text: string, repos?: Array<DraftWorkspaceRepo>, };
 
 export type SelectArenaWinnerRequest = { workspace_id: string, };
 
@@ -720,7 +720,7 @@ export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: 
 
 export type CommandBuilder = { 
 /**
- * Base executable command (e.g., "npx -y --package @anthropic-ai/claude-code@latest claude")
+ * Base executable command (e.g., "claude", "codex", or "droid exec")
  */
 base: string, 
 /**
