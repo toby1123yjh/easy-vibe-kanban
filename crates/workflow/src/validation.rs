@@ -4,7 +4,7 @@ use std::{
     fmt,
 };
 
-use crate::graph::{WorkflowGraph, WorkflowNodeKind};
+use crate::graph::{WorkflowEdge, WorkflowGraph, WorkflowNodeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedGraph {
@@ -98,6 +98,7 @@ pub fn validate_graph(graph: &WorkflowGraph) -> Result<ValidatedGraph, Validatio
     }
 
     let adjacency = adjacency_map(graph);
+    reject_duplicate_condition_targets(graph)?;
     reject_cycles(graph, &adjacency)?;
 
     let start_node_id = start_nodes[0].id.as_str();
@@ -118,6 +119,12 @@ pub fn validate_graph(graph: &WorkflowGraph) -> Result<ValidatedGraph, Validatio
     })
 }
 
+pub fn validate_graph_for_run(graph: &WorkflowGraph) -> Result<ValidatedGraph, ValidationError> {
+    let validated = validate_graph(graph)?;
+    validate_condition_routing_for_run(graph)?;
+    Ok(validated)
+}
+
 fn adjacency_map(graph: &WorkflowGraph) -> HashMap<&str, Vec<&str>> {
     let mut adjacency: HashMap<&str, Vec<&str>> = graph
         .nodes
@@ -133,6 +140,136 @@ fn adjacency_map(graph: &WorkflowGraph) -> HashMap<&str, Vec<&str>> {
     }
 
     adjacency
+}
+
+fn condition_outgoing_edges<'a>(
+    graph: &'a WorkflowGraph,
+    condition_node_id: &str,
+) -> Vec<&'a WorkflowEdge> {
+    graph
+        .edges
+        .iter()
+        .filter(|edge| edge.source == condition_node_id)
+        .collect()
+}
+
+fn reject_duplicate_condition_targets(graph: &WorkflowGraph) -> Result<(), ValidationError> {
+    for node in graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == WorkflowNodeKind::Condition)
+    {
+        let mut targets = HashSet::new();
+        for edge in condition_outgoing_edges(graph, &node.id) {
+            if !targets.insert(edge.target.as_str()) {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` has duplicate outgoing target `{}`",
+                    node.id, edge.target
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_condition_routing_for_run(graph: &WorkflowGraph) -> Result<(), ValidationError> {
+    let condition_nodes: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == WorkflowNodeKind::Condition)
+        .collect();
+    if condition_nodes.is_empty() {
+        return Ok(());
+    }
+
+    if graph
+        .router_executor_config
+        .as_ref()
+        .is_none_or(|config| !router_executor_config_has_executor(config))
+    {
+        return Err(ValidationError::new(
+            "workflow with condition nodes requires router executor config",
+        ));
+    }
+
+    for node in condition_nodes {
+        let outgoing_targets: HashSet<&str> = condition_outgoing_edges(graph, &node.id)
+            .into_iter()
+            .map(|edge| edge.target.as_str())
+            .collect();
+        let branches = node.data.branches.as_deref().unwrap_or_default();
+        let mut branch_targets = HashSet::new();
+
+        for branch in branches {
+            let Some(target_node_id) = branch.target_node_id.as_deref() else {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` has a branch without target",
+                    node.id
+                )));
+            };
+            if !branch_targets.insert(target_node_id) {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` has duplicate branch target `{}`",
+                    node.id, target_node_id
+                )));
+            }
+            if !outgoing_targets.contains(target_node_id) {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` has stale branch target `{}`",
+                    node.id, target_node_id
+                )));
+            }
+            if branch
+                .condition
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` has empty branch condition for target `{}`",
+                    node.id, target_node_id
+                )));
+            }
+        }
+
+        for target in outgoing_targets {
+            if !branch_targets.contains(target) {
+                return Err(ValidationError::new(format!(
+                    "condition node `{}` is missing branch config for target `{}`",
+                    node.id, target
+                )));
+            }
+        }
+    }
+
+    Err(ValidationError::new(
+        "agentic condition router runtime is not implemented",
+    ))
+}
+
+fn router_executor_config_has_executor(config: &serde_json::Value) -> bool {
+    config
+        .get("executor")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(is_known_executor)
+}
+
+fn is_known_executor(executor: &str) -> bool {
+    let normalized = executor.trim().replace('-', "_").to_ascii_uppercase();
+    matches!(
+        normalized.as_str(),
+        "CLAUDE_CODE"
+            | "AMP"
+            | "GEMINI"
+            | "CODEX"
+            | "OPENCODE"
+            | "CURSOR"
+            | "CURSOR_AGENT"
+            | "QWEN_CODE"
+            | "COPILOT"
+            | "DROID"
+    )
 }
 
 fn reject_cycles(
@@ -201,8 +338,8 @@ fn reachable_nodes<'a>(
 mod tests {
     use super::*;
     use crate::graph::{
-        WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
-        WorkflowNodeKind,
+        ConditionBranch, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode,
+        WorkflowNodeData, WorkflowNodeKind,
     };
 
     fn node(id: &str, kind: WorkflowNodeKind) -> WorkflowNode {
@@ -211,6 +348,19 @@ mod tests {
             kind,
             data: WorkflowNodeData {
                 display_name: Some(id.to_string()),
+                ..WorkflowNodeData::default()
+            },
+            position: None,
+        }
+    }
+
+    fn condition_node(id: &str, branches: Vec<ConditionBranch>) -> WorkflowNode {
+        WorkflowNode {
+            id: id.to_string(),
+            kind: WorkflowNodeKind::Condition,
+            data: WorkflowNodeData {
+                display_name: Some(id.to_string()),
+                branches: Some(branches),
                 ..WorkflowNodeData::default()
             },
             position: None,
@@ -233,6 +383,7 @@ mod tests {
             version: 2,
             nodes,
             edges,
+            router_executor_config: None,
             canvas: None,
         }
     }
@@ -325,5 +476,159 @@ mod tests {
 
         let err = validate_graph(&graph).unwrap_err();
         assert!(err.to_string().contains("missing"));
+    }
+
+    #[test]
+    fn draft_validation_allows_condition_without_router_config() {
+        let mut graph = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node("condition", vec![]),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "end"),
+            ],
+        );
+
+        validate_graph(&graph).unwrap();
+        let err = validate_graph_for_run(&graph).unwrap_err();
+        assert!(err.to_string().contains("router executor config"));
+
+        graph.router_executor_config = Some(serde_json::json!({}));
+        let err = validate_graph_for_run(&graph).unwrap_err();
+        assert!(err.to_string().contains("router executor config"));
+
+        graph.router_executor_config = Some(serde_json::json!({"executor": "unknown"}));
+        let err = validate_graph_for_run(&graph).unwrap_err();
+        assert!(err.to_string().contains("router executor config"));
+    }
+
+    #[test]
+    fn run_validation_blocks_agentic_condition_until_router_runtime_exists() {
+        let mut graph = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node(
+                    "condition",
+                    vec![
+                        ConditionBranch {
+                            id: Some("branch-agent".to_string()),
+                            target_node_id: Some("agent".to_string()),
+                            condition: Some("Needs implementation".to_string()),
+                            ..ConditionBranch::default()
+                        },
+                        ConditionBranch {
+                            id: Some("branch-end".to_string()),
+                            target_node_id: Some("end".to_string()),
+                            condition: Some("No work needed".to_string()),
+                            ..ConditionBranch::default()
+                        },
+                    ],
+                ),
+                node("agent", WorkflowNodeKind::Agent),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "agent"),
+                edge("e3", "condition", "end"),
+                edge("e4", "agent", "end"),
+            ],
+        );
+        graph.router_executor_config = Some(serde_json::json!({
+            "executor": "CODEX",
+            "variant": null
+        }));
+
+        let err = validate_graph_for_run(&graph).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("router runtime is not implemented"));
+    }
+
+    #[test]
+    fn rejects_duplicate_condition_outgoing_targets() {
+        let graph = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node("condition", vec![]),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "end"),
+                edge("e3", "condition", "end"),
+            ],
+        );
+
+        let err = validate_graph(&graph).unwrap_err();
+        assert!(err.to_string().contains("duplicate outgoing target"));
+    }
+
+    #[test]
+    fn run_validation_rejects_missing_stale_and_empty_condition_branches() {
+        let mut missing = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node("condition", vec![]),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "end"),
+            ],
+        );
+        missing.router_executor_config = Some(serde_json::json!({"executor": "CODEX"}));
+
+        let err = validate_graph_for_run(&missing).unwrap_err();
+        assert!(err.to_string().contains("missing branch config"));
+
+        let mut stale = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node(
+                    "condition",
+                    vec![ConditionBranch {
+                        target_node_id: Some("missing".to_string()),
+                        condition: Some("Go missing".to_string()),
+                        ..ConditionBranch::default()
+                    }],
+                ),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "end"),
+            ],
+        );
+        stale.router_executor_config = Some(serde_json::json!({"executor": "CODEX"}));
+
+        let err = validate_graph_for_run(&stale).unwrap_err();
+        assert!(err.to_string().contains("stale branch target"));
+
+        let mut empty = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                condition_node(
+                    "condition",
+                    vec![ConditionBranch {
+                        target_node_id: Some("end".to_string()),
+                        condition: Some(" ".to_string()),
+                        ..ConditionBranch::default()
+                    }],
+                ),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                edge("e2", "condition", "end"),
+            ],
+        );
+        empty.router_executor_config = Some(serde_json::json!({"executor": "CODEX"}));
+
+        let err = validate_graph_for_run(&empty).unwrap_err();
+        assert!(err.to_string().contains("empty branch condition"));
     }
 }

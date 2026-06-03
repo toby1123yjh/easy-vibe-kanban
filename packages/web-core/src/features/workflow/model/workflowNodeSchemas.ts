@@ -5,7 +5,6 @@ export type WorkflowNodeFieldType =
   | 'textarea'
   | 'select'
   | 'number'
-  | 'condition_rules'
   | 'condition_branches'
   | 'arena_attempts';
 
@@ -62,15 +61,14 @@ export const WORKFLOW_NODE_SCHEMAS: Record<
     fields: [
       { key: 'display_name', type: 'text', label: 'Display Name' },
       {
-        key: 'joiner',
+        key: 'routing_mode',
         type: 'select',
-        label: 'Joiner',
+        label: 'Routing Mode',
         options: [
-          { label: 'AND', value: 'and' },
-          { label: 'OR', value: 'or' },
+          { label: 'Single branch', value: 'single' },
+          { label: 'Multiple branches', value: 'multi' },
         ],
       },
-      { key: 'conditions', type: 'condition_rules', label: 'Rules' },
       { key: 'branches', type: 'condition_branches', label: 'Branches' },
     ],
   },

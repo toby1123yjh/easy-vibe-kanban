@@ -349,14 +349,17 @@ mod tests {
                     ConditionBranch {
                         name: Some("true".to_string()),
                         target_node_id: Some("yes".to_string()),
+                        ..ConditionBranch::default()
                     },
                     ConditionBranch {
                         name: Some("false".to_string()),
                         target_node_id: Some("no".to_string()),
+                        ..ConditionBranch::default()
                     },
                     ConditionBranch {
                         name: Some("default".to_string()),
                         target_node_id: Some("fallback".to_string()),
+                        ..ConditionBranch::default()
                     },
                 ]),
                 ..WorkflowNodeData::default()
@@ -392,6 +395,7 @@ mod tests {
                 branches: Some(vec![ConditionBranch {
                     name: Some("default".to_string()),
                     target_node_id: Some("fallback".to_string()),
+                    ..ConditionBranch::default()
                 }]),
                 ..WorkflowNodeData::default()
             },

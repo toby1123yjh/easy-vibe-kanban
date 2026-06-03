@@ -305,21 +305,21 @@
     "title": "任務嘗試",
     "loading": "正在載入任務嘗試...",
     "empty": "暫無任務嘗試。",
-    "newWorkflow": "新增工作流程嘗試",
+    "newWorkflow": "新增工作流嘗試",
     "newSingleAgent": "新增單一智慧體嘗試",
-    "workflowFallbackTitle": "工作流程嘗試",
+    "workflowFallbackTitle": "工作流嘗試",
     "singleAgentFallbackTitle": "單一智慧體嘗試",
-    "draftWorkflow": "工作流程嘗試草稿",
+    "draftWorkflow": "工作流嘗試草稿",
     "workflowRun": "執行 {{id}}",
     "workspace": "工作區 {{id}}",
     "remoteWorkspace": "遠端工作區",
-    "openCanvas": "開啟畫布",
+    "openCanvas": "開啟工作流",
     "openSession": "開啟會話",
-    "runWorkflow": "執行工作流程嘗試",
+    "runWorkflow": "執行工作流嘗試",
     "deleteAttempt": "刪除嘗試",
-    "deleteWorkflowTitle": "刪除工作流程嘗試？",
-    "deleteWorkflowMessage": "這會刪除此工作流程嘗試、畫布和執行記錄。此操作無法復原。",
-    "deleteWorkflowError": "刪除工作流程嘗試失敗。",
+    "deleteWorkflowTitle": "刪除工作流嘗試？",
+    "deleteWorkflowMessage": "這會刪除此工作流嘗試和執行記錄。此操作無法復原。",
+    "deleteWorkflowError": "刪除工作流嘗試失敗。",
     "status": {
       "draft": "草稿",
       "ready": "就緒",
@@ -336,13 +336,13 @@
   },
   "workflow": {
     "entry": {
-      "title": "工作流程嘗試",
+      "title": "工作流嘗試",
       "subtitle": "先設計任務嘗試，再執行智慧體",
-      "openCanvas": "開啟畫布",
-      "openCanvasAria": "開啟工作流程嘗試畫布"
+      "openCanvas": "開啟工作流",
+      "openCanvasAria": "開啟工作流嘗試"
     },
     "draft": {
-      "name": "{{title}} 的工作流程嘗試",
+      "name": "{{title}} 的工作流嘗試",
       "untitledTask": "未命名任務"
     },
     "defaultGraph": {
@@ -358,11 +358,11 @@
     "nodes": {
       "start": {
         "label": "開始",
-        "summary": "工作流程入口"
+        "summary": "工作流入口"
       },
       "end": {
         "label": "結束",
-        "summary": "工作流程出口"
+        "summary": "工作流出口"
       },
       "agent": {
         "label": "智慧體",
@@ -408,7 +408,7 @@
       "branches": "分支",
       "branchCount": "分支數",
       "branchCountValue": "{{count}} 個分支",
-      "logic": "邏輯",
+      "routingMode": "路由",
       "action": "操作",
       "mode": "模式",
       "attempts": "嘗試",
@@ -423,6 +423,7 @@
       "prompt_template": "提示詞範本",
       "joiner": "連接方式",
       "conditions": "規則",
+      "routing_mode": "路由模式",
       "branches": "分支",
       "prompt_to_human": "給人工的提示詞",
       "required_action": "必要操作",
@@ -436,6 +437,10 @@
       "joiner": {
         "and": "並且",
         "or": "或者"
+      },
+      "routing_mode": {
+        "single": "單分支",
+        "multi": "多分支"
       },
       "required_action": {
         "approve": "僅核准",
@@ -464,45 +469,45 @@
       "skipped": "已跳過"
     },
     "errors": {
-      "createDraftFailed": "建立工作流程草稿失敗。",
-      "notLinkedToAttempt": "此工作流程未關聯到任務嘗試。",
-      "repositoryRequired": "此工作流程需要一個至少包含一個儲存庫的工作區。請在開始執行前至少選擇一個儲存庫。",
-      "runInputRequired": "請先填寫執行輸入，再啟動工作流程。",
-      "draftMissing": "這個本機工作流程草稿已不存在，請重新新增工作流程嘗試。",
-      "saveBeforeRun": "請先儲存工作流程嘗試，再開始執行。",
-      "saveBeforeSession": "請先儲存工作流程嘗試，再開啟智慧體會話。",
-      "startFailed": "啟動工作流程執行失敗。",
-      "invalidGraph": "工作流程圖 JSON 不包含有效圖。",
-      "parseGraphFailed": "無法解析工作流程圖 JSON。"
+      "createDraftFailed": "建立工作流草稿失敗。",
+      "notLinkedToAttempt": "此工作流未關聯到任務嘗試。",
+      "repositoryRequired": "此工作流需要一個至少包含一個儲存庫的工作區。請在開始執行前至少選擇一個儲存庫。",
+      "runInputRequired": "請先填寫執行輸入，再啟動工作流。",
+      "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流嘗試。",
+      "saveBeforeRun": "請先儲存工作流嘗試，再開始執行。",
+      "saveBeforeSession": "請先儲存工作流嘗試，再開啟智慧體會話。",
+      "startFailed": "啟動工作流執行失敗。",
+      "invalidGraph": "工作流圖 JSON 不包含有效圖。",
+      "parseGraphFailed": "無法解析工作流圖 JSON。"
     },
     "repositoryDialog": {
-      "title": "新增工作流程嘗試",
+      "title": "新增工作流嘗試",
       "errors": {
-        "repositoryRequired": "建立工作流程前請至少選擇一個儲存庫。",
-        "branchRequired": "建立工作流程前請為每個儲存庫選擇分支。"
+        "repositoryRequired": "建立工作流前請至少選擇一個儲存庫。",
+        "branchRequired": "建立工作流前請為每個儲存庫選擇分支。"
       }
     },
     "runDialog": {
-      "title": "執行工作流程嘗試",
-      "description": "啟動這個關聯議題的工作流程嘗試。",
+      "title": "執行工作流嘗試",
+      "description": "啟動這個關聯議題的工作流嘗試。",
       "mainWorkspace": "主工作區",
-      "createWorkflowWorkspace": "建立工作流程工作區",
+      "createWorkflowWorkspace": "建立工作流工作區",
       "usesExistingWorkspace": "使用現有工作區。",
       "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的現有工作區。",
-      "createWorkspaceHint": "後端會為本次執行建立專用的工作流程工作區。",
+      "createWorkspaceHint": "後端會為本次執行建立專用的工作流工作區。",
       "runInput": "執行輸入",
       "startRun": "開始執行"
     },
     "editor": {
-      "runAttempt": "執行工作流程嘗試",
-      "runWorkflow": "執行工作流程",
-      "loadFailed": "載入工作流程失敗：{{message}}",
-      "backToWorkflows": "返回工作流程列表",
-      "workflowNamePlaceholder": "工作流程名稱",
+      "runAttempt": "執行工作流嘗試",
+      "runWorkflow": "執行工作流",
+      "loadFailed": "載入工作流失敗：{{message}}",
+      "backToWorkflows": "返回工作流列表",
+      "workflowNamePlaceholder": "工作流名稱",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系統範本（唯讀）",
       "addStep": "新增步驟",
-      "addWorkflowStep": "新增工作流程步驟",
+      "addWorkflowStep": "新增工作流步驟",
       "addAgentStep": "新增智慧體",
       "nodePalette": "節點庫",
       "nodePaletteReadOnly": "複製此範本後即可新增或拖曳步驟。",
@@ -518,7 +523,7 @@
       "stage": "階段",
       "validate": "校驗",
       "validation": "校驗",
-      "graphValid": "工作流程圖有效",
+      "graphValid": "工作流圖有效",
       "validationFound": "校驗發現 {{count}} 個問題。",
       "validationFound_other": "校驗發現 {{count}} 個問題。",
       "openLatestRun": "開啟最新執行",
@@ -526,7 +531,7 @@
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
       "deleteAgentStepTitle": "刪除智慧體",
-      "deleteAgentStepMessage": "這會從工作流程圖中移除此步驟。既有會話歷史不會複製到其他步驟。",
+      "deleteAgentStepMessage": "這會從工作流圖中移除此步驟。既有會話歷史不會複製到其他步驟。",
       "agentStepActions": "智慧體操作",
       "nodeActions": "節點操作",
       "openSession": "開啟會話",
@@ -538,7 +543,7 @@
       "reconnectSource": "重新連接來源節點",
       "reconnectTarget": "重新連接目標節點",
       "deleteEdge": "刪除連線",
-      "runWorkflowToExecuteStep": "執行工作流程以執行此步驟。"
+      "runWorkflowToExecuteStep": "執行工作流以執行此步驟。"
     },
     "canvas": {
       "openSession": "開啟會話",
@@ -560,7 +565,7 @@
       "description": "設定此步驟的會話提示詞與執行器。",
       "close": "關閉編輯器",
       "runningHint": "此步驟正在執行。提示詞與智慧體設定可在執行結束後編輯。",
-      "nextRunHint": "改動會在下一次工作流程執行或下一次觸發此步驟時生效。",
+      "nextRunHint": "改動會在下一次工作流執行或下一次觸發此步驟時生效。",
       "stepTitle": "步驟標題",
       "defaultTitle": "智慧體",
       "defaultPrompt": "預設提示詞",
@@ -570,20 +575,27 @@
       "agent": "智慧體",
       "saveStep": "儲存步驟"
     },
+    "router": {
+      "toolbar": "路由器",
+      "title": "路由智慧體",
+      "description": "選擇用於評估此工作流條件分支的智慧體。",
+      "close": "關閉路由設定",
+      "executor": "智慧體",
+      "selectExecutor": "選擇智慧體",
+      "agent": "智慧體",
+      "save": "儲存路由器"
+    },
     "inspector": {
       "selectNode": "選擇節點以查看詳情",
       "selectEdge": "選擇連線以查看詳情",
       "step": "步驟",
-      "rules": "規則",
-      "addRule": "新增規則",
-      "ruleLabel": "規則 {{index}}",
-      "removeRule": "移除規則 {{index}}",
-      "inputPlaceholder": "輸入",
-      "valuePlaceholder": "值",
       "branches": "分支",
-      "addBranch": "新增分支",
-      "branchName": "分支 {{index}} 名稱",
-      "removeBranch": "移除分支 {{index}}",
+      "noConditionBranches": "沒有已連接的目標",
+      "nodeIdTitle": "節點 ID：{{nodeId}}",
+      "branchTarget": "目標",
+      "selectTarget": "選擇目標",
+      "branchCondition": "條件",
+      "branchConditionPlaceholder": "例如：上游結果提到了 UI 改動",
       "attempts": "嘗試",
       "attemptLabel": "嘗試 {{index}}",
       "addAttempt": "新增嘗試",
@@ -593,46 +605,44 @@
       "source": "來源節點",
       "target": "目標節點",
       "routeType": "路由類型",
-      "conditionBranch": "條件分支",
-      "selectBranch": "選擇分支",
       "edgeId": "連線 ID"
     },
     "agentDraft": {
       "defaultStepName": "智慧體",
-      "promptPlaceholder": "描述這個工作流程步驟...",
+      "promptPlaceholder": "描述這個工作流步驟...",
       "selectExecutor": "選擇執行器",
       "startRun": "開始執行",
       "starting": "正在啟動..."
     },
     "templates": {
-      "title": "工作流程",
-      "newCanvas": "新增畫布",
-      "newWorkflowName": "新增工作流程",
-      "loadFailed": "載入工作流程失敗：{{message}}",
-      "emptyTitle": "還沒有工作流程畫布",
-      "emptyDescription": "從這個專案的空白畫布開始。",
-      "createCanvas": "建立畫布",
+      "title": "工作流",
+      "newCanvas": "新增工作流",
+      "newWorkflowName": "新增工作流",
+      "loadFailed": "載入工作流失敗：{{message}}",
+      "emptyTitle": "還沒有工作流",
+      "emptyDescription": "從這個專案的空白工作流開始。",
+      "createCanvas": "建立工作流",
       "untitled": "未命名",
       "noDescription": "沒有描述。",
       "updated": "更新於 {{date}}",
-      "openCanvas": "開啟畫布"
+      "openCanvas": "開啟工作流"
     },
     "runPage": {
       "loadingRun": "正在載入執行...",
       "loadFailed": "載入執行 {{runId}} 失敗",
-      "canvas": "畫布",
+      "canvas": "工作流",
       "dashboard": "儀表板",
       "taskAttempt": "任務嘗試 {{id}}",
-      "workflowRun": "工作流程執行 {{id}}"
+      "workflowRun": "工作流執行 {{id}}"
     },
     "runCanvas": {
-      "loadingGraph": "正在載入工作流程圖...",
-      "loadGraphFailed": "無法載入本次執行的工作流程圖。",
+      "loadingGraph": "正在載入工作流圖...",
+      "loadGraphFailed": "無法載入本次執行的工作流圖。",
       "nodeDetails": "節點詳情",
       "notExecutedYet": "尚未執行",
       "selectNode": "選擇節點",
       "nodeNotExecuted": "此節點尚未執行。",
-      "selectNodeDetails": "在畫布中選擇一個節點以查看詳情。",
+      "selectNodeDetails": "在工作流中選擇一個節點以查看詳情。",
       "humanActionRequired": "需要人工操作",
       "reviewNodeToProceed": "請檢查此節點以繼續。",
       "approving": "正在核准...",
@@ -681,15 +691,15 @@
     "dashboard": {
       "runDetails": "執行詳情",
       "issueId": "議題 ID",
-      "workflow": "工作流程",
+      "workflow": "工作流",
       "runId": "執行 ID",
       "status": "狀態",
       "progress": "進度",
       "cancelRun": "取消執行",
-      "cancelFailed": "取消工作流程執行失敗。",
-      "retryFailed": "重試工作流程步驟失敗。",
-      "approveFailed": "核准工作流程步驟失敗。",
-      "rejectFailed": "拒絕工作流程步驟失敗。",
+      "cancelFailed": "取消工作流執行失敗。",
+      "retryFailed": "重試工作流步驟失敗。",
+      "approveFailed": "核准工作流步驟失敗。",
+      "rejectFailed": "拒絕工作流步驟失敗。",
       "stepsSucceeded": "{{completed}} / {{total}} 個步驟已成功",
       "runningCount": "{{count}} 個執行中",
       "waitingCount": "{{count}} 個等待中",
@@ -700,7 +710,7 @@
       "session": "會話",
       "retryStep": "重試步驟",
       "codeChanges": "程式碼改動",
-      "openWorkflowWorkspace": "開啟工作流程工作區",
+      "openWorkflowWorkspace": "開啟工作流工作區",
       "noCodeChanges": "本次執行沒有關聯的程式碼改動。",
       "selectedStep": "步驟：{{nodeId}}",
       "selectStep": "選擇一個步驟",
@@ -777,11 +787,11 @@
       "runningNow": "正在執行",
       "startedDuration": "開始於 {{started}} / {{duration}}",
       "agentWorking": "智慧體正在此會話中工作。",
-      "waitingForDecision": "此步驟正在等待決策，之後工作流程才會繼續。",
+      "waitingForDecision": "此步驟正在等待決策，之後工作流才會繼續。",
       "lastRunSucceeded": "上次執行成功",
       "finishedDuration": "完成於 {{finished}} / {{duration}}",
       "notStartedYet": "尚未開始",
-      "readyForConversation": "會話已就緒，可手動對話或等待下一次工作流程執行。",
+      "readyForConversation": "會話已就緒，可手動對話或等待下一次工作流執行。",
       "noSessionYet": "此步驟尚未建立會話。",
       "technicalDetails": "技術詳情",
       "sessionId": "會話 ID",

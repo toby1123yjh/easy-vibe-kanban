@@ -1,9 +1,11 @@
 import {
   WORKFLOW_GRAPH_VERSION,
+  type WorkflowConditionBranch,
   type WorkflowGraph,
 } from '../model/workflowGraph';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { BaseCodingAgent } from 'shared/types';
 
 export interface ValidationIssue {
   type: 'error' | 'warning';
@@ -15,11 +17,17 @@ export interface WorkflowValidationPanelProps {
   graph: WorkflowGraph | null;
 }
 
+export interface WorkflowValidationOptions {
+  includeRunReadiness?: boolean;
+}
+
 export function validateWorkflowGraph(
-  graph: WorkflowGraph | null
+  graph: WorkflowGraph | null,
+  options: WorkflowValidationOptions = {}
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (!graph) return issues;
+  const includeRunReadiness = options.includeRunReadiness ?? true;
 
   if (graph.version < 1 || graph.version > WORKFLOW_GRAPH_VERSION) {
     issues.push({ type: 'error', message: 'Unsupported graph version' });
@@ -79,6 +87,8 @@ export function validateWorkflowGraph(
     }
   }
 
+  validateConditionStructure(graph, issues);
+
   const adjacency = buildAdjacency(graph);
   const cycleNodeId = findCycleNode(adjacency);
   if (cycleNodeId) {
@@ -102,7 +112,148 @@ export function validateWorkflowGraph(
     }
   }
 
+  if (includeRunReadiness) {
+    validateConditionRunReadiness(graph, issues);
+  }
+
   return issues;
+}
+
+function getConditionOutgoingTargets(
+  graph: WorkflowGraph,
+  conditionNodeId: string
+): string[] {
+  return graph.edges
+    .filter((edge) => edge.source === conditionNodeId)
+    .map((edge) => edge.target);
+}
+
+function validateConditionStructure(
+  graph: WorkflowGraph,
+  issues: ValidationIssue[]
+) {
+  for (const node of graph.nodes) {
+    if (node.type !== 'condition') continue;
+
+    const seenTargets = new Set<string>();
+    for (const target of getConditionOutgoingTargets(graph, node.id)) {
+      if (seenTargets.has(target)) {
+        issues.push({
+          type: 'error',
+          nodeId: node.id,
+          message: `Condition node ${node.id} has duplicate outgoing target: ${target}`,
+        });
+      }
+      seenTargets.add(target);
+    }
+  }
+}
+
+function validateConditionRunReadiness(
+  graph: WorkflowGraph,
+  issues: ValidationIssue[]
+) {
+  const conditionNodes = graph.nodes.filter(
+    (node) => node.type === 'condition'
+  );
+  if (conditionNodes.length === 0) return;
+
+  const hasRouterConfig = hasRouterExecutorConfig(graph.router_executor_config);
+  if (!hasRouterConfig) {
+    issues.push({
+      type: 'error',
+      message: 'Workflow with Condition nodes requires a router agent',
+    });
+  }
+
+  for (const node of conditionNodes) {
+    const outgoingTargets = new Set(
+      getConditionOutgoingTargets(graph, node.id)
+    );
+    const branchTargets = new Set<string>();
+    const branches = node.data.branches ?? [];
+
+    for (const branch of branches) {
+      validateConditionBranch(
+        node.id,
+        branch,
+        outgoingTargets,
+        branchTargets,
+        issues
+      );
+    }
+
+    for (const target of outgoingTargets) {
+      if (!branchTargets.has(target)) {
+        issues.push({
+          type: 'error',
+          nodeId: node.id,
+          message: `Condition node ${node.id} is missing branch config for ${target}`,
+        });
+      }
+    }
+  }
+
+  if (hasRouterConfig && !issues.some((issue) => issue.type === 'error')) {
+    issues.push({
+      type: 'error',
+      message: 'Agentic Condition router runtime is not implemented yet',
+    });
+  }
+}
+
+function hasRouterExecutorConfig(config: unknown): boolean {
+  if (!config || typeof config !== 'object') return false;
+  const executor = (config as { executor?: unknown }).executor;
+  if (typeof executor !== 'string') return false;
+  const normalized = executor.trim().replaceAll('-', '_').toUpperCase();
+  return (
+    normalized === 'CURSOR' ||
+    Object.values(BaseCodingAgent).includes(normalized as BaseCodingAgent)
+  );
+}
+
+function validateConditionBranch(
+  nodeId: string,
+  branch: WorkflowConditionBranch,
+  outgoingTargets: Set<string>,
+  branchTargets: Set<string>,
+  issues: ValidationIssue[]
+) {
+  const targetNodeId = branch.target_node_id;
+  if (!targetNodeId) {
+    issues.push({
+      type: 'error',
+      nodeId,
+      message: `Condition node ${nodeId} has a branch without target`,
+    });
+    return;
+  }
+
+  if (branchTargets.has(targetNodeId)) {
+    issues.push({
+      type: 'error',
+      nodeId,
+      message: `Condition node ${nodeId} has duplicate branch target: ${targetNodeId}`,
+    });
+  }
+  branchTargets.add(targetNodeId);
+
+  if (!outgoingTargets.has(targetNodeId)) {
+    issues.push({
+      type: 'error',
+      nodeId,
+      message: `Condition node ${nodeId} has stale branch target: ${targetNodeId}`,
+    });
+  }
+
+  if (!(branch.condition ?? '').trim()) {
+    issues.push({
+      type: 'error',
+      nodeId,
+      message: `Condition node ${nodeId} has empty branch condition for ${targetNodeId}`,
+    });
+  }
 }
 
 function buildAdjacency(graph: WorkflowGraph): Map<string, string[]> {

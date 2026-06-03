@@ -313,12 +313,12 @@
     "workflowRun": "运行 {{id}}",
     "workspace": "工作区 {{id}}",
     "remoteWorkspace": "远程工作区",
-    "openCanvas": "打开画布",
+    "openCanvas": "打开工作流",
     "openSession": "打开会话",
     "runWorkflow": "运行工作流尝试",
     "deleteAttempt": "删除尝试",
     "deleteWorkflowTitle": "删除工作流尝试？",
-    "deleteWorkflowMessage": "这会删除该工作流尝试、画布和运行记录。此操作无法撤销。",
+    "deleteWorkflowMessage": "这会删除该工作流尝试和运行记录。此操作无法撤销。",
     "deleteWorkflowError": "删除工作流尝试失败。",
     "status": {
       "draft": "草稿",
@@ -338,8 +338,8 @@
     "entry": {
       "title": "工作流尝试",
       "subtitle": "先设计任务尝试，再运行智能体",
-      "openCanvas": "打开画布",
-      "openCanvasAria": "打开工作流尝试画布"
+      "openCanvas": "打开工作流",
+      "openCanvasAria": "打开工作流尝试"
     },
     "draft": {
       "name": "{{title}} 的工作流尝试",
@@ -408,7 +408,7 @@
       "branches": "分支",
       "branchCount": "分支数",
       "branchCountValue": "{{count}} 个分支",
-      "logic": "逻辑",
+      "routingMode": "路由",
       "action": "操作",
       "mode": "模式",
       "attempts": "尝试",
@@ -423,6 +423,7 @@
       "prompt_template": "提示词模板",
       "joiner": "连接方式",
       "conditions": "规则",
+      "routing_mode": "路由模式",
       "branches": "分支",
       "prompt_to_human": "给人工的提示词",
       "required_action": "必需操作",
@@ -436,6 +437,10 @@
       "joiner": {
         "and": "并且",
         "or": "或者"
+      },
+      "routing_mode": {
+        "single": "单分支",
+        "multi": "多分支"
       },
       "required_action": {
         "approve": "仅批准",
@@ -570,20 +575,27 @@
       "agent": "智能体",
       "saveStep": "保存步骤"
     },
+    "router": {
+      "toolbar": "路由器",
+      "title": "路由智能体",
+      "description": "选择用于评估此工作流条件分支的智能体。",
+      "close": "关闭路由设置",
+      "executor": "智能体",
+      "selectExecutor": "选择智能体",
+      "agent": "智能体",
+      "save": "保存路由器"
+    },
     "inspector": {
       "selectNode": "选择节点以查看详情",
       "selectEdge": "选择连线以查看详情",
       "step": "步骤",
-      "rules": "规则",
-      "addRule": "添加规则",
-      "ruleLabel": "规则 {{index}}",
-      "removeRule": "移除规则 {{index}}",
-      "inputPlaceholder": "输入",
-      "valuePlaceholder": "值",
       "branches": "分支",
-      "addBranch": "添加分支",
-      "branchName": "分支 {{index}} 名称",
-      "removeBranch": "移除分支 {{index}}",
+      "noConditionBranches": "没有已连接的目标",
+      "nodeIdTitle": "节点 ID：{{nodeId}}",
+      "branchTarget": "目标",
+      "selectTarget": "选择目标",
+      "branchCondition": "条件",
+      "branchConditionPlaceholder": "例如：上游结果提到了 UI 改动",
       "attempts": "尝试",
       "attemptLabel": "尝试 {{index}}",
       "addAttempt": "添加尝试",
@@ -593,8 +605,6 @@
       "source": "源节点",
       "target": "目标节点",
       "routeType": "路由类型",
-      "conditionBranch": "条件分支",
-      "selectBranch": "选择分支",
       "edgeId": "连线 ID"
     },
     "agentDraft": {
@@ -606,21 +616,21 @@
     },
     "templates": {
       "title": "工作流",
-      "newCanvas": "新建画布",
+      "newCanvas": "新建工作流",
       "newWorkflowName": "新建工作流",
       "loadFailed": "加载工作流失败：{{message}}",
-      "emptyTitle": "还没有工作流画布",
-      "emptyDescription": "从这个项目的空白画布开始。",
-      "createCanvas": "创建画布",
+      "emptyTitle": "还没有工作流",
+      "emptyDescription": "从这个项目的空白工作流开始。",
+      "createCanvas": "创建工作流",
       "untitled": "未命名",
       "noDescription": "没有描述。",
       "updated": "更新于 {{date}}",
-      "openCanvas": "打开画布"
+      "openCanvas": "打开工作流"
     },
     "runPage": {
       "loadingRun": "正在加载运行...",
       "loadFailed": "加载运行 {{runId}} 失败",
-      "canvas": "画布",
+      "canvas": "工作流",
       "dashboard": "仪表盘",
       "taskAttempt": "任务尝试 {{id}}",
       "workflowRun": "工作流运行 {{id}}"
@@ -632,7 +642,7 @@
       "notExecutedYet": "尚未执行",
       "selectNode": "选择节点",
       "nodeNotExecuted": "此节点尚未执行。",
-      "selectNodeDetails": "在画布中选择一个节点以查看详情。",
+      "selectNodeDetails": "在工作流中选择一个节点以查看详情。",
       "humanActionRequired": "需要人工操作",
       "reviewNodeToProceed": "请检查此节点以继续。",
       "approving": "正在批准...",

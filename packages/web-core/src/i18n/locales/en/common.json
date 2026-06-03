@@ -327,12 +327,12 @@
     "workflowRun": "Run {{id}}",
     "workspace": "Workspace {{id}}",
     "remoteWorkspace": "Remote workspace",
-    "openCanvas": "Open canvas",
+    "openCanvas": "Open workflow",
     "openSession": "Open session",
     "runWorkflow": "Run workflow attempt",
     "deleteAttempt": "Delete attempt",
     "deleteWorkflowTitle": "Delete workflow attempt?",
-    "deleteWorkflowMessage": "This deletes the workflow attempt, its canvas, and run history. This cannot be undone.",
+    "deleteWorkflowMessage": "This deletes the workflow attempt and run history. This cannot be undone.",
     "deleteWorkflowError": "Failed to delete workflow attempt.",
     "status": {
       "draft": "Draft",
@@ -352,8 +352,8 @@
     "entry": {
       "title": "Workflow attempt",
       "subtitle": "Design the task attempt before running agents",
-      "openCanvas": "Open canvas",
-      "openCanvasAria": "Open workflow attempt canvas"
+      "openCanvas": "Open workflow",
+      "openCanvasAria": "Open workflow attempt"
     },
     "draft": {
       "name": "Workflow attempt for {{title}}",
@@ -422,7 +422,7 @@
       "branches": "Branches",
       "branchCount": "Branches",
       "branchCountValue": "{{count}} branches",
-      "logic": "Logic",
+      "routingMode": "Routing",
       "action": "Action",
       "mode": "Mode",
       "attempts": "Attempts",
@@ -437,6 +437,7 @@
       "prompt_template": "Prompt template",
       "joiner": "Joiner",
       "conditions": "Rules",
+      "routing_mode": "Routing mode",
       "branches": "Branches",
       "prompt_to_human": "Prompt to human",
       "required_action": "Required action",
@@ -450,6 +451,10 @@
       "joiner": {
         "and": "AND",
         "or": "OR"
+      },
+      "routing_mode": {
+        "single": "Single branch",
+        "multi": "Multiple branches"
       },
       "required_action": {
         "approve": "Approve only",
@@ -584,20 +589,27 @@
       "agent": "Agent",
       "saveStep": "Save step"
     },
+    "router": {
+      "toolbar": "Router",
+      "title": "Router agent",
+      "description": "Select the agent that evaluates Condition branches for this workflow.",
+      "close": "Close router settings",
+      "executor": "Agent",
+      "selectExecutor": "Select agent",
+      "agent": "Agent",
+      "save": "Save router"
+    },
     "inspector": {
       "selectNode": "Select a node to inspect",
       "selectEdge": "Select an edge to inspect",
       "step": "Step",
-      "rules": "Rules",
-      "addRule": "Add rule",
-      "ruleLabel": "Rule {{index}}",
-      "removeRule": "Remove rule {{index}}",
-      "inputPlaceholder": "Input",
-      "valuePlaceholder": "Value",
       "branches": "Branches",
-      "addBranch": "Add branch",
-      "branchName": "Branch {{index}} name",
-      "removeBranch": "Remove branch {{index}}",
+      "noConditionBranches": "No outgoing targets",
+      "nodeIdTitle": "Node ID: {{nodeId}}",
+      "branchTarget": "Target",
+      "selectTarget": "Select target",
+      "branchCondition": "Condition",
+      "branchConditionPlaceholder": "Example: upstream work mentions UI changes",
       "attempts": "Attempts",
       "attemptLabel": "Attempt {{index}}",
       "addAttempt": "Add attempt",
@@ -607,8 +619,6 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "conditionBranch": "Condition branch",
-      "selectBranch": "Select branch",
       "edgeId": "Edge ID"
     },
     "agentDraft": {
@@ -620,21 +630,21 @@
     },
     "templates": {
       "title": "Workflows",
-      "newCanvas": "New canvas",
+      "newCanvas": "New workflow",
       "newWorkflowName": "New workflow",
       "loadFailed": "Failed to load workflows: {{message}}",
-      "emptyTitle": "No workflow canvases yet",
-      "emptyDescription": "Start from a blank canvas for this project.",
-      "createCanvas": "Create canvas",
+      "emptyTitle": "No workflows yet",
+      "emptyDescription": "Start from a blank workflow for this project.",
+      "createCanvas": "Create workflow",
       "untitled": "Untitled",
       "noDescription": "No description provided.",
       "updated": "Updated {{date}}",
-      "openCanvas": "Open canvas"
+      "openCanvas": "Open workflow"
     },
     "runPage": {
       "loadingRun": "Loading run...",
       "loadFailed": "Failed to load run {{runId}}",
-      "canvas": "Canvas",
+      "canvas": "Workflow",
       "dashboard": "Dashboard",
       "taskAttempt": "Task attempt {{id}}",
       "workflowRun": "Workflow run {{id}}"
@@ -646,7 +656,7 @@
       "notExecutedYet": "Not executed yet",
       "selectNode": "Select a node",
       "nodeNotExecuted": "This node has not executed yet.",
-      "selectNodeDetails": "Select a node in the canvas to view its details.",
+      "selectNodeDetails": "Select a node in the workflow to view its details.",
       "humanActionRequired": "Human action required",
       "reviewNodeToProceed": "Review this node to proceed.",
       "approving": "Approving...",

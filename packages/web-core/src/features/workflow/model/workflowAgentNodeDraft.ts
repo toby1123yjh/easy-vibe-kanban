@@ -1,9 +1,20 @@
 import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
 import type { WorkflowNode, WorkflowNodeData } from './workflowGraph';
 
-const BASE_CODING_AGENT_VALUES = new Set<string>(
+const BASE_CODING_AGENT_VALUES = new Set<BaseCodingAgent>(
   Object.values(BaseCodingAgent)
 );
+
+function coerceBaseCodingAgent(value: unknown): BaseCodingAgent | null {
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.trim().replaceAll('-', '_').toUpperCase();
+  if (normalized === 'CURSOR') return BaseCodingAgent.CURSOR_AGENT;
+  if (BASE_CODING_AGENT_VALUES.has(normalized as BaseCodingAgent)) {
+    return normalized as BaseCodingAgent;
+  }
+  return null;
+}
 
 export function isWorkflowAgentDraftNode(
   node: WorkflowNode | null
@@ -17,15 +28,11 @@ export function coerceWorkflowNodeExecutorConfig(
   if (!value || typeof value !== 'object') return null;
 
   const candidate = value as Record<string, unknown>;
-  if (
-    typeof candidate.executor !== 'string' ||
-    !BASE_CODING_AGENT_VALUES.has(candidate.executor)
-  ) {
-    return null;
-  }
+  const executor = coerceBaseCodingAgent(candidate.executor);
+  if (!executor) return null;
 
   const config: ExecutorConfig = {
-    executor: candidate.executor as BaseCodingAgent,
+    executor,
     variant:
       typeof candidate.variant === 'string' || candidate.variant === null
         ? candidate.variant

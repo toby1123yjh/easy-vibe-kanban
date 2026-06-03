@@ -4,6 +4,7 @@ import {
 } from '@/shared/hooks/useWorkflowTemplates';
 import { useTranslation } from 'react-i18next';
 import { createDefaultWorkflowGraph } from '../model/workflowGraph';
+import { shouldShowWorkflowTemplate } from '../model/workflowTemplateVisibility';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { Button } from '@vibe/ui/components/Button';
 import { ArrowRight, FileText, GitBranch, Loader2, Plus } from 'lucide-react';
@@ -57,7 +58,7 @@ export function WorkflowTemplateListPage({
     );
   }
 
-  const templates = data?.workflows ?? [];
+  const templates = (data?.workflows ?? []).filter(shouldShowWorkflowTemplate);
 
   return (
     <div className="flex h-full flex-col bg-primary p-base">

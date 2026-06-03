@@ -6,6 +6,8 @@ pub struct WorkflowGraph {
     pub nodes: Vec<WorkflowNode>,
     pub edges: Vec<WorkflowEdge>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router_executor_config: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canvas: Option<WorkflowCanvasData>,
 }
 
@@ -144,6 +146,8 @@ pub struct WorkflowNodeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub joiner: Option<ConditionJoiner>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_mode: Option<ConditionRoutingMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branches: Option<Vec<ConditionBranch>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_to_human: Option<String>,
@@ -221,12 +225,23 @@ pub enum ConditionJoiner {
     Or,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConditionRoutingMode {
+    Single,
+    Multi,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ConditionBranch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -289,6 +304,56 @@ mod tests {
 
         assert_eq!(graph.edges[0].source_handle.as_deref(), Some("output"));
         assert_eq!(graph.edges[0].target_handle.as_deref(), Some("input"));
+    }
+
+    #[test]
+    fn parses_agentic_condition_router_schema() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "version": 2,
+            "router_executor_config": { "executor": "codex" },
+            "nodes": [
+                { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+                {
+                    "id": "condition",
+                    "type": "condition",
+                    "data": {
+                        "display_name": "Condition",
+                        "routing_mode": "multi",
+                        "branches": [
+                            {
+                                "id": "branch-implement",
+                                "target_node_id": "implement",
+                                "condition": "Implementation is required"
+                            }
+                        ]
+                    }
+                },
+                { "id": "implement", "type": "agent", "data": { "display_name": "Implement" } },
+                { "id": "end", "type": "end", "data": { "display_name": "End" } }
+            ],
+            "edges": [
+                { "id": "e1", "source": "start", "target": "condition", "type": "default" },
+                { "id": "e2", "source": "condition", "target": "implement", "type": "condition_branch" },
+                { "id": "e3", "source": "implement", "target": "end", "type": "default" }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            graph.router_executor_config.as_ref().unwrap()["executor"],
+            "codex"
+        );
+        let condition_data = &graph.nodes[1].data;
+        assert_eq!(
+            condition_data.routing_mode,
+            Some(ConditionRoutingMode::Multi)
+        );
+        assert_eq!(
+            condition_data.branches.as_ref().unwrap()[0]
+                .condition
+                .as_deref(),
+            Some("Implementation is required")
+        );
     }
 
     #[test]

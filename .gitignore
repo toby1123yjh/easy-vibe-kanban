@@ -109,6 +109,7 @@ vibe-kanban-cloud/
 # Playwright reports
 playwright-report/
 test-results/
+.playwright-mcp/
 
 # Mobile testing (per-developer, do not commit)
 *.ts.net.crt

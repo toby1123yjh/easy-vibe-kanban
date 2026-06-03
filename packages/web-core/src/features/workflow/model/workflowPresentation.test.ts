@@ -16,7 +16,7 @@ describe('workflow presentation helpers', () => {
     expect(getWorkflowNodeKindLabel('arena')).toBe('Arena');
   });
 
-  it('returns compact node summaries for canvas nodes', () => {
+  it('returns compact node summaries for workflow nodes', () => {
     expect(
       getWorkflowNodeSummary('agent', { role_template_id: 'reviewer' })
     ).toBe('Role: reviewer');
@@ -87,12 +87,15 @@ describe('workflow presentation helpers', () => {
 
     expect(
       getWorkflowNodeMetadata('condition', {
-        branches: [{ name: 'Matched' }, { name: 'Fallback' }],
-        joiner: 'or',
+        branches: [
+          { target_node_id: 'matched', condition: 'Matched work' },
+          { target_node_id: 'fallback', condition: 'Fallback work' },
+        ],
+        routing_mode: 'multi',
       })
     ).toEqual([
       { label: 'Branches', value: '2 branches' },
-      { label: 'Logic', value: 'OR' },
+      { label: 'Routing', value: 'multi' },
     ]);
 
     expect(
@@ -109,10 +112,13 @@ describe('workflow presentation helpers', () => {
   it('returns route hints for branching node kinds', () => {
     expect(
       getWorkflowNodeRouteHints('condition', {
-        branches: [{ name: 'true' }, { name: 'fallback' }],
+        branches: [
+          { target_node_id: 'true', condition: 'Ready to ship' },
+          { target_node_id: 'fallback' },
+        ],
       })
     ).toEqual([
-      { label: 'true', tone: 'success' },
+      { label: 'Ready to ship', tone: 'success' },
       { label: 'fallback', tone: 'warning' },
     ]);
     expect(getWorkflowNodeRouteHints('human_gate', {})).toEqual([

@@ -69,6 +69,7 @@ export type PromoteStrategy = 'manual';
 export type ApplyStrategy = 'diff_apply';
 export type ConditionOperator = 'contains' | 'equals' | 'not_equals' | 'regex';
 export type ConditionJoiner = 'and' | 'or';
+export type ConditionRoutingMode = 'single' | 'multi';
 export type RequiredAction = 'approve' | 'approve_or_reject';
 export type TransformMode = 'template' | 'regex_extract' | 'truncate';
 
@@ -80,8 +81,10 @@ export interface WorkflowConditionRule {
 }
 
 export interface WorkflowConditionBranch {
+  id?: string;
   name?: string;
   target_node_id?: string;
+  condition?: string;
 }
 
 export interface WorkflowArenaAttemptConfig {
@@ -104,6 +107,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   apply_strategy?: ApplyStrategy;
   conditions?: WorkflowConditionRule[];
   joiner?: ConditionJoiner;
+  routing_mode?: ConditionRoutingMode;
   branches?: WorkflowConditionBranch[];
   prompt_to_human?: string;
   required_action?: RequiredAction;
@@ -166,7 +170,14 @@ export interface WorkflowGraph {
   version: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  router_executor_config?: unknown;
   canvas?: WorkflowCanvasData;
+}
+
+export interface WorkflowConditionBranchTarget {
+  nodeId: string;
+  label: string;
+  edgeIds: string[];
 }
 
 export interface WorkflowCanvasObjectNodeData extends Record<string, unknown> {
@@ -276,120 +287,146 @@ export function normalizeWorkflowPortHandle(
   }
 }
 
-function getConditionBranchContext(
-  graph: WorkflowGraph,
-  edgeId: string
-): { edge: WorkflowEdge; sourceNode: WorkflowNode } | null {
-  const edge = graph.edges.find((candidate) => candidate.id === edgeId);
-  if (!edge) return null;
-
-  const sourceNode = graph.nodes.find((node) => node.id === edge.source);
-  if (!sourceNode || sourceNode.type !== 'condition') return null;
-
-  return { edge, sourceNode };
+function getNodeLabel(
+  node: WorkflowNode | undefined,
+  fallback: string
+): string {
+  const displayName = node?.data.display_name;
+  return typeof displayName === 'string' && displayName.trim()
+    ? displayName
+    : fallback;
 }
 
-export function getConditionBranchNamesForEdge(
+function getConditionOutgoingEdges(
   graph: WorkflowGraph,
-  edgeId: string
-): string[] {
-  const context = getConditionBranchContext(graph, edgeId);
-  if (!context) return [];
-
-  return (context.sourceNode.data.branches ?? [])
-    .map((branch) => branch.name)
-    .filter((name): name is string => Boolean(name));
+  conditionNodeId: string
+): WorkflowEdge[] {
+  return graph.edges.filter((edge) => edge.source === conditionNodeId);
 }
 
-export function getConditionBranchNameForEdge(
-  graph: WorkflowGraph,
-  edgeId: string
-): string | null {
-  const context = getConditionBranchContext(graph, edgeId);
-  if (!context) return null;
-
-  const branch = context.sourceNode.data.branches?.find(
-    (candidate) => candidate.target_node_id === context.edge.target
-  );
-  return branch?.name ?? null;
+function getBranchId(conditionNodeId: string, targetNodeId: string): string {
+  return `branch-${conditionNodeId}-${targetNodeId}`;
 }
 
-function clearBranchTarget(branch: WorkflowConditionBranch) {
-  const next = { ...branch };
-  delete next.target_node_id;
-  return next;
+function findConditionBranchByTarget(
+  graph: WorkflowGraph | undefined,
+  conditionNodeId: string,
+  targetNodeId: string
+): WorkflowConditionBranch | undefined {
+  return graph?.nodes
+    .find((node) => node.id === conditionNodeId && node.type === 'condition')
+    ?.data.branches?.find((branch) => branch.target_node_id === targetNodeId);
 }
 
-export function setConditionBranchTargetForEdge(
+export function getConditionBranchTargets(
   graph: WorkflowGraph,
-  edgeId: string,
-  branchName: string
-): WorkflowGraph {
-  const context = getConditionBranchContext(graph, edgeId);
-  if (!context) return graph;
-
-  const branches = context.sourceNode.data.branches ?? [];
-  const nextBranches = branches.map((branch) => {
-    if (branch.name === branchName) {
-      return { ...branch, target_node_id: context.edge.target };
+  conditionNodeId: string
+): WorkflowConditionBranchTarget[] {
+  const targets = new Map<string, WorkflowConditionBranchTarget>();
+  for (const edge of getConditionOutgoingEdges(graph, conditionNodeId)) {
+    const existing = targets.get(edge.target);
+    if (existing) {
+      existing.edgeIds.push(edge.id);
+      continue;
     }
-    if (branch.target_node_id === context.edge.target) {
-      return clearBranchTarget(branch);
-    }
-    return branch;
-  });
 
-  if (!nextBranches.some((branch) => branch.name === branchName)) {
-    nextBranches.push({
-      name: branchName,
-      target_node_id: context.edge.target,
+    const targetNode = graph.nodes.find((node) => node.id === edge.target);
+    targets.set(edge.target, {
+      nodeId: edge.target,
+      label: getNodeLabel(targetNode, edge.target),
+      edgeIds: [edge.id],
     });
   }
 
-  return {
-    ...graph,
-    nodes: graph.nodes.map((node) =>
-      node.id === context.sourceNode.id
-        ? {
-            ...node,
-            data: {
-              ...node.data,
-              branches: nextBranches,
-            },
-          }
-        : node
-    ),
-  };
+  return Array.from(targets.values());
 }
 
-export function clearConditionBranchTargetForEdge(
+export function syncConditionBranches(
   graph: WorkflowGraph,
-  edgeId: string
+  previousGraph?: WorkflowGraph
 ): WorkflowGraph {
-  const context = getConditionBranchContext(graph, edgeId);
-  if (!context) return graph;
+  let changed = false;
+  const nodes = graph.nodes.map((node) => {
+    if (node.type !== 'condition') return node;
 
-  const branches = context.sourceNode.data.branches ?? [];
-  const nextBranches = branches.map((branch) =>
-    branch.target_node_id === context.edge.target
-      ? clearBranchTarget(branch)
-      : branch
+    const outgoingTargets = getConditionBranchTargets(graph, node.id);
+    const currentByTarget = new Map(
+      (node.data.branches ?? [])
+        .filter((branch) => branch.target_node_id)
+        .map((branch) => [branch.target_node_id as string, branch])
+    );
+    const previousTargetByEdgeId = new Map(
+      previousGraph?.edges
+        .filter((edge) => edge.source === node.id)
+        .map((edge) => [edge.id, edge.target]) ?? []
+    );
+
+    const nextBranches = outgoingTargets.map((target) => {
+      const current = currentByTarget.get(target.nodeId);
+      if (current) {
+        return {
+          ...current,
+          id: current.id ?? getBranchId(node.id, target.nodeId),
+          target_node_id: target.nodeId,
+        };
+      }
+
+      const previousBranch = target.edgeIds
+        .map((edgeId) => previousTargetByEdgeId.get(edgeId))
+        .filter((targetId): targetId is string => Boolean(targetId))
+        .map((targetId) =>
+          findConditionBranchByTarget(previousGraph, node.id, targetId)
+        )
+        .find((branch): branch is WorkflowConditionBranch => Boolean(branch));
+
+      return {
+        ...(previousBranch ?? {}),
+        id: previousBranch?.id ?? getBranchId(node.id, target.nodeId),
+        target_node_id: target.nodeId,
+        condition: previousBranch?.condition ?? '',
+      };
+    });
+
+    const nextData = {
+      ...node.data,
+      routing_mode: node.data.routing_mode ?? 'single',
+      branches: nextBranches,
+    };
+    if (JSON.stringify(nextData) !== JSON.stringify(node.data)) {
+      changed = true;
+      return { ...node, data: nextData };
+    }
+    return node;
+  });
+
+  return changed ? { ...graph, nodes } : graph;
+}
+
+export function normalizeConditionEdgeTypes(
+  graph: WorkflowGraph
+): WorkflowGraph {
+  const conditionNodeIds = new Set(
+    graph.nodes
+      .filter((node) => node.type === 'condition')
+      .map((node) => node.id)
   );
+  let changed = false;
+  const edges = graph.edges.map((edge) => {
+    if (conditionNodeIds.has(edge.source) && edge.type !== 'condition_branch') {
+      changed = true;
+      return { ...edge, type: 'condition_branch' as const };
+    }
+    if (
+      !conditionNodeIds.has(edge.source) &&
+      edge.type === 'condition_branch'
+    ) {
+      changed = true;
+      return { ...edge, type: 'default' as const };
+    }
+    return edge;
+  });
 
-  return {
-    ...graph,
-    nodes: graph.nodes.map((node) =>
-      node.id === context.sourceNode.id
-        ? {
-            ...node,
-            data: {
-              ...node.data,
-              branches: nextBranches,
-            },
-          }
-        : node
-    ),
-  };
+  return changed ? { ...graph, edges } : graph;
 }
 
 export function createDefaultWorkflowGraph(
@@ -462,7 +499,7 @@ export function migrateWorkflowGraph(
 ): WorkflowGraph {
   const canvas = normalizeWorkflowCanvas(graph.canvas);
   const { canvas: _canvas, ...graphWithoutCanvas } = graph;
-  return {
+  const migrated = {
     ...graphWithoutCanvas,
     version: WORKFLOW_GRAPH_VERSION,
     nodes: graph.nodes.map((node, index) => ({
@@ -482,6 +519,7 @@ export function migrateWorkflowGraph(
     })),
     ...(canvas ? { canvas } : {}),
   };
+  return syncConditionBranches(normalizeConditionEdgeTypes(migrated));
 }
 
 function fallbackWorkflowNodePosition(index: number): WorkflowNodePosition {
@@ -670,7 +708,7 @@ export function fromReactFlowGraph(
 ): WorkflowGraph {
   const canvas = normalizeWorkflowCanvas(baseGraph?.canvas);
   const { canvas: _canvas, ...baseGraphWithoutCanvas } = baseGraph ?? {};
-  return {
+  const nextGraph = {
     ...baseGraphWithoutCanvas,
     version: WORKFLOW_GRAPH_VERSION,
     nodes: nodes.map((node) => ({
@@ -695,6 +733,10 @@ export function fromReactFlowGraph(
     })),
     ...(canvas ? { canvas } : {}),
   };
+  return syncConditionBranches(
+    normalizeConditionEdgeTypes(nextGraph),
+    baseGraph
+  );
 }
 
 export function fromReactFlowCanvasGraph(

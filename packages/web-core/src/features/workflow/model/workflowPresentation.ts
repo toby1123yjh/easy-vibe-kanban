@@ -278,8 +278,8 @@ export function getWorkflowNodeMetadata(
           ),
         },
         {
-          label: translate(t, 'workflow.metadata.logic', 'Logic'),
-          value: String(data.joiner || 'and').toUpperCase(),
+          label: translate(t, 'workflow.metadata.routingMode', 'Routing'),
+          value: formatToken(data.routing_mode, 'single'),
         },
       ];
     case 'human_gate':
@@ -325,7 +325,9 @@ export function getWorkflowNodeRouteHints(
   if (kind === 'condition') {
     return (data.branches ?? []).slice(0, 3).map((branch, index) => ({
       label:
+        branch.condition?.trim() ||
         branch.name ||
+        branch.target_node_id ||
         translate(t, 'workflow.metadata.branch', 'Branch {{index}}', {
           index: index + 1,
         }),

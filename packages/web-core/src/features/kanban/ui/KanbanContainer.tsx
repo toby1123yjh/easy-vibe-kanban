@@ -132,7 +132,7 @@ function workflowAttemptToKanbanCard(
     title: attempt.name || 'Workflow attempt',
     subtitle: attempt.latest_run_id
       ? `Latest run ${attempt.latest_run_id.slice(0, 8)}`
-      : 'Canvas draft ready',
+      : 'Workflow draft ready',
     statusLabel: workflowAttemptStatusLabel(attempt.status),
     statusTone: workflowAttemptStatusTone(attempt.status),
   };

@@ -37,7 +37,7 @@ describe('issue workflow helpers', () => {
   it('builds an editable workflow draft from issue context', () => {
     const draft = buildIssueWorkflowDraft({
       title: 'Fix workflow drag handles',
-      description: 'The canvas should support editing before execution.',
+      description: 'The workflow should support editing before execution.',
       repos: [
         {
           repo_id: 'repo-1',

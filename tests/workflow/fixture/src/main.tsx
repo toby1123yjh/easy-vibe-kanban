@@ -1,17 +1,15 @@
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ReactFlowProvider } from '@xyflow/react';
+import '../../../../packages/web-core/src/i18n/config';
 import './style.css';
 import {
   WORKFLOW_GRAPH_VERSION,
-  clearConditionBranchTargetForEdge,
   createDefaultWorkflowGraph,
-  createWorkflowEdge,
   createWorkflowNode,
-  getConditionBranchNameForEdge,
-  getConditionBranchNamesForEdge,
   migrateWorkflowGraph,
-  setConditionBranchTargetForEdge,
+  normalizeConditionEdgeTypes,
+  syncConditionBranches,
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNodeKind,
@@ -26,6 +24,7 @@ import type { ValidationIssue } from '../../../../packages/web-core/src/features
 
 const initialGraph: WorkflowGraph = {
   version: WORKFLOW_GRAPH_VERSION,
+  router_executor_config: { executor: 'codex' },
   nodes: [
     {
       id: 'start',
@@ -38,17 +37,18 @@ const initialGraph: WorkflowGraph = {
       type: 'condition',
       data: {
         display_name: 'Condition',
-        joiner: 'and',
-        conditions: [
-          {
-            input: 'run_input',
-            operator: 'contains',
-            value: 'ship',
-          },
-        ],
+        routing_mode: 'single',
         branches: [
-          { name: 'true', target_node_id: 'yes' },
-          { name: 'false', target_node_id: 'no' },
+          {
+            id: 'branch-condition-yes',
+            target_node_id: 'yes',
+            condition: 'Input asks to ship',
+          },
+          {
+            id: 'branch-condition-no',
+            target_node_id: 'no',
+            condition: 'Input does not need action',
+          },
         ],
       },
       position: { x: 280, y: 140 },
@@ -177,20 +177,6 @@ function WorkflowCanvasHarness() {
     () => graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [graph, selectedEdgeId]
   );
-  const selectedEdgeConditionBranchName = useMemo(
-    () =>
-      selectedEdge
-        ? getConditionBranchNameForEdge(graph, selectedEdge.id)
-        : null,
-    [graph, selectedEdge]
-  );
-  const selectedEdgeConditionBranchNames = useMemo(
-    () =>
-      selectedEdge
-        ? getConditionBranchNamesForEdge(graph, selectedEdge.id)
-        : [],
-    [graph, selectedEdge]
-  );
   const sessionPanelNode = useMemo(
     () => graph.nodes.find((node) => node.id === sessionPanelNodeId) ?? null,
     [graph, sessionPanelNodeId]
@@ -213,18 +199,6 @@ function WorkflowCanvasHarness() {
       const node = createWorkflowNode('agent', {
         position: avoidOverlap(current, requestedPosition),
       });
-      const edges =
-        selectedNode && selectedNode.type !== 'end'
-          ? [
-              ...current.edges,
-              createWorkflowEdge({
-                id: `${selectedNode.id}-${node.id}`,
-                source: selectedNode.id,
-                target: node.id,
-              }),
-            ]
-          : current.edges;
-
       setSelectedNodeId(node.id);
       setSelectedEdgeId(null);
       setSessionPanelNodeId(null);
@@ -235,7 +209,7 @@ function WorkflowCanvasHarness() {
       return {
         ...current,
         nodes: [...current.nodes, node],
-        edges,
+        edges: current.edges,
       };
     });
   };
@@ -249,32 +223,23 @@ function WorkflowCanvasHarness() {
 
   const handleEdgeChange = (
     edgeId: string,
-    updates: Partial<Pick<WorkflowEdge, 'type'>>
+    updates: Partial<
+      Pick<
+        WorkflowEdge,
+        'source' | 'target' | 'source_handle' | 'target_handle' | 'type'
+      >
+    >
   ) => {
     setGraph((current) => {
-      let nextGraph: WorkflowGraph = {
-        ...current,
-        edges: current.edges.map((edge) =>
-          edge.id === edgeId ? { ...edge, ...updates } : edge
-        ),
-      };
-
-      if (updates.type === 'condition_branch') {
-        const branchName =
-          getConditionBranchNameForEdge(nextGraph, edgeId) ??
-          getConditionBranchNamesForEdge(nextGraph, edgeId)[0];
-        if (branchName) {
-          nextGraph = setConditionBranchTargetForEdge(
-            nextGraph,
-            edgeId,
-            branchName
-          );
-        }
-      } else if (updates.type) {
-        nextGraph = clearConditionBranchTargetForEdge(nextGraph, edgeId);
-      }
-
-      return nextGraph;
+      return syncConditionBranches(
+        normalizeConditionEdgeTypes({
+          ...current,
+          edges: current.edges.map((edge) =>
+            edge.id === edgeId ? { ...edge, ...updates } : edge
+          ),
+        }),
+        current
+      );
     });
   };
 
@@ -365,6 +330,16 @@ function WorkflowCanvasHarness() {
         >
           Select condition edge
         </button>
+        <button
+          data-testid="select-condition-node"
+          onClick={() => {
+            setSelectedNodeId('condition');
+            setSelectedEdgeId(null);
+            setSessionPanelNodeId(null);
+          }}
+        >
+          Select condition node
+        </button>
       </aside>
       <section data-testid="workflow-canvas" style={{ height: 520 }}>
         <ReactFlowProvider>
@@ -378,9 +353,6 @@ function WorkflowCanvasHarness() {
               setSelectedNodeId(selection.nodeId);
               setSelectedEdgeId(selection.edgeId);
               setContextMenu(null);
-              if (selection.nodeId !== sessionPanelNodeId) {
-                setSessionPanelNodeId(null);
-              }
             }}
             onNodeOpen={(nodeId) => {
               const node = graph.nodes.find(
@@ -399,12 +371,16 @@ function WorkflowCanvasHarness() {
               );
               setContextMenu(node?.type === 'agent' ? event : null);
             }}
+            onNodeEdit={openEditDialog}
+            onNodeDuplicate={duplicateAgentStep}
+            onNodeDelete={deleteAgentStep}
           />
         </ReactFlowProvider>
       </section>
       <section data-testid="node-inspector">
         <WorkflowNodeInspector
           node={selectedNode}
+          graph={graph}
           onChange={handleNodeChange}
         />
       </section>
@@ -412,14 +388,7 @@ function WorkflowCanvasHarness() {
         <WorkflowEdgeInspector
           edge={selectedEdge}
           nodes={graph.nodes}
-          conditionBranchName={selectedEdgeConditionBranchName}
-          conditionBranchNames={selectedEdgeConditionBranchNames}
           onChange={handleEdgeChange}
-          onConditionBranchChange={(edgeId, branchName) => {
-            setGraph((current) =>
-              setConditionBranchTargetForEdge(current, edgeId, branchName)
-            );
-          }}
         />
       </section>
 
@@ -537,7 +506,7 @@ function TaskAttemptsHarness() {
       statusLabel: 'Draft',
       statusTone: 'draft' as const,
       updatedAt: '2026-05-14T02:00:00Z',
-      primaryActionLabel: 'Open canvas',
+      primaryActionLabel: 'Open workflow',
     },
     {
       id: 'workspace-attempt-1',

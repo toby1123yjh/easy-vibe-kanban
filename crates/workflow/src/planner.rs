@@ -204,6 +204,7 @@ mod tests {
             version: 2,
             nodes,
             edges,
+            router_executor_config: None,
             canvas: None,
         }
     }

@@ -4,7 +4,6 @@ import {
   WORKFLOW_PORT_HANDLE_IDS,
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
-  clearConditionBranchTargetForEdge,
   createWorkflowCanvasStageGroup,
   createWorkflowCanvasStickyNote,
   createDefaultWorkflowGraph,
@@ -12,14 +11,15 @@ import {
   createWorkflowNode,
   fromReactFlowCanvasGraph,
   fromReactFlowGraph,
-  getConditionBranchNameForEdge,
-  getConditionBranchNamesForEdge,
+  getConditionBranchTargets,
   migrateWorkflowGraph,
-  setConditionBranchTargetForEdge,
+  normalizeConditionEdgeTypes,
+  syncConditionBranches,
   tidyWorkflowGraph,
   toReactFlowCanvasNodes,
   toReactFlowEdges,
   toReactFlowNodes,
+  type WorkflowGraph,
 } from './workflowGraph';
 import {
   WORKFLOW_NODE_CATALOG,
@@ -101,15 +101,8 @@ describe('workflow graph model', () => {
     });
     expect(createDefaultNodeData('condition')).toMatchObject({
       display_name: 'Condition',
-      joiner: 'and',
-      conditions: [
-        {
-          input: '{{input}}',
-          operator: 'contains',
-          value: '',
-        },
-      ],
-      branches: [{ name: 'true' }, { name: 'false' }],
+      routing_mode: 'single',
+      branches: [],
     });
     expect(createDefaultNodeData('human_gate')).toMatchObject({
       display_name: 'Human Gate',
@@ -145,9 +138,9 @@ describe('workflow graph model', () => {
     const first = createDefaultNodeData('condition');
     const second = createDefaultNodeData('condition');
 
-    first.conditions?.[0] && (first.conditions[0].value = 'changed');
+    first.branches?.push({ target_node_id: 'changed' });
 
-    expect(second.conditions?.[0]?.value).toBe('');
+    expect(second.branches).toEqual([]);
   });
 
   it('maps backend graph nodes to React Flow nodes without changing node data', () => {
@@ -474,7 +467,25 @@ describe('workflow graph model', () => {
       targetHandle: 'input',
     });
 
-    expect(fromReactFlowGraph([], flowEdges).edges[0]).toEqual(edge);
+    const graph = fromReactFlowGraph(
+      [
+        {
+          id: 'condition',
+          type: 'condition',
+          data: createDefaultNodeData('condition'),
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          data: createDefaultNodeData('agent'),
+          position: { x: 320, y: 0 },
+        },
+      ],
+      flowEdges
+    );
+
+    expect(graph.edges[0]).toEqual(edge);
   });
 
   it('migrates legacy v1 graphs to single-port edge handles', () => {
@@ -577,14 +588,20 @@ describe('workflow graph model', () => {
     expect(graph.nodes[0].data).toEqual({ display_name: 'Agent' });
   });
 
-  it('maps condition branch names to selected edge targets', () => {
+  it('syncs condition branch rows with outgoing condition targets', () => {
     const condition = createWorkflowNode('condition', { id: 'condition' });
-    const graph = {
+    const graph: WorkflowGraph = {
       version: WORKFLOW_GRAPH_VERSION,
       nodes: [
         condition,
-        createWorkflowNode('agent', { id: 'yes' }),
-        createWorkflowNode('agent', { id: 'no' }),
+        createWorkflowNode('agent', {
+          id: 'yes',
+          data: { display_name: 'Yes path' },
+        }),
+        createWorkflowNode('agent', {
+          id: 'no',
+          data: { display_name: 'No path' },
+        }),
       ],
       edges: [
         createWorkflowEdge({
@@ -602,27 +619,28 @@ describe('workflow graph model', () => {
       ],
     };
 
-    const updated = setConditionBranchTargetForEdge(
-      graph,
-      'condition-yes',
-      'true'
-    );
+    const updated = syncConditionBranches(graph);
 
     expect(updated.nodes[0].data.branches).toEqual([
-      { name: 'true', target_node_id: 'yes' },
-      { name: 'false' },
+      {
+        id: 'branch-condition-yes',
+        target_node_id: 'yes',
+        condition: '',
+      },
+      {
+        id: 'branch-condition-no',
+        target_node_id: 'no',
+        condition: '',
+      },
     ]);
-    expect(getConditionBranchNameForEdge(updated, 'condition-yes')).toBe(
-      'true'
-    );
-    expect(getConditionBranchNamesForEdge(updated, 'condition-no')).toEqual([
-      'true',
-      'false',
+    expect(getConditionBranchTargets(updated, 'condition')).toEqual([
+      { nodeId: 'yes', label: 'Yes path', edgeIds: ['condition-yes'] },
+      { nodeId: 'no', label: 'No path', edgeIds: ['condition-no'] },
     ]);
   });
 
-  it('clears condition branch target mappings for selected edges', () => {
-    const graph = {
+  it('removes stale condition branch rows when outgoing edges are removed', () => {
+    const graph: WorkflowGraph = {
       version: WORKFLOW_GRAPH_VERSION,
       nodes: [
         createWorkflowNode('condition', {
@@ -647,33 +665,119 @@ describe('workflow graph model', () => {
       ],
     };
 
-    const updated = clearConditionBranchTargetForEdge(graph, 'condition-yes');
+    const updated = syncConditionBranches(graph);
 
     expect(updated.nodes[0].data.branches).toEqual([
-      { name: 'true' },
-      { name: 'false', target_node_id: 'no' },
+      {
+        id: 'branch-condition-yes',
+        name: 'true',
+        target_node_id: 'yes',
+      },
     ]);
-    expect(getConditionBranchNameForEdge(updated, 'condition-yes')).toBeNull();
   });
 
-  it('does not mutate graph when branch mapping a non-condition edge', () => {
-    const graph = {
+  it('preserves branch conditions when an outgoing condition edge is retargeted', () => {
+    const previousGraph: WorkflowGraph = {
       version: WORKFLOW_GRAPH_VERSION,
       nodes: [
+        createWorkflowNode('condition', {
+          id: 'condition',
+          data: {
+            branches: [
+              {
+                id: 'branch-review',
+                target_node_id: 'review',
+                condition: 'Needs review',
+              },
+            ],
+          },
+        }),
+        createWorkflowNode('agent', { id: 'review' }),
+        createWorkflowNode('agent', { id: 'implement' }),
+        createWorkflowNode('end', { id: 'end' }),
+      ],
+      edges: [
+        createWorkflowEdge({
+          id: 'condition-out',
+          source: 'condition',
+          target: 'review',
+          type: 'condition_branch',
+        }),
+      ],
+    };
+    const nextGraph: WorkflowGraph = {
+      ...previousGraph,
+      edges: [
+        createWorkflowEdge({
+          id: 'condition-out',
+          source: 'condition',
+          target: 'implement',
+          type: 'condition_branch',
+        }),
+      ],
+    };
+
+    const updated = syncConditionBranches(nextGraph, previousGraph);
+
+    expect(updated.nodes[0].data.branches).toEqual([
+      {
+        id: 'branch-review',
+        target_node_id: 'implement',
+        condition: 'Needs review',
+      },
+    ]);
+  });
+
+  it('normalizes condition edge types from the source node kind', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        createWorkflowNode('condition', { id: 'condition' }),
         createWorkflowNode('agent', { id: 'agent' }),
         createWorkflowNode('end', { id: 'end' }),
       ],
       edges: [
         createWorkflowEdge({
+          id: 'condition-agent',
+          source: 'condition',
+          target: 'agent',
+          type: 'default',
+        }),
+        createWorkflowEdge({
           id: 'agent-end',
           source: 'agent',
           target: 'end',
+          type: 'condition_branch',
         }),
       ],
     };
 
-    expect(setConditionBranchTargetForEdge(graph, 'agent-end', 'true')).toBe(
-      graph
-    );
+    expect(normalizeConditionEdgeTypes(graph).edges).toEqual([
+      expect.objectContaining({
+        id: 'condition-agent',
+        type: 'condition_branch',
+      }),
+      expect.objectContaining({ id: 'agent-end', type: 'default' }),
+    ]);
+  });
+
+  it('preserves workflow-level router executor config through graph conversion', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      router_executor_config: { executor: 'codex' },
+      nodes: [createWorkflowNode('agent', { id: 'agent' })],
+      edges: [],
+    };
+
+    expect(migrateWorkflowGraph(graph).router_executor_config).toEqual({
+      executor: 'codex',
+    });
+    expect(
+      fromReactFlowGraph(
+        toReactFlowNodes(graph),
+        toReactFlowEdges(graph),
+        graph
+      ).router_executor_config
+    ).toEqual({ executor: 'codex' });
   });
 });

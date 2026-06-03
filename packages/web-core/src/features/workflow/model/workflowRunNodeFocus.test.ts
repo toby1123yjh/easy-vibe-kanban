@@ -14,7 +14,7 @@ function createStorage() {
 }
 
 describe('workflow run node focus', () => {
-  it('queues a node conversation target for the next run canvas load', () => {
+  it('queues a node conversation target for the next run workflow load', () => {
     const storage = createStorage();
 
     queueWorkflowRunNodeFocus(

@@ -13,12 +13,9 @@ import { getWorkflowEdgeKindOptions } from '../model/workflowPresentation';
 export interface WorkflowEdgeInspectorProps {
   edge: WorkflowEdge | null;
   nodes: WorkflowNode[];
-  conditionBranchName?: string | null;
-  conditionBranchNames?: string[];
   focusField?: 'source' | 'target' | null;
   readOnly?: boolean;
   onChange?: (edgeId: string, updates: Partial<WorkflowEdge>) => void;
-  onConditionBranchChange?: (edgeId: string, branchName: string) => void;
   onDelete?: (edgeId: string) => void;
 }
 
@@ -30,12 +27,9 @@ function getNodeLabel(nodes: WorkflowNode[], nodeId: string): string {
 export function WorkflowEdgeInspector({
   edge,
   nodes,
-  conditionBranchName,
-  conditionBranchNames = [],
   focusField,
   readOnly,
   onChange,
-  onConditionBranchChange,
   onDelete,
 }: WorkflowEdgeInspectorProps) {
   const { t } = useTranslation('common');
@@ -86,11 +80,6 @@ export function WorkflowEdgeInspector({
       target,
       target_handle: edge.target_handle ?? DEFAULT_TARGET_HANDLE,
     });
-  };
-
-  const handleConditionBranchChange = (branchName: string) => {
-    if (readOnly || !onConditionBranchChange) return;
-    onConditionBranchChange(edge.id, branchName);
   };
 
   return (
@@ -198,31 +187,6 @@ export function WorkflowEdgeInspector({
           <p className="text-xs text-low">{selectedOption.description}</p>
         ) : null}
       </div>
-
-      {edge.type === 'condition_branch' && conditionBranchNames.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          <label className="font-semibold text-high">
-            {t('workflow.inspector.conditionBranch')}
-          </label>
-          <select
-            className="w-full rounded border border-secondary bg-primary px-2 py-1 text-normal disabled:opacity-50"
-            value={conditionBranchName ?? ''}
-            onChange={(event) =>
-              handleConditionBranchChange(event.target.value)
-            }
-            disabled={readOnly}
-          >
-            <option value="" disabled>
-              {t('workflow.inspector.selectBranch')}
-            </option>
-            {conditionBranchNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
 
       <div className="flex flex-col gap-1">
         <label className="font-semibold text-high">

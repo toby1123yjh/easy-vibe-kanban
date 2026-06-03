@@ -15,7 +15,7 @@ describe('workflow node catalog sections', () => {
         id: 'execution',
         label: 'Execution',
         labelKey: 'workflow.editor.sections.execution',
-        types: ['agent', 'arena'],
+        types: ['agent'],
       },
       {
         id: 'control',

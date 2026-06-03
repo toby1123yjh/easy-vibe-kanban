@@ -1,8 +1,11 @@
 import type {
+  WorkflowConditionBranch,
+  WorkflowGraph,
   WorkflowNode,
   WorkflowNodeData,
   WorkflowNodeKind,
 } from '../model/workflowGraph';
+import { getConditionBranchTargets } from '../model/workflowGraph';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import {
@@ -16,6 +19,7 @@ import { Plus, Trash2 } from 'lucide-react';
 
 export interface WorkflowNodeInspectorProps {
   node: WorkflowNode | null;
+  graph?: WorkflowGraph | null;
   readOnly?: boolean;
   onChange?: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
 }
@@ -65,6 +69,7 @@ function getLocalizedField(
 
 export function WorkflowNodeInspector({
   node,
+  graph,
   readOnly,
   onChange,
 }: WorkflowNodeInspectorProps) {
@@ -90,17 +95,17 @@ export function WorkflowNodeInspector({
     .filter(isSimpleField)
     .filter((field) => shouldRenderSimpleField(type, data, field))
     .map((field) => getLocalizedField(field, t));
-  const hasConditionRules = schemaFields.some(
-    (field) => field.type === 'condition_rules'
-  );
   const hasConditionBranches = schemaFields.some(
     (field) => field.type === 'condition_branches'
   );
   const hasArenaAttempts = schemaFields.some(
     (field) => field.type === 'arena_attempts'
   );
-  const conditions = data.conditions ?? [];
   const branches = data.branches ?? [];
+  const conditionBranchTargets =
+    type === 'condition' && graph
+      ? getConditionBranchTargets(graph, node.id)
+      : [];
   const attempts = data.attempts ?? [];
 
   const inputClass =
@@ -137,188 +142,110 @@ export function WorkflowNodeInspector({
         />
       ))}
 
-      {type === 'condition' && (hasConditionRules || hasConditionBranches) && (
-        <>
-          {hasConditionRules ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-high">
-                  {t('workflow.inspector.rules')}
-                </label>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  disabled={readOnly}
-                  onClick={() =>
-                    handleChange('conditions', [
-                      ...conditions,
-                      {
-                        input: '{{input}}',
-                        operator: 'contains',
-                        value: '',
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {t('workflow.inspector.addRule')}
-                </button>
-              </div>
-              {conditions.map((condition, index) => (
-                <div
-                  key={condition.id ?? index}
-                  className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="text-xs font-semibold text-high">
-                      {t('workflow.inspector.ruleLabel', {
-                        index: index + 1,
-                      })}
-                    </label>
-                    <button
-                      type="button"
-                      className={iconButtonClass}
-                      aria-label={t('workflow.inspector.removeRule', {
-                        index: index + 1,
-                      })}
-                      disabled={readOnly}
-                      onClick={() =>
-                        handleChange(
-                          'conditions',
-                          conditions.filter((_, i) => i !== index)
-                        )
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder={t('workflow.inspector.inputPlaceholder')}
-                    className={inputClass}
-                    value={condition.input ?? ''}
-                    onChange={(e) => {
-                      const newConditions = [...conditions];
-                      newConditions[index] = {
-                        ...newConditions[index],
-                        input: e.target.value,
-                      };
-                      handleChange('conditions', newConditions);
-                    }}
-                    disabled={readOnly}
-                  />
+      {type === 'condition' && hasConditionBranches ? (
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-semibold text-high">
+            {t('workflow.inspector.branches')}
+          </label>
+          {branches.length === 0 ? (
+            <div className="rounded-md border border-secondary/60 bg-primary/50 p-3 text-xs text-low shadow-sm">
+              {t('workflow.inspector.noConditionBranches', {
+                defaultValue: 'No outgoing targets',
+              })}
+            </div>
+          ) : null}
+          {branches.map((branch, index) => {
+            const usedTargetIds = new Set(
+              branches
+                .map((candidate, branchIndex) =>
+                  branchIndex === index ? null : candidate.target_node_id
+                )
+                .filter((targetId): targetId is string => Boolean(targetId))
+            );
+            const updateBranch = (
+              updates: Partial<WorkflowConditionBranch>
+            ) => {
+              const nextBranches = [...branches];
+              nextBranches[index] = {
+                ...nextBranches[index],
+                ...updates,
+              };
+              handleChange('branches', nextBranches);
+            };
+
+            return (
+              <div
+                key={branch.id ?? branch.target_node_id ?? index}
+                title={
+                  branch.target_node_id
+                    ? t('workflow.inspector.nodeIdTitle', {
+                        nodeId: branch.target_node_id,
+                        defaultValue: `Node ID: ${branch.target_node_id}`,
+                      })
+                    : undefined
+                }
+                className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm"
+              >
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-high">
+                    {t('workflow.inspector.branchTarget', {
+                      defaultValue: 'Target',
+                    })}
+                  </label>
                   <select
                     className={inputClass}
-                    value={condition.operator ?? 'contains'}
-                    onChange={(e) => {
-                      const newConditions = [...conditions];
-                      newConditions[index] = {
-                        ...newConditions[index],
-                        operator: e.target
-                          .value as import('../model/workflowGraph').ConditionOperator,
-                      };
-                      handleChange('conditions', newConditions);
-                    }}
-                    disabled={readOnly}
-                  >
-                    <option value="contains">
-                      {t('workflow.operators.contains')}
-                    </option>
-                    <option value="equals">
-                      {t('workflow.operators.equals')}
-                    </option>
-                    <option value="not_equals">
-                      {t('workflow.operators.notEquals')}
-                    </option>
-                    <option value="regex">
-                      {t('workflow.operators.regex')}
-                    </option>
-                  </select>
-                  <input
-                    type="text"
-                    placeholder={t('workflow.inspector.valuePlaceholder')}
-                    className={inputClass}
-                    value={condition.value ?? ''}
-                    onChange={(e) => {
-                      const newConditions = [...conditions];
-                      newConditions[index] = {
-                        ...newConditions[index],
-                        value: e.target.value,
-                      };
-                      handleChange('conditions', newConditions);
-                    }}
-                    disabled={readOnly}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {hasConditionBranches ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs font-semibold text-high">
-                  {t('workflow.inspector.branches')}
-                </label>
-                <button
-                  type="button"
-                  className={secondaryButtonClass}
-                  disabled={readOnly}
-                  onClick={() =>
-                    handleChange('branches', [
-                      ...branches,
-                      { name: `branch-${branches.length + 1}` },
-                    ])
-                  }
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {t('workflow.inspector.addBranch')}
-                </button>
-              </div>
-              {branches.map((branch, index) => (
-                <div
-                  key={`${branch.name ?? 'branch'}-${index}`}
-                  className="flex items-center gap-2 rounded-md border border-secondary/60 bg-primary/50 p-2 shadow-sm"
-                >
-                  <input
-                    type="text"
-                    aria-label={t('workflow.inspector.branchName', {
-                      index: index + 1,
-                    })}
-                    className={inputClass}
-                    value={branch.name ?? ''}
-                    onChange={(e) => {
-                      const newBranches = [...branches];
-                      newBranches[index] = {
-                        ...newBranches[index],
-                        name: e.target.value,
-                      };
-                      handleChange('branches', newBranches);
-                    }}
-                    disabled={readOnly}
-                  />
-                  <button
-                    type="button"
-                    className={iconButtonClass}
-                    aria-label={t('workflow.inspector.removeBranch', {
-                      index: index + 1,
-                    })}
-                    disabled={readOnly || branches.length <= 1}
-                    onClick={() =>
-                      handleChange(
-                        'branches',
-                        branches.filter((_, i) => i !== index)
-                      )
+                    value={branch.target_node_id ?? ''}
+                    onChange={(event) =>
+                      updateBranch({ target_node_id: event.target.value })
                     }
+                    disabled={readOnly}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                    {!branch.target_node_id ? (
+                      <option value="">
+                        {t('workflow.inspector.selectTarget', {
+                          defaultValue: 'Select target',
+                        })}
+                      </option>
+                    ) : null}
+                    {conditionBranchTargets.map((target) => (
+                      <option
+                        key={target.nodeId}
+                        value={target.nodeId}
+                        disabled={usedTargetIds.has(target.nodeId)}
+                      >
+                        {target.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ))}
-            </div>
-          ) : null}
-        </>
-      )}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-high">
+                    {t('workflow.inspector.branchCondition', {
+                      defaultValue: 'Condition',
+                    })}
+                  </label>
+                  <textarea
+                    className={inputClass}
+                    rows={3}
+                    value={branch.condition ?? ''}
+                    placeholder={t(
+                      'workflow.inspector.branchConditionPlaceholder',
+                      {
+                        defaultValue:
+                          'Example: upstream work mentions UI changes',
+                      }
+                    )}
+                    onChange={(event) =>
+                      updateBranch({ condition: event.target.value })
+                    }
+                    disabled={readOnly}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {type === 'arena' && hasArenaAttempts && (
         <>

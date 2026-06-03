@@ -28,7 +28,7 @@ use workflow::{
         NodeExecutionSnapshot, NodeExecutionStatus as PlannerNodeExecutionStatus, RunSnapshot,
     },
     runner::WorkflowRunner,
-    validation::validate_graph,
+    validation::validate_graph_for_run,
 };
 
 use crate::{
@@ -382,7 +382,7 @@ where
     let workflow = get_workflow_template(pool, workflow_id).await?;
     let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
-    validate_graph(&graph)
+    validate_graph_for_run(&graph)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
 
     let run_id = Uuid::new_v4();
@@ -931,7 +931,7 @@ async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun,
     let graph_json: String = row.try_get("graph_json")?;
     let graph: WorkflowGraph = serde_json::from_str(&graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
-    validate_graph(&graph)
+    validate_graph_for_run(&graph)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
 
     Ok(RuntimeRun {

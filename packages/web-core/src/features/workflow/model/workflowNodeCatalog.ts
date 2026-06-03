@@ -40,18 +40,11 @@ export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
   {
     type: 'condition',
     label: 'Condition',
-    description: 'Branching logic based on rules',
+    description: 'Agentic routing across connected branches',
     defaultData: {
       display_name: 'Condition',
-      joiner: 'and',
-      conditions: [
-        {
-          input: '{{input}}',
-          operator: 'contains',
-          value: '',
-        },
-      ],
-      branches: [{ name: 'true' }, { name: 'false' }],
+      routing_mode: 'single',
+      branches: [],
     },
   },
   {
@@ -124,7 +117,7 @@ export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
       id: 'execution',
       label: 'Execution',
       labelKey: 'workflow.editor.sections.execution',
-      types: ['agent', 'arena'],
+      types: ['agent'],
     },
     {
       id: 'control',
