@@ -22,6 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Free runner disk space
+        run: |
+          set -euxo pipefail
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/go
+          docker system prune -af || true
+          df -h
+
       - name: Setup Node
         uses: ./.github/actions/setup-node
 
