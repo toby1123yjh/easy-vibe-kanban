@@ -561,9 +561,8 @@ pub async fn create_issue_workflow_attempt_with_resources<W>(
 where
     W: WorkflowWorkspaceResolver,
 {
-    let repo_overrides =
-        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
-            .map_err(ApiError::BadRequest)?;
+    let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
+        .map_err(ApiError::BadRequest)?;
     let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
     let workspace_id = workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
@@ -934,9 +933,8 @@ where
     let attempt = workflow_attempt_by_id(pool, attempt_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
-    let repo_overrides =
-        workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
-            .map_err(ApiError::BadRequest)?;
+    let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
+        .map_err(ApiError::BadRequest)?;
 
     let run = trigger_workflow_run_for_attempt_with_repos(
         pool,
