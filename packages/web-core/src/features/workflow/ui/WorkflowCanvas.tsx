@@ -19,6 +19,7 @@ import {
   Position,
   ConnectionLineType,
   ConnectionMode,
+  MarkerType,
   NodeResizer,
   useNodesState,
   useEdgesState,
@@ -34,6 +35,7 @@ import {
   type NodeChange,
   type EdgeChange,
   type EdgeProps,
+  type DefaultEdgeOptions,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -841,6 +843,19 @@ export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
 export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
   ConnectionLineType.SmoothStep;
 export const WORKFLOW_CANVAS_CONNECTION_MODE = ConnectionMode.Loose;
+export const WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH = 32;
+export const WORKFLOW_CANVAS_RECONNECT_RADIUS = 16;
+export const WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS = {
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    color: 'context-stroke',
+    width: 14,
+    height: 14,
+    markerUnits: 'userSpaceOnUse',
+    strokeWidth: 1.6,
+  },
+  interactionWidth: WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH,
+} satisfies DefaultEdgeOptions;
 export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
   'select',
   'dimensions',
@@ -941,7 +956,7 @@ const WorkflowEdge = ({
           id={id}
           path={edgePath}
           markerEnd={markerEnd}
-          interactionWidth={32}
+          interactionWidth={WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH}
           className={cn(
             'workflow-edge-path',
             selected && 'workflow-edge-path-selected',
@@ -1569,10 +1584,12 @@ export function WorkflowCanvas({
         onPaneClick={() => applySelection({ nodeId: null, edgeId: null })}
         onDragOver={onDragOver}
         onDrop={onDrop}
+        defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
         nodesDraggable
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
-        reconnectRadius={16}
+        reconnectRadius={WORKFLOW_CANVAS_RECONNECT_RADIUS}
+        elevateEdgesOnSelect
         connectionMode={WORKFLOW_CANVAS_CONNECTION_MODE}
         elementsSelectable={true}
         connectionLineType={WORKFLOW_CANVAS_CONNECTION_LINE_TYPE}

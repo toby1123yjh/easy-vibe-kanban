@@ -477,8 +477,8 @@
       "saveBeforeRun": "請先儲存工作流嘗試，再開始執行。",
       "saveBeforeSession": "請先儲存工作流嘗試，再開啟智慧體會話。",
       "startFailed": "啟動工作流執行失敗。",
-      "invalidGraph": "工作流圖 JSON 不包含有效圖。",
-      "parseGraphFailed": "無法解析工作流圖 JSON。"
+      "invalidGraph": "工作流 JSON 不包含有效工作流。",
+      "parseGraphFailed": "無法解析工作流 JSON。"
     },
     "repositoryDialog": {
       "title": "新增工作流嘗試",
@@ -523,7 +523,7 @@
       "stage": "階段",
       "validate": "校驗",
       "validation": "校驗",
-      "graphValid": "工作流圖有效",
+      "graphValid": "工作流有效",
       "validationFound": "校驗發現 {{count}} 個問題。",
       "validationFound_other": "校驗發現 {{count}} 個問題。",
       "openLatestRun": "開啟最新執行",
@@ -531,7 +531,7 @@
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
       "deleteAgentStepTitle": "刪除智慧體",
-      "deleteAgentStepMessage": "這會從工作流圖中移除此步驟。既有會話歷史不會複製到其他步驟。",
+      "deleteAgentStepMessage": "這會從工作流中移除此步驟。既有會話歷史不會複製到其他步驟。",
       "agentStepActions": "智慧體操作",
       "nodeActions": "節點操作",
       "openSession": "開啟會話",
@@ -636,8 +636,8 @@
       "workflowRun": "工作流執行 {{id}}"
     },
     "runCanvas": {
-      "loadingGraph": "正在載入工作流圖...",
-      "loadGraphFailed": "無法載入本次執行的工作流圖。",
+      "loadingGraph": "正在載入工作流...",
+      "loadGraphFailed": "無法載入本次執行的工作流。",
       "nodeDetails": "節點詳情",
       "notExecutedYet": "尚未執行",
       "selectNode": "選擇節點",

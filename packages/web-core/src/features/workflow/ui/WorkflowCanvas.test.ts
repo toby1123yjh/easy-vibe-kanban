@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { ConnectionMode } from '@xyflow/react';
+import { ConnectionMode, MarkerType } from '@xyflow/react';
 import {
   WORKFLOW_CANVAS_CONNECTION_MODE,
   WORKFLOW_CANVAS_CONNECTION_LINE_TYPE,
+  WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
   WORKFLOW_CANVAS_DELETE_KEYS,
   WORKFLOW_CANVAS_EDGE_ACTIONS,
+  WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH,
   WORKFLOW_CANVAS_EDGE_TYPE,
   WORKFLOW_CANVAS_NODE_ACTIONS,
+  WORKFLOW_CANVAS_RECONNECT_RADIUS,
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
@@ -30,6 +33,23 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses a custom semantic edge renderer', () => {
     expect(WORKFLOW_CANVAS_EDGE_TYPE).toBe('workflow');
+  });
+
+  it('renders directional workflow edges without persisting marker metadata', () => {
+    expect(WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS.markerEnd).toEqual({
+      type: MarkerType.ArrowClosed,
+      color: 'context-stroke',
+      width: 14,
+      height: 14,
+      markerUnits: 'userSpaceOnUse',
+      strokeWidth: 1.6,
+    });
+    expect(WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS.interactionWidth).toBe(
+      WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH
+    );
+    expect(WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS).not.toHaveProperty(
+      'reconnectable'
+    );
   });
 
   it('keeps visual token groups explicit for canvas, nodes, edges, panels, and motion', () => {
@@ -60,6 +80,11 @@ describe('workflow canvas interaction settings', () => {
 
   it('uses loose connection mode so one visible port can start and receive wires', () => {
     expect(WORKFLOW_CANVAS_CONNECTION_MODE).toBe(ConnectionMode.Loose);
+  });
+
+  it('keeps reconnect handles easy to grab without thickening the visible line', () => {
+    expect(WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH).toBe(32);
+    expect(WORKFLOW_CANVAS_RECONNECT_RADIUS).toBe(16);
   });
 
   it('keeps object-level node and edge actions discoverable near the object', () => {

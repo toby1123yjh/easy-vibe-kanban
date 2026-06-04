@@ -41,9 +41,9 @@ use crate::{
             WorkflowRunStartRequest, WorkflowWorkspaceRequest, WorkflowWorkspaceResolver,
             approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
             reconcile_workflow_run_with_arena, reject_human_node, retry_workflow_node_with_arena,
-            select_arena_winner_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_for_attempt_with_repos, trigger_workflow_run_with_arena,
-            workflow_event_history,
+            select_arena_winner_with_arena, select_condition_branch_with_arena,
+            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_repos,
+            trigger_workflow_run_with_arena, workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
     },
@@ -110,6 +110,14 @@ pub struct RunWorkflowAttemptRequest {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SelectArenaWinnerRequest {
     pub workspace_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct SelectConditionBranchRequest {
+    pub selected_target_node_ids: Vec<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -312,6 +320,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route(
             "/v1/workflow-runs/{run_id}/nodes/{node_id}/arena-winner",
             post(select_arena_winner),
+        )
+        .route(
+            "/v1/workflow-runs/{run_id}/nodes/{node_id}/condition-branch",
+            post(select_condition_branch),
         )
         .with_state(deployment.clone())
 }
@@ -1659,6 +1671,31 @@ async fn select_arena_winner(
         &agent_executor,
         &arena_creator,
         &winner_applier,
+    )
+    .await?;
+    sync_attempt_from_run(&deployment.db().pool, &run).await?;
+
+    Ok(ResponseJson(MutationResponse {
+        data: workflow_action_response(&run, Some(node_id)),
+        txid: txid(),
+    }))
+}
+
+async fn select_condition_branch(
+    State(deployment): State<DeploymentImpl>,
+    Path((run_id, node_id)): Path<(Uuid, String)>,
+    Json(request): Json<SelectConditionBranchRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let run = select_condition_branch_with_arena(
+        &deployment.db().pool,
+        run_id,
+        &node_id,
+        request.selected_target_node_ids,
+        request.reason,
+        &agent_executor,
+        &arena_creator,
     )
     .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;

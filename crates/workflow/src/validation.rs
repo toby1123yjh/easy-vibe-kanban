@@ -243,9 +243,7 @@ fn validate_condition_routing_for_run(graph: &WorkflowGraph) -> Result<(), Valid
         }
     }
 
-    Err(ValidationError::new(
-        "agentic condition router runtime is not implemented",
-    ))
+    Ok(())
 }
 
 fn router_executor_config_has_executor(config: &serde_json::Value) -> bool {
@@ -506,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn run_validation_blocks_agentic_condition_until_router_runtime_exists() {
+    fn run_validation_accepts_complete_agentic_condition_runtime_config() {
         let mut graph = graph(
             vec![
                 node("start", WorkflowNodeKind::Start),
@@ -542,11 +540,7 @@ mod tests {
             "variant": null
         }));
 
-        let err = validate_graph_for_run(&graph).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("router runtime is not implemented")
-        );
+        validate_graph_for_run(&graph).unwrap();
     }
 
     #[test]

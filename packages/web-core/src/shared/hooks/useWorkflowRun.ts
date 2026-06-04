@@ -9,6 +9,7 @@ import {
   type ApproveNodeRequest,
   type RejectNodeRequest,
   type SelectArenaWinnerRequest,
+  type SelectConditionBranchRequest,
 } from '@/shared/lib/workflowApi';
 import type { WorkflowRunResponse, TriggerWorkflowRequest } from 'shared/types';
 
@@ -134,6 +135,23 @@ export function useWorkflowRunMutations() {
     },
   });
 
+  const selectConditionBranchMutation = useMutation({
+    mutationFn: ({
+      runId,
+      nodeId,
+      payload,
+    }: {
+      runId: string;
+      nodeId: string;
+      payload: SelectConditionBranchRequest;
+    }) => workflowApi.selectConditionBranch(runId, nodeId, payload),
+    onSuccess: (_, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: workflowRunQueryKeys.detail(variables.runId),
+      });
+    },
+  });
+
   return {
     triggerRun: triggerMutation.mutateAsync,
     isTriggering: triggerMutation.isPending,
@@ -147,5 +165,7 @@ export function useWorkflowRunMutations() {
     isRetrying: retryMutation.isPending,
     selectArenaWinner: selectArenaWinnerMutation.mutateAsync,
     isSelectingArenaWinner: selectArenaWinnerMutation.isPending,
+    selectConditionBranch: selectConditionBranchMutation.mutateAsync,
+    isSelectingConditionBranch: selectConditionBranchMutation.isPending,
   };
 }

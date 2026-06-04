@@ -34,6 +34,7 @@ export interface WorkflowAgentStepEditPanelProps {
   hasExistingRun?: boolean;
   error?: string | null;
   onClose: () => void;
+  onExecutorConfigChange?: (executorConfig: ExecutorConfig) => void;
   onSave: (value: WorkflowAgentStepEditValue) => void;
 }
 
@@ -45,6 +46,7 @@ export function WorkflowAgentStepEditPanel({
   hasExistingRun = false,
   error,
   onClose,
+  onExecutorConfigChange,
   onSave,
 }: WorkflowAgentStepEditPanelProps) {
   const { t } = useTranslation('common');
@@ -84,6 +86,7 @@ export function WorkflowAgentStepEditPanel({
     lastUsedConfig: null,
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
+    onPersist: onExecutorConfigChange,
   });
 
   const isTitleDisabled = readOnly || isSaving || !node;

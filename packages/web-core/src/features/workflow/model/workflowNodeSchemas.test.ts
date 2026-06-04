@@ -20,4 +20,18 @@ describe('workflow node schemas', () => {
       })
     );
   });
+
+  it('exposes agentic Condition fields instead of legacy rule fields', () => {
+    const fields = getWorkflowNodeSchemaFields('condition');
+
+    expect(fields.map((field) => field.key)).toEqual([
+      'display_name',
+      'routing_mode',
+      'branches',
+    ]);
+    expect(fields.map((field) => field.type)).toContain('condition_branches');
+    expect(fields.map((field) => field.key)).not.toEqual(
+      expect.arrayContaining(['conditions', 'joiner', 'operator'])
+    );
+  });
 });

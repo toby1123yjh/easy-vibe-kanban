@@ -929,9 +929,51 @@ html {
     border: 0 !important;
     background: transparent !important;
     box-shadow: none;
+    cursor: grab;
+    fill: transparent !important;
+    stroke: hsl(var(--brand) / 0.58) !important;
+    stroke-dasharray: 3 4;
+    stroke-width: 1.4;
     opacity: 0 !important;
     pointer-events: all;
+    transition:
+      opacity var(--workflow-motion-fast) ease,
+      stroke var(--workflow-motion-fast) ease,
+      fill var(--workflow-motion-fast) ease,
+      filter var(--workflow-motion-fast) ease;
     visibility: visible;
+  }
+
+  .workflow-canvas-product .react-flow__edgeupdater:active,
+  .workflow-canvas-product .react-flow__edgeupdater-source:active,
+  .workflow-canvas-product .react-flow__edgeupdater-target:active {
+    cursor: grabbing;
+  }
+
+  .workflow-canvas-product .react-flow__edge:hover .react-flow__edgeupdater,
+  .workflow-canvas-product
+    .react-flow__edge:hover
+    .react-flow__edgeupdater-source,
+  .workflow-canvas-product
+    .react-flow__edge:hover
+    .react-flow__edgeupdater-target {
+    fill: hsl(var(--brand) / 0.07) !important;
+    filter: drop-shadow(0 0 10px rgba(249, 115, 22, 0.34));
+    opacity: 0.72 !important;
+  }
+
+  .workflow-canvas-product .react-flow__edge.selected .react-flow__edgeupdater,
+  .workflow-canvas-product
+    .react-flow__edge.selected
+    .react-flow__edgeupdater-source,
+  .workflow-canvas-product
+    .react-flow__edge.selected
+    .react-flow__edgeupdater-target {
+    fill: hsl(var(--brand) / 0.11) !important;
+    filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.48));
+    opacity: 0.95 !important;
+    stroke: hsl(var(--brand) / 0.82) !important;
+    stroke-width: 1.6;
   }
 
   .workflow-canvas-product .workflow-edge-action {
@@ -1100,6 +1142,7 @@ html {
     .workflow-node-toolbar,
     .workflow-canvas-product .react-flow__node,
     .workflow-canvas-product .react-flow__edge,
+    .workflow-canvas-product .react-flow__edgeupdater,
     .workflow-canvas-product .react-flow__handle.workflow-handle-visible {
       transition-duration: 0ms !important;
     }

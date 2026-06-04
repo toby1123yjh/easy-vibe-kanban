@@ -739,7 +739,12 @@ export function WorkflowTemplateEditorPage({
       return;
     }
 
-    const currentNode = graph.nodes.find((node) => node.id === editPanelNodeId);
+    const persistedGraph = template?.graph_json
+      ? parsePersistedWorkflowGraph(template.graph_json, graph)
+      : graph;
+    const currentNode = persistedGraph.nodes.find(
+      (node) => node.id === editPanelNodeId
+    );
     const nextGraph = applyWorkflowNodeDataPatch(graph, editPanelNodeId, {
       display_name: displayName,
       ...createWorkflowAgentNodeDraftPatch({ prompt, executorConfig }),
@@ -1572,6 +1577,11 @@ export function WorkflowTemplateEditorPage({
                 hasExistingRun={editPanelHasExistingRun}
                 error={runStartError}
                 onClose={() => setEditPanelNodeId(null)}
+                onExecutorConfigChange={(executorConfig) =>
+                  handleNodeChange(editableAgentNode.id, {
+                    executor_config: executorConfig,
+                  })
+                }
                 onSave={(value) => void handleAgentStepEditSave(value)}
               />
             ) : sessionPanelExecution ? (

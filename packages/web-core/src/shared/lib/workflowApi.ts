@@ -118,6 +118,11 @@ export interface SelectArenaWinnerRequest {
   workspace_id: string;
 }
 
+export interface SelectConditionBranchRequest {
+  selected_target_node_ids: string[];
+  reason?: string | null;
+}
+
 export const workflowApi = {
   async list(projectId: string): Promise<WorkflowTemplateListResponse> {
     return getJson(
@@ -324,6 +329,23 @@ export const workflowApi = {
         body: JSON.stringify(payload),
       }),
       'Failed to select arena winner'
+    );
+  },
+
+  async selectConditionBranch(
+    runId: string,
+    nodeId: string,
+    payload: SelectConditionBranchRequest
+  ): Promise<WorkflowActionResponse> {
+    return mutate(
+      await localFetch(
+        `/workflow-runs/${runId}/nodes/${nodeId}/condition-branch`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+      'Failed to select condition branch'
     );
   },
 

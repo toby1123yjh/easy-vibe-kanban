@@ -1,18 +1,21 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{LazyLock, Mutex},
 };
 
 use async_trait::async_trait;
 use db::models::{
+    coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     session::{CreateSession, Session},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError},
-    workspace_repo::CreateWorkspaceRepo,
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
 use executors::profile::{ExecutorConfig, ExecutorConfigs};
+use git::GitCli;
 use serde_json::{Value, json};
 use services::services::container::ContainerService;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
@@ -46,6 +49,10 @@ use crate::{
             ArenaNodeAttemptRequest, ArenaNodeExecution, ArenaNodeRequest, ArenaWinnerExecution,
             ArenaWinnerRequest, NoopWorkflowArenaCreator, WorkflowArenaCreator,
             WorkflowArenaWinnerApplier,
+        },
+        condition_router::{
+            ConditionRouterCompletion, RouterUpstreamNode, build_manual_route, build_router_prompt,
+            evaluate_router_output, output_has_router_mutation_warning,
         },
         workspace::{main_workflow_branch_name, short_run_id},
     },
@@ -559,6 +566,72 @@ where
     get_workflow_run_response(pool, run_id).await
 }
 
+pub async fn select_condition_branch_with_arena<A, R>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    selected_target_node_ids: Vec<String>,
+    reason: Option<String>,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError>
+where
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+{
+    let run = load_runtime_run(pool, run_id).await?;
+    let node = run
+        .graph
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    if node.kind != WorkflowNodeKind::Condition {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` is not a condition"
+        )));
+    }
+    let iteration =
+        node_iteration_with_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman)
+            .await?;
+
+    let existing_output = node_execution_output_text(pool, run_id, node_id, iteration).await?;
+    let manual_route = build_manual_route(
+        &run.graph,
+        node,
+        &selected_target_node_ids,
+        reason.as_deref(),
+        output_has_router_mutation_warning(existing_output.as_deref()),
+    )
+    .map_err(|err| ApiError::BadRequest(err.to_string()))?;
+
+    mark_node_succeeded(
+        pool,
+        run_id,
+        node_id,
+        iteration,
+        Some(&manual_route.output_text),
+        None,
+        None,
+    )
+    .await?;
+    mark_skipped_targets(pool, run_id, &manual_route.skipped_target_node_ids).await?;
+    update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
+    drive_workflow_run(
+        pool,
+        run_id,
+        &run.graph,
+        run.issue_id,
+        run.workspace_id,
+        &run.input_text,
+        agent_executor,
+        arena_creator,
+    )
+    .await?;
+
+    get_workflow_run_response(pool, run_id).await
+}
+
 pub async fn select_arena_winner_with_arena<A, R, W>(
     pool: &SqlitePool,
     run_id: Uuid,
@@ -774,7 +847,8 @@ where
     }
 
     let run = load_runtime_run(pool, run_id).await?;
-    let outcome = reconcile_running_agent_nodes(pool, run_id).await?;
+    let outcome =
+        reconcile_running_workflow_nodes(pool, run_id, &run.graph, run.workspace_id).await?;
 
     if outcome.failed {
         mark_pending_nodes_skipped(pool, run_id).await?;
@@ -785,6 +859,16 @@ where
             None,
             Some("Workflow agent execution failed"),
             true,
+        )
+        .await?;
+    } else if outcome.awaiting_human {
+        update_run_status(
+            pool,
+            run_id,
+            WorkflowRunStatus::AwaitingHuman,
+            None,
+            None,
+            false,
         )
         .await?;
     } else if outcome.completed {
@@ -854,20 +938,23 @@ pub async fn recover_stale_workflow_runs(pool: &SqlitePool) -> Result<u64, ApiEr
 struct ReconcileOutcome {
     completed: bool,
     failed: bool,
+    awaiting_human: bool,
 }
 
-async fn reconcile_running_agent_nodes(
+async fn reconcile_running_workflow_nodes(
     pool: &SqlitePool,
     run_id: Uuid,
+    graph: &WorkflowGraph,
+    workspace_id: Uuid,
 ) -> Result<ReconcileOutcome, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT ne.node_id, ne.iteration, ne.execution_process_id,
+        SELECT ne.node_id, ne.node_type, ne.iteration, ne.execution_process_id, ne.output_text,
                ep.status, ep.exit_code
         FROM node_executions ne
         JOIN execution_processes ep ON ep.id = ne.execution_process_id
         WHERE ne.run_id = ?
-          AND ne.node_type = 'agent'
+          AND ne.node_type IN ('agent', 'condition')
           AND ne.status = 'running'
           AND ne.execution_process_id IS NOT NULL
         ORDER BY ne.rowid ASC
@@ -880,26 +967,52 @@ async fn reconcile_running_agent_nodes(
     let mut outcome = ReconcileOutcome::default();
     for row in rows {
         let node_id: String = row.try_get("node_id")?;
+        let node_type: String = row.try_get("node_type")?;
         let iteration: i64 = row.try_get("iteration")?;
         let execution_process_id: Uuid = row.try_get("execution_process_id")?;
+        let node_output_text: Option<String> = row.try_get("output_text")?;
         let status: ExecutionProcessStatus = row.try_get("status")?;
         let exit_code: Option<i64> = row.try_get("exit_code")?;
 
         match status {
             ExecutionProcessStatus::Running => {}
             ExecutionProcessStatus::Completed => {
-                let output = format!("Completed workflow agent execution {execution_process_id}");
-                mark_node_succeeded(
-                    pool,
-                    run_id,
-                    &node_id,
-                    iteration,
-                    Some(&output),
-                    None,
-                    Some(execution_process_id),
-                )
-                .await?;
-                outcome.completed = true;
+                if node_type == "condition" {
+                    let raw_output = router_summary_for_execution(pool, execution_process_id)
+                        .await?
+                        .unwrap_or_default();
+                    let completed = complete_condition_router(
+                        pool,
+                        run_id,
+                        graph,
+                        workspace_id,
+                        &node_id,
+                        iteration,
+                        execution_process_id,
+                        node_output_text.as_deref(),
+                        &raw_output,
+                    )
+                    .await?;
+                    if completed.should_pause() {
+                        outcome.awaiting_human = true;
+                    } else {
+                        outcome.completed = true;
+                    }
+                } else {
+                    let output =
+                        format!("Completed workflow agent execution {execution_process_id}");
+                    mark_node_succeeded(
+                        pool,
+                        run_id,
+                        &node_id,
+                        iteration,
+                        Some(&output),
+                        None,
+                        Some(execution_process_id),
+                    )
+                    .await?;
+                    outcome.completed = true;
+                }
             }
             ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed => {
                 let message = match exit_code {
@@ -1324,6 +1437,129 @@ where
                 }
             }
         }
+        WorkflowNodeKind::Condition => {
+            let pre_worktree_snapshot = workflow_worktree_snapshot(pool, workspace_id).await?;
+            let upstream_nodes = router_upstream_nodes(pool, graph, run_id, node).await?;
+            let prompt = build_router_prompt(
+                &run_id.to_string(),
+                graph,
+                node,
+                run_input_text,
+                &upstream_nodes,
+                pre_worktree_snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.summary.as_str()),
+            )
+            .map_err(|err| ApiError::BadRequest(err.to_string()))?;
+            let router_session_id =
+                router_session_id_for_run(pool, run_id, workspace_id, graph).await?;
+            let router_executor_config = graph.router_executor_config.clone().ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Workflow with Condition nodes requires router executor config".to_string(),
+                )
+            })?;
+
+            mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
+            match agent_executor
+                .run_agent(AgentNodeRequest {
+                    run_id,
+                    node_id: node.id.clone(),
+                    session_id: Some(router_session_id),
+                    workspace_id,
+                    prompt,
+                    executor_config: Some(router_executor_config),
+                })
+                .await
+            {
+                Ok(AgentNodeExecution::Completed {
+                    session_id,
+                    execution_process_id,
+                    output_text,
+                }) => {
+                    let started_output = router_started_output_payload(
+                        execution_process_id,
+                        pre_worktree_snapshot.as_ref(),
+                    );
+                    update_node_execution(
+                        pool,
+                        run_id,
+                        &node.id,
+                        iteration,
+                        NodeExecutionUpdate {
+                            status: DbNodeExecutionStatus::Running,
+                            input_text: None,
+                            output_text: Some(&started_output),
+                            session_id: Some(session_id),
+                            execution_process_id: Some(execution_process_id),
+                            arena_group_id: None,
+                            error_text: None,
+                            finished: false,
+                        },
+                    )
+                    .await?;
+                    let completion = complete_condition_router(
+                        pool,
+                        run_id,
+                        graph,
+                        workspace_id,
+                        &node.id,
+                        iteration,
+                        execution_process_id,
+                        Some(&started_output),
+                        &output_text,
+                    )
+                    .await?;
+                    if completion.should_pause() {
+                        Ok(RunStep::Pause)
+                    } else {
+                        Ok(RunStep::Continue)
+                    }
+                }
+                Ok(AgentNodeExecution::Started {
+                    session_id,
+                    execution_process_id,
+                    output_text: _,
+                }) => {
+                    let output_text = router_started_output_payload(
+                        execution_process_id,
+                        pre_worktree_snapshot.as_ref(),
+                    );
+                    update_node_execution(
+                        pool,
+                        run_id,
+                        &node.id,
+                        iteration,
+                        NodeExecutionUpdate {
+                            status: DbNodeExecutionStatus::Running,
+                            input_text: None,
+                            output_text: Some(&output_text),
+                            session_id: Some(session_id),
+                            execution_process_id: Some(execution_process_id),
+                            arena_group_id: None,
+                            error_text: None,
+                            finished: false,
+                        },
+                    )
+                    .await?;
+                    Ok(RunStep::Pause)
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    mark_node_failed(pool, run_id, &node.id, iteration, &message).await?;
+                    mark_pending_nodes_skipped(pool, run_id).await?;
+                    update_run_status(
+                        pool,
+                        run_id,
+                        WorkflowRunStatus::Failed,
+                        None,
+                        Some(&message),
+                        true,
+                    )
+                    .await?;
+                    Ok(RunStep::Stop)
+                }
+            }
+        }
         WorkflowNodeKind::Arena => {
             let prompt = render_arena_prompt(node, &context);
             mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
@@ -1592,6 +1828,304 @@ fn arena_attempt_requests(
             }
         })
         .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorktreeSnapshot {
+    summary: String,
+    fingerprint: String,
+}
+
+async fn router_session_id_for_run(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    workspace_id: Uuid,
+    graph: &WorkflowGraph,
+) -> Result<Uuid, ApiError> {
+    if let Some(session_id) = sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"
+        SELECT session_id
+        FROM node_executions
+        WHERE run_id = ?
+          AND node_type = 'condition'
+          AND session_id IS NOT NULL
+        ORDER BY rowid ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    {
+        return Ok(session_id);
+    }
+
+    let router_executor_config = graph.router_executor_config.clone().ok_or_else(|| {
+        ApiError::BadRequest(
+            "Workflow with Condition nodes requires router executor config".to_string(),
+        )
+    })?;
+    let executor_config = executor_config_from_node(Some(router_executor_config)).await?;
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor: Some(executor_config.profile_id().executor.to_string()),
+            name: Some("Workflow Router".to_string()),
+        },
+        Uuid::new_v4(),
+        workspace_id,
+    )
+    .await?;
+
+    Ok(session.id)
+}
+
+async fn router_upstream_nodes(
+    pool: &SqlitePool,
+    graph: &WorkflowGraph,
+    run_id: Uuid,
+    node: &WorkflowNode,
+) -> Result<Vec<RouterUpstreamNode>, ApiError> {
+    let mut upstream_nodes = Vec::new();
+    for edge in graph.edges.iter().filter(|edge| edge.target == node.id) {
+        let source_node = graph
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == edge.source);
+        let row = sqlx::query(
+            r#"
+            SELECT status, output_text, error_text
+            FROM node_executions
+            WHERE run_id = ? AND node_id = ?
+            ORDER BY
+              CASE WHEN status = 'succeeded' THEN 0 ELSE 1 END,
+              iteration DESC,
+              rowid DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(run_id)
+        .bind(&edge.source)
+        .fetch_optional(pool)
+        .await?;
+
+        upstream_nodes.push(RouterUpstreamNode {
+            node_id: edge.source.clone(),
+            node_type: source_node
+                .map(|source| node_kind_value(&source.kind).to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+            status: row
+                .as_ref()
+                .map(|row| row.try_get::<String, _>("status"))
+                .transpose()?
+                .unwrap_or_else(|| "pending".to_string()),
+            output_text: row
+                .as_ref()
+                .map(|row| row.try_get::<Option<String>, _>("output_text"))
+                .transpose()?
+                .flatten(),
+            error_text: row
+                .as_ref()
+                .map(|row| row.try_get::<Option<String>, _>("error_text"))
+                .transpose()?
+                .flatten(),
+        });
+    }
+
+    Ok(upstream_nodes)
+}
+
+async fn workflow_worktree_snapshot(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+) -> Result<Option<WorktreeSnapshot>, ApiError> {
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
+    let Some(container_ref) = workspace
+        .container_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let repos =
+        WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace_id).await?;
+    if repos.is_empty() {
+        return Ok(None);
+    }
+
+    let workspace_root = PathBuf::from(container_ref);
+    let git = GitCli::new();
+    let mut summary_lines = Vec::new();
+    let mut fingerprint_lines = Vec::new();
+
+    for repo in repos {
+        let repo_path = workspace_root.join(&repo.repo.name);
+        match git.get_worktree_status(&repo_path) {
+            Ok(status) => {
+                summary_lines.push(format!(
+                    "{}: {} tracked change(s), {} untracked file(s)",
+                    repo.repo.name, status.uncommitted_tracked, status.untracked
+                ));
+                fingerprint_lines.push(format!(
+                    "repo={};tracked={};untracked={}",
+                    repo.repo.name, status.uncommitted_tracked, status.untracked
+                ));
+                for entry in status.entries {
+                    let path = String::from_utf8_lossy(&entry.path);
+                    let orig_path = entry
+                        .orig_path
+                        .as_ref()
+                        .map(|path| String::from_utf8_lossy(path).to_string())
+                        .unwrap_or_default();
+                    fingerprint_lines.push(format!(
+                        "{}{}:{}:{}",
+                        entry.staged, entry.unstaged, path, orig_path
+                    ));
+                }
+            }
+            Err(err) => {
+                summary_lines.push(format!("{}: status unavailable ({err})", repo.repo.name));
+                fingerprint_lines.push(format!("repo={};status=unavailable:{err}", repo.repo.name));
+            }
+        }
+    }
+
+    Ok(Some(WorktreeSnapshot {
+        summary: summary_lines.join("\n"),
+        fingerprint: fingerprint_lines.join("\n"),
+    }))
+}
+
+fn router_started_output_payload(
+    execution_process_id: Uuid,
+    pre_worktree_snapshot: Option<&WorktreeSnapshot>,
+) -> String {
+    serde_json::to_string(&json!({
+        "type": "condition_router_run",
+        "source": "router",
+        "status": "running",
+        "schema_version": 1,
+        "execution_process_id": execution_process_id,
+        "pre_worktree_summary": pre_worktree_snapshot.map(|snapshot| snapshot.summary.as_str()),
+        "pre_worktree_fingerprint": pre_worktree_snapshot.map(|snapshot| snapshot.fingerprint.as_str())
+    }))
+    .unwrap_or_else(|_| "{\"type\":\"condition_router_run\",\"status\":\"running\"}".to_string())
+}
+
+fn router_pre_worktree_fingerprint(output_text: Option<&str>) -> Option<String> {
+    output_text
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|value| {
+            value
+                .get("pre_worktree_fingerprint")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+}
+
+async fn router_mutation_warning(
+    pool: &SqlitePool,
+    workspace_id: Uuid,
+    started_output_text: Option<&str>,
+) -> Result<Option<String>, ApiError> {
+    let Some(before) = router_pre_worktree_fingerprint(started_output_text) else {
+        return Ok(None);
+    };
+    let Some(after) = workflow_worktree_snapshot(pool, workspace_id).await? else {
+        return Ok(None);
+    };
+    if before == after.fingerprint {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        "Worktree status changed while the Condition router was running".to_string(),
+    ))
+}
+
+async fn router_summary_for_execution(
+    pool: &SqlitePool,
+    execution_process_id: Uuid,
+) -> Result<Option<String>, ApiError> {
+    Ok(
+        CodingAgentTurn::find_by_execution_process_id(pool, execution_process_id)
+            .await?
+            .and_then(|turn| turn.summary),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn complete_condition_router(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    graph: &WorkflowGraph,
+    workspace_id: Uuid,
+    node_id: &str,
+    iteration: i64,
+    execution_process_id: Uuid,
+    started_output_text: Option<&str>,
+    raw_output: &str,
+) -> Result<ConditionRouterCompletion, ApiError> {
+    let condition_node = graph
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| ApiError::BadRequest(format!("Workflow node `{node_id}` not found")))?;
+    if condition_node.kind != WorkflowNodeKind::Condition {
+        return Err(ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` is not a condition"
+        )));
+    }
+
+    let mutation_warning = router_mutation_warning(pool, workspace_id, started_output_text).await?;
+    let completion = evaluate_router_output(raw_output, graph, condition_node, mutation_warning);
+    if completion.should_pause() {
+        update_node_execution(
+            pool,
+            run_id,
+            node_id,
+            iteration,
+            NodeExecutionUpdate {
+                status: DbNodeExecutionStatus::AwaitingHuman,
+                input_text: completion.pause_prompt.as_deref(),
+                output_text: Some(&completion.output_text),
+                session_id: None,
+                execution_process_id: Some(execution_process_id),
+                arena_group_id: None,
+                error_text: None,
+                finished: false,
+            },
+        )
+        .await?;
+        update_run_status(
+            pool,
+            run_id,
+            WorkflowRunStatus::AwaitingHuman,
+            None,
+            None,
+            false,
+        )
+        .await?;
+    } else {
+        mark_node_succeeded(
+            pool,
+            run_id,
+            node_id,
+            iteration,
+            Some(&completion.output_text),
+            None,
+            Some(execution_process_id),
+        )
+        .await?;
+        mark_skipped_targets(pool, run_id, &completion.skipped_target_node_ids).await?;
+    }
+
+    Ok(completion)
 }
 
 fn workflow_arena_branch_name(issue_id: Uuid, run_id: Uuid, attempt_index: usize) -> String {
@@ -1867,6 +2401,55 @@ async fn ensure_node_status(
     }
 
     Ok(())
+}
+
+async fn node_iteration_with_status(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    expected: DbNodeExecutionStatus,
+) -> Result<i64, ApiError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT iteration
+        FROM node_executions
+        WHERE run_id = ? AND node_id = ? AND status = ?
+        ORDER BY iteration DESC, rowid DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .bind(node_status_value(expected))
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "Workflow node `{node_id}` must have an `{}` execution",
+            node_status_value(expected)
+        ))
+    })
+}
+
+async fn node_execution_output_text(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    iteration: i64,
+) -> Result<Option<String>, ApiError> {
+    Ok(sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT output_text
+        FROM node_executions
+        WHERE run_id = ? AND node_id = ? AND iteration = ?
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .bind(iteration)
+    .fetch_optional(pool)
+    .await?
+    .flatten())
 }
 
 async fn arena_group_id_for_node(

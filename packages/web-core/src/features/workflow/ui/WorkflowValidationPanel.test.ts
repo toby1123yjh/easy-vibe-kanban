@@ -201,11 +201,8 @@ describe('workflow graph validation panel helpers', () => {
       validateWorkflowGraph({
         ...graph,
         router_executor_config: { executor: 'codex' },
-      })
-    ).toContainEqual({
-      type: 'error',
-      message: 'Agentic Condition router runtime is not implemented yet',
-    });
+      }).some((issue) => issue.type === 'error')
+    ).toBe(false);
   });
 
   it('rejects invalid condition branch configuration before run', () => {

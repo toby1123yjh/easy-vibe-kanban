@@ -193,13 +193,6 @@ function validateConditionRunReadiness(
       }
     }
   }
-
-  if (hasRouterConfig && !issues.some((issue) => issue.type === 'error')) {
-    issues.push({
-      type: 'error',
-      message: 'Agentic Condition router runtime is not implemented yet',
-    });
-  }
 }
 
 function hasRouterExecutorConfig(config: unknown): boolean {

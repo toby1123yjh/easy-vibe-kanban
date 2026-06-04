@@ -66,7 +66,10 @@ import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { AgentIcon } from '@/shared/components/AgentIcon';
-import { workflowCanvasEdgeTypes } from './WorkflowCanvas';
+import {
+  WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
+  workflowCanvasEdgeTypes,
+} from './WorkflowCanvas';
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
@@ -566,6 +569,7 @@ export function WorkflowRunCanvasTab({
               onNodeClick={handleNodeClick}
               onNodeDoubleClick={handleNodeDoubleClick}
               onPaneClick={() => selectNodeById(null)}
+              defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
               nodesDraggable={false}
               nodesConnectable={false}
               connectionMode={ConnectionMode.Loose}
