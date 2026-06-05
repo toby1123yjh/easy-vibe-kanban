@@ -26,6 +26,22 @@ export function getNextAgentDraftPanelNodeIdForSelection({
   return currentPanelNodeId;
 }
 
+export function shouldKeepRouterConfigPanelForSelection({
+  pendingRouterPromptNodeId,
+  selectedNodeId,
+  selectedEdgeId,
+}: {
+  pendingRouterPromptNodeId: string | null;
+  selectedNodeId: string | null;
+  selectedEdgeId: string | null;
+}): boolean {
+  return (
+    !!pendingRouterPromptNodeId &&
+    selectedNodeId === pendingRouterPromptNodeId &&
+    !selectedEdgeId
+  );
+}
+
 export function getWorkflowTemplateInspectorPanel({
   selectedEdge,
   selectedNode,

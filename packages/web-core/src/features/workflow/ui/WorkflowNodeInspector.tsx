@@ -147,10 +147,17 @@ export function WorkflowNodeInspector({
           <label className="text-xs font-semibold text-high">
             {t('workflow.inspector.branches')}
           </label>
+          <p className="text-xs leading-relaxed text-low">
+            {t('workflow.inspector.conditionBranchHelp', {
+              defaultValue:
+                'Each outgoing line becomes a branch. Describe when the router should choose each target.',
+            })}
+          </p>
           {branches.length === 0 ? (
             <div className="rounded-md border border-secondary/60 bg-primary/50 p-3 text-xs text-low shadow-sm">
               {t('workflow.inspector.noConditionBranches', {
-                defaultValue: 'No outgoing targets',
+                defaultValue:
+                  'No outgoing targets. Connect this Condition to downstream nodes to create branch rows.',
               })}
             </div>
           ) : null}
@@ -221,7 +228,7 @@ export function WorkflowNodeInspector({
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-high">
                     {t('workflow.inspector.branchCondition', {
-                      defaultValue: 'Condition',
+                      defaultValue: 'Route when',
                     })}
                   </label>
                   <textarea
@@ -232,7 +239,7 @@ export function WorkflowNodeInspector({
                       'workflow.inspector.branchConditionPlaceholder',
                       {
                         defaultValue:
-                          'Example: upstream work mentions UI changes',
+                          'Example: upstream output mentions UI, layout, style, or interaction changes',
                       }
                     )}
                     onChange={(event) =>

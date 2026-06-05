@@ -65,6 +65,7 @@ import {
 import {
   applyWorkflowNodeDataPatch,
   getWorkflowTemplateInspectorPanel,
+  shouldKeepRouterConfigPanelForSelection,
 } from './workflowTemplateEditorPanel';
 import {
   WorkflowValidationPanel,
@@ -305,6 +306,7 @@ export function WorkflowTemplateEditorPage({
   );
   const [editPanelNodeId, setEditPanelNodeId] = useState<string | null>(null);
   const [isRouterConfigPanelOpen, setIsRouterConfigPanelOpen] = useState(false);
+  const pendingRouterPromptNodeIdRef = useRef<string | null>(null);
   const [contextMenu, setContextMenu] = useState<NodeContextMenuState | null>(
     null
   );
@@ -495,7 +497,13 @@ export function WorkflowTemplateEditorPage({
     await persistWorkflowGraph(graph);
   };
 
+  const closeRouterConfigPanel = () => {
+    pendingRouterPromptNodeIdRef.current = null;
+    setIsRouterConfigPanelOpen(false);
+  };
+
   const openRouterConfigPanel = () => {
+    pendingRouterPromptNodeIdRef.current = null;
     setIsRouterConfigPanelOpen(true);
     setSelectedEdgeId(null);
     setEdgeReconnectFocus(null);
@@ -515,7 +523,7 @@ export function WorkflowTemplateEditorPage({
     setGraph(nextGraph);
     try {
       await persistWorkflowGraph(nextGraph);
-      setIsRouterConfigPanelOpen(false);
+      closeRouterConfigPanel();
     } catch (err) {
       setRunStartError(formatWorkflowRunError(err));
     }
@@ -637,6 +645,9 @@ export function WorkflowTemplateEditorPage({
     setSessionPanelNodeId(null);
     const shouldPromptForRouter =
       kind === 'condition' && !nextGraph.router_executor_config;
+    pendingRouterPromptNodeIdRef.current = shouldPromptForRouter
+      ? newNode.id
+      : null;
     setIsRouterConfigPanelOpen(shouldPromptForRouter);
     setEditPanelNodeId(
       !shouldPromptForRouter && isWorkflowAgentDraftNode(newNode)
@@ -662,7 +673,7 @@ export function WorkflowTemplateEditorPage({
     setEdgeReconnectFocus(null);
     setEditPanelNodeId(node.type === 'agent' ? nodeId : null);
     setSessionPanelNodeId(null);
-    setIsRouterConfigPanelOpen(false);
+    closeRouterConfigPanel();
     setContextMenu(null);
     setEdgeActionMenu(null);
   };
@@ -784,7 +795,7 @@ export function WorkflowTemplateEditorPage({
     setContextMenu(null);
     setEdgeActionMenu(null);
     setEditPanelNodeId(null);
-    setIsRouterConfigPanelOpen(false);
+    closeRouterConfigPanel();
     setRunStartError(null);
 
     if (isLocalDraft) {
@@ -830,7 +841,7 @@ export function WorkflowTemplateEditorPage({
     setEditPanelNodeId(
       isWorkflowAgentDraftNode(duplicate) ? duplicate.id : null
     );
-    setIsRouterConfigPanelOpen(false);
+    closeRouterConfigPanel();
     setContextMenu(null);
     setEdgeActionMenu(null);
   };
@@ -866,7 +877,7 @@ export function WorkflowTemplateEditorPage({
     setEdgeReconnectFocus(null);
     if (sessionPanelNodeId === nodeId) setSessionPanelNodeId(null);
     if (editPanelNodeId === nodeId) setEditPanelNodeId(null);
-    setIsRouterConfigPanelOpen(false);
+    closeRouterConfigPanel();
     setStaleNodeIds((current) => {
       if (!current.has(nodeId)) return current;
       const next = new Set(current);
@@ -935,7 +946,7 @@ export function WorkflowTemplateEditorPage({
     setEdgeReconnectFocus(focusField);
     setSessionPanelNodeId(null);
     setEditPanelNodeId(null);
-    setIsRouterConfigPanelOpen(false);
+    closeRouterConfigPanel();
     setContextMenu(null);
     setEdgeActionMenu(null);
   };
@@ -1482,8 +1493,18 @@ export function WorkflowTemplateEditorPage({
                       setSelectedNodeId(selection.nodeId);
                       setSelectedEdgeId(selection.edgeId);
                       setEdgeReconnectFocus(null);
-                      if (selection.nodeId || selection.edgeId) {
-                        setIsRouterConfigPanelOpen(false);
+                      const shouldKeepRouterConfigPanel =
+                        shouldKeepRouterConfigPanelForSelection({
+                          pendingRouterPromptNodeId:
+                            pendingRouterPromptNodeIdRef.current,
+                          selectedNodeId: selection.nodeId,
+                          selectedEdgeId: selection.edgeId,
+                        });
+                      if (
+                        (selection.nodeId || selection.edgeId) &&
+                        !shouldKeepRouterConfigPanel
+                      ) {
+                        closeRouterConfigPanel();
                       }
                       setContextMenu(null);
                       setEdgeActionMenu((currentMenu) =>
@@ -1515,7 +1536,7 @@ export function WorkflowTemplateEditorPage({
                       const node = graph.nodes.find(
                         (candidate) => candidate.id === event.nodeId
                       );
-                      setIsRouterConfigPanelOpen(false);
+                      closeRouterConfigPanel();
                       setEdgeActionMenu(null);
                       setContextMenu(
                         node && node.type !== 'start' && node.type !== 'end'
@@ -1529,7 +1550,7 @@ export function WorkflowTemplateEditorPage({
                       setEdgeReconnectFocus(null);
                       setSessionPanelNodeId(null);
                       setEditPanelNodeId(null);
-                      setIsRouterConfigPanelOpen(false);
+                      closeRouterConfigPanel();
                       setContextMenu(null);
                       setEdgeActionMenu(event);
                     }}
@@ -1562,7 +1583,7 @@ export function WorkflowTemplateEditorPage({
                 readOnly={readOnly}
                 isSaving={isUpdating}
                 error={runStartError}
-                onClose={() => setIsRouterConfigPanelOpen(false)}
+                onClose={closeRouterConfigPanel}
                 onSave={(executorConfig) =>
                   void handleRouterConfigSave(executorConfig)
                 }

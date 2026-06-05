@@ -4,6 +4,7 @@ import {
   applyWorkflowNodeDataPatch,
   getNextAgentDraftPanelNodeIdForSelection,
   getWorkflowTemplateInspectorPanel,
+  shouldKeepRouterConfigPanelForSelection,
 } from './workflowTemplateEditorPanel';
 
 const agentNode: WorkflowNode = {
@@ -82,6 +83,32 @@ describe('workflow template editor inspector panel', () => {
         selectedEdgeId: 'edge-1',
       })
     ).toBeNull();
+  });
+
+  it('keeps the router config panel open for the auto-selected new condition', () => {
+    expect(
+      shouldKeepRouterConfigPanelForSelection({
+        pendingRouterPromptNodeId: 'condition-1',
+        selectedNodeId: 'condition-1',
+        selectedEdgeId: null,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldKeepRouterConfigPanelForSelection({
+        pendingRouterPromptNodeId: 'condition-1',
+        selectedNodeId: 'agent-1',
+        selectedEdgeId: null,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldKeepRouterConfigPanelForSelection({
+        pendingRouterPromptNodeId: 'condition-1',
+        selectedNodeId: 'condition-1',
+        selectedEdgeId: 'edge-1',
+      })
+    ).toBe(false);
   });
 
   it('applies the submitted agent draft to the graph before starting a run', () => {
