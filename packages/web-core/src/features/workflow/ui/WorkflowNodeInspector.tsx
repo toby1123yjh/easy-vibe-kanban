@@ -12,16 +12,20 @@ import {
   getWorkflowNodeSchema,
   type WorkflowNodeFieldSchema,
 } from '../model/workflowNodeSchemas';
+import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
+import { AgentIcon } from '@/shared/components/AgentIcon';
 import { WorkflowNodeFieldRenderer } from './WorkflowNodeFieldRenderer';
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Settings2, Trash2 } from 'lucide-react';
 
 export interface WorkflowNodeInspectorProps {
   node: WorkflowNode | null;
   graph?: WorkflowGraph | null;
+  routerExecutorConfig?: unknown;
   readOnly?: boolean;
   onChange?: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
+  onConfigureRouter?: () => void;
 }
 
 const simpleFieldTypes = new Set(['text', 'textarea', 'select', 'number']);
@@ -70,8 +74,10 @@ function getLocalizedField(
 export function WorkflowNodeInspector({
   node,
   graph,
+  routerExecutorConfig,
   readOnly,
   onChange,
+  onConfigureRouter,
 }: WorkflowNodeInspectorProps) {
   const { t } = useTranslation('common');
   if (!node) {
@@ -107,6 +113,10 @@ export function WorkflowNodeInspector({
       ? getConditionBranchTargets(graph, node.id)
       : [];
   const attempts = data.attempts ?? [];
+  const routerDisplay = getWorkflowAgentDisplay({
+    executor_config: routerExecutorConfig,
+  });
+  const hasRouterExecutorConfig = routerDisplay.executorConfig !== null;
 
   const inputClass =
     'w-full rounded-md border border-secondary bg-primary px-3 py-1.5 text-sm shadow-sm transition-colors focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-50';
@@ -141,6 +151,59 @@ export function WorkflowNodeInspector({
           onChange={handleChange}
         />
       ))}
+
+      {type === 'condition' ? (
+        <div className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <label className="text-xs font-semibold text-high">
+                {t('workflow.inspector.routerAgent', {
+                  defaultValue: 'Router agent',
+                })}
+              </label>
+              <p className="mt-1 text-xs text-low">
+                {t('workflow.inspector.routerSharedNote', {
+                  defaultValue: 'Used by all Condition nodes in this workflow.',
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              disabled={readOnly || !onConfigureRouter}
+              onClick={onConfigureRouter}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              {t('workflow.inspector.configureRouter', {
+                defaultValue: 'Configure',
+              })}
+            </button>
+          </div>
+
+          {hasRouterExecutorConfig ? (
+            <div className="flex items-center gap-2 rounded-md border border-brand/20 bg-brand/10 px-2.5 py-2">
+              <AgentIcon
+                agent={routerDisplay.executor}
+                className="size-5 shrink-0"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-xs font-semibold text-high">
+                  {routerDisplay.agentLabel}
+                </div>
+                <div className="truncate text-xs text-low">
+                  {routerDisplay.modelLabel}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs text-warning">
+              {t('workflow.inspector.routerMissing', {
+                defaultValue: 'Router agent is not configured.',
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {type === 'condition' && hasConditionBranches ? (
         <div className="flex flex-col gap-2">

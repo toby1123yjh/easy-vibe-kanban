@@ -1640,8 +1640,10 @@ export function WorkflowTemplateEditorPage({
               <WorkflowNodeInspector
                 node={inspectorPanel.node}
                 graph={graph}
+                routerExecutorConfig={graph.router_executor_config}
                 readOnly={readOnly}
                 onChange={handleNodeChange}
+                onConfigureRouter={openRouterConfigPanel}
               />
             )}
           </div>
