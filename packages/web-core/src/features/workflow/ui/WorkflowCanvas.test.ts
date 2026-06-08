@@ -42,10 +42,10 @@ describe('workflow canvas interaction settings', () => {
     expect(WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS.markerEnd).toEqual({
       type: MarkerType.ArrowClosed,
       color: 'context-stroke',
-      width: 14,
-      height: 14,
+      width: 20,
+      height: 20,
       markerUnits: 'userSpaceOnUse',
-      strokeWidth: 1.6,
+      strokeWidth: 2.2,
     });
     expect(WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS.interactionWidth).toBe(
       WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH
@@ -74,6 +74,12 @@ describe('workflow canvas interaction settings', () => {
     );
     expect(WORKFLOW_CANVAS_EDGE_CLASSES.actionButton).toContain(
       'workflow-edge-action-button'
+    );
+    expect(WORKFLOW_CANVAS_EDGE_CLASSES.actionButton).toContain(
+      'rounded-[6px]'
+    );
+    expect(WORKFLOW_CANVAS_EDGE_CLASSES.actionButton).not.toContain(
+      'rounded-full'
     );
   });
 

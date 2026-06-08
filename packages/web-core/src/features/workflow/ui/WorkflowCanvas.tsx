@@ -86,9 +86,9 @@ import {
   AlertTriangle,
   Copy,
   MessageSquare,
-  MoreHorizontal,
   Pencil,
   Play,
+  Settings2,
   Trash2,
 } from 'lucide-react';
 import {
@@ -859,10 +859,10 @@ export const WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS = {
   markerEnd: {
     type: MarkerType.ArrowClosed,
     color: 'context-stroke',
-    width: 14,
-    height: 14,
+    width: 20,
+    height: 20,
     markerUnits: 'userSpaceOnUse',
-    strokeWidth: 1.6,
+    strokeWidth: 2.2,
   },
   interactionWidth: WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH,
 } satisfies DefaultEdgeOptions;
@@ -1042,7 +1042,7 @@ const WorkflowEdge = ({
           interactionWidth={0}
           className="workflow-edge-track"
           style={{
-            strokeWidth: selected || isRunning || isInvalid ? 4.5 : 3.5,
+            strokeWidth: isRunning ? 5.5 : selected || isInvalid ? 4.5 : 3.5,
           }}
         />
         <BaseEdge
@@ -1057,13 +1057,17 @@ const WorkflowEdge = ({
           )}
           style={{
             strokeWidth:
-              selected ||
-              visualStatus === 'running' ||
-              visualStatus === 'failed' ||
-              isInvalid
-                ? 2.25
-                : 1.5,
-            opacity: visualStatus === 'idle' ? 0.58 : 0.86,
+              visualStatus === 'running'
+                ? 2.8
+                : selected || visualStatus === 'failed' || isInvalid
+                  ? 2.4
+                  : 1.5,
+            opacity:
+              visualStatus === 'running'
+                ? 1
+                : visualStatus === 'idle'
+                  ? 0.58
+                  : 0.88,
           }}
         />
         <BaseEdge
@@ -1075,7 +1079,7 @@ const WorkflowEdge = ({
             isRunning && 'workflow-edge-beam-running',
             selected && isRunning && 'opacity-100'
           )}
-          style={{ strokeWidth: selected || isRunning ? 2.25 : 1.5 }}
+          style={{ strokeWidth: isRunning ? 3.35 : selected ? 2.25 : 1.5 }}
         />
         {connectionIssueMessage ? (
           <EdgeLabelRenderer>
@@ -1128,7 +1132,7 @@ const WorkflowEdge = ({
                 aria-label={t('workflow.canvas.openEdgeActions', { id })}
                 title={t('workflow.editor.edgeActions')}
               >
-                <MoreHorizontal className="relative z-10 h-4 w-4" />
+                <Settings2 className="relative z-10 h-3.5 w-3.5" />
               </button>
             </div>
           </foreignObject>

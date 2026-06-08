@@ -125,23 +125,28 @@ export function getWorkflowCanvasNodeStateLabel(
 }
 
 export function getWorkflowCanvasEdgeState(
-  sourceStatus: NodeExecutionStatus | undefined
+  sourceStatus: NodeExecutionStatus | undefined,
+  targetStatus?: NodeExecutionStatus
 ): WorkflowCanvasEdgeState {
-  switch (sourceStatus) {
-    case 'running':
-      return 'running';
-    case 'succeeded':
-      return 'succeeded';
-    case 'failed':
-      return 'failed';
-    case 'awaiting_human':
-    case 'awaiting_arena':
-      return 'waiting';
-    case 'skipped':
-      return 'skipped';
-    default:
-      return 'idle';
+  if (sourceStatus === 'failed' || targetStatus === 'failed') return 'failed';
+  if (sourceStatus === 'running' || targetStatus === 'running') {
+    return 'running';
   }
+  if (
+    sourceStatus === 'awaiting_human' ||
+    sourceStatus === 'awaiting_arena' ||
+    targetStatus === 'awaiting_human' ||
+    targetStatus === 'awaiting_arena'
+  ) {
+    return 'waiting';
+  }
+  if (sourceStatus === 'skipped' || targetStatus === 'skipped') {
+    return 'skipped';
+  }
+  if (sourceStatus === 'succeeded' || targetStatus === 'succeeded') {
+    return 'succeeded';
+  }
+  return 'idle';
 }
 
 export function buildWorkflowEdgeStateMap(
@@ -151,7 +156,10 @@ export function buildWorkflowEdgeStateMap(
   return Object.fromEntries(
     graph.edges.map((edge) => [
       edge.id,
-      getWorkflowCanvasEdgeState(nodeStatuses?.[edge.source]),
+      getWorkflowCanvasEdgeState(
+        nodeStatuses?.[edge.source],
+        nodeStatuses?.[edge.target]
+      ),
     ])
   );
 }

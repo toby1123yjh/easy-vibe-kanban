@@ -484,13 +484,17 @@ export function WorkflowRunCanvasTab({
     setEdges(
       baseEdges.map((baseEdge) => {
         const sourceExecution = execNodeMap.get(baseEdge.source);
+        const targetExecution = execNodeMap.get(baseEdge.target);
 
         return {
           ...baseEdge,
           type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
           data: {
             ...baseEdge.data,
-            visualStatus: getWorkflowCanvasEdgeState(sourceExecution?.status),
+            visualStatus: getWorkflowCanvasEdgeState(
+              sourceExecution?.status,
+              targetExecution?.status
+            ),
           },
         };
       })

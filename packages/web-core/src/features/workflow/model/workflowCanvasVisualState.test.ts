@@ -57,10 +57,14 @@ const graph = {
 } satisfies WorkflowGraph;
 
 describe('workflow canvas visual state', () => {
-  it('keeps idle edges quiet until the source node is running', () => {
+  it('keeps idle edges quiet until a connected node is active', () => {
     expect(getWorkflowCanvasEdgeState(undefined)).toBe('idle');
     expect(getWorkflowCanvasEdgeState('pending')).toBe('idle');
     expect(getWorkflowCanvasEdgeState('running')).toBe('running');
+    expect(getWorkflowCanvasEdgeState('succeeded', 'running')).toBe('running');
+    expect(getWorkflowCanvasEdgeState('succeeded', 'awaiting_human')).toBe(
+      'waiting'
+    );
     expect(getWorkflowCanvasEdgeState('succeeded')).toBe('succeeded');
     expect(getWorkflowCanvasEdgeState('awaiting_human')).toBe('waiting');
     expect(getWorkflowCanvasEdgeState('failed')).toBe('failed');
@@ -78,7 +82,7 @@ describe('workflow canvas visual state', () => {
       start: 'succeeded',
     });
     expect(buildWorkflowEdgeStateMap(graph, statuses)).toEqual({
-      'start-agent': 'succeeded',
+      'start-agent': 'running',
       'agent-end': 'running',
     });
   });

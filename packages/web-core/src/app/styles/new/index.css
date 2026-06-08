@@ -680,7 +680,7 @@ html {
     --workflow-node-shadow-dot-waiting: 0 0 16px rgba(245, 158, 11, 0.4);
     --workflow-note-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
     --workflow-edge-track: rgba(122, 148, 186, 0.1);
-    --workflow-edge-track-active: rgba(249, 115, 22, 0.11);
+    --workflow-edge-track-active: rgba(249, 115, 22, 0.16);
     --workflow-edge-hover-filter: drop-shadow(
       0 0 10px rgba(249, 115, 22, 0.26)
     );
@@ -692,11 +692,11 @@ html {
     --workflow-edge-action-shadow: 0 0 22px rgba(249, 115, 22, 0.48);
     --workflow-edge-action-shadow-hover:
       0 12px 26px rgba(0, 0, 0, 0.34), 0 0 24px rgba(249, 115, 22, 0.62);
-    --workflow-edge-beam-color: #fff7ed;
+    --workflow-edge-beam-color: #ffffff;
     --workflow-edge-beam-shadow:
-      0 0 7px rgba(255, 247, 237, 0.78), 0 0 18px rgba(249, 115, 22, 0.58);
-    --workflow-edge-beam-filter: drop-shadow(0 0 7px rgba(255, 247, 237, 0.78))
-      drop-shadow(0 0 18px rgba(249, 115, 22, 0.58));
+      0 0 9px rgba(255, 255, 255, 0.9), 0 0 24px rgba(249, 115, 22, 0.74);
+    --workflow-edge-beam-filter: drop-shadow(0 0 9px rgba(255, 255, 255, 0.9))
+      drop-shadow(0 0 24px rgba(249, 115, 22, 0.74));
     --workflow-port-hover-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 16px rgba(249, 115, 22, 0.48);
     --workflow-port-active-shadow:
@@ -717,7 +717,7 @@ html {
     --workflow-motion-fast: 140ms;
     --workflow-motion-base: 160ms;
     --workflow-motion-panel: 160ms;
-    --workflow-motion-beam: 1.2s;
+    --workflow-motion-beam: 0.86s;
     --workflow-motion-node-pulse: 1.8s;
     --workflow-motion-dot-pulse: 1.4s;
   }
@@ -804,9 +804,10 @@ html {
   }
 
   .workflow-edge-group:hover .workflow-edge-track,
-  .workflow-edge-group-selected .workflow-edge-track {
+  .workflow-edge-group-selected .workflow-edge-track,
+  .workflow-edge-group-running .workflow-edge-track {
     stroke: var(--workflow-edge-track-active);
-    opacity: 0.72;
+    opacity: 0.78;
   }
 
   .workflow-edge-path {
@@ -823,6 +824,11 @@ html {
     filter: var(--workflow-edge-hover-filter);
   }
 
+  .workflow-edge-group-running .workflow-edge-path {
+    opacity: 1 !important;
+    filter: var(--workflow-edge-selected-filter);
+  }
+
   .workflow-edge-path-selected {
     opacity: 1 !important;
     filter: var(--workflow-edge-selected-filter);
@@ -830,7 +836,7 @@ html {
 
   .workflow-edge-beam {
     stroke: var(--workflow-edge-beam-color);
-    stroke-dasharray: 10 14;
+    stroke-dasharray: 14 10;
     stroke-linecap: round;
     opacity: 0;
     filter: none;
@@ -842,7 +848,7 @@ html {
   }
 
   .workflow-edge-beam-running {
-    opacity: 0.96;
+    opacity: 1;
     filter: var(--workflow-edge-beam-filter);
     animation: workflow-edge-flow var(--workflow-motion-beam) linear infinite;
   }
@@ -931,16 +937,14 @@ html {
     box-shadow: none;
     cursor: grab;
     fill: transparent !important;
-    stroke: hsl(var(--brand) / 0.58) !important;
-    stroke-dasharray: 3 4;
-    stroke-width: 1.4;
+    stroke: transparent !important;
+    stroke-dasharray: none;
+    stroke-width: 0;
     opacity: 0 !important;
     pointer-events: all;
     transition:
       opacity var(--workflow-motion-fast) ease,
-      stroke var(--workflow-motion-fast) ease,
-      fill var(--workflow-motion-fast) ease,
-      filter var(--workflow-motion-fast) ease;
+      cursor var(--workflow-motion-fast) ease;
     visibility: visible;
   }
 
@@ -957,9 +961,9 @@ html {
   .workflow-canvas-product
     .react-flow__edge:hover
     .react-flow__edgeupdater-target {
-    fill: hsl(var(--brand) / 0.07) !important;
-    filter: drop-shadow(0 0 10px rgba(249, 115, 22, 0.34));
-    opacity: 0.72 !important;
+    fill: transparent !important;
+    filter: none;
+    opacity: 0 !important;
   }
 
   .workflow-canvas-product .react-flow__edge.selected .react-flow__edgeupdater,
@@ -969,11 +973,11 @@ html {
   .workflow-canvas-product
     .react-flow__edge.selected
     .react-flow__edgeupdater-target {
-    fill: hsl(var(--brand) / 0.11) !important;
-    filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.48));
-    opacity: 0.95 !important;
-    stroke: hsl(var(--brand) / 0.82) !important;
-    stroke-width: 1.6;
+    fill: transparent !important;
+    filter: none;
+    opacity: 0 !important;
+    stroke: transparent !important;
+    stroke-width: 0;
   }
 
   .workflow-canvas-product .workflow-edge-action {
