@@ -666,15 +666,21 @@
       "reviewNodeToProceed": "Review this node to proceed.",
       "approving": "Approving...",
       "rejecting": "Rejecting...",
-      "conversationAgentOnly": "Conversation is available for Agent nodes.",
+      "conversationAgentOnly": "Conversation is available for Agent and Condition nodes.",
+      "conditionBranchFailed": "Failed to select condition branch.",
+      "conditionRouterBranches": "Available branches",
+      "continueSelectedBranches": "Continue selected branches",
       "executionId": "Execution ID",
       "nodeId": "Node ID",
       "nodeType": "Node type",
+      "noConditionBranches": "No connected condition branches are available.",
       "workspaceId": "Workspace ID",
       "noWorkspace": "No workspace",
       "started": "Started",
       "finished": "Finished",
-      "notFinished": "Not finished"
+      "notFinished": "Not finished",
+      "selectConditionBranch": "Select",
+      "selectingConditionBranch": "Selecting..."
     },
     "debug": {
       "noDebugData": "No debug data for this step.",
@@ -795,6 +801,7 @@
     },
     "nodeSession": {
       "agentStepSession": "Agent Step Session",
+      "conditionRouterSession": "Condition Router Session",
       "nodeSession": "Node Session",
       "sessionNotStarted": "Session not started",
       "cockpit": "Agent Step Cockpit",
@@ -819,7 +826,8 @@
       "session": "Session: {{id}}",
       "noAgentResponse": "No agent response has been captured yet.",
       "nodePrompt": "Node prompt",
-      "noPrompt": "No prompt has been captured yet."
+      "noPrompt": "No prompt has been captured yet.",
+      "rawRouterOutput": "Raw router output"
     }
   },
   "fileTree": {

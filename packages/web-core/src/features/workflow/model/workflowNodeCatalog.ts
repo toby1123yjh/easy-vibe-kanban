@@ -92,6 +92,10 @@ export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
   },
 ];
 
+export function isWorkflowNodeAuthorable(kind: WorkflowNodeKind): boolean {
+  return kind !== 'start' && kind !== 'end' && kind !== 'arena';
+}
+
 export function createDefaultNodeData(
   kind: WorkflowNodeKind
 ): WorkflowNodeData {
@@ -105,7 +109,9 @@ export function createDefaultNodeData(
 
 export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
   const entryByType = new Map(
-    WORKFLOW_NODE_CATALOG.map((entry) => [entry.type, entry])
+    WORKFLOW_NODE_CATALOG.filter((entry) =>
+      isWorkflowNodeAuthorable(entry.type)
+    ).map((entry) => [entry.type, entry])
   );
   const sections: Array<{
     id: WorkflowNodeCatalogSection['id'];
@@ -125,20 +131,16 @@ export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
       labelKey: 'workflow.editor.sections.control',
       types: ['condition', 'human_gate'],
     },
-    {
-      id: 'structure',
-      label: 'Structure',
-      labelKey: 'workflow.editor.sections.structure',
-      types: ['start', 'end'],
-    },
   ];
 
-  return sections.map((section) => ({
-    id: section.id,
-    label: section.label,
-    labelKey: section.labelKey,
-    entries: section.types
-      .map((type) => entryByType.get(type))
-      .filter((entry): entry is CatalogEntry => Boolean(entry)),
-  }));
+  return sections
+    .map((section) => ({
+      id: section.id,
+      label: section.label,
+      labelKey: section.labelKey,
+      entries: section.types
+        .map((type) => entryByType.get(type))
+        .filter((entry): entry is CatalogEntry => Boolean(entry)),
+    }))
+    .filter((section) => section.entries.length > 0);
 }

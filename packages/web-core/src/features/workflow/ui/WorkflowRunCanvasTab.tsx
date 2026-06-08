@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   Background,
   BackgroundVariant,
@@ -36,6 +37,7 @@ import type {
   WorkflowRunResponse,
 } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
+import { Checkbox } from '@vibe/ui/components/Checkbox';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
@@ -52,10 +54,16 @@ import {
   toReactFlowEdges,
   toReactFlowNodes,
   type WorkflowGraph,
+  type WorkflowConditionBranch,
   type WorkflowNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
+import {
+  getConditionRouterHumanPrompt,
+  getConditionRouterReason,
+  parseConditionRouterOutput,
+} from '../model/workflowConditionRouterOutput';
 import {
   getWorkflowCanvasEdgeState,
   getWorkflowCanvasNodeState,
@@ -322,6 +330,58 @@ function buildRunWorkspaceHref(
     : null;
 }
 
+interface ConditionBranchOption {
+  targetNodeId: string;
+  targetLabel: string;
+  branchName: string | null;
+  condition: string | null;
+}
+
+function getBranchLabel(branch: WorkflowConditionBranch | undefined) {
+  const name = branch?.name?.trim();
+  return name && name.length > 0 ? name : null;
+}
+
+function buildConditionBranchOptions(
+  graph: WorkflowGraph,
+  conditionNode: WorkflowNode,
+  t: TFunction<'common'>
+): ConditionBranchOption[] {
+  if (conditionNode.type !== 'condition') return [];
+
+  const branchByTarget = new Map(
+    (conditionNode.data.branches ?? [])
+      .filter((branch) => branch.target_node_id)
+      .map((branch) => [branch.target_node_id as string, branch])
+  );
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const seenTargets = new Set<string>();
+  const options: ConditionBranchOption[] = [];
+
+  for (const edge of graph.edges) {
+    if (edge.source !== conditionNode.id || seenTargets.has(edge.target)) {
+      continue;
+    }
+    seenTargets.add(edge.target);
+
+    const targetNode = nodeById.get(edge.target);
+    const branch = branchByTarget.get(edge.target);
+    const targetLabel =
+      targetNode?.data.display_name?.trim() ||
+      (targetNode ? getWorkflowNodeKindLabel(targetNode.type, t) : edge.target);
+    const condition = branch?.condition?.trim();
+
+    options.push({
+      targetNodeId: edge.target,
+      targetLabel,
+      branchName: getBranchLabel(branch),
+      condition: condition && condition.length > 0 ? condition : null,
+    });
+  }
+
+  return options;
+}
+
 export function WorkflowRunCanvasTab({
   projectId,
   run,
@@ -331,8 +391,14 @@ export function WorkflowRunCanvasTab({
     run.workflow_id
   );
   const navigation = useAppNavigation();
-  const { approveNode, rejectNode, isApproving, isRejecting } =
-    useWorkflowRunMutations();
+  const {
+    approveNode,
+    rejectNode,
+    selectConditionBranch,
+    isApproving,
+    isRejecting,
+    isSelectingConditionBranch,
+  } = useWorkflowRunMutations();
   const [actionError, setActionError] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<
@@ -448,7 +514,9 @@ export function WorkflowRunCanvasTab({
       : null;
   const isWideRunSidePanel =
     selectedExecution?.node_type === 'agent' ||
-    selectedGraphNode?.type === 'agent';
+    selectedExecution?.node_type === 'condition' ||
+    selectedGraphNode?.type === 'agent' ||
+    selectedGraphNode?.type === 'condition';
   const runCanvasLayout: Layout = isWideRunSidePanel
     ? { 'workflow-run-canvas': 62, 'workflow-run-side': 38 }
     : { 'workflow-run-canvas': 74, 'workflow-run-side': 26 };
@@ -528,6 +596,26 @@ export function WorkflowRunCanvasTab({
     }
   };
 
+  const handleSelectConditionBranch = async (targetNodeIds: string[]) => {
+    if (!selectedExecution) return;
+    setActionError(null);
+    try {
+      await selectConditionBranch({
+        runId: run.id,
+        nodeId: selectedExecution.node_id,
+        payload: {
+          selected_target_node_ids: targetNodeIds,
+        },
+      });
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : t('workflow.runCanvas.conditionBranchFailed')
+      );
+    }
+  };
+
   if (isTemplateLoading) {
     return (
       <div className="flex h-full items-center justify-center text-low">
@@ -602,8 +690,13 @@ export function WorkflowRunCanvasTab({
             actionError={actionError}
             isApproving={isApproving}
             isRejecting={isRejecting}
+            isSelectingConditionBranch={isSelectingConditionBranch}
             onApprove={() => void handleApprove()}
             onReject={() => void handleReject()}
+            onSelectConditionBranch={(targetNodeIds) =>
+              void handleSelectConditionBranch(targetNodeIds)
+            }
+            graph={graph}
             projectId={projectId}
             run={run}
             selectedExecution={selectedExecution}
@@ -619,10 +712,13 @@ export function WorkflowRunCanvasTab({
 
 interface NodeDetailPanelProps {
   actionError: string | null;
+  graph: WorkflowGraph;
   isApproving: boolean;
   isRejecting: boolean;
+  isSelectingConditionBranch: boolean;
   onApprove: () => void;
   onReject: () => void;
+  onSelectConditionBranch: (targetNodeIds: string[]) => void;
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse | null;
@@ -633,10 +729,13 @@ interface NodeDetailPanelProps {
 
 function NodeDetailPanel({
   actionError,
+  graph,
   isApproving,
   isRejecting,
+  isSelectingConditionBranch,
   onApprove,
   onReject,
+  onSelectConditionBranch,
   projectId,
   run,
   selectedExecution,
@@ -646,22 +745,34 @@ function NodeDetailPanel({
 }: NodeDetailPanelProps) {
   const { t } = useTranslation('common');
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
-  const sessionHref =
-    selectedExecution?.node_type === 'agent'
-      ? buildWorkspaceSessionHref(workspaceHref, selectedExecution.session_id)
-      : null;
+  const sessionHref = selectedExecution
+    ? buildWorkspaceSessionHref(workspaceHref, selectedExecution.session_id)
+    : null;
   const isAgent =
     selectedExecution?.node_type === 'agent' ||
     selectedGraphNode?.type === 'agent';
+  const isCondition =
+    selectedExecution?.node_type === 'condition' ||
+    selectedGraphNode?.type === 'condition';
+  const isConversationalNode = isAgent || isCondition;
+  const conversationNodeData =
+    selectedGraphNode?.type === 'condition'
+      ? {
+          ...selectedGraphNode.data,
+          executor_config: graph.router_executor_config,
+        }
+      : (selectedGraphNode?.data ?? null);
   const agentDisplay =
-    selectedGraphNode?.type === 'agent'
-      ? getWorkflowAgentDisplay(selectedGraphNode.data)
+    isConversationalNode && conversationNodeData
+      ? getWorkflowAgentDisplay(conversationNodeData)
       : null;
   const title =
     selectedGraphNode?.data.display_name ||
     (isAgent
       ? t('workflow.nodeSession.agentStepSession')
-      : t('workflow.runCanvas.nodeDetails'));
+      : isCondition
+        ? t('workflow.nodeSession.conditionRouterSession')
+        : t('workflow.runCanvas.nodeDetails'));
   const subtitle = selectedExecution
     ? t(
         `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
@@ -670,14 +781,29 @@ function NodeDetailPanel({
       ? t('workflow.runCanvas.notExecutedYet')
       : t('workflow.runCanvas.selectNode');
 
-  if (isAgent && selectedExecution) {
+  const conditionActionPanel =
+    selectedExecution?.node_type === 'condition' &&
+    selectedGraphNode?.type === 'condition' &&
+    selectedExecution.status === 'awaiting_human' ? (
+      <ConditionRouterActionPanel
+        graph={graph}
+        conditionNode={selectedGraphNode}
+        isSelecting={isSelectingConditionBranch}
+        onSelectBranch={onSelectConditionBranch}
+        selectedExecution={selectedExecution}
+      />
+    ) : null;
+
+  if (isConversationalNode && selectedExecution) {
     return (
       <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
         <div
-          key={`agent-session-${selectedExecution.node_id}`}
+          key={`node-session-${selectedExecution.node_id}`}
           className="workflow-side-panel-content h-full min-h-0"
         >
           <WorkflowNodeConversationPanel
+            afterHeaderContent={conditionActionPanel}
+            nodeData={conversationNodeData}
             selectedExecution={selectedExecution}
             selectedGraphNode={selectedGraphNode}
             workspaceId={run.workspace_id}
@@ -742,14 +868,153 @@ function NodeDetailPanel({
             isRejecting={isRejecting}
             onApprove={onApprove}
             onReject={onReject}
+            graph={graph}
+            isSelectingConditionBranch={isSelectingConditionBranch}
+            onSelectConditionBranch={onSelectConditionBranch}
             projectId={projectId}
             run={run}
             selectedExecution={selectedExecution}
+            selectedGraphNode={selectedGraphNode}
             workspaceHref={workspaceHref}
           />
         )}
       </div>
     </aside>
+  );
+}
+
+function ConditionRouterActionPanel({
+  graph,
+  conditionNode,
+  isSelecting,
+  onSelectBranch,
+  selectedExecution,
+}: {
+  graph: WorkflowGraph;
+  conditionNode: WorkflowNode;
+  isSelecting: boolean;
+  onSelectBranch: (targetNodeIds: string[]) => void;
+  selectedExecution: WorkflowNodeExecutionResponse;
+}) {
+  const { t } = useTranslation('common');
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
+  const routerOutput = parseConditionRouterOutput(
+    selectedExecution.output_text
+  );
+  const question =
+    getConditionRouterHumanPrompt(routerOutput) ??
+    selectedExecution.output_text ??
+    t('workflow.runCanvas.reviewNodeToProceed');
+  const reason = getConditionRouterReason(routerOutput);
+  const isMulti = conditionNode.data.routing_mode === 'multi';
+  const branchOptions = useMemo(
+    () => buildConditionBranchOptions(graph, conditionNode, t),
+    [conditionNode, graph, t]
+  );
+
+  useEffect(() => {
+    setSelectedTargetIds([]);
+  }, [selectedExecution.id]);
+
+  const toggleTarget = (targetNodeId: string) => {
+    setSelectedTargetIds((current) =>
+      current.includes(targetNodeId)
+        ? current.filter((id) => id !== targetNodeId)
+        : [...current, targetNodeId]
+    );
+  };
+
+  return (
+    <div className="shrink-0 space-y-half border-b border-warning/30 bg-warning/10 p-base">
+      <div className="space-y-1">
+        <h4 className="text-sm font-semibold text-warning">
+          {t('workflow.runCanvas.humanActionRequired')}
+        </h4>
+        <p className="whitespace-pre-wrap text-xs text-high">{question}</p>
+        {reason ? (
+          <p className="whitespace-pre-wrap text-xs text-low">{reason}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-half">
+        <div className="text-[10px] font-semibold uppercase tracking-normal text-low">
+          {t('workflow.runCanvas.conditionRouterBranches')}
+        </div>
+        {branchOptions.length === 0 ? (
+          <div className="rounded border border-warning/30 bg-panel/60 p-half text-xs text-low">
+            {t('workflow.runCanvas.noConditionBranches')}
+          </div>
+        ) : (
+          <div className="space-y-half">
+            {branchOptions.map((option) => {
+              const checked = selectedTargetIds.includes(option.targetNodeId);
+              const label = option.branchName ?? option.targetLabel;
+              const targetDetail =
+                option.branchName && option.branchName !== option.targetLabel
+                  ? option.targetLabel
+                  : option.targetNodeId;
+
+              return (
+                <div
+                  key={option.targetNodeId}
+                  className={cn(
+                    'flex items-start gap-half rounded border bg-panel/80 p-half text-xs',
+                    checked ? 'border-brand/45' : 'border-secondary'
+                  )}
+                >
+                  {isMulti ? (
+                    <Checkbox
+                      checked={checked}
+                      disabled={isSelecting}
+                      onCheckedChange={() => toggleTarget(option.targetNodeId)}
+                      className="mt-0.5"
+                    />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold text-high">
+                      {label}
+                    </div>
+                    <div className="truncate text-[10px] text-low">
+                      {targetDetail}
+                    </div>
+                    {option.condition ? (
+                      <div className="mt-1 line-clamp-2 text-low">
+                        {option.condition}
+                      </div>
+                    ) : null}
+                  </div>
+                  {isMulti ? null : (
+                    <Button
+                      type="button"
+                      size="xs"
+                      disabled={isSelecting}
+                      onClick={() => onSelectBranch([option.targetNodeId])}
+                    >
+                      {isSelecting
+                        ? t('workflow.runCanvas.selectingConditionBranch')
+                        : t('workflow.runCanvas.selectConditionBranch')}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {isMulti ? (
+        <Button
+          type="button"
+          size="xs"
+          disabled={isSelecting || selectedTargetIds.length === 0}
+          onClick={() => onSelectBranch(selectedTargetIds)}
+        >
+          {isSelecting
+            ? t('workflow.runCanvas.selectingConditionBranch')
+            : t('workflow.runCanvas.continueSelectedBranches')}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -759,9 +1024,13 @@ function NodeDetailsTab({
   isRejecting,
   onApprove,
   onReject,
+  graph,
+  isSelectingConditionBranch,
+  onSelectConditionBranch,
   projectId,
   run,
   selectedExecution,
+  selectedGraphNode,
   workspaceHref,
 }: {
   actionError: string | null;
@@ -769,9 +1038,13 @@ function NodeDetailsTab({
   isRejecting: boolean;
   onApprove: () => void;
   onReject: () => void;
+  graph: WorkflowGraph;
+  isSelectingConditionBranch: boolean;
+  onSelectConditionBranch: (targetNodeIds: string[]) => void;
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse;
+  selectedGraphNode: WorkflowNode | null;
   workspaceHref: string | null;
 }) {
   const { t } = useTranslation('common');
@@ -791,7 +1064,17 @@ function NodeDetailsTab({
         </div>
       </div>
 
-      {selectedExecution.status === 'awaiting_human' ? (
+      {selectedExecution.status === 'awaiting_human' &&
+      selectedExecution.node_type === 'condition' &&
+      selectedGraphNode?.type === 'condition' ? (
+        <ConditionRouterActionPanel
+          graph={graph}
+          conditionNode={selectedGraphNode}
+          isSelecting={isSelectingConditionBranch}
+          onSelectBranch={onSelectConditionBranch}
+          selectedExecution={selectedExecution}
+        />
+      ) : selectedExecution.status === 'awaiting_human' ? (
         <div className="space-y-half rounded border border-warning/50 bg-warning/10 p-half">
           <h4 className="text-sm font-semibold text-warning">
             {t('workflow.runCanvas.humanActionRequired')}
@@ -864,6 +1147,8 @@ function NodeDetailsTab({
 }
 
 function WorkflowNodeConversationPanel({
+  afterHeaderContent,
+  nodeData,
   selectedExecution,
   selectedGraphNode,
   workspaceId,
@@ -871,6 +1156,8 @@ function WorkflowNodeConversationPanel({
   workspaceHref,
   onEditConfig,
 }: {
+  afterHeaderContent?: ReactNode;
+  nodeData?: WorkflowNodeData | null;
   selectedExecution: WorkflowNodeExecutionResponse;
   selectedGraphNode: WorkflowNode | null;
   workspaceId: string | null;
@@ -879,7 +1166,10 @@ function WorkflowNodeConversationPanel({
   onEditConfig: () => void;
 }) {
   const { t } = useTranslation('common');
-  if (selectedExecution.node_type !== 'agent') {
+  const supportsConversation =
+    selectedExecution.node_type === 'agent' ||
+    selectedExecution.node_type === 'condition';
+  if (!supportsConversation) {
     return (
       <div
         data-testid="workflow-node-conversation-panel"
@@ -898,13 +1188,14 @@ function WorkflowNodeConversationPanel({
         sessionHref={sessionHref}
         workspaceHref={workspaceHref}
         nodeTitle={selectedGraphNode?.data.display_name}
-        nodeData={selectedGraphNode?.data ?? null}
+        nodeData={nodeData ?? selectedGraphNode?.data ?? null}
         statusLabel={t(
           `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
         )}
         onEditConfig={onEditConfig}
         runStepDisabled
         runStepTitle={t('workflow.canvas.runStepUnavailable')}
+        afterHeaderContent={afterHeaderContent}
       />
     </div>
   );

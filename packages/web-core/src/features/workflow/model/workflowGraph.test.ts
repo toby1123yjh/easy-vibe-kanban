@@ -305,13 +305,22 @@ describe('workflow graph model', () => {
     };
 
     const tidy = tidyWorkflowGraph(graph);
+    const positions = new Map(
+      tidy.nodes.map((node) => [node.id, node.position])
+    );
 
-    expect(tidy.nodes.map((node) => [node.id, node.position])).toEqual([
-      ['start', { x: 120, y: 148 }],
-      ['research', { x: 420, y: 105 }],
-      ['review', { x: 860, y: 105 }],
-      ['end', { x: 1300, y: 148 }],
-    ]);
+    expect(positions.get('start')?.x).toBeLessThan(
+      positions.get('research')?.x ?? 0
+    );
+    expect(positions.get('research')?.x).toBeLessThan(
+      positions.get('review')?.x ?? 0
+    );
+    expect(positions.get('review')?.x).toBeLessThan(
+      positions.get('end')?.x ?? 0
+    );
+    for (const position of positions.values()) {
+      expect(position?.y).toBeGreaterThanOrEqual(70);
+    }
     expect(tidy.edges[0]).toMatchObject({
       source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
       target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
@@ -373,14 +382,28 @@ describe('workflow graph model', () => {
     };
 
     const tidy = tidyWorkflowGraph(graph);
+    const positions = new Map(
+      tidy.nodes.map((node) => [node.id, node.position])
+    );
+    const branchCenterY = (positions.get('branch')?.y ?? 0) + 66;
+    const arenaCenterY = (positions.get('arena')?.y ?? 0) + 85;
+    const approvalCenterY = (positions.get('approval')?.y ?? 0) + 66;
 
-    expect(tidy.nodes.map((node) => [node.id, node.position])).toEqual([
-      ['start', { x: 120, y: 148 }],
-      ['branch', { x: 420, y: 114 }],
-      ['arena', { x: 840, y: 70 }],
-      ['approval', { x: 850, y: 296 }],
-      ['end', { x: 1280, y: 148 }],
-    ]);
+    expect(positions.get('start')?.x).toBeLessThan(
+      positions.get('branch')?.x ?? 0
+    );
+    expect(positions.get('branch')?.x).toBeLessThan(
+      positions.get('arena')?.x ?? 0
+    );
+    expect(positions.get('arena')?.x).toBeLessThan(
+      positions.get('end')?.x ?? 0
+    );
+    expect(positions.get('approval')?.y).toBeGreaterThan(
+      (positions.get('arena')?.y ?? 0) + 170
+    );
+    expect(
+      Math.abs(branchCenterY - (arenaCenterY + approvalCenterY) / 2)
+    ).toBeLessThan(1);
     expect(
       tidy.edges.map((edge) => [
         edge.id,
@@ -414,6 +437,84 @@ describe('workflow graph model', () => {
         WORKFLOW_PORT_HANDLE_IDS.left,
       ],
     ]);
+  });
+
+  it('uses connected lane order to reduce crossing-prone branch layouts', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        createWorkflowNode('start', { id: 'start' }),
+        createWorkflowNode('condition', { id: 'split' }),
+        createWorkflowNode('agent', {
+          id: 'frontend',
+          position: { x: 500, y: 20 },
+        }),
+        createWorkflowNode('agent', {
+          id: 'backend',
+          position: { x: 500, y: 500 },
+        }),
+        createWorkflowNode('agent', {
+          id: 'backend-review',
+          position: { x: 900, y: 20 },
+        }),
+        createWorkflowNode('agent', {
+          id: 'frontend-review',
+          position: { x: 900, y: 500 },
+        }),
+        createWorkflowNode('end', { id: 'end' }),
+      ],
+      edges: [
+        createWorkflowEdge({
+          id: 'start-split',
+          source: 'start',
+          target: 'split',
+        }),
+        createWorkflowEdge({
+          id: 'split-frontend',
+          source: 'split',
+          target: 'frontend',
+          type: 'condition_branch',
+        }),
+        createWorkflowEdge({
+          id: 'split-backend',
+          source: 'split',
+          target: 'backend',
+          type: 'condition_branch',
+        }),
+        createWorkflowEdge({
+          id: 'frontend-review',
+          source: 'frontend',
+          target: 'frontend-review',
+        }),
+        createWorkflowEdge({
+          id: 'backend-review',
+          source: 'backend',
+          target: 'backend-review',
+        }),
+        createWorkflowEdge({
+          id: 'frontend-review-end',
+          source: 'frontend-review',
+          target: 'end',
+        }),
+        createWorkflowEdge({
+          id: 'backend-review-end',
+          source: 'backend-review',
+          target: 'end',
+        }),
+      ],
+    };
+
+    const tidy = tidyWorkflowGraph(graph);
+    const positions = new Map(
+      tidy.nodes.map((node) => [node.id, node.position])
+    );
+
+    expect(positions.get('frontend')?.y).toBeLessThan(
+      positions.get('backend')?.y ?? 0
+    );
+    expect(positions.get('frontend-review')?.y).toBeLessThan(
+      positions.get('backend-review')?.y ?? 0
+    );
   });
 
   it('keeps workflow edge semantics separate from React Flow edge renderer type', () => {

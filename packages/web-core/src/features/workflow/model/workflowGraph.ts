@@ -131,6 +131,15 @@ export interface WorkflowEdge {
   target: string;
   target_handle?: string;
   type: WorkflowEdgeKind;
+  data?: WorkflowEdgeData;
+}
+
+export interface WorkflowEdgeData {
+  route?: WorkflowEdgeRouteData;
+}
+
+export interface WorkflowEdgeRouteData {
+  bend?: WorkflowNodePosition;
 }
 
 export type WorkflowCanvasObjectKind = 'sticky_note' | 'stage_group';
@@ -207,6 +216,7 @@ type LegacyWorkflowGraph = Omit<WorkflowGraph, 'edges'> & {
 
 export interface ReactFlowWorkflowEdgeData extends Record<string, unknown> {
   workflowType: WorkflowEdgeKind;
+  route?: WorkflowEdgeRouteData;
 }
 
 export interface WorkflowNodePosition {
@@ -252,8 +262,10 @@ const DEFAULT_GROUP_SIZE: WorkflowCanvasObjectSize = {
 
 const WORKFLOW_TIDY_ORIGIN_X = 120;
 const WORKFLOW_TIDY_CENTER_Y = 180;
-const WORKFLOW_TIDY_COLUMN_GAP = 160;
-const WORKFLOW_TIDY_ROW_GAP = 56;
+const WORKFLOW_TIDY_COLUMN_GAP = 180;
+const WORKFLOW_TIDY_ROW_GAP = 88;
+const WORKFLOW_TIDY_MIN_TOP = 70;
+const WORKFLOW_TIDY_ORDER_SWEEPS = 4;
 
 const WORKFLOW_TIDY_NODE_SIZES = {
   start: { width: 140, height: 64 },
@@ -264,6 +276,16 @@ const WORKFLOW_TIDY_NODE_SIZES = {
   transform: { width: 260, height: 132 },
   arena: { width: 280, height: 170 },
 } as const satisfies Record<WorkflowNodeKind, WorkflowCanvasObjectSize>;
+
+const WORKFLOW_TIDY_NODE_KIND_ORDER = {
+  start: 0,
+  condition: 1,
+  agent: 2,
+  human_gate: 3,
+  transform: 4,
+  arena: 5,
+  end: 6,
+} as const satisfies Record<WorkflowNodeKind, number>;
 
 export function normalizeWorkflowPortHandle(
   handle: string | null | undefined,
@@ -555,6 +577,7 @@ export function createWorkflowEdge(options: {
   target: string;
   target_handle?: string;
   type?: WorkflowEdgeKind;
+  data?: WorkflowEdgeData;
 }): WorkflowEdge {
   return {
     id: options.id ?? `${options.source}-${options.target}`,
@@ -563,6 +586,7 @@ export function createWorkflowEdge(options: {
     target: options.target,
     target_handle: options.target_handle ?? DEFAULT_TARGET_HANDLE,
     type: options.type ?? 'default',
+    ...(options.data ? { data: options.data } : {}),
   };
 }
 
@@ -683,7 +707,7 @@ export function toReactFlowEdges(
       DEFAULT_TARGET_HANDLE
     ),
     type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
-    data: { workflowType: edge.type },
+    data: { ...(edge.data ?? {}), workflowType: edge.type },
     label: getWorkflowEdgeLabel(edge.type),
   }));
 }
@@ -699,6 +723,21 @@ function getWorkflowTypeFromReactFlowEdge(
     return edge.type;
   }
   return 'default';
+}
+
+function getWorkflowEdgeDataFromReactFlowEdge(
+  edge: ReactFlowEdge
+): WorkflowEdgeData | undefined {
+  const data = edge.data as Partial<ReactFlowWorkflowEdgeData> | undefined;
+  const bend = data?.route?.bend;
+  if (!isWorkflowNodePosition(bend)) return undefined;
+  return { route: { bend: { x: bend.x, y: bend.y } } };
+}
+
+function isWorkflowNodePosition(value: unknown): value is WorkflowNodePosition {
+  if (!value || typeof value !== 'object') return false;
+  const position = value as Partial<WorkflowNodePosition>;
+  return Number.isFinite(position.x) && Number.isFinite(position.y);
 }
 
 export function fromReactFlowGraph(
@@ -717,20 +756,24 @@ export function fromReactFlowGraph(
       data: stripWorkflowNodeUiData(node.data),
       position: node.position,
     })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      source_handle: normalizeWorkflowPortHandle(
-        edge.sourceHandle,
-        DEFAULT_SOURCE_HANDLE
-      ),
-      target: edge.target,
-      target_handle: normalizeWorkflowPortHandle(
-        edge.targetHandle,
-        DEFAULT_TARGET_HANDLE
-      ),
-      type: getWorkflowTypeFromReactFlowEdge(edge),
-    })),
+    edges: edges.map((edge) => {
+      const data = getWorkflowEdgeDataFromReactFlowEdge(edge);
+      return {
+        id: edge.id,
+        source: edge.source,
+        source_handle: normalizeWorkflowPortHandle(
+          edge.sourceHandle,
+          DEFAULT_SOURCE_HANDLE
+        ),
+        target: edge.target,
+        target_handle: normalizeWorkflowPortHandle(
+          edge.targetHandle,
+          DEFAULT_TARGET_HANDLE
+        ),
+        type: getWorkflowTypeFromReactFlowEdge(edge),
+        ...(data ? { data } : {}),
+      };
+    }),
     ...(canvas ? { canvas } : {}),
   };
   return syncConditionBranches(
@@ -899,71 +942,20 @@ function parseCanvasDimension(value: unknown): number | undefined {
 }
 
 export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
-  const levels = getWorkflowNodeLevels(graph);
-  const buckets = new Map<number, WorkflowNode[]>();
-
-  for (const node of graph.nodes) {
-    const level = levels.get(node.id) ?? 0;
-    const bucket = buckets.get(level) ?? [];
-    bucket.push(node);
-    buckets.set(level, bucket);
-  }
-
-  const positions = new Map<string, WorkflowNodePosition>();
-  const sortedLevels = Array.from(buckets.keys()).sort((a, b) => a - b);
-  const levelWidths = new Map<number, number>();
-
-  for (const level of sortedLevels) {
-    const width = Math.max(
-      0,
-      ...(buckets.get(level) ?? []).map(
-        (node) => getWorkflowTidyNodeSize(node).width
-      )
-    );
-    levelWidths.set(level, width);
-  }
-
-  const levelX = new Map<number, number>();
-  let nextLevelX = WORKFLOW_TIDY_ORIGIN_X;
-  for (const level of sortedLevels) {
-    levelX.set(level, nextLevelX);
-    nextLevelX += (levelWidths.get(level) ?? 0) + WORKFLOW_TIDY_COLUMN_GAP;
-  }
-
-  for (const level of sortedLevels) {
-    const x = levelX.get(level) ?? WORKFLOW_TIDY_ORIGIN_X;
-    const columnWidth = levelWidths.get(level) ?? 0;
-    const bucket = [...(buckets.get(level) ?? [])].sort((a, b) => {
-      const ay = a.position?.y ?? 0;
-      const by = b.position?.y ?? 0;
-      if (ay !== by) return ay - by;
-      return (a.position?.x ?? 0) - (b.position?.x ?? 0);
-    });
-    const totalHeight =
-      bucket.reduce(
-        (height, node) => height + getWorkflowTidyNodeSize(node).height,
-        0
-      ) +
-      Math.max(0, bucket.length - 1) * WORKFLOW_TIDY_ROW_GAP;
-    let nextY = Math.max(70, WORKFLOW_TIDY_CENTER_Y - totalHeight / 2);
-
-    bucket.forEach((node) => {
-      const size = getWorkflowTidyNodeSize(node);
-      positions.set(node.id, {
-        x: x + Math.max(0, (columnWidth - size.width) / 2),
-        y: nextY,
-      });
-      nextY += size.height + WORKFLOW_TIDY_ROW_GAP;
-    });
-  }
+  const nodeById = getWorkflowTidyNodeById(graph);
+  const adjacency = getWorkflowTidyAdjacency(graph, nodeById);
+  const levels = getWorkflowNodeLevels(graph, adjacency);
+  const buckets = getWorkflowTidyOrderedBuckets(graph, levels, adjacency);
+  const positions = getWorkflowTidyPositions(buckets, adjacency);
 
   const nodes = graph.nodes.map((node) => ({
     ...node,
     position: positions.get(node.id) ?? node.position,
   }));
+  const nextNodeById = getWorkflowTidyNodeById({ ...graph, nodes });
   const edges = graph.edges.map((edge) => {
-    const sourceNode = nodes.find((node) => node.id === edge.source);
-    const targetNode = nodes.find((node) => node.id === edge.target);
+    const sourceNode = nextNodeById.get(edge.source);
+    const targetNode = nextNodeById.get(edge.target);
     const source = sourceNode ? getWorkflowTidyNodeCenter(sourceNode) : null;
     const target = targetNode ? getWorkflowTidyNodeCenter(targetNode) : null;
     if (!source || !target) return edge;
@@ -974,6 +966,327 @@ export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
   });
 
   return { ...graph, nodes, edges };
+}
+
+interface WorkflowTidyAdjacency {
+  incoming: Map<string, WorkflowEdge[]>;
+  outgoing: Map<string, WorkflowEdge[]>;
+  validEdges: WorkflowEdge[];
+}
+
+function getWorkflowTidyNodeById(graph: {
+  nodes: WorkflowNode[];
+}): Map<string, WorkflowNode> {
+  return new Map(graph.nodes.map((node) => [node.id, node]));
+}
+
+function getWorkflowTidyAdjacency(
+  graph: WorkflowGraph,
+  nodeById: ReadonlyMap<string, WorkflowNode>
+): WorkflowTidyAdjacency {
+  const incoming = new Map<string, WorkflowEdge[]>();
+  const outgoing = new Map<string, WorkflowEdge[]>();
+  const validEdges: WorkflowEdge[] = [];
+
+  for (const edge of graph.edges) {
+    if (
+      edge.source === edge.target ||
+      !nodeById.has(edge.source) ||
+      !nodeById.has(edge.target)
+    ) {
+      continue;
+    }
+
+    validEdges.push(edge);
+    const sourceEdges = outgoing.get(edge.source) ?? [];
+    sourceEdges.push(edge);
+    outgoing.set(edge.source, sourceEdges);
+
+    const targetEdges = incoming.get(edge.target) ?? [];
+    targetEdges.push(edge);
+    incoming.set(edge.target, targetEdges);
+  }
+
+  return { incoming, outgoing, validEdges };
+}
+
+function getWorkflowTidyOrderedBuckets(
+  graph: WorkflowGraph,
+  levels: ReadonlyMap<string, number>,
+  adjacency: WorkflowTidyAdjacency
+): Map<number, WorkflowNode[]> {
+  const buckets = new Map<number, WorkflowNode[]>();
+
+  for (const node of graph.nodes) {
+    const level = levels.get(node.id) ?? 0;
+    const bucket = buckets.get(level) ?? [];
+    bucket.push(node);
+    buckets.set(level, bucket);
+  }
+
+  for (const [level, bucket] of buckets) {
+    buckets.set(level, [...bucket].sort(compareWorkflowTidyOriginalOrder));
+  }
+
+  const sortedLevels = getSortedWorkflowTidyLevels(buckets);
+  for (let sweep = 0; sweep < WORKFLOW_TIDY_ORDER_SWEEPS; sweep += 1) {
+    let orderIndex = getWorkflowTidyOrderIndex(buckets);
+    for (const level of sortedLevels) {
+      buckets.set(
+        level,
+        sortWorkflowTidyBucketByNeighbors({
+          bucket: buckets.get(level) ?? [],
+          edgesByNode: adjacency.incoming,
+          getNeighborId: (edge) => edge.source,
+          orderIndex,
+        })
+      );
+      orderIndex = getWorkflowTidyOrderIndex(buckets);
+    }
+
+    for (const level of [...sortedLevels].reverse()) {
+      buckets.set(
+        level,
+        sortWorkflowTidyBucketByNeighbors({
+          bucket: buckets.get(level) ?? [],
+          edgesByNode: adjacency.outgoing,
+          getNeighborId: (edge) => edge.target,
+          orderIndex,
+        })
+      );
+      orderIndex = getWorkflowTidyOrderIndex(buckets);
+    }
+  }
+
+  return buckets;
+}
+
+function sortWorkflowTidyBucketByNeighbors({
+  bucket,
+  edgesByNode,
+  getNeighborId,
+  orderIndex,
+}: {
+  bucket: WorkflowNode[];
+  edgesByNode: ReadonlyMap<string, WorkflowEdge[]>;
+  getNeighborId: (edge: WorkflowEdge) => string;
+  orderIndex: ReadonlyMap<string, number>;
+}): WorkflowNode[] {
+  const currentIndex = new Map(bucket.map((node, index) => [node.id, index]));
+  return [...bucket].sort((a, b) => {
+    const aScore = getWorkflowTidyNeighborOrderScore(
+      a.id,
+      edgesByNode,
+      getNeighborId,
+      orderIndex
+    );
+    const bScore = getWorkflowTidyNeighborOrderScore(
+      b.id,
+      edgesByNode,
+      getNeighborId,
+      orderIndex
+    );
+    const aFallback = currentIndex.get(a.id) ?? 0;
+    const bFallback = currentIndex.get(b.id) ?? 0;
+    const scoreCompare = (aScore ?? aFallback) - (bScore ?? bFallback);
+    if (scoreCompare !== 0) return scoreCompare;
+    return aFallback - bFallback;
+  });
+}
+
+function getWorkflowTidyNeighborOrderScore(
+  nodeId: string,
+  edgesByNode: ReadonlyMap<string, WorkflowEdge[]>,
+  getNeighborId: (edge: WorkflowEdge) => string,
+  orderIndex: ReadonlyMap<string, number>
+): number | null {
+  const scores = (edgesByNode.get(nodeId) ?? [])
+    .map((edge) => orderIndex.get(getNeighborId(edge)))
+    .filter((score): score is number => typeof score === 'number');
+  if (scores.length === 0) return null;
+  return scores.reduce((total, score) => total + score, 0) / scores.length;
+}
+
+function getWorkflowTidyOrderIndex(
+  buckets: ReadonlyMap<number, WorkflowNode[]>
+): Map<string, number> {
+  const index = new Map<string, number>();
+  for (const bucket of buckets.values()) {
+    bucket.forEach((node, order) => index.set(node.id, order));
+  }
+  return index;
+}
+
+function getWorkflowTidyPositions(
+  buckets: ReadonlyMap<number, WorkflowNode[]>,
+  adjacency: WorkflowTidyAdjacency
+): Map<string, WorkflowNodePosition> {
+  const sortedLevels = getSortedWorkflowTidyLevels(buckets);
+  const levelX = getWorkflowTidyLevelX(buckets, sortedLevels);
+  const centerYByNodeId = new Map<string, number>();
+
+  for (const level of sortedLevels) {
+    placeWorkflowTidyBucket({
+      bucket: buckets.get(level) ?? [],
+      centerYByNodeId,
+      getDesiredCenterY: (node) =>
+        getWorkflowTidyDesiredCenterY({
+          nodeId: node.id,
+          edges: adjacency.incoming.get(node.id) ?? [],
+          getNeighborId: (edge) => edge.source,
+          centerYByNodeId,
+        }),
+    });
+  }
+
+  for (const level of [...sortedLevels].reverse()) {
+    placeWorkflowTidyBucket({
+      bucket: buckets.get(level) ?? [],
+      centerYByNodeId,
+      getDesiredCenterY: (node) =>
+        getWorkflowTidyDesiredCenterY({
+          nodeId: node.id,
+          edges: adjacency.outgoing.get(node.id) ?? [],
+          getNeighborId: (edge) => edge.target,
+          centerYByNodeId,
+        }),
+    });
+  }
+
+  const positions = new Map<string, WorkflowNodePosition>();
+  for (const level of sortedLevels) {
+    const bucket = buckets.get(level) ?? [];
+    const columnWidth = getWorkflowTidyColumnWidth(bucket);
+    const x = levelX.get(level) ?? WORKFLOW_TIDY_ORIGIN_X;
+    for (const node of bucket) {
+      const size = getWorkflowTidyNodeSize(node);
+      const centerY = centerYByNodeId.get(node.id) ?? WORKFLOW_TIDY_CENTER_Y;
+      positions.set(node.id, {
+        x: x + Math.max(0, (columnWidth - size.width) / 2),
+        y: centerY - size.height / 2,
+      });
+    }
+  }
+
+  return positions;
+}
+
+function placeWorkflowTidyBucket({
+  bucket,
+  centerYByNodeId,
+  getDesiredCenterY,
+}: {
+  bucket: WorkflowNode[];
+  centerYByNodeId: Map<string, number>;
+  getDesiredCenterY: (node: WorkflowNode) => number;
+}) {
+  if (bucket.length === 0) return;
+
+  const relativeCenters = getWorkflowTidyRelativeCenters(bucket);
+  const offsets = bucket.map(
+    (node, index) => getDesiredCenterY(node) - relativeCenters[index]
+  );
+  let offset = getWorkflowTidyMedian(offsets);
+  const firstSize = getWorkflowTidyNodeSize(bucket[0]);
+  const firstTop = relativeCenters[0] + offset - firstSize.height / 2;
+  if (firstTop < WORKFLOW_TIDY_MIN_TOP) {
+    offset += WORKFLOW_TIDY_MIN_TOP - firstTop;
+  }
+
+  bucket.forEach((node, index) => {
+    centerYByNodeId.set(node.id, relativeCenters[index] + offset);
+  });
+}
+
+function getWorkflowTidyRelativeCenters(bucket: WorkflowNode[]): number[] {
+  const centers: number[] = [];
+  let nextTop = 0;
+  for (const node of bucket) {
+    const size = getWorkflowTidyNodeSize(node);
+    centers.push(nextTop + size.height / 2);
+    nextTop += size.height + WORKFLOW_TIDY_ROW_GAP;
+  }
+  return centers;
+}
+
+function getWorkflowTidyDesiredCenterY({
+  nodeId,
+  edges,
+  getNeighborId,
+  centerYByNodeId,
+}: {
+  nodeId: string;
+  edges: WorkflowEdge[];
+  getNeighborId: (edge: WorkflowEdge) => string;
+  centerYByNodeId: ReadonlyMap<string, number>;
+}): number {
+  const neighborCenters = edges
+    .map((edge) => centerYByNodeId.get(getNeighborId(edge)))
+    .filter((center): center is number => typeof center === 'number');
+  if (neighborCenters.length === 0) {
+    return centerYByNodeId.get(nodeId) ?? WORKFLOW_TIDY_CENTER_Y;
+  }
+  return (
+    neighborCenters.reduce((total, center) => total + center, 0) /
+    neighborCenters.length
+  );
+}
+
+function getWorkflowTidyMedian(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] ?? 0;
+  return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+}
+
+function getWorkflowTidyLevelX(
+  buckets: ReadonlyMap<number, WorkflowNode[]>,
+  sortedLevels: number[]
+): Map<number, number> {
+  const levelX = new Map<number, number>();
+  let nextLevelX = WORKFLOW_TIDY_ORIGIN_X;
+
+  for (const level of sortedLevels) {
+    levelX.set(level, nextLevelX);
+    nextLevelX +=
+      getWorkflowTidyColumnWidth(buckets.get(level) ?? []) +
+      WORKFLOW_TIDY_COLUMN_GAP;
+  }
+
+  return levelX;
+}
+
+function getWorkflowTidyColumnWidth(bucket: WorkflowNode[]): number {
+  return Math.max(
+    0,
+    ...bucket.map((node) => getWorkflowTidyNodeSize(node).width)
+  );
+}
+
+function getSortedWorkflowTidyLevels(
+  buckets: ReadonlyMap<number, WorkflowNode[]>
+): number[] {
+  return Array.from(buckets.keys()).sort((a, b) => a - b);
+}
+
+function compareWorkflowTidyOriginalOrder(
+  a: WorkflowNode,
+  b: WorkflowNode
+): number {
+  const ay = a.position?.y ?? WORKFLOW_TIDY_CENTER_Y;
+  const by = b.position?.y ?? WORKFLOW_TIDY_CENTER_Y;
+  if (ay !== by) return ay - by;
+
+  const ax = a.position?.x ?? WORKFLOW_TIDY_ORIGIN_X;
+  const bx = b.position?.x ?? WORKFLOW_TIDY_ORIGIN_X;
+  if (ax !== bx) return ax - bx;
+
+  const kindCompare =
+    WORKFLOW_TIDY_NODE_KIND_ORDER[a.type] -
+    WORKFLOW_TIDY_NODE_KIND_ORDER[b.type];
+  if (kindCompare !== 0) return kindCompare;
+
+  return a.id.localeCompare(b.id);
 }
 
 function getWorkflowTidyNodeSize(node: WorkflowNode): WorkflowCanvasObjectSize {
@@ -991,19 +1304,13 @@ function getWorkflowTidyNodeCenter(
   };
 }
 
-function getWorkflowNodeLevels(graph: WorkflowGraph): Map<string, number> {
-  const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  const outgoing = new Map<string, WorkflowEdge[]>();
-  const incomingTargets = new Set<string>();
-
-  for (const edge of graph.edges) {
-    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
-    const sourceEdges = outgoing.get(edge.source) ?? [];
-    sourceEdges.push(edge);
-    outgoing.set(edge.source, sourceEdges);
-    incomingTargets.add(edge.target);
-  }
-
+function getWorkflowNodeLevels(
+  graph: WorkflowGraph,
+  adjacency: WorkflowTidyAdjacency
+): Map<string, number> {
+  const incomingTargets = new Set(
+    adjacency.validEdges.map((edge) => edge.target)
+  );
   const starts = graph.nodes.filter(
     (node) => node.type === 'start' || !incomingTargets.has(node.id)
   );
@@ -1020,7 +1327,7 @@ function getWorkflowNodeLevels(graph: WorkflowGraph): Map<string, number> {
     const sourceId = queue.shift();
     if (!sourceId) continue;
     const sourceLevel = levels.get(sourceId) ?? 0;
-    for (const edge of outgoing.get(sourceId) ?? []) {
+    for (const edge of adjacency.outgoing.get(sourceId) ?? []) {
       const nextLevel = Math.min(sourceLevel + 1, graph.nodes.length);
       if ((levels.get(edge.target) ?? -1) >= nextLevel) continue;
       levels.set(edge.target, nextLevel);
@@ -1032,7 +1339,16 @@ function getWorkflowNodeLevels(graph: WorkflowGraph): Map<string, number> {
     Math.max(0, ...Array.from(levels.values())) + (levels.size > 0 ? 1 : 0);
   graph.nodes.forEach((node, index) => {
     if (!levels.has(node.id)) {
-      levels.set(node.id, fallbackLevel + index);
+      const upstreamLevel = Math.max(
+        -1,
+        ...(adjacency.incoming.get(node.id) ?? [])
+          .map((edge) => levels.get(edge.source))
+          .filter((level): level is number => typeof level === 'number')
+      );
+      levels.set(
+        node.id,
+        upstreamLevel >= 0 ? upstreamLevel + 1 : fallbackLevel + index
+      );
     }
   });
 

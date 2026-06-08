@@ -13,8 +13,11 @@ import {
   WORKFLOW_CANVAS_SNAP_GRID,
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
+  getWorkflowCanvasConnectionIssue,
+  getWorkflowSelfLoopPath,
   hasGraphAffectingEdgeChanges,
   hasGraphAffectingNodeChanges,
+  isWorkflowCanvasConnectionAllowed,
 } from './WorkflowCanvas';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
@@ -101,6 +104,52 @@ describe('workflow canvas interaction settings', () => {
       'reconnect-target',
       'delete-edge',
     ]);
+  });
+
+  it('rejects workflow connections that cannot be executed', () => {
+    const nodeTypes = new Map([
+      ['start', 'start'],
+      ['agent', 'agent'],
+      ['end', 'end'],
+    ]);
+
+    expect(
+      isWorkflowCanvasConnectionAllowed(
+        { source: 'start', target: 'agent' },
+        nodeTypes
+      )
+    ).toBe(true);
+    expect(
+      getWorkflowCanvasConnectionIssue(
+        { source: 'agent', target: 'agent' },
+        nodeTypes
+      )
+    ).toBe('self_edge');
+    expect(
+      getWorkflowCanvasConnectionIssue(
+        { source: 'end', target: 'agent' },
+        nodeTypes
+      )
+    ).toBe('end_source');
+    expect(
+      getWorkflowCanvasConnectionIssue(
+        { source: 'agent', target: 'start' },
+        nodeTypes
+      )
+    ).toBe('start_target');
+  });
+
+  it('renders self edges as an outer loop instead of a collapsed line', () => {
+    const [path, labelX, labelY] = getWorkflowSelfLoopPath({
+      sourceX: 100,
+      sourceY: 120,
+      targetX: 100,
+      targetY: 120,
+    });
+
+    expect(path).toBe('M 100,120 C 196,44 196,196 100,120');
+    expect(labelX).toBe(196);
+    expect(labelY).toBe(120);
   });
 
   it('keeps selection changes in read-only mode while blocking graph edits', () => {

@@ -37,6 +37,7 @@ import {
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
 import { buildWorkflowNodeExecutionStatusMap } from '../model/workflowCanvasVisualState';
+import { isWorkflowNodeAuthorable } from '../model/workflowNodeCatalog';
 import {
   deleteIssueWorkflowAttemptDraft,
   parseIssueWorkflowAttemptDraftRouteId,
@@ -64,6 +65,7 @@ import {
 } from './workflowI18n';
 import {
   applyWorkflowNodeDataPatch,
+  getNextAgentEditPanelNodeIdForSelection,
   getWorkflowTemplateInspectorPanel,
   shouldKeepRouterConfigPanelForSelection,
 } from './workflowTemplateEditorPanel';
@@ -662,6 +664,7 @@ export function WorkflowTemplateEditorPage({
     kind: WorkflowNodeKind,
     position?: WorkflowNodePosition
   ) => {
+    if (!isWorkflowNodeAuthorable(kind)) return;
     addWorkflowNode({ kind, position });
   };
 
@@ -1520,11 +1523,14 @@ export function WorkflowTemplateEditorPage({
                           ? null
                           : currentPanelNodeId
                       );
-                      setEditPanelNodeId((currentPanelNodeId) =>
-                        selection.edgeId ||
-                        selection.nodeId !== currentPanelNodeId
-                          ? null
-                          : currentPanelNodeId
+                      setEditPanelNodeId(
+                        getNextAgentEditPanelNodeIdForSelection({
+                          selectedNodeId: selection.nodeId,
+                          selectedEdgeId: selection.edgeId,
+                          nodeTypeById: new Map(
+                            graph.nodes.map((node) => [node.id, node.type])
+                          ),
+                        })
                       );
                     }}
                     onNodeDrop={handleAddNode}

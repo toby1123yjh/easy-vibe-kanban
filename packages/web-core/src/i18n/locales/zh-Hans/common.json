@@ -652,15 +652,21 @@
       "reviewNodeToProceed": "请检查此节点以继续。",
       "approving": "正在批准...",
       "rejecting": "正在拒绝...",
-      "conversationAgentOnly": "只有智能体节点支持会话。",
+      "conversationAgentOnly": "智能体和条件节点支持会话。",
+      "conditionBranchFailed": "选择条件分支失败。",
+      "conditionRouterBranches": "可选分支",
+      "continueSelectedBranches": "继续所选分支",
       "executionId": "执行 ID",
       "nodeId": "节点 ID",
       "nodeType": "节点类型",
+      "noConditionBranches": "没有可用的已连接条件分支。",
       "workspaceId": "工作区 ID",
       "noWorkspace": "无工作区",
       "started": "开始时间",
       "finished": "完成时间",
-      "notFinished": "尚未完成"
+      "notFinished": "尚未完成",
+      "selectConditionBranch": "选择",
+      "selectingConditionBranch": "正在选择..."
     },
     "debug": {
       "noDebugData": "此步骤没有调试数据。",
@@ -781,6 +787,7 @@
     },
     "nodeSession": {
       "agentStepSession": "智能体会话",
+      "conditionRouterSession": "条件路由会话",
       "nodeSession": "节点会话",
       "sessionNotStarted": "会话尚未开始",
       "cockpit": "智能体控制台",
@@ -805,7 +812,8 @@
       "session": "会话：{{id}}",
       "noAgentResponse": "尚未捕获到智能体响应。",
       "nodePrompt": "节点提示词",
-      "noPrompt": "尚未捕获到提示词。"
+      "noPrompt": "尚未捕获到提示词。",
+      "rawRouterOutput": "原始路由输出"
     }
   },
   "fileTree": {

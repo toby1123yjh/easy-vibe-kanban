@@ -652,15 +652,21 @@
       "reviewNodeToProceed": "請檢查此節點以繼續。",
       "approving": "正在核准...",
       "rejecting": "正在拒絕...",
-      "conversationAgentOnly": "只有智慧體節點支援會話。",
+      "conversationAgentOnly": "智慧體和條件節點支援會話。",
+      "conditionBranchFailed": "選擇條件分支失敗。",
+      "conditionRouterBranches": "可選分支",
+      "continueSelectedBranches": "繼續所選分支",
       "executionId": "執行 ID",
       "nodeId": "節點 ID",
       "nodeType": "節點類型",
+      "noConditionBranches": "沒有可用的已連接條件分支。",
       "workspaceId": "工作區 ID",
       "noWorkspace": "無工作區",
       "started": "開始時間",
       "finished": "完成時間",
-      "notFinished": "尚未完成"
+      "notFinished": "尚未完成",
+      "selectConditionBranch": "選擇",
+      "selectingConditionBranch": "正在選擇..."
     },
     "debug": {
       "noDebugData": "此步驟沒有除錯資料。",
@@ -781,6 +787,7 @@
     },
     "nodeSession": {
       "agentStepSession": "智慧體會話",
+      "conditionRouterSession": "條件路由會話",
       "nodeSession": "節點會話",
       "sessionNotStarted": "會話尚未開始",
       "cockpit": "智慧體控制台",
@@ -805,7 +812,8 @@
       "session": "會話：{{id}}",
       "noAgentResponse": "尚未擷取到智慧體回應。",
       "nodePrompt": "節點提示詞",
-      "noPrompt": "尚未擷取到提示詞。"
+      "noPrompt": "尚未擷取到提示詞。",
+      "rawRouterOutput": "原始路由輸出"
     }
   },
   "fileTree": {

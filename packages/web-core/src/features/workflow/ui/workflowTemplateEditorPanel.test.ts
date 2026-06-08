@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorkflowEdge, WorkflowNode } from '../model/workflowGraph';
 import {
   applyWorkflowNodeDataPatch,
-  getNextAgentDraftPanelNodeIdForSelection,
+  getNextAgentEditPanelNodeIdForSelection,
   getWorkflowTemplateInspectorPanel,
   shouldKeepRouterConfigPanelForSelection,
 } from './workflowTemplateEditorPanel';
@@ -57,30 +57,39 @@ describe('workflow template editor inspector panel', () => {
     ).toEqual({ kind: 'node', node: conditionNode });
   });
 
-  it('keeps an open agent draft panel when ReactFlow repeats the same selection', () => {
+  it('opens the agent edit panel when an agent node is selected', () => {
     expect(
-      getNextAgentDraftPanelNodeIdForSelection({
-        currentPanelNodeId: 'agent-1',
+      getNextAgentEditPanelNodeIdForSelection({
         selectedNodeId: 'agent-1',
         selectedEdgeId: null,
+        nodeTypeById: new Map([
+          ['agent-1', 'agent'],
+          ['condition-1', 'condition'],
+        ]),
       })
     ).toBe('agent-1');
   });
 
-  it('closes the agent draft panel when selection moves away', () => {
+  it('closes the agent edit panel when selection moves away', () => {
     expect(
-      getNextAgentDraftPanelNodeIdForSelection({
-        currentPanelNodeId: 'agent-1',
+      getNextAgentEditPanelNodeIdForSelection({
         selectedNodeId: 'condition-1',
         selectedEdgeId: null,
+        nodeTypeById: new Map([
+          ['agent-1', 'agent'],
+          ['condition-1', 'condition'],
+        ]),
       })
     ).toBeNull();
 
     expect(
-      getNextAgentDraftPanelNodeIdForSelection({
-        currentPanelNodeId: 'agent-1',
+      getNextAgentEditPanelNodeIdForSelection({
         selectedNodeId: 'agent-1',
         selectedEdgeId: 'edge-1',
+        nodeTypeById: new Map([
+          ['agent-1', 'agent'],
+          ['condition-1', 'condition'],
+        ]),
       })
     ).toBeNull();
   });

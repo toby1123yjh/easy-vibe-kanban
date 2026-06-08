@@ -237,6 +237,7 @@ fn edge(id: &str, source: &str, target: &str, kind: WorkflowEdgeKind) -> Workflo
         target: target.to_string(),
         target_handle: Some("input-left".to_string()),
         kind,
+        data: None,
     }
 }
 

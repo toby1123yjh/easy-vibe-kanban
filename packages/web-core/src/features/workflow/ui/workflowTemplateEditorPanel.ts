@@ -10,20 +10,17 @@ export type WorkflowTemplateInspectorPanel =
   | { kind: 'agentDraft'; node: WorkflowNode }
   | { kind: 'node'; node: WorkflowNode | null };
 
-export function getNextAgentDraftPanelNodeIdForSelection({
-  currentPanelNodeId,
+export function getNextAgentEditPanelNodeIdForSelection({
   selectedNodeId,
   selectedEdgeId,
+  nodeTypeById,
 }: {
-  currentPanelNodeId: string | null;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>;
 }): string | null {
-  if (selectedEdgeId || selectedNodeId !== currentPanelNodeId) {
-    return null;
-  }
-
-  return currentPanelNodeId;
+  if (selectedEdgeId || !selectedNodeId) return null;
+  return nodeTypeById.get(selectedNodeId) === 'agent' ? selectedNodeId : null;
 }
 
 export function shouldKeepRouterConfigPanelForSelection({

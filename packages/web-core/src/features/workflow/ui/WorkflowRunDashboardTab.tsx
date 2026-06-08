@@ -12,6 +12,11 @@ import {
   getNodeStatusTone,
 } from '../model/workflowRunView';
 import {
+  getConditionRouterHumanPrompt,
+  getConditionRouterReason,
+  parseConditionRouterOutput,
+} from '../model/workflowConditionRouterOutput';
+import {
   Square,
   RefreshCcw,
   Check,
@@ -39,6 +44,20 @@ function getDefaultSelectedNodeId(run: WorkflowRunResponse): string | null {
   );
 
   return actionableNode?.node_id ?? run.nodes[0]?.node_id ?? null;
+}
+
+function getReadableWorkflowNodeOutput(
+  nodeType: string,
+  outputText: string | null
+): string | null {
+  if (nodeType !== 'condition') return outputText;
+
+  const routerOutput = parseConditionRouterOutput(outputText);
+  return (
+    getConditionRouterHumanPrompt(routerOutput) ??
+    getConditionRouterReason(routerOutput) ??
+    outputText
+  );
 }
 
 export function WorkflowRunDashboardTab({
@@ -73,6 +92,12 @@ export function WorkflowRunDashboardTab({
 
   const selectedNode =
     run.nodes.find((n) => n.node_id === selectedNodeId) || null;
+  const selectedNodeOutput = selectedNode
+    ? getReadableWorkflowNodeOutput(
+        selectedNode.node_type,
+        selectedNode.output_text
+      )
+    : null;
   const selectedAgentSessionRows = buildAgentSessionRows(run, selectedNodeId);
   const workflowWorkspaceHref = run.workspace_id
     ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
@@ -426,7 +451,7 @@ export function WorkflowRunDashboardTab({
                   {t('workflow.dashboard.output')}
                 </h3>
                 <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-primary p-2 text-high border border-secondary font-mono text-[10px]">
-                  {selectedNode.output_text || (
+                  {selectedNodeOutput || (
                     <span className="italic text-low">
                       {t('workflow.dashboard.noOutput')}
                     </span>
@@ -445,24 +470,29 @@ export function WorkflowRunDashboardTab({
                 </div>
               )}
 
-              {selectedNode.status === 'awaiting_human' && (
-                <div className="flex gap-2 pt-2">
-                  <button
-                    className="flex-1 rounded bg-success px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
-                    onClick={() => void handleApproveNode(selectedNode.node_id)}
-                    disabled={mutations.isApproving || mutations.isRejecting}
-                  >
-                    {t('workflow.dashboard.approve')}
-                  </button>
-                  <button
-                    className="flex-1 rounded bg-error px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
-                    onClick={() => void handleRejectNode(selectedNode.node_id)}
-                    disabled={mutations.isApproving || mutations.isRejecting}
-                  >
-                    {t('workflow.dashboard.reject')}
-                  </button>
-                </div>
-              )}
+              {selectedNode.status === 'awaiting_human' &&
+                selectedNode.node_type !== 'condition' && (
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      className="flex-1 rounded bg-success px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
+                      onClick={() =>
+                        void handleApproveNode(selectedNode.node_id)
+                      }
+                      disabled={mutations.isApproving || mutations.isRejecting}
+                    >
+                      {t('workflow.dashboard.approve')}
+                    </button>
+                    <button
+                      className="flex-1 rounded bg-error px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
+                      onClick={() =>
+                        void handleRejectNode(selectedNode.node_id)
+                      }
+                      disabled={mutations.isApproving || mutations.isRejecting}
+                    >
+                      {t('workflow.dashboard.reject')}
+                    </button>
+                  </div>
+                )}
 
               {selectedNode.status === 'awaiting_arena' && (
                 <WorkflowArenaWinnerPanel
@@ -515,7 +545,10 @@ export function WorkflowRunDashboardTab({
                       <div className="text-low mt-1">
                         {t('workflow.dashboard.conditionMet')}:{' '}
                         <span className="text-high">
-                          {node.output_text || t('workflow.dashboard.none')}
+                          {getReadableWorkflowNodeOutput(
+                            node.node_type,
+                            node.output_text
+                          ) || t('workflow.dashboard.none')}
                         </span>
                       </div>
                     )}

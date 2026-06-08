@@ -651,6 +651,7 @@ mod tests {
             target: target.to_string(),
             target_handle: None,
             kind: WorkflowEdgeKind::ConditionBranch,
+            data: None,
         }
     }
 

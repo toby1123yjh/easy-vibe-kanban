@@ -44,6 +44,11 @@ import {
   getNodeStatusTone,
   type StatusTone,
 } from '../model/workflowRunView';
+import {
+  getConditionRouterHumanPrompt,
+  getConditionRouterReason,
+  parseConditionRouterOutput,
+} from '../model/workflowConditionRouterOutput';
 import { workflowNodeStatusKey } from './workflowI18n';
 
 interface WorkflowNodeSessionPanelProps {
@@ -60,6 +65,7 @@ interface WorkflowNodeSessionPanelProps {
   onRunStep?: () => void;
   runStepDisabled?: boolean;
   runStepTitle?: string;
+  afterHeaderContent?: ReactNode;
 }
 
 interface WorkflowNodeSessionHeaderProps {
@@ -106,6 +112,7 @@ export function WorkflowNodeSessionPanel({
   onRunStep,
   runStepDisabled,
   runStepTitle,
+  afterHeaderContent,
 }: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
   const preferredExecutorConfig = useMemo(
@@ -128,6 +135,7 @@ export function WorkflowNodeSessionPanel({
         onRunStep={onRunStep}
         runStepDisabled={runStepDisabled}
         runStepTitle={runStepTitle}
+        afterHeaderContent={afterHeaderContent}
       />
     );
   }
@@ -149,6 +157,7 @@ export function WorkflowNodeSessionPanel({
           runStepTitle={runStepTitle}
         />
       )}
+      {afterHeaderContent}
       <div className="min-h-0 flex-1 overflow-hidden">
         <WorkflowNodeEmbeddedSession
           execution={execution}
@@ -322,6 +331,10 @@ function WorkflowNodeRunSummary({
     execution.finished_at
   );
   const hasError = execution.status === 'failed' || !!execution.error_text;
+  const routerOutput = parseConditionRouterOutput(execution.output_text);
+  const routerReadableOutput =
+    getConditionRouterHumanPrompt(routerOutput) ??
+    getConditionRouterReason(routerOutput);
 
   const summary = (() => {
     if (hasError) {
@@ -329,6 +342,7 @@ function WorkflowNodeRunSummary({
         title: t('workflow.nodeSession.lastRunFailed'),
         detail:
           execution.error_text ||
+          routerReadableOutput ||
           execution.output_text ||
           t('workflow.nodeSession.failedWithoutMessage'),
       };
@@ -353,7 +367,9 @@ function WorkflowNodeRunSummary({
           `workflow.nodeStatus.${workflowNodeStatusKey(execution.status)}`
         ),
         detail:
-          execution.output_text || t('workflow.nodeSession.waitingForDecision'),
+          routerReadableOutput ||
+          execution.output_text ||
+          t('workflow.nodeSession.waitingForDecision'),
       };
     }
     if (execution.status === 'succeeded') {
@@ -628,6 +644,7 @@ function WorkflowNodeSessionFallback({
   onRunStep,
   runStepDisabled,
   runStepTitle,
+  afterHeaderContent,
 }: Omit<WorkflowNodeSessionPanelProps, 'workspaceId'>) {
   const { t } = useTranslation('common');
   return (
@@ -650,21 +667,10 @@ function WorkflowNodeSessionFallback({
           runStepTitle={runStepTitle}
         />
       )}
+      {afterHeaderContent}
 
       <div className="flex flex-1 flex-col gap-base overflow-y-auto p-base">
-        <div className="rounded border border-secondary bg-primary p-half">
-          <h3 className="text-xs font-semibold uppercase text-low">
-            {t('workflow.nodeSession.conversation')}
-          </h3>
-          <p data-testid="workflow-node-session-id" className="sr-only">
-            {t('workflow.nodeSession.session', {
-              id: execution.session_id ?? t('workflow.dashboard.notStarted'),
-            })}
-          </p>
-          <pre className="mt-half whitespace-pre-wrap text-xs text-high">
-            {execution.output_text || t('workflow.nodeSession.noAgentResponse')}
-          </pre>
-        </div>
+        <WorkflowNodeOutputFallback execution={execution} />
 
         <div className="rounded border border-secondary bg-primary p-half">
           <h3 className="text-xs font-semibold uppercase text-low">
@@ -686,6 +692,56 @@ function WorkflowNodeSessionFallback({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function WorkflowNodeOutputFallback({
+  execution,
+}: {
+  execution: WorkflowNodeExecutionResponse;
+}) {
+  const { t } = useTranslation('common');
+  const routerOutput = parseConditionRouterOutput(execution.output_text);
+  const routerPrompt = getConditionRouterHumanPrompt(routerOutput);
+  const routerReason = getConditionRouterReason(routerOutput);
+
+  return (
+    <div className="rounded border border-secondary bg-primary p-half">
+      <h3 className="text-xs font-semibold uppercase text-low">
+        {t('workflow.nodeSession.conversation')}
+      </h3>
+      <p data-testid="workflow-node-session-id" className="sr-only">
+        {t('workflow.nodeSession.session', {
+          id: execution.session_id ?? t('workflow.dashboard.notStarted'),
+        })}
+      </p>
+      {routerOutput ? (
+        <div className="mt-half space-y-half text-xs">
+          {routerPrompt ? (
+            <div className="rounded border border-warning/35 bg-warning/10 p-half text-high">
+              {routerPrompt}
+            </div>
+          ) : null}
+          {routerReason ? (
+            <p className="whitespace-pre-wrap text-low">{routerReason}</p>
+          ) : null}
+          {routerOutput.raw_output ? (
+            <details className="rounded border border-secondary bg-panel/50 p-half text-low">
+              <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-normal">
+                {t('workflow.nodeSession.rawRouterOutput')}
+              </summary>
+              <pre className="mt-half max-h-36 overflow-y-auto whitespace-pre-wrap text-[10px]">
+                {routerOutput.raw_output}
+              </pre>
+            </details>
+          ) : null}
+        </div>
+      ) : (
+        <pre className="mt-half whitespace-pre-wrap text-xs text-high">
+          {execution.output_text || t('workflow.nodeSession.noAgentResponse')}
+        </pre>
+      )}
     </div>
   );
 }

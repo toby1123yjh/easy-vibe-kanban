@@ -301,6 +301,7 @@ mod tests {
             target: target.to_string(),
             target_handle: Some("input-left".to_string()),
             kind: WorkflowEdgeKind::Default,
+            data: None,
         }
     }
 

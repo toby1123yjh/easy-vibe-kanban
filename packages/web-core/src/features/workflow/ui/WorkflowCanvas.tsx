@@ -81,7 +81,9 @@ import {
   type WorkflowCanvasNodeState,
   type WorkflowNodeExecutionStatusMap,
 } from '../model/workflowCanvasVisualState';
+import { isWorkflowNodeAuthorable } from '../model/workflowNodeCatalog';
 import {
+  AlertTriangle,
   Copy,
   MessageSquare,
   MoreHorizontal,
@@ -167,6 +169,7 @@ interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
   onSelect?: (edgeId: string) => void;
   onActionMenu?: (event: WorkflowEdgeActionMenuEvent) => void;
   visualStatus?: WorkflowCanvasEdgeState;
+  connectionIssue?: WorkflowCanvasConnectionIssue;
 }
 
 interface WorkflowCanvasObjectActions {
@@ -196,6 +199,13 @@ type WorkflowCanvasFlowNode = ReactFlowNode<
   WorkflowCanvasReactFlowNodeData,
   WorkflowCanvasReactFlowNodeKind
 >;
+
+export type WorkflowCanvasConnectionIssue =
+  | 'missing_endpoint'
+  | 'missing_node'
+  | 'self_edge'
+  | 'end_source'
+  | 'start_target';
 
 const ROUTE_HINT_CLASSES: Record<string, string> = {
   brand: 'border-brand/30 bg-brand/10 text-brand',
@@ -890,8 +900,77 @@ export function filterReadOnlyEdgeChanges<
   );
 }
 
+export function getWorkflowCanvasConnectionIssue(
+  connection: { source?: string | null; target?: string | null },
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>
+): WorkflowCanvasConnectionIssue | null {
+  const source = connection.source;
+  const target = connection.target;
+  if (!source || !target) return 'missing_endpoint';
+  if (!nodeTypeById.has(source) || !nodeTypeById.has(target)) {
+    return 'missing_node';
+  }
+  if (source === target) return 'self_edge';
+  if (nodeTypeById.get(source) === 'end') return 'end_source';
+  if (nodeTypeById.get(target) === 'start') return 'start_target';
+  return null;
+}
+
+export function isWorkflowCanvasConnectionAllowed(
+  connection: { source?: string | null; target?: string | null },
+  nodeTypeById: ReadonlyMap<string, string | null | undefined>
+): boolean {
+  return getWorkflowCanvasConnectionIssue(connection, nodeTypeById) === null;
+}
+
+function getWorkflowCanvasConnectionIssueMessage(
+  issue: WorkflowCanvasConnectionIssue,
+  connection: { source?: string | null; target?: string | null }
+): string {
+  switch (issue) {
+    case 'missing_endpoint':
+      return 'Edge is missing a source or target node.';
+    case 'missing_node':
+      return 'Edge references a node that no longer exists.';
+    case 'self_edge':
+      return `Self-edge found on node ${connection.source ?? ''}`;
+    case 'end_source':
+      return 'End nodes cannot start outgoing edges.';
+    case 'start_target':
+      return 'Start nodes cannot receive incoming edges.';
+  }
+}
+
+function getWorkflowCanvasNodeTypeById(
+  nodes: Array<{ id: string; type?: string | null }>
+): Map<string, string | null | undefined> {
+  return new Map(nodes.map((node) => [node.id, node.type]));
+}
+
+export function getWorkflowSelfLoopPath({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+}: {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+}): [string, number, number] {
+  const leftX = Math.min(sourceX, targetX);
+  const rightX = Math.max(sourceX, targetX);
+  const controlX = rightX + 96;
+  const controlTopY = Math.min(sourceY, targetY) - 76;
+  const controlBottomY = Math.max(sourceY, targetY) + 76;
+  const path = `M ${sourceX},${sourceY} C ${controlX},${controlTopY} ${controlX},${controlBottomY} ${targetX},${targetY}`;
+  return [path, Math.max(leftX + 58, controlX), (sourceY + targetY) / 2];
+}
+
 const WorkflowEdge = ({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -906,19 +985,30 @@ const WorkflowEdge = ({
   const workflowType = data?.workflowType ?? 'default';
   const onSelect = data?.onSelect;
   const onActionMenu = data?.onActionMenu;
-  const visualStatus = data?.visualStatus ?? 'idle';
+  const connectionIssue = data?.connectionIssue;
+  const isInvalid = Boolean(connectionIssue);
+  const visualStatus = isInvalid ? 'failed' : (data?.visualStatus ?? 'idle');
   const isRunning = visualStatus === 'running';
   const visual = getWorkflowEdgeVisual(workflowType, t);
   const statusPathClass = WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES[visualStatus];
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 18,
-  });
+  const [edgePath, labelX, labelY] =
+    source === target
+      ? getWorkflowSelfLoopPath({ sourceX, sourceY, targetX, targetY })
+      : getSmoothStepPath({
+          sourceX,
+          sourceY,
+          sourcePosition,
+          targetX,
+          targetY,
+          targetPosition,
+          borderRadius: 18,
+        });
+  const connectionIssueMessage = connectionIssue
+    ? getWorkflowCanvasConnectionIssueMessage(connectionIssue, {
+        source,
+        target,
+      })
+    : null;
   const openActionMenu = (
     event: PointerEvent<HTMLButtonElement> | MouseEvent<HTMLButtonElement>
   ) => {
@@ -942,7 +1032,8 @@ const WorkflowEdge = ({
         className={cn(
           'group workflow-edge-group',
           selected && 'workflow-edge-group-selected',
-          isRunning && 'workflow-edge-group-running'
+          isRunning && 'workflow-edge-group-running',
+          isInvalid && 'workflow-edge-group-invalid'
         )}
       >
         <BaseEdge
@@ -950,7 +1041,9 @@ const WorkflowEdge = ({
           path={edgePath}
           interactionWidth={0}
           className="workflow-edge-track"
-          style={{ strokeWidth: selected || isRunning ? 4.5 : 3.5 }}
+          style={{
+            strokeWidth: selected || isRunning || isInvalid ? 4.5 : 3.5,
+          }}
         />
         <BaseEdge
           id={id}
@@ -966,7 +1059,8 @@ const WorkflowEdge = ({
             strokeWidth:
               selected ||
               visualStatus === 'running' ||
-              visualStatus === 'failed'
+              visualStatus === 'failed' ||
+              isInvalid
                 ? 2.25
                 : 1.5,
             opacity: visualStatus === 'idle' ? 0.58 : 0.86,
@@ -983,6 +1077,27 @@ const WorkflowEdge = ({
           )}
           style={{ strokeWidth: selected || isRunning ? 2.25 : 1.5 }}
         />
+        {connectionIssueMessage ? (
+          <EdgeLabelRenderer>
+            <div
+              className="nodrag nopan absolute"
+              style={{
+                transform: `translate(-50%, -50%) translate(${labelX}px, ${
+                  labelY - 30
+                }px)`,
+                pointerEvents: 'none',
+              }}
+            >
+              <span
+                data-testid={`workflow-edge-invalid-${id}`}
+                title={connectionIssueMessage}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-error/55 bg-error/15 text-error shadow-[0_0_16px_rgba(239,68,68,0.32)]"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          </EdgeLabelRenderer>
+        ) : null}
         {onSelect ? (
           <foreignObject
             x={labelX - 20}
@@ -1260,6 +1375,11 @@ export function WorkflowCanvas({
       data: {
         workflowType: edge.data?.workflowType ?? 'default',
         visualStatus: edgeStateById[edge.id] ?? 'idle',
+        connectionIssue:
+          getWorkflowCanvasConnectionIssue(
+            edge,
+            getWorkflowCanvasNodeTypeById(graph.nodes)
+          ) ?? undefined,
         onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
         onActionMenu: onEdgeActionMenu,
       },
@@ -1421,6 +1541,14 @@ export function WorkflowCanvas({
   const onConnect = useCallback(
     (connection: Connection) => {
       if (readOnly) return;
+      if (
+        !isWorkflowCanvasConnectionAllowed(
+          connection,
+          getWorkflowCanvasNodeTypeById(nodesRef.current)
+        )
+      ) {
+        return;
+      }
       const next = addEdge(
         {
           ...connection,
@@ -1454,6 +1582,14 @@ export function WorkflowCanvas({
       newConnection: Connection
     ) => {
       if (readOnly) return;
+      if (
+        !isWorkflowCanvasConnectionAllowed(
+          newConnection,
+          getWorkflowCanvasNodeTypeById(nodesRef.current)
+        )
+      ) {
+        return;
+      }
       const normalizedConnection = {
         ...newConnection,
         sourceHandle: normalizeWorkflowPortHandle(
@@ -1515,7 +1651,12 @@ export function WorkflowCanvas({
       if (readOnly || !onNodeDrop) return;
 
       const nodeKind = event.dataTransfer.getData(WORKFLOW_NODE_DRAG_DATA_TYPE);
-      if (!isWorkflowNodeKind(nodeKind)) return;
+      if (
+        !isWorkflowNodeKind(nodeKind) ||
+        !isWorkflowNodeAuthorable(nodeKind)
+      ) {
+        return;
+      }
 
       event.preventDefault();
       onNodeDrop(
@@ -1548,6 +1689,14 @@ export function WorkflowCanvas({
             event.target.closest('.react-flow__handle')
           ) {
             return;
+          }
+          if (
+            node.type &&
+            isWorkflowNodeKind(String(node.type)) &&
+            node.type !== 'start' &&
+            node.type !== 'end'
+          ) {
+            onNodeEdit?.(node.id);
           }
         }}
         onNodeDoubleClick={(_, node) => {
@@ -1584,6 +1733,12 @@ export function WorkflowCanvas({
         onPaneClick={() => applySelection({ nodeId: null, edgeId: null })}
         onDragOver={onDragOver}
         onDrop={onDrop}
+        isValidConnection={(connection) =>
+          isWorkflowCanvasConnectionAllowed(
+            connection,
+            getWorkflowCanvasNodeTypeById(nodesRef.current)
+          )
+        }
         defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
         nodesDraggable
         nodesConnectable={!readOnly}
