@@ -6,7 +6,7 @@ use rmcp::{
 
 use super::{McpMode, McpServer};
 
-#[tool_handler]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         let mut tool_names = self
