@@ -30,6 +30,7 @@ use workflow::{
     handlers::{NodeHandlerContext, NodeHandlerStatus, UpstreamOutput, handle_pure_node},
     planner::{
         NodeExecutionSnapshot, NodeExecutionStatus as PlannerNodeExecutionStatus, RunSnapshot,
+        triggered_execution_count,
     },
     runner::WorkflowRunner,
     validation::validate_graph_for_run,
@@ -1133,7 +1134,7 @@ async fn ensure_triggered_node_iterations(
     run_id: Uuid,
     graph: &WorkflowGraph,
 ) -> Result<(), ApiError> {
-    let succeeded_counts = succeeded_execution_counts(pool, run_id).await?;
+    let snapshot = load_run_snapshot(pool, run_id).await?;
     let existing_counts = existing_execution_counts(pool, run_id).await?;
     let mut max_iterations = max_execution_iterations(pool, run_id).await?;
 
@@ -1142,17 +1143,7 @@ async fn ensure_triggered_node_iterations(
         .iter()
         .filter(|node| node.kind != WorkflowNodeKind::Start)
     {
-        let desired_count = graph
-            .edges
-            .iter()
-            .filter(|edge| edge.target == node.id)
-            .map(|edge| {
-                succeeded_counts
-                    .get(edge.source.as_str())
-                    .copied()
-                    .unwrap_or(0)
-            })
-            .sum::<i64>();
+        let desired_count = triggered_execution_count(graph, &snapshot, &node.id);
         let existing_count = existing_counts
             .get(node.id.as_str())
             .copied()
@@ -1168,27 +1159,6 @@ async fn ensure_triggered_node_iterations(
     }
 
     Ok(())
-}
-
-async fn succeeded_execution_counts(
-    pool: &SqlitePool,
-    run_id: Uuid,
-) -> Result<HashMap<String, i64>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT node_id, COUNT(*) AS count
-        FROM node_executions
-        WHERE run_id = ? AND status = 'succeeded'
-        GROUP BY node_id
-        "#,
-    )
-    .bind(run_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(|row| Ok((row.try_get("node_id")?, row.try_get("count")?)))
-        .collect::<Result<HashMap<_, _>, ApiError>>()
 }
 
 async fn existing_execution_counts(

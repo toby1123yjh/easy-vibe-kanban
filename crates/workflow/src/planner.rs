@@ -54,7 +54,6 @@ pub struct ReadyPlan {
 
 pub fn plan_ready_nodes(graph: &WorkflowGraph, snapshot: &RunSnapshot) -> ReadyPlan {
     let executions = execution_snapshots(graph, snapshot);
-    let succeeded_counts = succeeded_execution_counts(&executions);
     let incoming = incoming_edges(graph);
     let nodes_by_id = graph
         .nodes
@@ -71,7 +70,8 @@ pub fn plan_ready_nodes(graph: &WorkflowGraph, snapshot: &RunSnapshot) -> ReadyP
                 node,
                 execution.iteration,
                 incoming.get(node.id.as_str()).map(Vec::as_slice),
-                &succeeded_counts,
+                graph,
+                &executions,
             ) {
                 Some(ready_node(node, execution.iteration))
             } else {
@@ -113,15 +113,22 @@ fn execution_snapshots(
     executions
 }
 
-fn succeeded_execution_counts(snapshot: &[NodeExecutionSnapshot]) -> HashMap<&str, i64> {
-    let mut counts = HashMap::new();
-    snapshot
-        .iter()
-        .filter(|node| node.status == NodeExecutionStatus::Succeeded)
-        .for_each(|node| {
-            *counts.entry(node.node_id.as_str()).or_insert(0) += 1;
-        });
-    counts
+pub fn triggered_execution_count(
+    graph: &WorkflowGraph,
+    snapshot: &RunSnapshot,
+    target_node_id: &str,
+) -> i64 {
+    let executions = execution_snapshots(graph, snapshot);
+    let incoming = incoming_edges(graph);
+    incoming
+        .get(target_node_id)
+        .map(|edges| {
+            edges
+                .iter()
+                .map(|edge| succeeded_trigger_count_for_edge(graph, edge, &executions))
+                .sum()
+        })
+        .unwrap_or_default()
 }
 
 fn incoming_edges(graph: &WorkflowGraph) -> HashMap<&str, Vec<&WorkflowEdge>> {
@@ -142,7 +149,8 @@ fn execution_is_ready(
     node: &WorkflowNode,
     iteration: i64,
     incoming: Option<&[&WorkflowEdge]>,
-    succeeded_counts: &HashMap<&str, i64>,
+    graph: &WorkflowGraph,
+    executions: &[NodeExecutionSnapshot],
 ) -> bool {
     let Some(incoming) = incoming else {
         return node.kind == WorkflowNodeKind::Start && iteration == 0;
@@ -151,13 +159,62 @@ fn execution_is_ready(
         return node.kind == WorkflowNodeKind::Start && iteration == 0;
     }
 
-    incoming.iter().any(|edge| {
-        succeeded_counts
-            .get(edge.source.as_str())
-            .copied()
-            .unwrap_or(0)
-            > 0
-    })
+    incoming
+        .iter()
+        .any(|edge| succeeded_trigger_count_for_edge(graph, edge, executions) > 0)
+}
+
+fn succeeded_trigger_count_for_edge(
+    graph: &WorkflowGraph,
+    edge: &WorkflowEdge,
+    executions: &[NodeExecutionSnapshot],
+) -> i64 {
+    executions
+        .iter()
+        .filter(|execution| {
+            execution.status == NodeExecutionStatus::Succeeded
+                && execution.node_id == edge.source
+                && execution_triggers_edge(graph, edge, execution)
+        })
+        .count() as i64
+}
+
+fn execution_triggers_edge(
+    graph: &WorkflowGraph,
+    edge: &WorkflowEdge,
+    execution: &NodeExecutionSnapshot,
+) -> bool {
+    let Some(source_node) = graph.nodes.iter().find(|node| node.id == edge.source) else {
+        return false;
+    };
+    if source_node.kind != WorkflowNodeKind::Condition {
+        return true;
+    }
+
+    condition_output_selects_target(execution.output_text.as_deref(), &edge.target)
+}
+
+fn condition_output_selects_target(output_text: Option<&str>, target_node_id: &str) -> bool {
+    let Some(output_text) = output_text else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(output_text) else {
+        return false;
+    };
+
+    json_string_array_contains(value.get("selected_target_node_ids"), target_node_id)
+        || json_string_array_contains(
+            value
+                .get("decision")
+                .and_then(|decision| decision.get("selected_target_node_ids")),
+            target_node_id,
+        )
+}
+
+fn json_string_array_contains(value: Option<&serde_json::Value>, needle: &str) -> bool {
+    value
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(needle)))
 }
 
 fn ready_node(node: &WorkflowNode, iteration: i64) -> ReadyNode {
@@ -176,7 +233,10 @@ mod tests {
             WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
             WorkflowNodeKind,
         },
-        planner::{NodeExecutionSnapshot, NodeExecutionStatus, RunSnapshot, plan_ready_nodes},
+        planner::{
+            NodeExecutionSnapshot, NodeExecutionStatus, RunSnapshot, plan_ready_nodes,
+            triggered_execution_count,
+        },
     };
 
     fn node(id: &str, kind: WorkflowNodeKind) -> WorkflowNode {
@@ -197,6 +257,13 @@ mod tests {
             target_handle: Some("input-left".to_string()),
             kind: WorkflowEdgeKind::Default,
             data: None,
+        }
+    }
+
+    fn condition_edge(id: &str, source: &str, target: &str) -> WorkflowEdge {
+        WorkflowEdge {
+            kind: WorkflowEdgeKind::ConditionBranch,
+            ..edge(id, source, target)
         }
     }
 
@@ -224,6 +291,29 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn condition_output(selected: &[&str], skipped: &[&str]) -> String {
+        serde_json::json!({
+            "type": "condition_router_decision",
+            "source": "router",
+            "status": "selected",
+            "schema_version": 1,
+            "decision": {
+                "schema_version": 1,
+                "status": "selected",
+                "selected_target_node_ids": selected,
+                "skipped_target_node_ids": skipped,
+                "confidence": "high",
+                "reason": "Matched",
+                "question": null
+            },
+            "raw_output": "",
+            "selected_target_node_ids": selected,
+            "skipped_target_node_ids": skipped,
+            "validation": { "result": "auto_route" }
+        })
+        .to_string()
     }
 
     #[test]
@@ -401,6 +491,71 @@ mod tests {
             vec!["agent-a", "agent-b"]
         );
         assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn condition_success_only_readies_selected_targets() {
+        let graph = graph(
+            vec![
+                node("start", WorkflowNodeKind::Start),
+                node("condition", WorkflowNodeKind::Condition),
+                node("ui", WorkflowNodeKind::Agent),
+                node("api", WorkflowNodeKind::Agent),
+                node("end", WorkflowNodeKind::End),
+            ],
+            vec![
+                edge("e1", "start", "condition"),
+                condition_edge("e2", "condition", "ui"),
+                condition_edge("e3", "condition", "api"),
+                edge("e4", "ui", "end"),
+                edge("e5", "api", "end"),
+            ],
+        );
+        let snapshot = RunSnapshot {
+            run_id: "run-1".to_string(),
+            nodes: vec![
+                NodeExecutionSnapshot {
+                    node_id: "start".to_string(),
+                    iteration: 0,
+                    status: NodeExecutionStatus::Succeeded,
+                    output_text: None,
+                    error_text: None,
+                },
+                NodeExecutionSnapshot {
+                    node_id: "condition".to_string(),
+                    iteration: 0,
+                    status: NodeExecutionStatus::Succeeded,
+                    output_text: Some(condition_output(&["ui"], &["api"])),
+                    error_text: None,
+                },
+                NodeExecutionSnapshot {
+                    node_id: "ui".to_string(),
+                    iteration: 0,
+                    status: NodeExecutionStatus::Pending,
+                    output_text: None,
+                    error_text: None,
+                },
+                NodeExecutionSnapshot {
+                    node_id: "api".to_string(),
+                    iteration: 0,
+                    status: NodeExecutionStatus::Pending,
+                    output_text: None,
+                    error_text: None,
+                },
+            ],
+        };
+
+        let plan = plan_ready_nodes(&graph, &snapshot);
+
+        assert_eq!(
+            plan.ready_nodes
+                .iter()
+                .map(|node| node.node_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ui"]
+        );
+        assert_eq!(triggered_execution_count(&graph, &snapshot, "ui"), 1);
+        assert_eq!(triggered_execution_count(&graph, &snapshot, "api"), 0);
     }
 
     #[test]
