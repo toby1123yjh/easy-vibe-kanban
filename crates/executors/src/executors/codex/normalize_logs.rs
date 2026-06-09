@@ -2386,7 +2386,9 @@ pub fn normalize_logs(
                 | EventMsg::ShutdownComplete
                 | EventMsg::TerminalInteraction(..)
                 | EventMsg::ElicitationRequest(..)
+                | EventMsg::TurnModerationMetadata(..)
                 | EventMsg::TurnComplete(..)
+                | EventMsg::ThreadSettingsApplied(..)
                 | EventMsg::ThreadGoalUpdated(..)
                 | EventMsg::CollabAgentSpawnBegin(..)
                 | EventMsg::CollabAgentSpawnEnd(..)

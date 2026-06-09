@@ -225,12 +225,14 @@ impl AppServerClient {
         &self,
         cursor: Option<String>,
     ) -> Result<ListMcpServerStatusResponse, ExecutorError> {
+        let thread_id = self.thread_id.lock().await.clone();
         let request = ClientRequest::McpServerStatusList {
             request_id: self.next_request_id(),
             params: ListMcpServerStatusParams {
                 cursor,
                 limit: None,
                 detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
+                thread_id,
             },
         };
         self.send_request(request, "mcpServerStatus/list").await
