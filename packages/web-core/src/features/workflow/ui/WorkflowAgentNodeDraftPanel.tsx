@@ -54,6 +54,7 @@ export function WorkflowAgentNodeDraftPanel({
     typeof node.data.prompt_template === 'string'
       ? node.data.prompt_template
       : '';
+  const includeWorkflowContext = node.data.include_workflow_context !== false;
 
   const storedExecutorConfig = useMemo(
     () => coerceWorkflowNodeExecutorConfig(node.data.executor_config),
@@ -61,13 +62,18 @@ export function WorkflowAgentNodeDraftPanel({
   );
 
   const persistDraft = useCallback(
-    (nextPrompt: string, nextExecutorConfig: ExecutorConfig | null) => {
+    (
+      nextPrompt: string,
+      nextExecutorConfig: ExecutorConfig | null,
+      nextIncludeWorkflowContext: boolean
+    ) => {
       if (readOnly || !onChange) return;
       onChange(
         node.id,
         createWorkflowAgentNodeDraftPatch({
           prompt: nextPrompt,
           executorConfig: nextExecutorConfig,
+          includeWorkflowContext: nextIncludeWorkflowContext,
         })
       );
     },
@@ -89,11 +95,16 @@ export function WorkflowAgentNodeDraftPanel({
     lastUsedConfig: null,
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
-    onPersist: (nextConfig) => persistDraft(prompt, nextConfig),
+    onPersist: (nextConfig) =>
+      persistDraft(prompt, nextConfig, includeWorkflowContext),
   });
 
   const handlePromptChange = (nextPrompt: string) => {
-    persistDraft(nextPrompt, executorConfig);
+    persistDraft(nextPrompt, executorConfig, includeWorkflowContext);
+  };
+
+  const handleWorkflowContextChange = (checked: boolean) => {
+    persistDraft(prompt, executorConfig, checked);
   };
 
   const isDisabled = readOnly || !onChange || isSubmitting;
@@ -104,7 +115,7 @@ export function WorkflowAgentNodeDraftPanel({
   const handleDone = () => {
     if (isDisabled || !prompt.trim() || !executorConfig) return;
 
-    persistDraft(prompt, executorConfig);
+    persistDraft(prompt, executorConfig, includeWorkflowContext);
     onSubmit?.({ prompt, executorConfig });
     onDone?.();
   };
@@ -184,7 +195,31 @@ export function WorkflowAgentNodeDraftPanel({
                 />
               ) : undefined
             }
-            footerLeft={null}
+            footerLeft={
+              <label className="flex max-w-[260px] items-start gap-2 text-xs text-medium">
+                <input
+                  type="checkbox"
+                  checked={includeWorkflowContext}
+                  onChange={(event) =>
+                    handleWorkflowContextChange(event.target.checked)
+                  }
+                  disabled={isDisabled}
+                  className="mt-0.5 h-4 w-4 rounded border-secondary text-brand focus:ring-brand disabled:opacity-50"
+                />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="font-medium text-high">
+                    {t('workflow.agentDraft.includeWorkflowContext', {
+                      defaultValue: 'Carry workflow context',
+                    })}
+                  </span>
+                  <span className="leading-relaxed text-low">
+                    {t('workflow.agentDraft.includeWorkflowContextHelp', {
+                      defaultValue: 'Adds workflow input and upstream results.',
+                    })}
+                  </span>
+                </span>
+              </label>
+            }
             footerRight={
               <PrimaryButton
                 value={

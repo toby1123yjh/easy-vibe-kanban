@@ -39,6 +39,20 @@ describe('workflow agent node draft sessions', () => {
     });
   });
 
+  it('persists the workflow context setting when provided', () => {
+    expect(
+      createWorkflowAgentNodeDraftPatch({
+        prompt: 'Run exactly this prompt',
+        executorConfig: null,
+        includeWorkflowContext: false,
+      })
+    ).toEqual({
+      prompt_template: 'Run exactly this prompt',
+      executor_config: undefined,
+      include_workflow_context: false,
+    });
+  });
+
   it('accepts stored executor config values only when they identify a valid agent', () => {
     expect(
       coerceWorkflowNodeExecutorConfig({

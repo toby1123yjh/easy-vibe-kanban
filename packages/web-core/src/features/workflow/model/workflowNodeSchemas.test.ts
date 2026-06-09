@@ -30,8 +30,7 @@ describe('workflow node schemas', () => {
       'branches',
     ]);
     expect(fields.map((field) => field.type)).toContain('condition_branches');
-    expect(fields.map((field) => field.key)).not.toEqual(
-      expect.arrayContaining(['conditions', 'joiner', 'operator'])
-    );
+    expect(fields.map((field) => field.key)).not.toContain('conditions');
+    expect(fields.map((field) => field.key)).not.toContain('joiner');
   });
 });

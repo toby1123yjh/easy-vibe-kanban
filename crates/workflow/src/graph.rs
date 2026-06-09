@@ -136,6 +136,8 @@ pub struct WorkflowNodeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_template: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_workflow_context: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_capture: Option<AgentOutputCapture>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempts: Option<Vec<ArenaAttemptConfig>>,
@@ -143,10 +145,6 @@ pub struct WorkflowNodeData {
     pub promote_strategy: Option<ArenaPromoteStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apply_strategy: Option<ArenaApplyStrategy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conditions: Option<Vec<ConditionRule>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub joiner: Option<ConditionJoiner>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_mode: Option<ConditionRoutingMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,34 +197,6 @@ pub enum ArenaApplyStrategy {
     DiffApply,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct ConditionRule {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operator: Option<ConditionOperator>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConditionOperator {
-    Contains,
-    Equals,
-    NotEquals,
-    Regex,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ConditionJoiner {
-    And,
-    Or,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConditionRoutingMode {
@@ -238,8 +208,6 @@ pub enum ConditionRoutingMode {
 pub struct ConditionBranch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_node_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

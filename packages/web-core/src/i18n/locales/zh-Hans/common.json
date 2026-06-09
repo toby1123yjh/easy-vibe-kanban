@@ -421,8 +421,6 @@
       "display_name": "显示名称",
       "role_template_id": "角色模板 ID",
       "prompt_template": "提示词模板",
-      "joiner": "连接方式",
-      "conditions": "规则",
       "routing_mode": "路由模式",
       "branches": "分支",
       "prompt_to_human": "给人工的提示词",
@@ -434,10 +432,6 @@
       "attempts": "尝试"
     },
     "fieldOptions": {
-      "joiner": {
-        "and": "并且",
-        "or": "或者"
-      },
       "routing_mode": {
         "single": "单分支",
         "multi": "多分支"
@@ -451,12 +445,6 @@
         "regex_extract": "正则提取",
         "truncate": "截断"
       }
-    },
-    "operators": {
-      "contains": "包含",
-      "equals": "等于",
-      "notEquals": "不等于",
-      "regex": "正则表达式"
     },
     "canvasState": {
       "draft": "草稿",

@@ -57,12 +57,17 @@ export function coerceWorkflowNodeExecutorConfig(
 export function createWorkflowAgentNodeDraftPatch({
   prompt,
   executorConfig,
+  includeWorkflowContext,
 }: {
   prompt: string;
   executorConfig: ExecutorConfig | null;
+  includeWorkflowContext?: boolean;
 }): Partial<WorkflowNodeData> {
   return {
     prompt_template: prompt,
     executor_config: executorConfig ?? undefined,
+    ...(typeof includeWorkflowContext === 'boolean'
+      ? { include_workflow_context: includeWorkflowContext }
+      : {}),
   };
 }

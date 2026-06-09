@@ -747,6 +747,7 @@ export function WorkflowTemplateEditorPage({
   const handleAgentStepEditSave = async ({
     displayName,
     prompt,
+    includeWorkflowContext,
     executorConfig,
   }: WorkflowAgentStepEditValue) => {
     if (!graph || !editPanelNodeId || readOnly || isUpdating) {
@@ -761,13 +762,19 @@ export function WorkflowTemplateEditorPage({
     );
     const nextGraph = applyWorkflowNodeDataPatch(graph, editPanelNodeId, {
       display_name: displayName,
-      ...createWorkflowAgentNodeDraftPatch({ prompt, executorConfig }),
+      ...createWorkflowAgentNodeDraftPatch({
+        prompt,
+        executorConfig,
+        includeWorkflowContext,
+      }),
     });
     const nextNode = nextGraph.nodes.find(
       (node) => node.id === editPanelNodeId
     );
     const changedNextRunConfig =
       currentNode?.data.prompt_template !== nextNode?.data.prompt_template ||
+      (currentNode?.data.include_workflow_context !== false) !==
+        (nextNode?.data.include_workflow_context !== false) ||
       JSON.stringify(currentNode?.data.executor_config ?? null) !==
         JSON.stringify(nextNode?.data.executor_config ?? null);
     setGraph(nextGraph);

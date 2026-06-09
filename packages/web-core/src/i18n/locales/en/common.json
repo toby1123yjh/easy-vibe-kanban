@@ -435,8 +435,6 @@
       "display_name": "Display name",
       "role_template_id": "Role template ID",
       "prompt_template": "Prompt template",
-      "joiner": "Joiner",
-      "conditions": "Rules",
       "routing_mode": "Routing mode",
       "branches": "Branches",
       "prompt_to_human": "Prompt to human",
@@ -448,10 +446,6 @@
       "attempts": "Attempts"
     },
     "fieldOptions": {
-      "joiner": {
-        "and": "AND",
-        "or": "OR"
-      },
       "routing_mode": {
         "single": "Single branch",
         "multi": "Multiple branches"
@@ -465,12 +459,6 @@
         "regex_extract": "Regex extract",
         "truncate": "Truncate"
       }
-    },
-    "operators": {
-      "contains": "Contains",
-      "equals": "Equals",
-      "notEquals": "Not equals",
-      "regex": "Regex"
     },
     "canvasState": {
       "draft": "Draft",

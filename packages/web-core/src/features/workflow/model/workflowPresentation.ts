@@ -326,7 +326,6 @@ export function getWorkflowNodeRouteHints(
     return (data.branches ?? []).slice(0, 3).map((branch, index) => ({
       label:
         branch.condition?.trim() ||
-        branch.name ||
         branch.target_node_id ||
         translate(t, 'workflow.metadata.branch', 'Branch {{index}}', {
           index: index + 1,

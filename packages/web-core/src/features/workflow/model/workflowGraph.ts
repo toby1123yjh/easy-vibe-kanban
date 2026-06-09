@@ -67,22 +67,12 @@ export function isWorkflowEdgeKind(value: unknown): value is WorkflowEdgeKind {
 export type OutputCaptureMode = 'last_message' | 'full_text' | 'diff_summary';
 export type PromoteStrategy = 'manual';
 export type ApplyStrategy = 'diff_apply';
-export type ConditionOperator = 'contains' | 'equals' | 'not_equals' | 'regex';
-export type ConditionJoiner = 'and' | 'or';
 export type ConditionRoutingMode = 'single' | 'multi';
 export type RequiredAction = 'approve' | 'approve_or_reject';
 export type TransformMode = 'template' | 'regex_extract' | 'truncate';
 
-export interface WorkflowConditionRule {
-  id?: string;
-  input?: string;
-  operator?: ConditionOperator;
-  value?: string;
-}
-
 export interface WorkflowConditionBranch {
   id?: string;
-  name?: string;
   target_node_id?: string;
   condition?: string;
 }
@@ -101,12 +91,11 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   role_template_id?: string;
   executor_config?: unknown;
   prompt_template?: string;
+  include_workflow_context?: boolean;
   output_capture?: OutputCaptureMode;
   attempts?: WorkflowArenaAttemptConfig[];
   promote_strategy?: PromoteStrategy;
   apply_strategy?: ApplyStrategy;
-  conditions?: WorkflowConditionRule[];
-  joiner?: ConditionJoiner;
   routing_mode?: ConditionRoutingMode;
   branches?: WorkflowConditionBranch[];
   prompt_to_human?: string;
@@ -387,9 +376,9 @@ export function syncConditionBranches(
       const current = currentByTarget.get(target.nodeId);
       if (current) {
         return {
-          ...current,
           id: current.id ?? getBranchId(node.id, target.nodeId),
           target_node_id: target.nodeId,
+          condition: current.condition ?? '',
         };
       }
 
@@ -402,15 +391,17 @@ export function syncConditionBranches(
         .find((branch): branch is WorkflowConditionBranch => Boolean(branch));
 
       return {
-        ...(previousBranch ?? {}),
         id: previousBranch?.id ?? getBranchId(node.id, target.nodeId),
         target_node_id: target.nodeId,
         condition: previousBranch?.condition ?? '',
       };
     });
 
+    const conditionData = { ...node.data };
+    delete conditionData.conditions;
+    delete conditionData.joiner;
     const nextData = {
-      ...node.data,
+      ...conditionData,
       routing_mode: node.data.routing_mode ?? 'single',
       branches: nextBranches,
     };

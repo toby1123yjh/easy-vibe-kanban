@@ -421,8 +421,6 @@
       "display_name": "顯示名稱",
       "role_template_id": "角色範本 ID",
       "prompt_template": "提示詞範本",
-      "joiner": "連接方式",
-      "conditions": "規則",
       "routing_mode": "路由模式",
       "branches": "分支",
       "prompt_to_human": "給人工的提示詞",
@@ -434,10 +432,6 @@
       "attempts": "嘗試"
     },
     "fieldOptions": {
-      "joiner": {
-        "and": "並且",
-        "or": "或者"
-      },
       "routing_mode": {
         "single": "單分支",
         "multi": "多分支"
@@ -451,12 +445,6 @@
         "regex_extract": "正規提取",
         "truncate": "截斷"
       }
-    },
-    "operators": {
-      "contains": "包含",
-      "equals": "等於",
-      "notEquals": "不等於",
-      "regex": "正規表示式"
     },
     "canvasState": {
       "draft": "草稿",

@@ -23,6 +23,7 @@ import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraf
 export interface WorkflowAgentStepEditValue {
   displayName: string;
   prompt: string;
+  includeWorkflowContext: boolean;
   executorConfig: ExecutorConfig | null;
 }
 
@@ -53,6 +54,7 @@ export function WorkflowAgentStepEditPanel({
   const { profiles, config } = useUserSystem();
   const [displayName, setDisplayName] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [includeWorkflowContext, setIncludeWorkflowContext] = useState(true);
 
   const storedExecutorConfig = useMemo(
     () => coerceWorkflowNodeExecutorConfig(node?.data.executor_config),
@@ -69,6 +71,7 @@ export function WorkflowAgentStepEditPanel({
         ? node.data.prompt_template
         : ''
     );
+    setIncludeWorkflowContext(node.data.include_workflow_context !== false);
   }, [node]);
 
   const {
@@ -98,6 +101,7 @@ export function WorkflowAgentStepEditPanel({
     onSave({
       displayName: displayName.trim() || t('workflow.agentEdit.defaultTitle'),
       prompt,
+      includeWorkflowContext,
       executorConfig,
     });
   };
@@ -168,6 +172,30 @@ export function WorkflowAgentStepEditPanel({
               sendShortcut={config?.send_message_shortcut}
             />
           </div>
+          <label className="flex items-start gap-2 rounded border border-secondary/70 bg-primary/60 px-3 py-2 text-xs text-medium">
+            <input
+              type="checkbox"
+              checked={includeWorkflowContext}
+              onChange={(event) =>
+                setIncludeWorkflowContext(event.target.checked)
+              }
+              disabled={isConfigDisabled}
+              className="mt-0.5 h-4 w-4 rounded border-secondary text-brand focus:ring-brand disabled:opacity-50"
+            />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-medium text-high">
+                {t('workflow.agentEdit.includeWorkflowContext', {
+                  defaultValue: 'Carry workflow context',
+                })}
+              </span>
+              <span className="leading-relaxed text-low">
+                {t('workflow.agentEdit.includeWorkflowContextHelp', {
+                  defaultValue:
+                    'Send workflow input, direct upstream results, and downstream handoff guidance with this prompt.',
+                })}
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex flex-col gap-2">

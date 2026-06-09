@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     path::PathBuf,
     sync::{LazyLock, Mutex},
@@ -15,7 +16,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use executors::profile::{ExecutorConfig, ExecutorConfigs};
-use git::GitCli;
+use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
 use services::services::container::ContainerService;
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
@@ -53,6 +54,10 @@ use crate::{
         condition_router::{
             ConditionRouterCompletion, RouterUpstreamNode, build_manual_route, build_router_prompt,
             evaluate_router_output, output_has_router_mutation_warning,
+        },
+        envelope::{
+            WorkflowAgentEnvelope, WorkflowEnvelopeUpstream,
+            render_workflow_agent_envelope as render_envelope,
         },
         workspace::{main_workflow_branch_name, short_run_id},
     },
@@ -1759,17 +1764,23 @@ async fn node_context(
 }
 
 fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
-    render_prompt_template(
+    let node_prompt = render_prompt_template(
         node.data.prompt_template.as_deref().unwrap_or_default(),
         context,
-    )
+    );
+    if node.data.include_workflow_context.unwrap_or(true) {
+        render_workflow_agent_envelope("Agent step", node, &node_prompt, context)
+    } else {
+        node_prompt
+    }
 }
 
 fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
-    render_prompt_template(
+    let node_prompt = render_prompt_template(
         node.data.prompt_template.as_deref().unwrap_or_default(),
         context,
-    )
+    );
+    render_workflow_agent_envelope("Arena step", node, &node_prompt, context)
 }
 
 fn node_session_id(node: &WorkflowNode) -> Result<Option<Uuid>, String> {
@@ -1795,6 +1806,47 @@ fn render_prompt_template(template: &str, context: &NodeHandlerContext) -> Strin
         .replace("{{upstream}}", &upstream)
 }
 
+fn render_workflow_agent_envelope(
+    node_type_label: &str,
+    node: &WorkflowNode,
+    node_prompt: &str,
+    context: &NodeHandlerContext,
+) -> String {
+    let upstream_handoff = context
+        .upstream_outputs
+        .iter()
+        .map(|upstream| WorkflowEnvelopeUpstream {
+            heading: Cow::Borrowed(upstream.node_id.as_str()),
+            body: Cow::Borrowed(upstream.output_text.as_str()),
+        })
+        .collect::<Vec<_>>();
+    let node_name = node_label_for_workflow_envelope(node);
+    let handoff_contract = "- Work in the shared workflow workspace/worktree for this run.\n\
+- Treat direct upstream handoff as prior workflow context, not as a new user request.\n\
+- Questions are allowed when needed; make the question specific and explain what decision or missing input blocks progress.\n\
+- When you finish, include a concise handoff for downstream nodes: what changed or was decided, important files/areas, risks, and recommended next step.";
+
+    render_envelope(WorkflowAgentEnvelope {
+        node_type_label,
+        node_name: &node_name,
+        node_id: &node.id,
+        workflow_input: context.run_input_text,
+        upstream_handoff: &upstream_handoff,
+        node_task: node_prompt,
+        handoff_contract,
+    })
+}
+
+fn node_label_for_workflow_envelope(node: &WorkflowNode) -> String {
+    node.data
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&node.id)
+        .to_string()
+}
+
 fn arena_attempt_requests(
     issue_id: Uuid,
     run_id: Uuid,
@@ -1816,7 +1868,10 @@ fn arena_attempt_requests(
             let prompt = attempt
                 .prompt_template
                 .as_deref()
-                .map(|template| render_prompt_template(template, context))
+                .map(|template| {
+                    let node_prompt = render_prompt_template(template, context);
+                    render_workflow_agent_envelope("Arena candidate", node, &node_prompt, context)
+                })
                 .unwrap_or_else(|| fallback_prompt.to_string());
 
             ArenaNodeAttemptRequest {
@@ -1835,6 +1890,8 @@ struct WorktreeSnapshot {
     summary: String,
     fingerprint: String,
 }
+
+const MAX_WORKTREE_STATUS_SUMMARY_ENTRIES_PER_REPO: usize = 120;
 
 async fn router_session_id_for_run(
     pool: &SqlitePool,
@@ -1967,10 +2024,7 @@ async fn workflow_worktree_snapshot(
         let repo_path = workspace_root.join(&repo.repo.name);
         match git.get_worktree_status(&repo_path) {
             Ok(status) => {
-                summary_lines.push(format!(
-                    "{}: {} tracked change(s), {} untracked file(s)",
-                    repo.repo.name, status.uncommitted_tracked, status.untracked
-                ));
+                summary_lines.push(render_worktree_status_summary(&repo.repo.name, &status));
                 fingerprint_lines.push(format!(
                     "repo={};tracked={};untracked={}",
                     repo.repo.name, status.uncommitted_tracked, status.untracked
@@ -1999,6 +2053,78 @@ async fn workflow_worktree_snapshot(
         summary: summary_lines.join("\n"),
         fingerprint: fingerprint_lines.join("\n"),
     }))
+}
+
+fn render_worktree_status_summary(repo_name: &str, status: &WorktreeStatus) -> String {
+    let mut lines = Vec::new();
+    if status.entries.is_empty() {
+        lines.push(format!("{repo_name}: clean"));
+        return lines.join("\n");
+    }
+
+    lines.push(format!(
+        "{repo_name}: {} tracked change(s), {} untracked/generated file(s)",
+        status.uncommitted_tracked, status.untracked
+    ));
+    lines.push("  changed/generated files:".to_string());
+
+    for entry in status
+        .entries
+        .iter()
+        .take(MAX_WORKTREE_STATUS_SUMMARY_ENTRIES_PER_REPO)
+    {
+        lines.push(format!("  - {}", render_status_entry(entry)));
+    }
+    let omitted = status
+        .entries
+        .len()
+        .saturating_sub(MAX_WORKTREE_STATUS_SUMMARY_ENTRIES_PER_REPO);
+    if omitted > 0 {
+        lines.push(format!("  - [{omitted} more file(s) omitted]"));
+    }
+
+    lines.join("\n")
+}
+
+fn render_status_entry(entry: &StatusEntry) -> String {
+    let code = status_entry_code(entry);
+    let label = status_entry_label(entry);
+    let path = String::from_utf8_lossy(&entry.path);
+    if let Some(orig_path) = entry.orig_path.as_ref() {
+        let orig_path = String::from_utf8_lossy(orig_path);
+        format!("{code} {label}: {orig_path} -> {path}")
+    } else {
+        format!("{code} {label}: {path}")
+    }
+}
+
+fn status_entry_code(entry: &StatusEntry) -> String {
+    if entry.is_untracked {
+        "??".to_string()
+    } else {
+        format!("{}{}", entry.staged, entry.unstaged).replace(' ', ".")
+    }
+}
+
+fn status_entry_label(entry: &StatusEntry) -> &'static str {
+    if entry.is_untracked {
+        return "untracked/generated";
+    }
+
+    let statuses = [entry.staged, entry.unstaged];
+    if statuses.contains(&'R') {
+        "renamed"
+    } else if statuses.contains(&'C') {
+        "copied"
+    } else if statuses.contains(&'A') {
+        "added"
+    } else if statuses.contains(&'D') {
+        "deleted"
+    } else if statuses.contains(&'M') {
+        "modified"
+    } else {
+        "changed"
+    }
 }
 
 fn router_started_output_payload(
@@ -3002,5 +3128,171 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
         WorkflowNodeKind::HumanGate => "human_gate",
         WorkflowNodeKind::Transform => "transform",
         WorkflowNodeKind::Arena => "arena",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use workflow::graph::{ArenaAttemptConfig, WorkflowNodeData};
+
+    use super::*;
+
+    fn workflow_node(id: &str, kind: WorkflowNodeKind, prompt_template: &str) -> WorkflowNode {
+        WorkflowNode {
+            id: id.to_string(),
+            kind,
+            data: WorkflowNodeData {
+                display_name: Some("Implementation".to_string()),
+                prompt_template: Some(prompt_template.to_string()),
+                ..WorkflowNodeData::default()
+            },
+            position: None,
+        }
+    }
+
+    fn upstream(node_id: &str, output_text: &str) -> UpstreamOutput {
+        UpstreamOutput {
+            node_id: node_id.to_string(),
+            output_text: output_text.to_string(),
+        }
+    }
+
+    #[test]
+    fn worktree_status_summary_lists_changed_and_generated_files() {
+        let summary = render_worktree_status_summary(
+            "todo-app",
+            &WorktreeStatus {
+                uncommitted_tracked: 2,
+                untracked: 1,
+                entries: vec![
+                    StatusEntry {
+                        staged: ' ',
+                        unstaged: 'M',
+                        path: b"src/main.tsx".to_vec(),
+                        orig_path: None,
+                        is_untracked: false,
+                    },
+                    StatusEntry {
+                        staged: '?',
+                        unstaged: '?',
+                        path: b"docs/todo-design.md".to_vec(),
+                        orig_path: None,
+                        is_untracked: true,
+                    },
+                    StatusEntry {
+                        staged: 'R',
+                        unstaged: ' ',
+                        path: b"src/new-name.ts".to_vec(),
+                        orig_path: Some(b"src/old-name.ts".to_vec()),
+                        is_untracked: false,
+                    },
+                ],
+            },
+        );
+
+        assert!(summary.contains("todo-app: 2 tracked change(s), 1 untracked/generated file(s)"));
+        assert!(summary.contains(".M modified: src/main.tsx"));
+        assert!(summary.contains("?? untracked/generated: docs/todo-design.md"));
+        assert!(summary.contains("R. renamed: src/old-name.ts -> src/new-name.ts"));
+    }
+
+    #[test]
+    fn agent_prompt_is_explicit_workflow_envelope_with_handoff() {
+        let node = workflow_node(
+            "agent-implement",
+            WorkflowNodeKind::Agent,
+            "Implement the requested change.",
+        );
+        let context = NodeHandlerContext::with_upstream_outputs(
+            "Build a todo workflow",
+            vec![upstream("agent-plan", "Plan says implement the UI first.")],
+        );
+
+        let prompt = render_agent_prompt(&node, &context);
+
+        assert!(prompt.contains("# Workflow Agent Envelope"));
+        assert!(prompt.contains("## Current Node"));
+        assert!(prompt.contains("- Type: Agent step"));
+        assert!(prompt.contains("- Name: Implementation"));
+        assert!(prompt.contains("- ID: agent-implement"));
+        assert!(prompt.contains("## Workflow Input"));
+        assert!(prompt.contains("Build a todo workflow"));
+        assert!(prompt.contains("## Direct Upstream Handoff"));
+        assert!(prompt.contains("### agent-plan"));
+        assert!(prompt.contains("Plan says implement the UI first."));
+        assert!(prompt.contains("## Node Task"));
+        assert!(prompt.contains("Implement the requested change."));
+        assert!(prompt.contains("Questions are allowed when needed"));
+        assert!(prompt.contains("concise handoff for downstream nodes"));
+    }
+
+    #[test]
+    fn agent_envelope_keeps_template_rendering_semantics() {
+        let node = workflow_node(
+            "agent-review",
+            WorkflowNodeKind::Agent,
+            "Review {{input}} using this plan: {{upstream}}",
+        );
+        let context = NodeHandlerContext::with_upstream_outputs(
+            "Build a todo workflow",
+            vec![upstream("agent-plan", "Use React state for todo items.")],
+        );
+
+        let prompt = render_agent_prompt(&node, &context);
+
+        assert!(prompt.contains(
+            "Review Build a todo workflow using this plan: Use React state for todo items."
+        ));
+        assert!(prompt.contains("## Direct Upstream Handoff"));
+    }
+
+    #[test]
+    fn agent_prompt_can_skip_workflow_envelope() {
+        let mut node = workflow_node(
+            "agent-review",
+            WorkflowNodeKind::Agent,
+            "Review {{input}} using this plan: {{upstream}}",
+        );
+        node.data.include_workflow_context = Some(false);
+        let context = NodeHandlerContext::with_upstream_outputs(
+            "Build a todo workflow",
+            vec![upstream("agent-plan", "Use React state for todo items.")],
+        );
+
+        let prompt = render_agent_prompt(&node, &context);
+
+        assert_eq!(
+            prompt,
+            "Review Build a todo workflow using this plan: Use React state for todo items."
+        );
+        assert!(!prompt.contains("# Workflow Agent Envelope"));
+        assert!(!prompt.contains("## Direct Upstream Handoff"));
+    }
+
+    #[test]
+    fn arena_attempt_prompt_wraps_attempt_template_as_envelope() {
+        let mut node = workflow_node("arena", WorkflowNodeKind::Arena, "Compare approaches.");
+        node.data.attempts = Some(vec![ArenaAttemptConfig {
+            id: Some("candidate-a".to_string()),
+            prompt_template: Some("Implement candidate from {{upstream}}".to_string()),
+            ..ArenaAttemptConfig::default()
+        }]);
+        let context = NodeHandlerContext::with_upstream_outputs(
+            "Build a todo workflow",
+            vec![upstream("agent-plan", "Plan says keep the UI simple.")],
+        );
+
+        let requests =
+            arena_attempt_requests(Uuid::nil(), Uuid::nil(), &node, &context, "fallback");
+
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].prompt.contains("# Workflow Agent Envelope"));
+        assert!(requests[0].prompt.contains("- Type: Arena candidate"));
+        assert!(
+            requests[0]
+                .prompt
+                .contains("Implement candidate from Plan says keep the UI simple.")
+        );
+        assert!(requests[0].prompt.contains("## Direct Upstream Handoff"));
     }
 }

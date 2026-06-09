@@ -1,12 +1,7 @@
-use std::{collections::HashSet, error::Error, fmt};
-
-use regex::Regex;
+use std::{error::Error, fmt};
 
 use crate::{
-    graph::{
-        ConditionJoiner, ConditionOperator, WorkflowEdge, WorkflowNode, WorkflowNodeData,
-        WorkflowNodeKind,
-    },
+    graph::{WorkflowEdge, WorkflowNode, WorkflowNodeKind},
     transform::{TransformError, apply_transform},
 };
 
@@ -57,21 +52,6 @@ impl NodeHandlerContext {
             .map(|output| output.output_text.as_str())
             .collect::<Vec<_>>()
             .join("\n\n")
-    }
-
-    fn input_named(&self, name: Option<&str>) -> String {
-        let Some(name) = name else {
-            return self.upstream_text();
-        };
-        if name == "run_input" {
-            return self.run_input_text.clone();
-        }
-
-        self.upstream_outputs
-            .iter()
-            .find(|output| output.node_id == name)
-            .map(|output| output.output_text.clone())
-            .unwrap_or_else(|| self.upstream_text())
     }
 }
 
@@ -135,13 +115,15 @@ impl Error for HandlerError {}
 
 pub fn handle_pure_node(
     node: &WorkflowNode,
-    outgoing_edges: &[WorkflowEdge],
+    _outgoing_edges: &[WorkflowEdge],
     context: &NodeHandlerContext,
 ) -> Result<NodeHandlerOutcome, HandlerError> {
     match node.kind {
         WorkflowNodeKind::Start => Ok(handle_start(context)),
         WorkflowNodeKind::End => Ok(handle_end(context)),
-        WorkflowNodeKind::Condition => handle_condition(node, outgoing_edges, context),
+        WorkflowNodeKind::Condition => Err(HandlerError::new(
+            "condition nodes require the workflow condition router and are not pure handlers",
+        )),
         WorkflowNodeKind::Transform => handle_transform(node, context),
         WorkflowNodeKind::HumanGate => Ok(handle_human_gate(node)),
         WorkflowNodeKind::Arena => Ok(handle_arena(node)),
@@ -157,35 +139,6 @@ pub fn handle_start(context: &NodeHandlerContext) -> NodeHandlerOutcome {
 
 pub fn handle_end(context: &NodeHandlerContext) -> NodeHandlerOutcome {
     NodeHandlerOutcome::succeeded(context.upstream_text())
-}
-
-pub fn handle_condition(
-    node: &WorkflowNode,
-    outgoing_edges: &[WorkflowEdge],
-    context: &NodeHandlerContext,
-) -> Result<NodeHandlerOutcome, HandlerError> {
-    let matched = evaluate_conditions(&node.data, context)?;
-    let selected_branch_name = if matched { "true" } else { "false" };
-    let mut selected_target_node_ids =
-        branch_targets(&node.data, selected_branch_name, outgoing_edges);
-    if selected_target_node_ids.is_empty() {
-        selected_target_node_ids = branch_targets(&node.data, "default", outgoing_edges);
-    }
-
-    let selected: HashSet<_> = selected_target_node_ids.iter().cloned().collect();
-    let skipped_target_node_ids = outgoing_edges
-        .iter()
-        .map(|edge| edge.target.clone())
-        .filter(|target| !selected.contains(target))
-        .collect();
-
-    Ok(NodeHandlerOutcome {
-        status: NodeHandlerStatus::Succeeded,
-        output_text: Some(matched.to_string()),
-        selected_target_node_ids,
-        skipped_target_node_ids,
-        prompt: None,
-    })
 }
 
 pub fn handle_transform(
@@ -212,77 +165,10 @@ pub fn handle_arena(node: &WorkflowNode) -> NodeHandlerOutcome {
     )
 }
 
-fn evaluate_conditions(
-    data: &WorkflowNodeData,
-    context: &NodeHandlerContext,
-) -> Result<bool, HandlerError> {
-    let Some(rules) = data.conditions.as_ref() else {
-        return Ok(false);
-    };
-    if rules.is_empty() {
-        return Ok(false);
-    }
-
-    let mut results = Vec::with_capacity(rules.len());
-    for rule in rules {
-        let input = context.input_named(rule.input.as_deref());
-        let value = rule.value.as_deref().unwrap_or_default();
-        let result = match rule
-            .operator
-            .as_ref()
-            .unwrap_or(&ConditionOperator::Contains)
-        {
-            ConditionOperator::Contains => input.contains(value),
-            ConditionOperator::Equals => input == value,
-            ConditionOperator::NotEquals => input != value,
-            ConditionOperator::Regex => Regex::new(value)
-                .map_err(|err| HandlerError::new(format!("invalid condition regex: {err}")))?
-                .is_match(&input),
-        };
-        results.push(result);
-    }
-
-    Ok(
-        match data.joiner.as_ref().unwrap_or(&ConditionJoiner::And) {
-            ConditionJoiner::And => results.into_iter().all(|result| result),
-            ConditionJoiner::Or => results.into_iter().any(|result| result),
-        },
-    )
-}
-
-fn branch_targets(
-    data: &WorkflowNodeData,
-    branch_name: &str,
-    outgoing_edges: &[WorkflowEdge],
-) -> Vec<String> {
-    let branch_targets = data
-        .branches
-        .as_ref()
-        .into_iter()
-        .flatten()
-        .filter(|branch| branch.name.as_deref() == Some(branch_name))
-        .filter_map(|branch| branch.target_node_id.clone())
-        .collect::<Vec<_>>();
-    if !branch_targets.is_empty() {
-        return branch_targets;
-    }
-
-    if branch_name == "default" {
-        return outgoing_edges
-            .iter()
-            .map(|edge| edge.target.clone())
-            .collect();
-    }
-
-    Vec::new()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{
-        ConditionBranch, ConditionRule, HumanGateAction, TransformMode, WorkflowEdgeKind,
-    };
+    use crate::graph::{HumanGateAction, TransformMode, WorkflowNodeData};
 
     fn node(id: &str, kind: WorkflowNodeKind, data: WorkflowNodeData) -> WorkflowNode {
         WorkflowNode {
@@ -290,18 +176,6 @@ mod tests {
             kind,
             data,
             position: None,
-        }
-    }
-
-    fn edge(id: &str, source: &str, target: &str) -> WorkflowEdge {
-        WorkflowEdge {
-            id: id.to_string(),
-            source: source.to_string(),
-            source_handle: Some("output-right".to_string()),
-            target: target.to_string(),
-            target_handle: Some("input-left".to_string()),
-            kind: WorkflowEdgeKind::Default,
-            data: None,
         }
     }
 
@@ -332,82 +206,6 @@ mod tests {
         let outcome = handle_end(&context);
 
         assert_eq!(outcome.output_text.as_deref(), Some("first\n\nsecond"));
-    }
-
-    #[test]
-    fn condition_routes_true_false_and_default_branches() {
-        let condition = node(
-            "condition",
-            WorkflowNodeKind::Condition,
-            WorkflowNodeData {
-                conditions: Some(vec![ConditionRule {
-                    input: Some("run_input".to_string()),
-                    operator: Some(ConditionOperator::Contains),
-                    value: Some("LGTM".to_string()),
-                    ..ConditionRule::default()
-                }]),
-                branches: Some(vec![
-                    ConditionBranch {
-                        name: Some("true".to_string()),
-                        target_node_id: Some("yes".to_string()),
-                        ..ConditionBranch::default()
-                    },
-                    ConditionBranch {
-                        name: Some("false".to_string()),
-                        target_node_id: Some("no".to_string()),
-                        ..ConditionBranch::default()
-                    },
-                    ConditionBranch {
-                        name: Some("default".to_string()),
-                        target_node_id: Some("fallback".to_string()),
-                        ..ConditionBranch::default()
-                    },
-                ]),
-                ..WorkflowNodeData::default()
-            },
-        );
-        let outgoing = vec![
-            edge("e1", "condition", "yes"),
-            edge("e2", "condition", "no"),
-            edge("e3", "condition", "fallback"),
-        ];
-
-        let yes = handle_condition(
-            &condition,
-            &outgoing,
-            &NodeHandlerContext::from_run_input("LGTM ship it"),
-        )
-        .unwrap();
-        assert_eq!(yes.selected_target_node_ids, vec!["yes"]);
-        assert_eq!(yes.skipped_target_node_ids, vec!["no", "fallback"]);
-
-        let no = handle_condition(
-            &condition,
-            &outgoing,
-            &NodeHandlerContext::from_run_input("needs work"),
-        )
-        .unwrap();
-        assert_eq!(no.selected_target_node_ids, vec!["no"]);
-
-        let default_only = node(
-            "condition",
-            WorkflowNodeKind::Condition,
-            WorkflowNodeData {
-                branches: Some(vec![ConditionBranch {
-                    name: Some("default".to_string()),
-                    target_node_id: Some("fallback".to_string()),
-                    ..ConditionBranch::default()
-                }]),
-                ..WorkflowNodeData::default()
-            },
-        );
-        let default = handle_condition(
-            &default_only,
-            &outgoing,
-            &NodeHandlerContext::from_run_input("anything"),
-        )
-        .unwrap();
-        assert_eq!(default.selected_target_node_ids, vec!["fallback"]);
     }
 
     #[test]

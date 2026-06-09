@@ -748,8 +748,8 @@ describe('workflow graph model', () => {
           id: 'condition',
           data: {
             branches: [
-              { name: 'true', target_node_id: 'yes' },
-              { name: 'false', target_node_id: 'no' },
+              { target_node_id: 'yes', condition: 'Route to yes' },
+              { target_node_id: 'no', condition: 'Route to no' },
             ],
           },
         }),
@@ -771,8 +771,52 @@ describe('workflow graph model', () => {
     expect(updated.nodes[0].data.branches).toEqual([
       {
         id: 'branch-condition-yes',
-        name: 'true',
         target_node_id: 'yes',
+        condition: 'Route to yes',
+      },
+    ]);
+  });
+
+  it('strips legacy condition rule fields when syncing condition branches', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_GRAPH_VERSION,
+      nodes: [
+        createWorkflowNode('condition', {
+          id: 'condition',
+          data: {
+            conditions: [
+              {
+                operator: 'contains',
+                value: 'UI',
+              },
+            ],
+            joiner: 'and',
+            branches: [
+              { target_node_id: 'agent', condition: 'Route to agent' },
+            ],
+          },
+        }),
+        createWorkflowNode('agent', { id: 'agent' }),
+      ],
+      edges: [
+        createWorkflowEdge({
+          id: 'condition-agent',
+          source: 'condition',
+          target: 'agent',
+          type: 'condition_branch',
+        }),
+      ],
+    };
+
+    const updated = syncConditionBranches(graph);
+
+    expect('conditions' in updated.nodes[0].data).toBe(false);
+    expect('joiner' in updated.nodes[0].data).toBe(false);
+    expect(updated.nodes[0].data.branches).toEqual([
+      {
+        id: 'branch-condition-agent',
+        target_node_id: 'agent',
+        condition: 'Route to agent',
       },
     ]);
   });

@@ -512,12 +512,12 @@ fn failing_condition_graph_json() -> String {
                 "id": "condition",
                 "type": "condition",
                 "data": {
-                    "display_name": "Broken condition",
-                    "conditions": [
+                    "display_name": "Condition router",
+                    "routing_mode": "single",
+                    "branches": [
                         {
-                            "input": "run_input",
-                            "operator": "regex",
-                            "value": "["
+                            "target_node_id": "end",
+                            "condition": "Continue when the router selects this branch."
                         }
                     ]
                 }
@@ -526,7 +526,7 @@ fn failing_condition_graph_json() -> String {
         ],
         "edges": [
             { "id": "e1", "source": "start", "target": "condition", "type": "default" },
-            { "id": "e2", "source": "condition", "target": "end", "type": "default" }
+            { "id": "e2", "source": "condition", "target": "end", "type": "condition_branch" }
         ]
     })
     .to_string()

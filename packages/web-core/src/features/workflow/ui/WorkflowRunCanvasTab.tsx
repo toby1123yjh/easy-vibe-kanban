@@ -54,7 +54,6 @@ import {
   toReactFlowEdges,
   toReactFlowNodes,
   type WorkflowGraph,
-  type WorkflowConditionBranch,
   type WorkflowNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
@@ -333,13 +332,7 @@ function buildRunWorkspaceHref(
 interface ConditionBranchOption {
   targetNodeId: string;
   targetLabel: string;
-  branchName: string | null;
   condition: string | null;
-}
-
-function getBranchLabel(branch: WorkflowConditionBranch | undefined) {
-  const name = branch?.name?.trim();
-  return name && name.length > 0 ? name : null;
 }
 
 function buildConditionBranchOptions(
@@ -374,7 +367,6 @@ function buildConditionBranchOptions(
     options.push({
       targetNodeId: edge.target,
       targetLabel,
-      branchName: getBranchLabel(branch),
       condition: condition && condition.length > 0 ? condition : null,
     });
   }
@@ -952,11 +944,8 @@ function ConditionRouterActionPanel({
           <div className="space-y-half">
             {branchOptions.map((option) => {
               const checked = selectedTargetIds.includes(option.targetNodeId);
-              const label = option.branchName ?? option.targetLabel;
-              const targetDetail =
-                option.branchName && option.branchName !== option.targetLabel
-                  ? option.targetLabel
-                  : option.targetNodeId;
+              const label = option.targetLabel;
+              const targetDetail = option.targetNodeId;
 
               return (
                 <div

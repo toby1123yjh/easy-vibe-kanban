@@ -1,4 +1,4 @@
-use std::{collections::HashSet, error::Error, fmt};
+use std::{borrow::Cow, collections::HashSet, error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -7,10 +7,12 @@ use workflow::{
     graph::{ConditionRoutingMode, WorkflowEdge, WorkflowNode, WorkflowNodeKind},
 };
 
+use crate::workflow_runtime::envelope::{
+    WorkflowAgentEnvelope, WorkflowEnvelopeUpstream, render_workflow_agent_envelope,
+};
+
 const DECISION_START_TAG: &str = "<workflow_router_decision>";
 const DECISION_END_TAG: &str = "</workflow_router_decision>";
-const MAX_WORKFLOW_INPUT_CHARS: usize = 8_000;
-const MAX_UPSTREAM_TEXT_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouterUpstreamNode {
@@ -143,67 +145,69 @@ pub fn build_router_prompt(
         )));
     }
 
+    let node_task = render_router_node_task(run_id, condition_node, &candidates, worktree_summary);
+    let upstream_handoff = upstream_nodes
+        .iter()
+        .map(router_upstream_handoff)
+        .collect::<Vec<_>>();
+    let handoff_contract = "- Work in the shared workflow workspace/worktree only for read-only inspection.\n\
+- Do not modify files and do not perform implementation work; this Condition node only decides routing.\n\
+- Treat direct upstream handoff as the prior workflow context for branch selection.\n\
+- Choose only connected downstream candidate node ids listed in `Node Task`.\n\
+- If no branch clearly matches or required information is missing, return `needs_user` with a specific question instead of guessing.\n\
+- Finish with exactly one `workflow_router_decision` block; ordinary prose alone will pause the workflow.";
+    let node_name = node_label(condition_node);
+
+    Ok(render_workflow_agent_envelope(WorkflowAgentEnvelope {
+        node_type_label: "Condition router",
+        node_name: &node_name,
+        node_id: &condition_node.id,
+        workflow_input: run_input_text,
+        upstream_handoff: &upstream_handoff,
+        node_task: &node_task,
+        handoff_contract,
+    }))
+}
+
+fn render_router_node_task(
+    run_id: &str,
+    condition_node: &WorkflowNode,
+    candidates: &[ConditionCandidate],
+    worktree_summary: Option<&str>,
+) -> String {
     let routing_mode = condition_routing_mode(condition_node);
-    let mut prompt = String::new();
-    prompt.push_str("You are the router for one workflow Condition node.\n");
-    prompt.push_str("Do not modify files. You may inspect the repository read-only if needed.\n");
-    prompt.push_str("Choose only from the connected downstream candidate node ids listed below.\n");
-    prompt.push_str(
+    let mut task = String::new();
+    task.push_str("You are the router for one workflow Condition node.\n");
+    task.push_str("Do not modify files. You may inspect the repository read-only if needed.\n");
+    task.push_str("Choose only from the connected downstream candidate node ids listed below.\n");
+    task.push_str(
         "If no branch clearly matches, return status needs_user and ask a concise question.\n\n",
     );
-    prompt.push_str(&format!("Workflow run id: {run_id}\n"));
-    prompt.push_str(&format!(
-        "Condition node: {} ({})\n",
-        node_label(condition_node),
-        condition_node.id
-    ));
-    prompt.push_str(&format!(
+    task.push_str("Route in this order:\n");
+    task.push_str("1. Understand what the direct upstream node(s) completed, including any persisted file changes or generated files shown in the worktree evidence.\n");
+    task.push_str("2. Analyze each downstream branch condition and the target label to determine what evidence would justify choosing that branch.\n");
+    task.push_str("3. Compare upstream completion evidence against each branch condition, then select only branches that clearly match.\n");
+    task.push_str("Do not choose a branch only because its label sounds plausible; require evidence from upstream handoff, file changes, generated files, or read-only inspection.\n\n");
+    task.push_str(&format!("Workflow run id: {run_id}\n"));
+    task.push_str(&format!(
         "Routing mode: {}\n\n",
         match routing_mode {
             ConditionRoutingMode::Single => "single",
             ConditionRoutingMode::Multi => "multi",
         }
     ));
-    prompt.push_str("Workflow input:\n");
-    prompt.push_str(&truncate_for_prompt(
-        run_input_text,
-        MAX_WORKFLOW_INPUT_CHARS,
-    ));
-    prompt.push_str("\n\nDirect upstream nodes:\n");
-    if upstream_nodes.is_empty() {
-        prompt.push_str("- none\n");
-    } else {
-        for upstream in upstream_nodes {
-            prompt.push_str(&format!(
-                "- {} [{}] status={}\n",
-                upstream.node_id, upstream.node_type, upstream.status
-            ));
-            if let Some(output_text) = upstream.output_text.as_deref() {
-                let output_text = truncate_for_prompt(output_text, MAX_UPSTREAM_TEXT_CHARS);
-                prompt.push_str("  output:\n");
-                prompt.push_str(&indent_block(&output_text, "  "));
-                prompt.push('\n');
-            }
-            if let Some(error_text) = upstream.error_text.as_deref() {
-                let error_text = truncate_for_prompt(error_text, MAX_UPSTREAM_TEXT_CHARS);
-                prompt.push_str("  error:\n");
-                prompt.push_str(&indent_block(&error_text, "  "));
-                prompt.push('\n');
-            }
-        }
-    }
-    prompt.push_str("\nCandidate downstream branches:\n");
+    task.push_str("Candidate downstream branches:\n");
     for candidate in candidates {
-        prompt.push_str(&format!(
+        task.push_str(&format!(
             "- node_id: {}\n  label: {}\n  condition: {}\n",
             candidate.target_node_id, candidate.target_label, candidate.condition
         ));
     }
-    prompt.push_str("\nWorktree status summary:\n");
-    prompt.push_str(worktree_summary.unwrap_or("Not captured."));
-    prompt.push_str("\n\nReturn exactly one decision block and no second block:\n");
-    prompt.push_str(DECISION_START_TAG);
-    prompt.push_str(
+    task.push_str("\nWorktree evidence before routing:\n");
+    task.push_str(worktree_summary.unwrap_or("Not captured."));
+    task.push_str("\n\nReturn exactly one decision block and no second block:\n");
+    task.push_str(DECISION_START_TAG);
+    task.push_str(
         r#"
 {
   "schema_version": 1,
@@ -216,10 +220,34 @@ pub fn build_router_prompt(
 }
 "#,
     );
-    prompt.push_str(DECISION_END_TAG);
-    prompt.push_str("\n\nFor uncertainty use status needs_user, confidence low, no selected targets, and a question.");
+    task.push_str(DECISION_END_TAG);
+    task.push_str("\n\nFor uncertainty use status needs_user, confidence low, no selected targets, and a question.");
 
-    Ok(prompt)
+    task
+}
+
+fn router_upstream_handoff(upstream: &RouterUpstreamNode) -> WorkflowEnvelopeUpstream<'_> {
+    let mut body = String::new();
+    body.push_str(&format!(
+        "node_id: {}\nnode_type: {}\nstatus: {}",
+        upstream.node_id, upstream.node_type, upstream.status
+    ));
+    if let Some(output_text) = upstream.output_text.as_deref() {
+        body.push_str("\noutput:\n");
+        body.push_str(&indent_block(output_text, "  "));
+    }
+    if let Some(error_text) = upstream.error_text.as_deref() {
+        body.push_str("\nerror:\n");
+        body.push_str(&indent_block(error_text, "  "));
+    }
+
+    WorkflowEnvelopeUpstream {
+        heading: Cow::Owned(format!(
+            "{} [{}] status={}",
+            upstream.node_id, upstream.node_type, upstream.status
+        )),
+        body: Cow::Owned(body),
+    }
 }
 
 pub fn evaluate_router_output(
@@ -552,16 +580,6 @@ fn indent_block(value: &str, prefix: &str) -> String {
         .map(|line| format!("{prefix}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn truncate_for_prompt(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let truncated = chars.by_ref().take(max_chars).collect::<String>();
-    if chars.next().is_some() {
-        format!("{truncated}\n[truncated to {max_chars} characters]")
-    } else {
-        value.to_string()
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -915,13 +933,21 @@ mod tests {
 
         assert!(prompt.contains("Upstream changed UI"));
         assert!(prompt.contains("Initial input"));
+        assert!(prompt.contains("Route in this order"));
+        assert!(prompt.contains("persisted file changes or generated files"));
+        assert!(prompt.contains("Worktree evidence before routing"));
+        assert!(prompt.contains("# Workflow Agent Envelope"));
+        assert!(prompt.contains("- Type: Condition router"));
+        assert!(prompt.contains("## Direct Upstream Handoff"));
+        assert!(prompt.contains("## Node Task"));
         assert!(prompt.contains(DECISION_START_TAG));
     }
 
     #[test]
     fn prompt_truncates_large_context_blocks() {
         let (graph, condition) = graph(ConditionRoutingMode::Single);
-        let large_output = "a".repeat(MAX_UPSTREAM_TEXT_CHARS + 10);
+        let large_output =
+            "a".repeat(crate::workflow_runtime::envelope::MAX_WORKFLOW_ENVELOPE_HANDOFF_CHARS + 10);
 
         let prompt = build_router_prompt(
             "run-1",
