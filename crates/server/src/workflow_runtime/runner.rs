@@ -1830,7 +1830,7 @@ fn render_workflow_agent_envelope(
         node_type_label,
         node_name: &node_name,
         node_id: &node.id,
-        workflow_input: context.run_input_text,
+        workflow_input: &context.run_input_text,
         upstream_handoff: &upstream_handoff,
         node_task: node_prompt,
         handoff_contract,
