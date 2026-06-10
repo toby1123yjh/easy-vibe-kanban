@@ -2072,10 +2072,10 @@ async fn workflow_arena_node_creates_group_and_waits_for_winner() {
         .find(|node| node.node_id == "arena")
         .expect("arena node execution");
     assert_eq!(arena_node.arena_group_id, Some(arena_group_id));
-    assert_eq!(
-        arena_node.input_text.as_deref(),
-        Some("Implement candidates from Plan: Build draw-more workflow")
-    );
+    let arena_input = arena_node.input_text.as_deref().expect("arena input text");
+    assert!(arena_input.contains("# Workflow Agent Envelope"));
+    assert!(arena_input.contains("- Type: Arena step"));
+    assert!(arena_input.contains("Implement candidates from Plan: Build draw-more workflow"));
 
     let arena_requests = arena.requests();
     assert_eq!(arena_requests.len(), 1);
@@ -2084,10 +2084,7 @@ async fn workflow_arena_node_creates_group_and_waits_for_winner() {
     assert_eq!(request.node_id, "arena");
     assert_eq!(request.issue_id, issue_id);
     assert_eq!(request.main_workspace_id, workspace_id);
-    assert_eq!(
-        request.prompt,
-        "Implement candidates from Plan: Build draw-more workflow"
-    );
+    assert_eq!(request.prompt, arena_input);
     assert_eq!(request.attempts.len(), 3);
     assert_eq!(
         request
@@ -2107,11 +2104,7 @@ async fn workflow_arena_node_creates_group_and_waits_for_winner() {
             .iter()
             .map(|attempt| attempt.prompt.as_str())
             .collect::<Vec<_>>(),
-        vec![
-            "Implement candidates from Plan: Build draw-more workflow",
-            "Implement candidates from Plan: Build draw-more workflow",
-            "Implement candidates from Plan: Build draw-more workflow"
-        ]
+        vec![arena_input, arena_input, arena_input]
     );
     assert_eq!(
         request
