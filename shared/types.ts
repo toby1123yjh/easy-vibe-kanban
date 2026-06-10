@@ -277,6 +277,8 @@ export type RunWorkflowAttemptRequest = { workspace_id: string | null, trigger_s
 
 export type SelectArenaWinnerRequest = { workspace_id: string, };
 
+export type SelectConditionBranchRequest = { selected_target_node_ids: Array<string>, reason?: string, };
+
 export type WorkflowAttemptResponse = { id: string, project_id: string, issue_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
 
 export type WorkflowAttemptListResponse = { attempts: Array<WorkflowAttemptResponse>, };
