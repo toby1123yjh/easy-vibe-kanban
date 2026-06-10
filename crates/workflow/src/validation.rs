@@ -516,13 +516,11 @@ mod tests {
                             id: Some("branch-agent".to_string()),
                             target_node_id: Some("agent".to_string()),
                             condition: Some("Needs implementation".to_string()),
-                            ..ConditionBranch::default()
                         },
                         ConditionBranch {
                             id: Some("branch-end".to_string()),
                             target_node_id: Some("end".to_string()),
                             condition: Some("No work needed".to_string()),
-                            ..ConditionBranch::default()
                         },
                     ],
                 ),
