@@ -8,6 +8,8 @@ use crate::graph::{
 const PLAN_APPROVE_IMPLEMENT_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000001";
 const PLAN_ARENA_PICK_WINNER_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000002";
 const RESEARCH_ARCHITECT_IMPLEMENT_REVIEW_FIX_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000003";
+const PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000004";
+const RESEARCH_MULTI_PERSPECTIVE_SYNTHESIZE_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000005";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkflowTemplate {
@@ -30,6 +32,8 @@ pub fn built_in_templates() -> Vec<WorkflowTemplate> {
         plan_approve_implement_review(),
         plan_arena_pick_winner_review(),
         research_architect_implement_review_fix(),
+        plan_parallel_fullstack_review_finalize(),
+        research_multi_perspective_synthesize(),
     ]
 }
 
@@ -220,6 +224,149 @@ fn research_architect_implement_review_fix() -> WorkflowTemplate {
     }
 }
 
+fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
+    WorkflowTemplate {
+        id: PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID,
+        name: "Plan, Parallel Frontend & Backend, Review, Finalize",
+        description: "Plans and splits the work, implements frontend and backend in parallel, reviews with tests, then commits and updates docs.",
+        graph: WorkflowGraph {
+            version: 2,
+            nodes: vec![
+                node("start", WorkflowNodeKind::Start, display_data("Start")),
+                node(
+                    "plan",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Plan & Split",
+                        "architect",
+                        "Analyze the issue and produce an implementation plan that splits the work into independent frontend and backend tracks.",
+                    ),
+                ),
+                node(
+                    "frontend",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Frontend",
+                        "implementer",
+                        "Implement the frontend track of the plan.",
+                    ),
+                ),
+                node(
+                    "backend",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Backend",
+                        "implementer",
+                        "Implement the backend track of the plan.",
+                    ),
+                ),
+                node(
+                    "review",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Review & Test",
+                        "reviewer",
+                        "Review the combined frontend and backend changes and run the test suite.",
+                    ),
+                ),
+                node(
+                    "finalize",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Finalize",
+                        "implementer",
+                        "Commit the changes with a clear message and update the project documentation.",
+                    ),
+                ),
+                node("end", WorkflowNodeKind::End, display_data("End")),
+            ],
+            edges: vec![
+                edge("e1", "start", "plan", WorkflowEdgeKind::Default),
+                edge("e2", "plan", "frontend", WorkflowEdgeKind::Default),
+                edge("e3", "plan", "backend", WorkflowEdgeKind::Default),
+                edge("e4", "frontend", "review", WorkflowEdgeKind::Default),
+                edge("e5", "backend", "review", WorkflowEdgeKind::Default),
+                edge("e6", "review", "finalize", WorkflowEdgeKind::Default),
+                edge("e7", "finalize", "end", WorkflowEdgeKind::Default),
+            ],
+            router_executor_config: None,
+            canvas: None,
+        },
+    }
+}
+
+fn research_multi_perspective_synthesize() -> WorkflowTemplate {
+    WorkflowTemplate {
+        id: RESEARCH_MULTI_PERSPECTIVE_SYNTHESIZE_ID,
+        name: "Research, Multi-Perspective Drafts, Synthesize",
+        description: "Frames the research topic, drafts three independent perspective documents in parallel, then synthesizes the conclusions.",
+        graph: WorkflowGraph {
+            version: 2,
+            nodes: vec![
+                node("start", WorkflowNodeKind::Start, display_data("Start")),
+                node(
+                    "frame",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Frame Topic",
+                        "researcher",
+                        "Turn the research input from the issue into a well-scoped topic with a clear outline of the questions to answer.",
+                    ),
+                ),
+                node(
+                    "draft-a",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Draft: Pragmatic",
+                        "custom",
+                        "Write an independent design document for the framed topic from a pragmatic perspective: the most direct solution under current constraints.",
+                    ),
+                ),
+                node(
+                    "draft-b",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Draft: Exploratory",
+                        "custom",
+                        "Write an independent design document for the framed topic from an exploratory perspective: alternative approaches and novel ideas.",
+                    ),
+                ),
+                node(
+                    "draft-c",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Draft: Risk & Trade-offs",
+                        "custom",
+                        "Write an independent design document for the framed topic from a risk perspective: costs, risks, and long-term maintainability trade-offs.",
+                    ),
+                ),
+                node(
+                    "synthesize",
+                    WorkflowNodeKind::Agent,
+                    agent_data(
+                        "Synthesize",
+                        "custom",
+                        "Compare the three perspective documents, reconcile their differences, and write the final conclusions and recommendation.",
+                    ),
+                ),
+                node("end", WorkflowNodeKind::End, display_data("End")),
+            ],
+            edges: vec![
+                edge("e1", "start", "frame", WorkflowEdgeKind::Default),
+                edge("e2", "frame", "draft-a", WorkflowEdgeKind::Default),
+                edge("e3", "frame", "draft-b", WorkflowEdgeKind::Default),
+                edge("e4", "frame", "draft-c", WorkflowEdgeKind::Default),
+                edge("e5", "draft-a", "synthesize", WorkflowEdgeKind::Default),
+                edge("e6", "draft-b", "synthesize", WorkflowEdgeKind::Default),
+                edge("e7", "draft-c", "synthesize", WorkflowEdgeKind::Default),
+                edge("e8", "synthesize", "end", WorkflowEdgeKind::Default),
+            ],
+            router_executor_config: None,
+            canvas: None,
+        },
+    }
+}
+
 fn node(id: &str, kind: WorkflowNodeKind, data: WorkflowNodeData) -> WorkflowNode {
     WorkflowNode {
         id: id.to_string(),
@@ -306,6 +453,43 @@ mod tests {
         for template in built_in_templates() {
             validate_graph(&template.graph).expect(template.name);
         }
+    }
+
+    #[test]
+    fn parallel_templates_fan_out_and_join() {
+        let fullstack = plan_parallel_fullstack_review_finalize();
+        let plan_targets: Vec<_> = fullstack
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.source == "plan")
+            .map(|edge| edge.target.as_str())
+            .collect();
+        assert_eq!(plan_targets, vec!["frontend", "backend"]);
+        let review_sources = fullstack
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.target == "review")
+            .count();
+        assert_eq!(review_sources, 2);
+
+        let research = research_multi_perspective_synthesize();
+        let frame_targets: Vec<_> = research
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.source == "frame")
+            .map(|edge| edge.target.as_str())
+            .collect();
+        assert_eq!(frame_targets, vec!["draft-a", "draft-b", "draft-c"]);
+        let synthesize_sources = research
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.target == "synthesize")
+            .count();
+        assert_eq!(synthesize_sources, 3);
     }
 
     #[test]
