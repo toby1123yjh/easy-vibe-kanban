@@ -1,32 +1,54 @@
 <p align="center">
-  <a href="https://vibekanban.com">
-    <picture>
-      <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
-    </picture>
-  </a>
+  <picture>
+    <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
+    <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
+    <img src="packages/public/vibe-kanban-logo.svg" alt="easy-vibe-kanban logo">
+  </picture>
 </p>
 
-<p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
+<p align="center"><strong>Plan with kanban. Execute with AI agent workflows.</strong></p>
+<p align="center">Orchestrate Claude Code, Codex, Gemini CLI and 10+ coding agents — as single tasks or as multi-agent workflows on a visual canvas.</p>
+
 <p align="center">
   <a href="https://www.npmjs.com/package/easy-vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/easy-vibe-kanban?style=flat-square" /></a>
-  <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
-  <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" /></a>
 </p>
 
-<h1 align="center">
-  <strong>Vibe Kanban is sunsetting.</strong>
-  <a href="https://www.vibekanban.com/blog/shutdown">Read the announcement.</a>
-</h1>
+<p align="center">English | <a href="README.zh-CN.md">中文</a></p>
+
+> **easy-vibe-kanban** is an independently maintained hard fork of [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) (sunset by BloopAI). It continues development with a major new capability: **agentic workflows** — running a task as a graph of cooperating agent sessions.
+
+```bash
+npx easy-vibe-kanban
+```
 
 ![](packages/public/vibe-kanban-screenshot-overview.png)
 
-## Overview
+## Why
 
-In a world where software engineers spend most of their time planning and reviewing coding agents, the most impactful way to ship more is to get faster at planning and review.
+Engineers working with coding agents spend most of their time on two things: **planning** work and **reviewing** agent output. easy-vibe-kanban is built to make both fast — and to go one step further: instead of babysitting one agent at a time, you can wire multiple agent sessions into a workflow and let them execute a task end-to-end.
 
-Vibe Kanban is built for this. Use kanban issues to plan work, either privately or with your team. When you're ready to begin, create workspaces where coding agents can execute.
+## ✨ Agentic Workflows
+
+The headline feature of this fork. A **Workflow Attempt** is a way to execute a task: instead of a single agent session, you design a flow graph of agent steps on a visual canvas, and the steps run automatically in sequence.
+
+- **Visual canvas** — design your flow with a node palette, drag-and-drop steps, and live execution states on every node and edge
+- **One agent session per step** — each Agent Step is a stable, real agent session you can open and chat with, exactly like a normal task attempt
+- **Mix and match agents** — use different agents for different stages: e.g. Claude Code to implement, Codex to review, Gemini CLI to write tests
+- **Shared worktree** — all steps in a workflow share one git worktree. Context flows through the actual code, not through brittle prompt-passing between nodes
+- **Automatic execution** — when a step finishes, its outgoing edges trigger the next steps; fan-out and join are supported
+- **Agentic condition routing** — add a router step that lets an agent decide which branch of the graph to take next
+- **Issue-native** — workflows live under an issue as one of its task attempts, alongside regular single-agent attempts. Same review, diff, and PR flow afterwards
+
+A typical flow:
+
+```
+Start → Plan (Claude Code) → Implement (Codex) → Condition Router
+                                                    ├─ pass → Write tests (Gemini) → End
+                                                    └─ fail → Fix issues (Claude Code) ↺
+```
+
+## Core Features
 
 - **Plan with kanban issues** — create, prioritise, and assign issues on a kanban board
 - **Run coding agents in workspaces** — each workspace gives an agent a branch, a terminal, and a dev server
@@ -37,36 +59,13 @@ Vibe Kanban is built for this. Use kanban issues to plan work, either privately 
 
 ![](packages/public/vibe-kanban-screenshot-workspace.png)
 
-One command. Describe the work, review the diff, ship it.
-
-```bash
-npx easy-vibe-kanban
-```
-
-
 ## Installation
 
-Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs/supported-coding-agents). Then in your terminal run:
+Authenticate with your favourite coding agent first, then run:
 
 ```bash
 npx easy-vibe-kanban
 ```
-
-## Documentation
-
-Head to the [website](https://vibekanban.com/docs) for the latest documentation and user guides.
-
-## Self-Hosting
-
-Want to host your own Vibe Kanban Cloud instance? See our [self-hosting guide](https://vibekanban.com/docs/self-hosting/deploy-docker).
-
-## Support
-
-We use [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) for feature requests. Please open a discussion to create a feature request. For bugs please open an issue on this repo.
-
-## Contributing
-
-We would prefer that ideas and changes are first raised with the core team via [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) or [Discord](https://discord.gg/AC4nwVtJM3), where we can discuss implementation details and alignment with the existing roadmap. Please do not open PRs without first discussing your proposal with the team.
 
 ## Development
 
@@ -76,88 +75,39 @@ We would prefer that ideas and changes are first raised with the core team via [
 - [Node.js](https://nodejs.org/) (>=20)
 - [pnpm](https://pnpm.io/) (>=8)
 
-Additional development tools:
 ```bash
-cargo install cargo-watch
-cargo install sqlx-cli
-```
-
-Install dependencies:
-```bash
+cargo install cargo-watch sqlx-cli
 pnpm i
+pnpm run dev   # starts backend + web app; a blank DB is seeded from dev_assets_seed
 ```
 
-### Running the dev server
+Useful commands:
 
-```bash
-pnpm run dev
-```
+| Command | Description |
+|---------|-------------|
+| `pnpm run check` | Type checks (frontend + all Rust workspaces) |
+| `pnpm run lint` | ESLint + clippy |
+| `pnpm run format` | Prettier + rustfmt |
+| `cargo test --workspace` | Rust tests |
+| `pnpm run generate-types` | Regenerate TS types from Rust (ts-rs) |
 
-This will start the backend and web app. A blank DB will be copied from the `dev_assets_seed` folder.
+### Key environment variables
 
-### Building the web app
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | Auto-assign | Production server port (dev: frontend port, backend uses PORT+1) |
+| `HOST` | `127.0.0.1` | Backend server host |
+| `VK_ALLOWED_ORIGINS` | Not set | Comma-separated origins allowed to call the backend API (required behind a reverse proxy / custom domain) |
+| `DISABLE_WORKTREE_CLEANUP` | Not set | Disable git worktree cleanup (debugging) |
 
-To build just the web app:
+## Architecture
 
-```bash
-cd packages/local-web
-pnpm run build
-```
+- **Backend**: Rust workspace — Axum API server, SQLx, a dedicated `workflow` crate (graph, planner, runner, validation), executor adapters for each coding agent, and git/worktree management
+- **Frontend**: React + TypeScript + Vite + Tailwind monorepo (`packages/local-web`, `packages/web-core`)
+- **Shared types**: generated from Rust via ts-rs (`shared/types.ts`) — never edited by hand
 
-### Build from source (macOS)
+## Acknowledgements & License
 
-1. Run `./local-build.sh`
-2. Test with `cd npx-cli && node bin/cli.js`
+This project is a hard fork of [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) by Bloop AI. Huge thanks to the original team for building and open-sourcing it.
 
-### Environment Variables
-
-The following environment variables can be configured at build time or runtime:
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `POSTHOG_API_KEY` | Build-time | Empty | PostHog analytics API key (disables analytics if empty) |
-| `POSTHOG_API_ENDPOINT` | Build-time | Empty | PostHog analytics endpoint (disables analytics if empty) |
-| `PORT` | Runtime | Auto-assign | **Production**: Server port. **Dev**: Frontend port (backend uses PORT+1) |
-| `BACKEND_PORT` | Runtime | `0` (auto-assign) | Backend server port (dev mode only, overrides PORT+1) |
-| `FRONTEND_PORT` | Runtime | `3000` | Frontend dev server port (dev mode only, overrides PORT) |
-| `HOST` | Runtime | `127.0.0.1` | Backend server host |
-| `MCP_HOST` | Runtime | Value of `HOST` | MCP server connection host (use `127.0.0.1` when `HOST=0.0.0.0` on Windows) |
-| `MCP_PORT` | Runtime | Value of `BACKEND_PORT` | MCP server connection port |
-| `DISABLE_WORKTREE_CLEANUP` | Runtime | Not set | Disable all git worktree cleanup including orphan and expired workspace cleanup (for debugging) |
-| `VK_ALLOWED_ORIGINS` | Runtime | Not set | Comma-separated list of origins that are allowed to make backend API requests (e.g., `https://my-vibekanban-frontend.com`) |
-| `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the local desktop app |
-| `VK_SHARED_RELAY_API_BASE` | Runtime | Not set | Base URL for the relay API used by tunnel-mode connections |
-| `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode when set (requires relay API base URL) |
-
-**Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
-
-#### Self-Hosting with a Reverse Proxy or Custom Domain
-
-When running Vibe Kanban behind a reverse proxy (e.g., nginx, Caddy, Traefik) or on a custom domain, you must set the `VK_ALLOWED_ORIGINS` environment variable. Without this, the browser's Origin header won't match the backend's expected host, and API requests will be rejected with a 403 Forbidden error.
-
-Set it to the full origin URL(s) where your frontend is accessible:
-
-```bash
-# Single origin
-VK_ALLOWED_ORIGINS=https://vk.example.com
-
-# Multiple origins (comma-separated)
-VK_ALLOWED_ORIGINS=https://vk.example.com,https://vk-staging.example.com
-```
-
-### Remote Deployment
-
-When running Vibe Kanban on a remote server (e.g., via systemctl, Docker, or cloud hosting), you can configure your editor to open projects via SSH:
-
-1. **Access via tunnel**: Use Cloudflare Tunnel, ngrok, or similar to expose the web UI
-2. **Configure remote SSH** in Settings → Editor Integration:
-   - Set **Remote SSH Host** to your server hostname or IP
-   - Set **Remote SSH User** to your SSH username (optional)
-3. **Prerequisites**:
-   - SSH access from your local machine to the remote server
-   - SSH keys configured (passwordless authentication)
-   - VSCode Remote-SSH extension
-
-When configured, the "Open in VSCode" buttons will generate URLs like `vscode://vscode-remote/ssh-remote+user@host/path` that open your local editor and connect to the remote server.
-
-See the [documentation](https://vibekanban.com/docs/settings/general) for detailed setup instructions.
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution details.
