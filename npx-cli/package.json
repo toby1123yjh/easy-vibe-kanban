@@ -14,7 +14,7 @@
   "author": "bloop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/toby1123yjh/vibe-kanban"
+    "url": "https://github.com/toby1123yjh/easy-vibe-kanban"
   },
   "engines": {
     "node": ">=18.18.0"

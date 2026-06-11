@@ -71,6 +71,23 @@ jobs:
             exit 1
           fi
 
+      - name: Validate npm trusted publishing metadata
+        run: |
+          set -euo pipefail
+          node -e "
+            const pkg = require('./npx-cli/package.json');
+            const rawRepository = typeof pkg.repository === 'string'
+              ? pkg.repository
+              : pkg.repository && pkg.repository.url;
+            const repository = String(rawRepository || '')
+              .replace(/^git\\+/, '')
+              .replace(/\\.git$/, '');
+            const expected = 'https://github.com/' + process.env.GITHUB_REPOSITORY;
+            if (repository !== expected) {
+              throw new Error('npx-cli/package.json repository.url must be ' + expected + ' for npm trusted publishing, got ' + (rawRepository || '<missing>'));
+            }
+          "
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -205,9 +222,18 @@ jobs:
 
       - name: Publish package to npm
         if: inputs.publish_mode == 'publish'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           cd npx-cli
+
+          if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "NPM_TOKEN secret is configured; npm can use token auth if the provenance publish needs fallback."
+          else
+            echo "::notice::NPM_TOKEN secret is not configured; relying on npm trusted publishing for ${GITHUB_REPOSITORY}/.github/workflows/publish-easy-npx.yml."
+          fi
+
           set +e
           npm publish "${{ steps.pack.outputs.package-file }}" \
             --provenance \
@@ -219,11 +245,16 @@ jobs:
 
           if [[ "$publish_status" -ne 0 ]]; then
             if grep -Eq "TLOG_CREATE_ENTRY_ERROR|code E404|could not be found or you do not have permission" publish.log; then
-              echo "npm publish failed on the trusted publishing/provenance path; retrying publish without provenance."
-              npm publish "${{ steps.pack.outputs.package-file }}" \
-                --access public \
-                --tag "${{ inputs.npm_tag }}" \
-                --registry https://registry.npmjs.org/
+              if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+                echo "npm publish failed on the trusted publishing/provenance path; retrying publish without provenance using NPM_TOKEN."
+                npm publish "${{ steps.pack.outputs.package-file }}" \
+                  --access public \
+                  --tag "${{ inputs.npm_tag }}" \
+                  --registry https://registry.npmjs.org/
+              else
+                echo "::error::npm publish failed and NPM_TOKEN is not configured. Configure npm Trusted Publishing for ${GITHUB_REPOSITORY}/.github/workflows/publish-easy-npx.yml, or add a repo secret named NPM_TOKEN with publish access to easy-vibe-kanban."
+                exit "$publish_status"
+              fi
             else
               exit "$publish_status"
             fi
@@ -231,6 +262,8 @@ jobs:
 
       - name: Dry-run npm publish
         if: inputs.publish_mode == 'dry-run'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           cd npx-cli
