@@ -1724,9 +1724,15 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     assert_eq!(agent_requests[0].node_id, "agent");
     assert!(agent_requests[0].session_id.is_some());
     assert_eq!(agent_requests[0].workspace_id, workspace_id);
-    assert_eq!(
-        agent_requests[0].prompt,
-        "Implement this: Add workflow task orchestration"
+    assert!(
+        agent_requests[0]
+            .prompt
+            .contains("# Workflow Agent Envelope")
+    );
+    assert!(
+        agent_requests[0]
+            .prompt
+            .contains("Implement this: Add workflow task orchestration")
     );
 
     let agent_node = run
@@ -1815,7 +1821,8 @@ async fn workflow_reconcile_completed_agent_process_resumes_downstream_nodes() {
     let requests = agent.requests();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[1].node_id, "agent-b");
-    assert_eq!(requests[1].prompt, "Agent B prompt");
+    assert!(requests[1].prompt.contains("# Workflow Agent Envelope"));
+    assert!(requests[1].prompt.contains("Agent B prompt"));
     assert_eq!(reconciled.status, WorkflowRunStatus::Succeeded);
     assert_eq!(
         node_status(&reconciled.nodes, "agent-a"),
@@ -1941,8 +1948,17 @@ async fn workflow_runner_fan_in_triggers_same_agent_session_multiple_times() {
     assert_eq!(agent_requests[0].node_id, "review");
     assert_eq!(agent_requests[1].node_id, "review");
     assert_eq!(agent_requests[0].session_id, agent_requests[1].session_id);
-    assert_eq!(agent_requests[0].prompt, "Review the current worktree.");
-    assert_eq!(agent_requests[1].prompt, "Review the current worktree.");
+    assert!(
+        agent_requests[0]
+            .prompt
+            .contains("# Workflow Agent Envelope")
+    );
+    assert!(
+        agent_requests[0]
+            .prompt
+            .contains("Review the current worktree.")
+    );
+    assert_eq!(agent_requests[0].prompt, agent_requests[1].prompt);
 
     let review_iterations = run
         .nodes
@@ -2419,7 +2435,9 @@ async fn workflow_human_approve_resumes_downstream_nodes() {
         NodeExecutionStatus::Succeeded
     );
     assert_eq!(agent.requests().len(), 1);
-    assert_eq!(agent.requests()[0].prompt, "After approval: Ship the plan");
+    let approved_prompt = agent.requests()[0].prompt.clone();
+    assert!(approved_prompt.contains("# Workflow Agent Envelope"));
+    assert!(approved_prompt.contains("After approval: Ship the plan"));
     assert_eq!(
         resumed.output_text.as_deref(),
         Some("approved implementation")
