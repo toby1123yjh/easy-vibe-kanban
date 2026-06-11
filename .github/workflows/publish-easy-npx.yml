@@ -218,8 +218,8 @@ jobs:
           set -e
 
           if [[ "$publish_status" -ne 0 ]]; then
-            if grep -q "TLOG_CREATE_ENTRY_ERROR" publish.log; then
-              echo "Provenance transparency log entry already exists; retrying publish without provenance."
+            if grep -Eq "TLOG_CREATE_ENTRY_ERROR|code E404|could not be found or you do not have permission" publish.log; then
+              echo "npm publish failed on the trusted publishing/provenance path; retrying publish without provenance."
               npm publish "${{ steps.pack.outputs.package-file }}" \
                 --access public \
                 --tag "${{ inputs.npm_tag }}" \
