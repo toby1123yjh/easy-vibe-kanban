@@ -1000,12 +1000,11 @@ async fn list_project_workflows_hides_removed_system_templates_kept_for_history(
         "removed system templates retained for historical runs must stay hidden"
     );
 
-    let retained_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM workflows WHERE id = ?")
-            .bind(removed_system_workflow_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count retained workflow");
+    let retained_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflows WHERE id = ?")
+        .bind(removed_system_workflow_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count retained workflow");
     assert_eq!(retained_count, 1);
 }
 
@@ -1649,6 +1648,21 @@ async fn workflow_runner_resolves_project_id_from_local_issue_for_system_workflo
     .execute(&pool)
     .await
     .expect("insert system agent workflow");
+
+    // Reference the workflow from a historical run so ensure_system_workflows
+    // does not prune this test-only system workflow before triggering.
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs (id, workflow_id, issue_id, input_text, status)
+        VALUES (?, ?, ?, 'Historical run', 'succeeded')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(workflow_id)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("insert historical run reference");
 
     let workspace = FakeWorkspaceResolver::new(workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent final output");

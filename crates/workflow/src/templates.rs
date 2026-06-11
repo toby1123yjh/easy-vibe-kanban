@@ -1,8 +1,9 @@
+use serde_json::json;
+
 use crate::graph::{
     AgentOutputCapture, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode,
     WorkflowNodeData, WorkflowNodeKind,
 };
-use serde_json::json;
 
 // Stable system template ids. These ids are persisted by workflow_runs.workflow_id.
 const PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000004";
