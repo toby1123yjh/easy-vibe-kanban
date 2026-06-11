@@ -18,6 +18,7 @@ import {
   createWorkflowNode,
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
+  instantiateWorkflowGraphTemplate,
   migrateWorkflowGraph,
   normalizeConditionEdgeTypes,
   syncConditionBranches,
@@ -599,10 +600,39 @@ export function WorkflowTemplateEditorPage({
           name: name || t('workflow.templates.newWorkflowName'),
         }),
         description,
-        graph_json: JSON.stringify(graph),
+        graph_json: JSON.stringify(instantiateWorkflowGraphTemplate(graph)),
       },
     });
     navigation.goToProjectWorkflowEdit(projectId, result.id);
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (!graph || !isValid || isCreating) return;
+
+    const result = await createTemplate({
+      projectId,
+      payload: {
+        name: t('workflow.editor.savedTemplateName', {
+          name: name || t('workflow.templates.newWorkflowName'),
+          defaultValue: '{{name}} template',
+        }),
+        description,
+        graph_json: JSON.stringify(instantiateWorkflowGraphTemplate(graph)),
+      },
+    });
+
+    await ConfirmDialog.show({
+      title: t('workflow.editor.templateSavedTitle', {
+        defaultValue: 'Template saved',
+      }),
+      message: t('workflow.editor.templateSavedMessage', {
+        name: result.name,
+        defaultValue:
+          '"{{name}}" is now available when creating workflow attempts.',
+      }),
+      confirmText: t('ok'),
+      showCancelButton: false,
+    });
   };
 
   const handleBack = () => {
@@ -1323,18 +1353,35 @@ export function WorkflowTemplateEditorPage({
               {t('workflow.editor.copyToProject')}
             </Button>
           ) : (
-            <Button
-              onClick={handleSave}
-              disabled={isUpdating || isCreatingAttempt || !isValid}
-              className="flex items-center gap-2"
-            >
-              {isUpdating || isCreatingAttempt ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              {t('buttons.save')}
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={handleSaveAsTemplate}
+                disabled={isCreating || !isValid}
+                className="flex items-center gap-2"
+              >
+                {isCreating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                {t('workflow.editor.saveAsTemplate', {
+                  defaultValue: 'Save as template',
+                })}
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isUpdating || isCreatingAttempt || !isValid}
+                className="flex items-center gap-2"
+              >
+                {isUpdating || isCreatingAttempt ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {t('buttons.save')}
+              </Button>
+            </>
           )}
         </div>
       </div>

@@ -535,6 +535,21 @@ export function migrateWorkflowGraph(
   return syncConditionBranches(normalizeConditionEdgeTypes(migrated));
 }
 
+export function instantiateWorkflowGraphTemplate(
+  graph: WorkflowGraph | LegacyWorkflowGraph
+): WorkflowGraph {
+  const migrated = migrateWorkflowGraph(graph);
+
+  return {
+    ...migrated,
+    nodes: migrated.nodes.map((node) => {
+      const data = { ...node.data };
+      delete data.session_id;
+      return { ...node, data };
+    }),
+  };
+}
+
 function fallbackWorkflowNodePosition(index: number): WorkflowNodePosition {
   return {
     x: 120 + (index % 4) * 360,

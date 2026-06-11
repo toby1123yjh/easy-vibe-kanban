@@ -4,6 +4,7 @@ import type {
 } from 'shared/types';
 import {
   createDefaultWorkflowGraph,
+  instantiateWorkflowGraphTemplate,
   type WorkflowGraphDefaultLabels,
 } from './workflowGraph';
 
@@ -29,6 +30,7 @@ export function buildIssueWorkflowDraft({
   name,
   untitledTitle = 'Untitled task',
   defaultGraphLabels,
+  templateGraphJson,
   repos = [],
 }: {
   title: string;
@@ -36,15 +38,39 @@ export function buildIssueWorkflowDraft({
   untitledTitle?: string;
   description?: string | null;
   defaultGraphLabels?: Partial<WorkflowGraphDefaultLabels>;
+  templateGraphJson?: string | null;
   repos?: DraftWorkspaceRepo[];
 }): IssueWorkflowDraftPayload {
   const issueTitle = title.trim() || untitledTitle;
+  const graph = buildIssueWorkflowDraftGraph({
+    defaultGraphLabels,
+    templateGraphJson,
+  });
 
   return {
     name: name ?? `Workflow attempt for ${issueTitle}`,
-    graph_json: JSON.stringify(createDefaultWorkflowGraph(defaultGraphLabels)),
+    graph_json: JSON.stringify(graph),
     repos,
   };
+}
+
+function buildIssueWorkflowDraftGraph({
+  defaultGraphLabels,
+  templateGraphJson,
+}: {
+  defaultGraphLabels?: Partial<WorkflowGraphDefaultLabels>;
+  templateGraphJson?: string | null;
+}) {
+  if (templateGraphJson) {
+    try {
+      return instantiateWorkflowGraphTemplate(JSON.parse(templateGraphJson));
+    } catch {
+      // Fall through to the localized default graph when a saved template is
+      // corrupt or from an unsupported future schema.
+    }
+  }
+
+  return createDefaultWorkflowGraph(defaultGraphLabels);
 }
 
 export const WORKFLOW_RUN_REPOSITORY_ERROR_MESSAGE =

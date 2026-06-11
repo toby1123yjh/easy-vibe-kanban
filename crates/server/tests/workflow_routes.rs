@@ -957,6 +957,59 @@ async fn list_project_workflows_seeds_system_templates_and_returns_project_templ
 }
 
 #[tokio::test]
+async fn list_project_workflows_hides_removed_system_templates_kept_for_history() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let removed_system_workflow_id =
+        Uuid::parse_str("8f1f2f0c-0e58-4c7c-8dc1-000000000001").unwrap();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'system', NULL, 'Old system template', NULL, ?)
+        "#,
+    )
+    .bind(removed_system_workflow_id)
+    .bind(valid_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert removed system workflow");
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs (id, workflow_id, issue_id, input_text, status)
+        VALUES (?, ?, ?, 'Historical run', 'succeeded')
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(removed_system_workflow_id)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("insert historical run");
+
+    let workflows = list_project_workflows(&pool, project_id)
+        .await
+        .expect("list workflows");
+
+    assert!(
+        workflows
+            .iter()
+            .all(|workflow| workflow.id != removed_system_workflow_id),
+        "removed system templates retained for historical runs must stay hidden"
+    );
+
+    let retained_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM workflows WHERE id = ?")
+            .bind(removed_system_workflow_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count retained workflow");
+    assert_eq!(retained_count, 1);
+}
+
+#[tokio::test]
 async fn create_workflow_attempt_creates_issue_bound_draft() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();

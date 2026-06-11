@@ -980,10 +980,10 @@ export function KanbanContainer() {
                 appNavigation.goToProjectWorkflows(action.destination.projectId)
               }
               className="inline-flex min-h-8 items-center gap-1.5 rounded-sm border border-secondary bg-primary px-2 text-xs font-medium text-normal transition-colors hover:border-brand hover:text-high"
-              aria-label={`Open ${action.label}`}
+              aria-label={t('workflow.templates.title')}
             >
               <Workflow className="h-3.5 w-3.5" />
-              <span>{action.label}</span>
+              <span>{t('workflow.templates.title')}</span>
             </button>
           ))}
 

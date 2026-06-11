@@ -81,4 +81,60 @@ describe('issue workflow helpers', () => {
 
     expect(draft.name).toBe('Localized workflow: Untitled task');
   });
+
+  it('builds a draft from a selected workflow template', () => {
+    const draft = buildIssueWorkflowDraft({
+      title: 'Implement settings UI',
+      templateGraphJson: JSON.stringify({
+        version: 2,
+        nodes: [
+          {
+            id: 'start',
+            type: 'start',
+            data: { display_name: 'Start' },
+          },
+          {
+            id: 'frontend',
+            type: 'agent',
+            data: {
+              display_name: 'Frontend',
+              session_id: 'old-session',
+              executor_config: { executor: 'GEMINI' },
+            },
+          },
+          {
+            id: 'end',
+            type: 'end',
+            data: { display_name: 'End' },
+          },
+        ],
+        edges: [
+          {
+            id: 'start-frontend',
+            source: 'start',
+            target: 'frontend',
+            type: 'default',
+          },
+          {
+            id: 'frontend-end',
+            source: 'frontend',
+            target: 'end',
+            type: 'default',
+          },
+        ],
+      }),
+    });
+
+    const graph = JSON.parse(draft.graph_json);
+
+    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual([
+      'start',
+      'frontend',
+      'end',
+    ]);
+    expect(graph.nodes[1].data.session_id).toBeUndefined();
+    expect(graph.nodes[1].data.executor_config).toEqual({
+      executor: 'GEMINI',
+    });
+  });
 });

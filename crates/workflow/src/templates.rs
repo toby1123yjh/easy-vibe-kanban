@@ -1,13 +1,10 @@
 use crate::graph::{
-    AgentOutputCapture, ArenaApplyStrategy, ArenaAttemptConfig, ArenaPromoteStrategy,
-    HumanGateAction, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode, WorkflowNodeData,
-    WorkflowNodeKind,
+    AgentOutputCapture, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode,
+    WorkflowNodeData, WorkflowNodeKind,
 };
+use serde_json::json;
 
 // Stable system template ids. These ids are persisted by workflow_runs.workflow_id.
-const PLAN_APPROVE_IMPLEMENT_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000001";
-const PLAN_ARENA_PICK_WINNER_REVIEW_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000002";
-const RESEARCH_ARCHITECT_IMPLEMENT_REVIEW_FIX_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000003";
 const PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000004";
 const RESEARCH_MULTI_PERSPECTIVE_SYNTHESIZE_ID: &str = "8f1f2f0c-0e58-4c7c-8dc1-000000000005";
 
@@ -29,9 +26,6 @@ pub struct RoleTemplate {
 
 pub fn built_in_templates() -> Vec<WorkflowTemplate> {
     vec![
-        plan_approve_implement_review(),
-        plan_arena_pick_winner_review(),
-        research_architect_implement_review_fix(),
         plan_parallel_fullstack_review_finalize(),
         research_multi_perspective_synthesize(),
     ]
@@ -78,152 +72,6 @@ pub fn role_templates() -> Vec<RoleTemplate> {
     ]
 }
 
-fn plan_approve_implement_review() -> WorkflowTemplate {
-    WorkflowTemplate {
-        id: PLAN_APPROVE_IMPLEMENT_REVIEW_ID,
-        name: "Plan, Approve, Implement, Review",
-        description: "Creates a plan, pauses for approval, then implements and reviews.",
-        graph: WorkflowGraph {
-            version: 2,
-            nodes: vec![
-                node("start", WorkflowNodeKind::Start, display_data("Start")),
-                node(
-                    "plan",
-                    WorkflowNodeKind::Agent,
-                    agent_data(
-                        "Plan",
-                        "architect",
-                        "Create a concise implementation plan for the issue.",
-                    ),
-                ),
-                node(
-                    "approval",
-                    WorkflowNodeKind::HumanGate,
-                    human_gate_data("Approve plan"),
-                ),
-                node(
-                    "implement",
-                    WorkflowNodeKind::Agent,
-                    agent_data(
-                        "Implement",
-                        "implementer",
-                        "Implement the approved plan in the workflow worktree.",
-                    ),
-                ),
-                node(
-                    "review",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Review", "reviewer", "Review the implementation."),
-                ),
-                node("end", WorkflowNodeKind::End, display_data("End")),
-            ],
-            edges: vec![
-                edge("e1", "start", "plan", WorkflowEdgeKind::Default),
-                edge("e2", "plan", "approval", WorkflowEdgeKind::Default),
-                edge("e3", "approval", "implement", WorkflowEdgeKind::Approval),
-                edge("e4", "approval", "end", WorkflowEdgeKind::Rejection),
-                edge("e5", "implement", "review", WorkflowEdgeKind::Default),
-                edge("e6", "review", "end", WorkflowEdgeKind::Default),
-            ],
-            router_executor_config: None,
-            canvas: None,
-        },
-    }
-}
-
-fn plan_arena_pick_winner_review() -> WorkflowTemplate {
-    WorkflowTemplate {
-        id: PLAN_ARENA_PICK_WINNER_REVIEW_ID,
-        name: "Plan, Arena, Pick Winner, Review",
-        description: "Plans once, creates parallel Arena attempts, then reviews the selected winner.",
-        graph: WorkflowGraph {
-            version: 2,
-            nodes: vec![
-                node("start", WorkflowNodeKind::Start, display_data("Start")),
-                node(
-                    "plan",
-                    WorkflowNodeKind::Agent,
-                    agent_data(
-                        "Plan",
-                        "architect",
-                        "Create an implementation plan suitable for multiple candidate attempts.",
-                    ),
-                ),
-                node(
-                    "arena",
-                    WorkflowNodeKind::Arena,
-                    arena_data("Arena implementation"),
-                ),
-                node(
-                    "review",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Review", "reviewer", "Review the selected Arena winner."),
-                ),
-                node("end", WorkflowNodeKind::End, display_data("End")),
-            ],
-            edges: vec![
-                edge("e1", "start", "plan", WorkflowEdgeKind::Default),
-                edge("e2", "plan", "arena", WorkflowEdgeKind::Default),
-                edge("e3", "arena", "review", WorkflowEdgeKind::ArenaWinner),
-                edge("e4", "review", "end", WorkflowEdgeKind::Default),
-            ],
-            router_executor_config: None,
-            canvas: None,
-        },
-    }
-}
-
-fn research_architect_implement_review_fix() -> WorkflowTemplate {
-    WorkflowTemplate {
-        id: RESEARCH_ARCHITECT_IMPLEMENT_REVIEW_FIX_ID,
-        name: "Research, Architect, Implement, Review, Fix",
-        description: "Gathers context, designs, implements, reviews, and applies a final fix step.",
-        graph: WorkflowGraph {
-            version: 2,
-            nodes: vec![
-                node("start", WorkflowNodeKind::Start, display_data("Start")),
-                node(
-                    "research",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Research", "researcher", "Research the issue and codebase."),
-                ),
-                node(
-                    "architect",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Architect", "architect", "Design the implementation."),
-                ),
-                node(
-                    "implement",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Implement", "implementer", "Implement the design."),
-                ),
-                node(
-                    "review",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Review", "reviewer", "Review the implementation."),
-                ),
-                node(
-                    "fix",
-                    WorkflowNodeKind::Agent,
-                    agent_data("Fix", "fixer", "Fix concrete issues found during review."),
-                ),
-                node("end", WorkflowNodeKind::End, display_data("End")),
-            ],
-            edges: vec![
-                edge("e1", "start", "research", WorkflowEdgeKind::Default),
-                edge("e2", "research", "architect", WorkflowEdgeKind::Default),
-                edge("e3", "architect", "implement", WorkflowEdgeKind::Default),
-                edge("e4", "implement", "review", WorkflowEdgeKind::Default),
-                edge("e5", "review", "end", WorkflowEdgeKind::Default),
-                edge("e6", "review", "fix", WorkflowEdgeKind::Rejection),
-                edge("e7", "fix", "end", WorkflowEdgeKind::Default),
-            ],
-            router_executor_config: None,
-            canvas: None,
-        },
-    }
-}
-
 fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
     WorkflowTemplate {
         id: PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID,
@@ -240,6 +88,7 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Plan & Split",
                         "architect",
                         "Analyze the issue and produce an implementation plan that splits the work into independent frontend and backend tracks.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node(
@@ -249,6 +98,7 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Frontend",
                         "implementer",
                         "Implement the frontend track of the plan.",
+                        "GEMINI",
                     ),
                 ),
                 node(
@@ -258,6 +108,7 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Backend",
                         "implementer",
                         "Implement the backend track of the plan.",
+                        "CODEX",
                     ),
                 ),
                 node(
@@ -267,6 +118,7 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Review & Test",
                         "reviewer",
                         "Review the combined frontend and backend changes and run the test suite.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node(
@@ -276,6 +128,7 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Finalize",
                         "implementer",
                         "Commit the changes with a clear message and update the project documentation.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node("end", WorkflowNodeKind::End, display_data("End")),
@@ -311,6 +164,7 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Frame Topic",
                         "researcher",
                         "Turn the research input from the issue into a well-scoped topic with a clear outline of the questions to answer.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node(
@@ -320,6 +174,7 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Draft: Pragmatic",
                         "custom",
                         "Write an independent design document for the framed topic from a pragmatic perspective: the most direct solution under current constraints.",
+                        "CODEX",
                     ),
                 ),
                 node(
@@ -329,6 +184,7 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Draft: Exploratory",
                         "custom",
                         "Write an independent design document for the framed topic from an exploratory perspective: alternative approaches and novel ideas.",
+                        "GEMINI",
                     ),
                 ),
                 node(
@@ -338,6 +194,7 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Draft: Risk & Trade-offs",
                         "custom",
                         "Write an independent design document for the framed topic from a risk perspective: costs, risks, and long-term maintainability trade-offs.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node(
@@ -347,6 +204,7 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Synthesize",
                         "custom",
                         "Compare the three perspective documents, reconcile their differences, and write the final conclusions and recommendation.",
+                        "CLAUDE_CODE",
                     ),
                 ),
                 node("end", WorkflowNodeKind::End, display_data("End")),
@@ -399,47 +257,15 @@ fn agent_data(
     display_name: &str,
     role_template_id: &str,
     prompt_template: &str,
+    executor: &str,
 ) -> WorkflowNodeData {
     WorkflowNodeData {
         display_name: Some(display_name.to_string()),
         role_template_id: Some(role_template_id.to_string()),
+        executor_config: Some(json!({ "executor": executor })),
         prompt_template: Some(prompt_template.to_string()),
         output_capture: Some(AgentOutputCapture::LastMessage),
         ..WorkflowNodeData::default()
-    }
-}
-
-fn human_gate_data(display_name: &str) -> WorkflowNodeData {
-    WorkflowNodeData {
-        display_name: Some(display_name.to_string()),
-        prompt_to_human: Some("Approve or reject the workflow plan.".to_string()),
-        required_action: Some(HumanGateAction::ApproveOrReject),
-        ..WorkflowNodeData::default()
-    }
-}
-
-fn arena_data(display_name: &str) -> WorkflowNodeData {
-    WorkflowNodeData {
-        display_name: Some(display_name.to_string()),
-        attempts: Some(vec![
-            arena_attempt("attempt-1", "Candidate A"),
-            arena_attempt("attempt-2", "Candidate B"),
-            arena_attempt("attempt-3", "Candidate C"),
-        ]),
-        prompt_template: Some("Create an independent implementation candidate.".to_string()),
-        promote_strategy: Some(ArenaPromoteStrategy::Manual),
-        apply_strategy: Some(ArenaApplyStrategy::DiffApply),
-        ..WorkflowNodeData::default()
-    }
-}
-
-fn arena_attempt(id: &str, display_name: &str) -> ArenaAttemptConfig {
-    ArenaAttemptConfig {
-        id: Some(id.to_string()),
-        display_name: Some(display_name.to_string()),
-        role_template_id: Some("implementer".to_string()),
-        prompt_template: Some("Implement this candidate independently.".to_string()),
-        ..ArenaAttemptConfig::default()
     }
 }
 
@@ -453,6 +279,43 @@ mod tests {
         for template in built_in_templates() {
             validate_graph(&template.graph).expect(template.name);
         }
+    }
+
+    #[test]
+    fn built_in_templates_expose_only_current_poc_templates() {
+        let templates = built_in_templates();
+
+        assert_eq!(
+            templates
+                .iter()
+                .map(|template| template.id)
+                .collect::<Vec<_>>(),
+            vec![
+                PLAN_PARALLEL_FULLSTACK_REVIEW_FINALIZE_ID,
+                RESEARCH_MULTI_PERSPECTIVE_SYNTHESIZE_ID,
+            ]
+        );
+    }
+
+    #[test]
+    fn fullstack_template_uses_expected_default_agents() {
+        let template = plan_parallel_fullstack_review_finalize();
+        let executor_for = |node_id: &str| {
+            template
+                .graph
+                .nodes
+                .iter()
+                .find(|node| node.id == node_id)
+                .and_then(|node| node.data.executor_config.as_ref())
+                .and_then(|config| config.get("executor"))
+                .and_then(|value| value.as_str())
+        };
+
+        assert_eq!(executor_for("plan"), Some("CLAUDE_CODE"));
+        assert_eq!(executor_for("frontend"), Some("GEMINI"));
+        assert_eq!(executor_for("backend"), Some("CODEX"));
+        assert_eq!(executor_for("review"), Some("CLAUDE_CODE"));
+        assert_eq!(executor_for("finalize"), Some("CLAUDE_CODE"));
     }
 
     #[test]

@@ -19,7 +19,7 @@ use deployment::Deployment;
 use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -462,22 +462,40 @@ pub async fn list_project_workflows(
     project_id: Uuid,
 ) -> Result<Vec<WorkflowTemplateResponse>, ApiError> {
     ensure_system_workflows(pool).await?;
+    let active_system_workflow_ids = built_in_workflow_ids()?;
 
-    let rows = sqlx::query(
+    let mut query = QueryBuilder::<Sqlite>::new(
         r#"
         SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
         FROM workflows
-        WHERE (source = 'system' OR project_id = ?)
+        WHERE (
+            (source = 'system' AND id IN (
+        "#,
+    );
+    let mut separated = query.separated(", ");
+    for workflow_id in &active_system_workflow_ids {
+        separated.push_bind(*workflow_id);
+    }
+    separated.push_unseparated(
+        r#"
+            ))
+            OR project_id =
+        "#,
+    );
+    drop(separated);
+    query.push_bind(project_id);
+    query.push(
+        r#"
+        )
           AND id NOT IN (SELECT workflow_id FROM workflow_attempts)
         ORDER BY
             CASE source WHEN 'system' THEN 0 ELSE 1 END,
             name ASC,
             created_at ASC
         "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
 
     Ok(rows
         .iter()
@@ -1110,20 +1128,35 @@ pub async fn fallback_node_executions_payload(
 
 async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateResponse>, ApiError> {
     ensure_system_workflows(pool).await?;
+    let active_system_workflow_ids = built_in_workflow_ids()?;
 
-    let rows = sqlx::query(
+    let mut query = QueryBuilder::<Sqlite>::new(
         r#"
         SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
         FROM workflows
-        WHERE id NOT IN (SELECT workflow_id FROM workflow_attempts)
+        WHERE (
+            (source = 'system' AND id IN (
+        "#,
+    );
+    let mut separated = query.separated(", ");
+    for workflow_id in &active_system_workflow_ids {
+        separated.push_bind(*workflow_id);
+    }
+    separated.push_unseparated(
+        r#"
+            ))
+            OR source != 'system'
+        )
+          AND id NOT IN (SELECT workflow_id FROM workflow_attempts)
         ORDER BY
             CASE source WHEN 'system' THEN 0 ELSE 1 END,
             name ASC,
             created_at ASC
         "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    );
+    drop(separated);
+
+    let rows = query.build().fetch_all(pool).await?;
 
     Ok(rows
         .iter()
@@ -1150,16 +1183,15 @@ async fn workflow_by_id(
 }
 
 async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
-    for template in built_in_templates() {
+    let templates = built_in_templates();
+    let mut active_workflow_ids = Vec::with_capacity(templates.len());
+
+    for template in templates {
         validate_graph(&template.graph).map_err(|err| {
             ApiError::BadRequest(format!("Invalid built-in workflow graph: {err}"))
         })?;
-        let workflow_id = Uuid::parse_str(template.id).map_err(|err| {
-            ApiError::BadRequest(format!(
-                "Invalid built-in workflow id `{}`: {err}",
-                template.id
-            ))
-        })?;
+        let workflow_id = parse_system_template_id(template.id)?;
+        active_workflow_ids.push(workflow_id);
         let graph_json = serde_json::to_string(&template.graph).map_err(|err| {
             ApiError::BadRequest(format!("Invalid built-in workflow graph JSON: {err}"))
         })?;
@@ -1191,6 +1223,55 @@ async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
         .await?;
     }
 
+    prune_removed_system_workflows(pool, &active_workflow_ids).await?;
+
+    Ok(())
+}
+
+fn built_in_workflow_ids() -> Result<Vec<Uuid>, ApiError> {
+    built_in_templates()
+        .iter()
+        .map(|template| parse_system_template_id(template.id))
+        .collect()
+}
+
+fn parse_system_template_id(template_id: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(template_id).map_err(|err| {
+        ApiError::BadRequest(format!(
+            "Invalid built-in workflow id `{template_id}`: {err}",
+        ))
+    })
+}
+
+async fn prune_removed_system_workflows(
+    pool: &SqlitePool,
+    active_workflow_ids: &[Uuid],
+) -> Result<(), ApiError> {
+    if active_workflow_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Sqlite>::new(
+        r#"
+        DELETE FROM workflows
+        WHERE source = 'system'
+          AND id NOT IN (
+        "#,
+    );
+    let mut separated = query.separated(", ");
+    for workflow_id in active_workflow_ids {
+        separated.push_bind(*workflow_id);
+    }
+    separated.push_unseparated(
+        r#"
+          )
+          AND id NOT IN (SELECT workflow_id FROM workflow_attempts)
+          AND id NOT IN (SELECT workflow_id FROM workflow_runs)
+        "#,
+    );
+    drop(separated);
+
+    query.build().execute(pool).await?;
     Ok(())
 }
 

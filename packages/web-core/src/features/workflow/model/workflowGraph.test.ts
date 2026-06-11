@@ -12,6 +12,7 @@ import {
   fromReactFlowCanvasGraph,
   fromReactFlowGraph,
   getConditionBranchTargets,
+  instantiateWorkflowGraphTemplate,
   migrateWorkflowGraph,
   normalizeConditionEdgeTypes,
   syncConditionBranches,
@@ -81,6 +82,41 @@ describe('workflow graph model', () => {
       position: { x: 70, y: 105 },
       size: { width: 880, height: 240 },
     });
+  });
+
+  it('instantiates templates without reusing persisted agent sessions', () => {
+    const graph = instantiateWorkflowGraphTemplate({
+      version: 1,
+      nodes: [
+        {
+          id: 'start',
+          type: 'start',
+          data: { display_name: 'Start' },
+        },
+        {
+          id: 'agent',
+          type: 'agent',
+          data: {
+            display_name: 'Agent',
+            session_id: 'session-from-template',
+            executor_config: { executor: 'CODEX' },
+          },
+        },
+      ],
+      edges: [
+        {
+          id: 'start-agent',
+          source: 'start',
+          target: 'agent',
+          type: 'default',
+        },
+      ],
+    });
+
+    expect(graph.version).toBe(WORKFLOW_GRAPH_VERSION);
+    expect(graph.nodes[1].data.session_id).toBeUndefined();
+    expect(graph.nodes[1].data.executor_config).toEqual({ executor: 'CODEX' });
+    expect(graph.edges[0].source_handle).toBe(DEFAULT_SOURCE_HANDLE);
   });
 
   it('defines catalog entries and default data for every v1 node kind', () => {
