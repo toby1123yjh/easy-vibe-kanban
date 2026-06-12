@@ -32,6 +32,10 @@ npx easy-vibe-kanban
 
 本分叉版本的核心特性。**Workflow Attempt** 是任务的一种执行方式：不再是单个 agent 会话，而是在可视化画布上设计一张 agent 步骤组成的流程图，各步骤按图自动执行。
 
+![](packages/public/workflow-canvas.png)
+
+*内置模板 "Plan, Parallel Frontend & Backend, Review, Finalize" 在工作流画布上的效果 —— Claude Code 规划拆分，Gemini 与 Codex 并行实现前后端，再评审与收尾。*
+
 - **可视化画布** —— 节点面板、拖拽连线，每个节点和边上都有实时执行状态
 - **每个步骤就是一个真实的 agent 会话** —— 每个 Agent Step 对应一个稳定的 agent session，可以随时进入对话，与普通 task attempt 的会话能力完全一致
 - **混搭不同智能体** —— 不同阶段用不同 agent：比如 Claude Code 负责实现、Codex 负责审查、Gemini CLI 负责写测试

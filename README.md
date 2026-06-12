@@ -32,6 +32,10 @@ Engineers working with coding agents spend most of their time on two things: **p
 
 The headline feature of this fork. A **Workflow Attempt** is a way to execute a task: instead of a single agent session, you design a flow graph of agent steps on a visual canvas, and the steps run automatically in sequence.
 
+![](packages/public/workflow-canvas.png)
+
+*The built-in "Plan, Parallel Frontend & Backend, Review, Finalize" template on the workflow canvas — Claude Code plans, Gemini and Codex implement in parallel, then review and finalize.*
+
 - **Visual canvas** — design your flow with a node palette, drag-and-drop steps, and live execution states on every node and edge
 - **One agent session per step** — each Agent Step is a stable, real agent session you can open and chat with, exactly like a normal task attempt
 - **Mix and match agents** — use different agents for different stages: e.g. Claude Code to implement, Codex to review, Gemini CLI to write tests

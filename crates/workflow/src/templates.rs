@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::graph::{
     AgentOutputCapture, WorkflowEdge, WorkflowEdgeKind, WorkflowGraph, WorkflowNode,
-    WorkflowNodeData, WorkflowNodeKind,
+    WorkflowNodeData, WorkflowNodeKind, WorkflowNodePosition,
 };
 
 // Stable system template ids. These ids are persisted by workflow_runs.workflow_id.
@@ -81,7 +81,13 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
         graph: WorkflowGraph {
             version: 2,
             nodes: vec![
-                node("start", WorkflowNodeKind::Start, display_data("Start")),
+                node(
+                    "start",
+                    WorkflowNodeKind::Start,
+                    display_data("Start"),
+                    40.0,
+                    300.0,
+                ),
                 node(
                     "plan",
                     WorkflowNodeKind::Agent,
@@ -91,6 +97,8 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Analyze the issue and produce an implementation plan that splits the work into independent frontend and backend tracks.",
                         "CLAUDE_CODE",
                     ),
+                    280.0,
+                    260.0,
                 ),
                 node(
                     "frontend",
@@ -101,6 +109,8 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Implement the frontend track of the plan.",
                         "GEMINI",
                     ),
+                    600.0,
+                    110.0,
                 ),
                 node(
                     "backend",
@@ -111,6 +121,8 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Implement the backend track of the plan.",
                         "CODEX",
                     ),
+                    600.0,
+                    410.0,
                 ),
                 node(
                     "review",
@@ -121,6 +133,8 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Review the combined frontend and backend changes and run the test suite.",
                         "CLAUDE_CODE",
                     ),
+                    920.0,
+                    260.0,
                 ),
                 node(
                     "finalize",
@@ -131,8 +145,16 @@ fn plan_parallel_fullstack_review_finalize() -> WorkflowTemplate {
                         "Commit the changes with a clear message and update the project documentation.",
                         "CLAUDE_CODE",
                     ),
+                    1240.0,
+                    260.0,
                 ),
-                node("end", WorkflowNodeKind::End, display_data("End")),
+                node(
+                    "end",
+                    WorkflowNodeKind::End,
+                    display_data("End"),
+                    1560.0,
+                    300.0,
+                ),
             ],
             edges: vec![
                 edge("e1", "start", "plan", WorkflowEdgeKind::Default),
@@ -157,7 +179,13 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
         graph: WorkflowGraph {
             version: 2,
             nodes: vec![
-                node("start", WorkflowNodeKind::Start, display_data("Start")),
+                node(
+                    "start",
+                    WorkflowNodeKind::Start,
+                    display_data("Start"),
+                    40.0,
+                    340.0,
+                ),
                 node(
                     "frame",
                     WorkflowNodeKind::Agent,
@@ -167,6 +195,8 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Turn the research input from the issue into a well-scoped topic with a clear outline of the questions to answer.",
                         "CLAUDE_CODE",
                     ),
+                    280.0,
+                    300.0,
                 ),
                 node(
                     "draft-a",
@@ -177,6 +207,8 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Write an independent design document for the framed topic from a pragmatic perspective: the most direct solution under current constraints.",
                         "CODEX",
                     ),
+                    600.0,
+                    80.0,
                 ),
                 node(
                     "draft-b",
@@ -187,6 +219,8 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Write an independent design document for the framed topic from an exploratory perspective: alternative approaches and novel ideas.",
                         "GEMINI",
                     ),
+                    600.0,
+                    300.0,
                 ),
                 node(
                     "draft-c",
@@ -197,6 +231,8 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Write an independent design document for the framed topic from a risk perspective: costs, risks, and long-term maintainability trade-offs.",
                         "CLAUDE_CODE",
                     ),
+                    600.0,
+                    520.0,
                 ),
                 node(
                     "synthesize",
@@ -207,8 +243,16 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
                         "Compare the three perspective documents, reconcile their differences, and write the final conclusions and recommendation.",
                         "CLAUDE_CODE",
                     ),
+                    920.0,
+                    300.0,
                 ),
-                node("end", WorkflowNodeKind::End, display_data("End")),
+                node(
+                    "end",
+                    WorkflowNodeKind::End,
+                    display_data("End"),
+                    1240.0,
+                    340.0,
+                ),
             ],
             edges: vec![
                 edge("e1", "start", "frame", WorkflowEdgeKind::Default),
@@ -226,12 +270,12 @@ fn research_multi_perspective_synthesize() -> WorkflowTemplate {
     }
 }
 
-fn node(id: &str, kind: WorkflowNodeKind, data: WorkflowNodeData) -> WorkflowNode {
+fn node(id: &str, kind: WorkflowNodeKind, data: WorkflowNodeData, x: f64, y: f64) -> WorkflowNode {
     WorkflowNode {
         id: id.to_string(),
         kind,
         data,
-        position: None,
+        position: Some(WorkflowNodePosition { x, y }),
     }
 }
 
