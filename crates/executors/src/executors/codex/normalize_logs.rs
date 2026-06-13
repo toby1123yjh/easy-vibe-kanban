@@ -1031,6 +1031,37 @@ fn handle_direct_item_started(
     }
 }
 
+/// Surface a thread item the normalizer has no dedicated renderer for, instead
+/// of dropping it silently. Keeps new upstream item types visible (as a system
+/// message carrying the raw payload) after a Codex version bump, until a
+/// dedicated renderer is added.
+fn add_unsupported_item_entry(
+    item: &AppThreadItem,
+    msg_store: &Arc<MsgStore>,
+    entry_index: &EntryIndexProvider,
+) {
+    let value = serde_json::to_value(item).unwrap_or(serde_json::Value::Null);
+    let item_type = value
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let content = format!(
+        "Unsupported Codex event: {item_type}\n{}",
+        serde_json::to_string_pretty(&value).unwrap_or_default()
+    );
+    add_normalized_entry(
+        msg_store,
+        entry_index,
+        NormalizedEntry {
+            timestamp: None,
+            entry_type: NormalizedEntryType::SystemMessage,
+            content,
+            metadata: None,
+        },
+    );
+}
+
 fn handle_direct_item_completed(
     notification: AppItemCompletedNotification,
     state: &mut LogState,
@@ -1221,7 +1252,10 @@ fn handle_direct_item_completed(
                 },
             );
         }
-        _ => {}
+        // Render any item we don't have a dedicated handler for as a generic
+        // entry rather than dropping it. The "started" handler stays silent so
+        // each item surfaces once, on its authoritative completed event.
+        ref other => add_unsupported_item_entry(other, msg_store, entry_index),
     }
 }
 
@@ -2912,5 +2946,42 @@ mod tests {
             }
             other => panic!("unexpected dynamic tool entry: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn unhandled_completed_item_surfaces_as_system_message() {
+        // `hookPrompt` is a valid ThreadItem variant the normalizer has no
+        // dedicated renderer for; it must surface instead of being dropped.
+        let entries = normalize_lines(&[json!({
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "completedAtMs": 2,
+                "item": {
+                    "type": "hookPrompt",
+                    "id": "hook-1",
+                    "fragments": []
+                }
+            }
+        })
+        .to_string()])
+        .await;
+
+        let entry = entries
+            .iter()
+            .find(|entry| {
+                matches!(entry.entry_type, NormalizedEntryType::SystemMessage)
+                    && entry
+                        .content
+                        .contains("Unsupported Codex event: hookPrompt")
+            })
+            .expect("unhandled item should surface as a system message");
+        assert!(
+            entry.content.contains("hook-1"),
+            "fallback should include the raw payload, got: {}",
+            entry.content
+        );
     }
 }
