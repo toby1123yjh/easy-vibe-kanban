@@ -524,10 +524,16 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                     yield patch::update_agents(agent_options);
                     yield patch::agents_loaded();
 
-                    let defaults = Self::hardcoded_slash_commands();
-                    let slash_commands = reorder_slash_commands(
-                        [slash_commands_initial, defaults].concat()
-                    );
+                    // The discovered list already contains builtin + custom
+                    // commands reported by the actual binary. Fall back to the
+                    // hardcoded list only when discovery yields nothing (e.g. an
+                    // unexpected or very old binary).
+                    let slash_commands = if slash_commands_initial.is_empty() {
+                        Self::hardcoded_slash_commands()
+                    } else {
+                        slash_commands_initial
+                    };
+                    let slash_commands = reorder_slash_commands(slash_commands);
                     final_options.slash_commands = slash_commands.clone();
                     yield patch::update_slash_commands(slash_commands);
 

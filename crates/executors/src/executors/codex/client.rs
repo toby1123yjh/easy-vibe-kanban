@@ -17,12 +17,13 @@ use codex_app_server_protocol::{
     GetAccountParams, GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities,
     InitializeParams, InitializeResponse, ItemCompletedNotification, JSONRPCError,
     JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams,
-    ListMcpServerStatusResponse, McpServerStatusDetail, RequestId, ReviewStartParams,
-    ReviewStartResponse, ReviewTarget, ServerRequest, SkillsListParams, SkillsListResponse,
-    ThreadCompactStartParams, ThreadCompactStartResponse, ThreadForkParams, ThreadForkResponse,
-    ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadStartParams, ThreadStartResponse,
-    ToolRequestUserInputAnswer, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
-    TurnCompletedNotification, TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
+    ListMcpServerStatusResponse, McpServerStatusDetail, ModelListParams, ModelListResponse,
+    RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget, ServerRequest,
+    SkillsListParams, SkillsListResponse, ThreadCompactStartParams, ThreadCompactStartResponse,
+    ThreadForkParams, ThreadForkResponse, ThreadItem, ThreadReadParams, ThreadReadResponse,
+    ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer,
+    ToolRequestUserInputQuestion, ToolRequestUserInputResponse, TurnCompletedNotification,
+    TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
 };
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use futures::TryFutureExt;
@@ -249,6 +250,14 @@ impl AppServerClient {
             },
         };
         self.send_request(request, "skills/list").await
+    }
+
+    pub async fn model_list(&self) -> Result<ModelListResponse, ExecutorError> {
+        let request = ClientRequest::ModelList {
+            request_id: self.next_request_id(),
+            params: ModelListParams::default(),
+        };
+        self.send_request(request, "model/list").await
     }
 
     pub async fn thread_compact_start(
@@ -1074,7 +1083,10 @@ mod version_check_tests {
             extract_semver("codex/0.138.0 (Windows 10; x86_64) vibe-codex-executor"),
             Some("0.138.0".to_string())
         );
-        assert_eq!(extract_semver("codex/1.2.3-alpha.1"), Some("1.2.3".to_string()));
+        assert_eq!(
+            extract_semver("codex/1.2.3-alpha.1"),
+            Some("1.2.3".to_string())
+        );
         assert_eq!(extract_semver("no version here"), None);
     }
 

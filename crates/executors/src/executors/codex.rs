@@ -49,11 +49,13 @@ pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> 
 }
 
 const SKILLS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
+const MODELS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 
 use async_trait::async_trait;
 use codex_app_server_protocol::{
-    AskForApproval as V2AskForApproval, ReviewTarget, SandboxMode as V2SandboxMode, SkillScope,
-    SkillsListResponse, ThreadForkParams, ThreadStartParams, UserInput,
+    AskForApproval as V2AskForApproval, ModelListResponse, ReviewTarget,
+    SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadForkParams,
+    ThreadStartParams, UserInput,
 };
 use codex_protocol::config_types::ServiceTier;
 use derivative::Derivative;
@@ -354,69 +356,10 @@ impl StandardCodingAgentExecutor for Codex {
         workdir: Option<&std::path::Path>,
         repo_path: Option<&std::path::Path>,
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        let xhigh_reasoning_options = ReasoningOption::from_names(
-            [
-                ReasoningEffort::Low,
-                ReasoningEffort::Medium,
-                ReasoningEffort::High,
-                ReasoningEffort::Xhigh,
-            ]
-            .map(|e| e.as_ref().to_string()),
-        );
-
         let skills_cwd = workdir.or(repo_path).map(Path::to_path_buf);
         let mut options = ExecutorDiscoveredOptions {
             model_selector: ModelSelectorConfig {
-                models: vec![
-                    ModelInfo {
-                        id: "gpt-5.5".to_string(),
-                        name: "GPT-5.5".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.5-fast".to_string(),
-                        name: "GPT-5.5 Fast".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.4".to_string(),
-                        name: "GPT-5.4".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.4-fast".to_string(),
-                        name: "GPT-5.4 Fast".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.4-mini".to_string(),
-                        name: "GPT-5.4 Mini".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.3-codex".to_string(),
-                        name: "GPT-5.3 Codex".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.3-codex-spark".to_string(),
-                        name: "GPT-5.3 Codex Spark".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options.clone(),
-                    },
-                    ModelInfo {
-                        id: "gpt-5.2".to_string(),
-                        name: "GPT-5.2".to_string(),
-                        provider_id: None,
-                        reasoning_options: xhigh_reasoning_options,
-                    },
-                ],
+                models: fallback_models(),
                 permissions: vec![
                     PermissionPolicy::Auto,
                     PermissionPolicy::Supervised,
@@ -427,17 +370,43 @@ impl StandardCodingAgentExecutor for Codex {
             slash_commands: slash_commands::supported_slash_commands(),
             ..Default::default()
         };
+        options.loading_models = true;
         options.loading_skills = skills_cwd.is_some();
         let initial_patch = patch::executor_discovered_options(options);
 
-        let Some(skills_cwd) = skills_cwd else {
-            return Ok(Box::pin(futures::stream::once(
-                async move { initial_patch },
-            )));
-        };
-
         let this = self.clone();
-        let skills_stream = async_stream::stream! {
+        let models_cwd = skills_cwd.clone();
+        let discovery_stream = async_stream::stream! {
+            // Models: prefer the live `model/list` over the hardcoded fallback so
+            // new Codex models appear automatically. Run against the resolved cwd
+            // (config like model providers can be workspace-scoped).
+            let model_dir = models_cwd
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let models_result = tokio::time::timeout(
+                MODELS_DISCOVERY_TIMEOUT,
+                this.discover_models(model_dir),
+            )
+            .await;
+            match models_result {
+                Ok(Ok(models)) if !models.is_empty() => {
+                    yield patch::update_models(models);
+                }
+                Ok(Ok(_)) => {
+                    tracing::warn!("Codex model/list returned no models; keeping fallback list");
+                }
+                Ok(Err(err)) => {
+                    tracing::warn!("Failed to discover Codex models: {err}; keeping fallback list");
+                }
+                Err(_) => {
+                    tracing::warn!("Timed out discovering Codex models; keeping fallback list");
+                }
+            }
+            yield patch::models_loaded();
+
+            let Some(skills_cwd) = skills_cwd else {
+                return;
+            };
             let result = tokio::time::timeout(
                 SKILLS_DISCOVERY_TIMEOUT,
                 this.discover_skills(skills_cwd),
@@ -467,7 +436,7 @@ impl StandardCodingAgentExecutor for Codex {
         };
 
         Ok(Box::pin(
-            futures::stream::once(async move { initial_patch }).chain(skills_stream),
+            futures::stream::once(async move { initial_patch }).chain(discovery_stream),
         ))
     }
 
@@ -564,6 +533,13 @@ impl Codex {
             })
             .await?;
         Ok(skills_list_response_to_discovery(response))
+    }
+
+    async fn discover_models(&self, cwd: PathBuf) -> Result<Vec<ModelInfo>, ExecutorError> {
+        let response = self
+            .with_discovery_app_server(&cwd, move |client| async move { client.model_list().await })
+            .await?;
+        Ok(model_list_response_to_model_infos(response))
     }
 
     async fn with_discovery_app_server<T, F, Fut>(
@@ -1020,6 +996,63 @@ fn skill_scope_to_string(scope: SkillScope) -> &'static str {
         SkillScope::System => "system",
         SkillScope::Admin => "admin",
     }
+}
+
+/// Convert a live `model/list` response into the UI model-selector shape,
+/// dropping models hidden from the default picker.
+fn model_list_response_to_model_infos(response: ModelListResponse) -> Vec<ModelInfo> {
+    response
+        .data
+        .into_iter()
+        .filter(|model| !model.hidden)
+        .map(|model| {
+            let reasoning_options = ReasoningOption::from_names(
+                model
+                    .supported_reasoning_efforts
+                    .iter()
+                    .map(|option| option.reasoning_effort.to_string()),
+            );
+            ModelInfo {
+                id: model.id,
+                name: model.display_name,
+                provider_id: None,
+                reasoning_options,
+            }
+        })
+        .collect()
+}
+
+/// Static model list used before/instead of a live `model/list` response
+/// (discovery failure, timeout, or empty result).
+fn fallback_models() -> Vec<ModelInfo> {
+    let xhigh_reasoning_options = ReasoningOption::from_names(
+        [
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::Xhigh,
+        ]
+        .map(|e| e.as_ref().to_string()),
+    );
+
+    [
+        ("gpt-5.5", "GPT-5.5"),
+        ("gpt-5.5-fast", "GPT-5.5 Fast"),
+        ("gpt-5.4", "GPT-5.4"),
+        ("gpt-5.4-fast", "GPT-5.4 Fast"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini"),
+        ("gpt-5.3-codex", "GPT-5.3 Codex"),
+        ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"),
+        ("gpt-5.2", "GPT-5.2"),
+    ]
+    .into_iter()
+    .map(|(id, name)| ModelInfo {
+        id: id.to_string(),
+        name: name.to_string(),
+        provider_id: None,
+        reasoning_options: xhigh_reasoning_options.clone(),
+    })
+    .collect()
 }
 
 #[cfg(test)]

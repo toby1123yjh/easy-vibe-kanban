@@ -298,18 +298,25 @@ impl ClaudeCode {
 
         let agent_options = Self::map_discovered_agents(agents);
 
-        let builtin: HashSet<String> = Self::hardcoded_slash_commands()
-            .iter()
-            .map(|c| c.name.clone())
-            .collect();
+        // The init event lists every command the running binary supports
+        // (builtin + custom), so it is the source of truth for which commands
+        // exist in THIS Claude version — new builtins appear automatically and
+        // removed builtins disappear. The hardcoded table only supplies nice
+        // descriptions for well-known builtins; custom descriptions are filled
+        // later from command frontmatter.
+        let builtin_descriptions: HashMap<String, Option<String>> =
+            Self::hardcoded_slash_commands()
+                .into_iter()
+                .map(|c| (c.name, c.description))
+                .collect();
 
         let mut seen = HashSet::new();
         let slash_commands: Vec<SlashCommandDescription> = names
             .into_iter()
-            .filter(|name| !name.is_empty() && !builtin.contains(name) && seen.insert(name.clone()))
-            .map(|name| SlashCommandDescription {
-                name,
-                description: None,
+            .filter(|name| !name.is_empty() && seen.insert(name.clone()))
+            .map(|name| {
+                let description = builtin_descriptions.get(&name).cloned().flatten();
+                SlashCommandDescription { name, description }
             })
             .collect();
 
