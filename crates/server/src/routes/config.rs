@@ -52,6 +52,7 @@ pub fn router() -> Router<DeploymentImpl> {
             get(check_editor_availability),
         )
         .route("/agents/check-availability", get(check_agent_availability))
+        .route("/agents/garage", get(get_agent_garage))
         .route("/agents/preset-options", get(get_agent_preset_options))
         .route(
             "/agents/discovered-options/ws",
@@ -558,6 +559,53 @@ async fn check_agent_availability(
     };
 
     ResponseJson(ApiResponse::success(info))
+}
+
+/// One agent's status for the Agent Garage overview.
+#[derive(Debug, Serialize, TS)]
+pub struct AgentGarageEntry {
+    pub executor: BaseCodingAgent,
+    pub availability: AvailabilityInfo,
+    pub capabilities: Vec<BaseAgentCapability>,
+    /// Version of the binary bundled by the npx wrapper (pin & ship), when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub bundled_version: Option<String>,
+}
+
+/// Aggregate discovery for every known agent: availability, capabilities, and
+/// the bundled version when shipped. Backs the Agent Garage overview so the UI
+/// can render install/login status and capability-driven controls in one call.
+async fn get_agent_garage(
+    State(_deployment): State<DeploymentImpl>,
+) -> ResponseJson<ApiResponse<Vec<AgentGarageEntry>>> {
+    let profiles = ExecutorConfigs::get_cached();
+
+    let mut entries: Vec<AgentGarageEntry> = profiles
+        .executors
+        .keys()
+        .map(|base| {
+            let agent = profiles.get_coding_agent_or_default(&ExecutorProfileId::new(*base));
+            AgentGarageEntry {
+                executor: *base,
+                availability: agent.get_availability_info(),
+                capabilities: agent.capabilities(),
+                bundled_version: bundled_version_for(*base),
+            }
+        })
+        .collect();
+
+    entries.sort_by_key(|entry| entry.executor.to_string());
+    ResponseJson(ApiResponse::success(entries))
+}
+
+/// Bundled (pin & ship) version for the agents the npx wrapper ships, if any.
+fn bundled_version_for(executor: BaseCodingAgent) -> Option<String> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => executors::executors::bundled::bundled_claude_version(),
+        BaseCodingAgent::Codex => executors::executors::bundled::bundled_codex_version(),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize, TS)]

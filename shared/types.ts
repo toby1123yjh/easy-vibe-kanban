@@ -419,6 +419,12 @@ export type CheckEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
+export type AgentGarageEntry = { executor: BaseCodingAgent, availability: AvailabilityInfo, capabilities: Array<BaseAgentCapability>, 
+/**
+ * Version of the binary bundled by the npx wrapper (pin & ship), when known.
+ */
+bundled_version?: string, };
+
 export type AgentPresetOptionsQuery = { executor: BaseCodingAgent, variant: string | null, };
 
 export type CurrentUserResponse = { user_id: string, };

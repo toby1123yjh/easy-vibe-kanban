@@ -12,6 +12,8 @@ pub const BUNDLED_CLAUDE_CMD_ENV: &str = "VK_BUNDLED_CLAUDE_CMD";
 pub const BUNDLED_CODEX_CMD_ENV: &str = "VK_BUNDLED_CODEX_CMD";
 /// Version of the bundled `@openai/codex` package.
 pub const BUNDLED_CODEX_VERSION_ENV: &str = "VK_BUNDLED_CODEX_VERSION";
+/// Version of the bundled `@anthropic-ai/claude-code` package.
+pub const BUNDLED_CLAUDE_VERSION_ENV: &str = "VK_BUNDLED_CLAUDE_VERSION";
 /// Truthy value opts out of bundled agents in favour of PATH lookups.
 pub const USE_SYSTEM_AGENTS_ENV: &str = "VK_USE_SYSTEM_AGENTS";
 
@@ -50,6 +52,16 @@ pub fn bundled_codex_version() -> Option<String> {
         return None;
     }
     std::env::var(BUNDLED_CODEX_VERSION_ENV)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+pub fn bundled_claude_version() -> Option<String> {
+    if use_system_agents() {
+        return None;
+    }
+    std::env::var(BUNDLED_CLAUDE_VERSION_ENV)
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
