@@ -493,8 +493,11 @@ impl StandardCodingAgentExecutor for Codex {
 impl Codex {
     pub const DEFAULT_BASE_COMMAND: &'static str = "codex";
 
-    pub fn base_command() -> &'static str {
-        Self::DEFAULT_BASE_COMMAND
+    /// Prefers the Codex pinned by the npx wrapper so the binary version
+    /// matches the `codex-app-server-protocol` crate this build links against.
+    pub fn base_command() -> String {
+        super::bundled::bundled_codex_command()
+            .unwrap_or_else(|| Self::DEFAULT_BASE_COMMAND.to_string())
     }
 
     fn launch_context(&self, program_path: &Path, args: &[String], current_dir: &Path) -> String {
@@ -507,8 +510,8 @@ impl Codex {
                 "base command: {}",
                 self.cmd
                     .base_command_override
-                    .as_deref()
-                    .unwrap_or(Self::DEFAULT_BASE_COMMAND)
+                    .clone()
+                    .unwrap_or_else(Self::base_command)
             ),
             format!(
                 "base_command_override: {}",
@@ -541,7 +544,7 @@ impl Codex {
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new(Self::DEFAULT_BASE_COMMAND);
+        let mut builder = CommandBuilder::new(Self::base_command());
         builder = builder.extend_params(["app-server"]);
         if self.oss.unwrap_or(false) {
             builder = builder.extend_params(["--oss"]);

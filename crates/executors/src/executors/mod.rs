@@ -32,6 +32,7 @@ use crate::{
 
 pub mod acp;
 pub mod amp;
+pub mod bundled;
 pub mod claude;
 pub mod codex;
 pub mod copilot;

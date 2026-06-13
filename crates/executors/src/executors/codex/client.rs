@@ -125,8 +125,10 @@ impl AppServerClient {
             },
         };
 
-        self.send_request::<InitializeResponse>(request, "initialize")
+        let response = self
+            .send_request::<InitializeResponse>(request, "initialize")
             .await?;
+        warn_on_codex_version_mismatch(&response.user_agent);
         self.send_message(&ClientNotification::Initialized).await
     }
 
@@ -1016,5 +1018,71 @@ impl LogWriter {
         guard.write_all(b"\n").await.map_err(ExecutorError::Io)?;
         guard.flush().await.map_err(ExecutorError::Io)?;
         Ok(())
+    }
+}
+
+/// The Codex version this build is tested against. Must match the
+/// `codex-app-server-protocol` tag pinned in `crates/executors/Cargo.toml`
+/// and the `@openai/codex` version pinned in `npx-cli/package.json`.
+const EXPECTED_CODEX_VERSION: &str = "0.138.0";
+
+/// Warn when the running app-server's version diverges from the version this
+/// build targets (e.g. the user opted into a system Codex via
+/// `VK_USE_SYSTEM_AGENTS`). Compares major.minor only.
+fn warn_on_codex_version_mismatch(user_agent: &str) {
+    let expected = crate::executors::bundled::bundled_codex_version()
+        .unwrap_or_else(|| EXPECTED_CODEX_VERSION.to_string());
+    let Some(actual) = extract_semver(user_agent) else {
+        tracing::warn!("could not parse codex version from user_agent: {user_agent}");
+        return;
+    };
+    if major_minor(&actual) != major_minor(&expected) {
+        tracing::warn!(
+            "codex version mismatch: app-server reports {actual} but this build targets \
+             {expected}; protocol drift may cause unexpected errors"
+        );
+    } else {
+        tracing::debug!("codex app-server version {actual} matches expected {expected}");
+    }
+}
+
+fn major_minor(version: &str) -> String {
+    version.splitn(3, '.').take(2).collect::<Vec<_>>().join(".")
+}
+
+/// Extracts the first `x.y.z`-shaped token from a user-agent string such as
+/// `codex/0.138.0 (Windows 10; x86_64) vibe-codex-executor`.
+fn extract_semver(input: &str) -> Option<String> {
+    input
+        .split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter(|token| !token.is_empty())
+        .find(|token| {
+            token.matches('.').count() >= 2
+                && token.chars().next().is_some_and(|c| c.is_ascii_digit())
+                && token.chars().last().is_some_and(|c| c.is_ascii_digit())
+        })
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod version_check_tests {
+    use super::{extract_semver, major_minor};
+
+    #[test]
+    fn extracts_version_from_user_agent() {
+        assert_eq!(
+            extract_semver("codex/0.138.0 (Windows 10; x86_64) vibe-codex-executor"),
+            Some("0.138.0".to_string())
+        );
+        assert_eq!(extract_semver("codex/1.2.3-alpha.1"), Some("1.2.3".to_string()));
+        assert_eq!(extract_semver("no version here"), None);
+    }
+
+    #[test]
+    fn major_minor_comparison() {
+        assert_eq!(major_minor("0.138.0"), "0.138");
+        assert_eq!(major_minor("0.139.2"), "0.139");
+        assert_ne!(major_minor("0.139.2"), major_minor("0.138.0"));
+        assert_eq!(major_minor("0.138"), "0.138");
     }
 }

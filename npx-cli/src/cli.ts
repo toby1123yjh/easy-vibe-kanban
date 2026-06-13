@@ -18,6 +18,7 @@ import {
   installAndLaunch,
   cleanOldDesktopVersions,
 } from "./desktop";
+import { setupBundledAgents } from "./bundledAgents";
 
 const CLI_VERSION: string = require("../package.json").version;
 
@@ -307,6 +308,9 @@ function runOrExit(task: Promise<void>): void {
 
 async function main(): Promise<void> {
   fs.mkdirSync(versionCacheDir, { recursive: true });
+  // Must run before any child process spawns so the server (and the desktop
+  // app) inherit the bundled-agent environment variables.
+  setupBundledAgents();
   const cli = cac("easy-vibe-kanban");
 
   cli
