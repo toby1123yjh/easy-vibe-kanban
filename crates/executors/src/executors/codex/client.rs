@@ -997,6 +997,7 @@ fn request_id(request: &ClientRequest) -> RequestId {
         | ClientRequest::ReviewStart { request_id, .. }
         | ClientRequest::McpServerStatusList { request_id, .. }
         | ClientRequest::SkillsList { request_id, .. }
+        | ClientRequest::ModelList { request_id, .. }
         | ClientRequest::ThreadCompactStart { request_id, .. }
         | ClientRequest::ThreadRead { request_id, .. }
         | ClientRequest::ConfigRead { request_id, .. }
@@ -1096,5 +1097,19 @@ mod version_check_tests {
         assert_eq!(major_minor("0.139.2"), "0.139");
         assert_ne!(major_minor("0.139.2"), major_minor("0.138.0"));
         assert_eq!(major_minor("0.138"), "0.138");
+    }
+
+    // Regression: request_id() must handle every ClientRequest variant the
+    // client actually sends, or send_request panics at runtime. model_list()
+    // sends ModelList, which was missing from the match.
+    #[test]
+    fn request_id_handles_model_list() {
+        use codex_app_server_protocol::{ClientRequest, ModelListParams, RequestId};
+
+        let req = ClientRequest::ModelList {
+            request_id: RequestId::Integer(7),
+            params: ModelListParams::default(),
+        };
+        assert_eq!(super::request_id(&req), RequestId::Integer(7));
     }
 }
