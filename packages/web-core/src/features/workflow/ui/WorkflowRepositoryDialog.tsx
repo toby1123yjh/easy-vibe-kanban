@@ -81,8 +81,16 @@ function WorkflowRepositoryDialogContent() {
   const isLoading = !hasInitialValue || !hasResolvedInitialRepoDefaults;
 
   return (
-    <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-      <DialogContent className="w-[min(720px,calc(100vw-32px))] max-w-none">
+    <Dialog
+      open={modal.visible}
+      onOpenChange={handleOpenChange}
+      // The shared Dialog panel caps at max-w-xl (576px); this dialog needs to
+      // fit the repo picker (w-chat = 768px). cn() here is plain clsx (twMerge
+      // is intentionally disabled), so a className override can't reliably beat
+      // max-w-xl — set the width via inline style instead.
+      style={{ maxWidth: 'min(720px, calc(100vw - 32px))' }}
+    >
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('workflow.repositoryDialog.title')}</DialogTitle>
         </DialogHeader>
