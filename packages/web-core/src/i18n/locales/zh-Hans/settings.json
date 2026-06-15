@@ -65,7 +65,7 @@
         "executor": {
           "label": "默认代理配置",
           "placeholder": "选择配置文件",
-          "helper": "选择创建任务尝试时使用的默认代理配置。"
+          "helper": "选择创建任务执行时使用的默认代理配置。"
         },
         "variant": "默认",
         "defaultLabel": "默认"
@@ -181,7 +181,7 @@
       },
       "commits": {
         "title": "提交",
-        "description": "配置任务尝试的提交行为",
+        "description": "配置任务执行的提交行为",
         "reminder": {
           "label": "提交提醒",
           "helper": "提示支持的代理在停止前提交更改。"
@@ -196,14 +196,14 @@
         "description": "控制何时以及如何接收通知。",
         "sound": {
           "label": "声音通知",
-          "helper": "任务尝试完成运行时播放声音。",
+          "helper": "任务执行完成运行时播放声音。",
           "fileLabel": "声音",
           "filePlaceholder": "选择声音",
           "fileHelper": "选择任务完成时播放的声音。点击音量按钮预览。"
         },
         "push": {
           "label": "推送通知",
-          "helper": "任务尝试完成运行时显示系统通知。"
+          "helper": "任务执行完成运行时显示系统通知。"
         }
       },
       "messageInput": {
@@ -289,7 +289,7 @@
         "description": "在正式发布前试用实验性功能。",
         "workspaces": {
           "label": "启用工作区 Beta",
-          "helper": "查看任务尝试时使用新的工作区界面。任务将首先在任务视图中打开，尝试将在新的工作区视图中打开。"
+          "helper": "查看任务执行时使用新的工作区界面。任务将首先在任务视图中打开，执行将在新的工作区视图中打开。"
         }
       }
     },

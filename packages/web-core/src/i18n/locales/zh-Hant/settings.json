@@ -65,7 +65,7 @@
         "executor": {
           "label": "預設代理設定檔",
           "placeholder": "選擇設定檔",
-          "helper": "選擇建立任務嘗試時要使用的預設代理設定檔。"
+          "helper": "選擇建立任務執行時要使用的預設代理設定檔。"
         },
         "variant": "預設",
         "defaultLabel": "預設"
@@ -181,7 +181,7 @@
       },
       "commits": {
         "title": "提交",
-        "description": "設定任務嘗試的提交行為",
+        "description": "設定任務執行的提交行為",
         "reminder": {
           "label": "提交提醒",
           "helper": "提示支援的代理在停止前提交變更。"
@@ -196,14 +196,14 @@
         "description": "控制何時與如何接收通知。",
         "sound": {
           "label": "音效通知",
-          "helper": "任務嘗試完成執行時播放音效。",
+          "helper": "任務執行完成執行時播放音效。",
           "fileLabel": "音效",
           "filePlaceholder": "選擇音效",
           "fileHelper": "選擇任務完成時播放的音效。點擊音量按鈕可預覽。"
         },
         "push": {
           "label": "推播通知",
-          "helper": "任務嘗試完成執行時顯示系統通知。"
+          "helper": "任務執行完成執行時顯示系統通知。"
         }
       },
       "messageInput": {
@@ -289,7 +289,7 @@
         "description": "在正式發布前試用實驗性功能。",
         "workspaces": {
           "label": "啟用工作區 Beta",
-          "helper": "查看任務嘗試時使用新的工作區介面。任務將首先在任務檢視中開啟，嘗試將在新的工作區檢視中開啟。"
+          "helper": "查看任務執行時使用新的工作區介面。任務將首先在任務檢視中開啟，執行將在新的工作區檢視中開啟。"
         }
       }
     },

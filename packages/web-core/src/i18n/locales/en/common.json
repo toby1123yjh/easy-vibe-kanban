@@ -321,9 +321,11 @@
     "empty": "No task attempts yet.",
     "newWorkflow": "New workflow attempt",
     "newSingleAgent": "New single-agent attempt",
-    "workflowTemplate": "Template",
-    "loadingWorkflowTemplates": "Loading templates...",
-    "noWorkflowTemplates": "No templates",
+    "templatePicker": {
+      "title": "Choose a workflow template",
+      "blank": "Blank workflow",
+      "blankDescription": "Start from an empty canvas."
+    },
     "workflowFallbackTitle": "Workflow attempt",
     "singleAgentFallbackTitle": "Single-agent attempt",
     "draftWorkflow": "Draft workflow attempt",

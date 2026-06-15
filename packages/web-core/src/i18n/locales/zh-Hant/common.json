@@ -34,9 +34,9 @@
   },
   "arena": {
     "title": "Arena",
-    "attemptCount": "{{count}} 個嘗試",
+    "attemptCount": "{{count}} 個執行",
     "memoCount": "{{count}} 份備忘錄",
-    "headerTitle": "Arena / {{count}} 個嘗試",
+    "headerTitle": "Arena / {{count}} 個執行",
     "headerSummary": "{{running}} 個執行中 / {{promoted}} 個已採用 / {{archived}} 個已封存",
     "headerSummaryWithMemos": "{{running}} 個執行中 / {{promoted}} 個已採用 / {{archived}} 個已封存 / {{memos}} 份備忘錄",
     "modes": {
@@ -73,19 +73,19 @@
       "starting": "正在啟動...",
       "createMemo": "產生備忘錄",
       "bottom": "底部",
-      "addAttempt": "新增嘗試 ({{count}}/{{max}})"
+      "addAttempt": "新增執行 ({{count}}/{{max}})"
     },
     "aria": {
       "openArena": "開啟 Arena",
       "startArena": "啟動 Arena",
       "closeGroup": "關閉此 Arena 群組",
       "dissolveGroup": "解散此 Arena 群組",
-      "promoteAttempt": "採用此嘗試",
-      "retryAttempt": "重試此嘗試",
+      "promoteAttempt": "採用此執行",
+      "retryAttempt": "重試此執行",
       "openWorkspaceDetail": "開啟 {{name}} 詳情",
-      "attemptExecutor": "嘗試 {{index}} 的執行器",
-      "attemptVariant": "嘗試 {{index}} 的變體",
-      "removeAttempt": "移除嘗試 {{index}}"
+      "attemptExecutor": "執行 {{index}} 的執行器",
+      "attemptVariant": "執行 {{index}} 的變體",
+      "removeAttempt": "移除執行 {{index}}"
     },
     "errors": {
       "loadFailed": "載入 Arena 群組失敗：{{message}}",
@@ -98,16 +98,16 @@
       "promoteFailed": "採用失敗",
       "retryFailed": "重試失敗",
       "createFailed": "建立 Arena 失敗",
-      "emptyGroupRecovered": "已清理失敗的空 Arena，請重新啟動以建立新的嘗試。",
-      "retryUnknownExecutor": "無法重試：此嘗試的原始執行器未知。",
+      "emptyGroupRecovered": "已清理失敗的空 Arena，請重新啟動以建立新的執行。",
+      "retryUnknownExecutor": "無法重試：此執行的原始執行器未知。",
       "diffStream": "Diff 串流錯誤：{{message}}"
     },
     "confirm": {
       "dissolveTitle": "解散此 Arena？",
-      "dissolveMessage": "將封存全部 {{count}} 個嘗試。它們的 worktree 會自動清理。此操作無法復原。",
-      "promoteTitle": "採用此嘗試？",
-      "promoteMessageWithSiblings": "這會合併此嘗試的改動，並封存另外 {{count}} 個嘗試。它們的 worktree 會自動清理。",
-      "promoteMessageSingle": "這會將此嘗試標記為已採用，並繼續標準的合併 / PR 流程。"
+      "dissolveMessage": "將封存全部 {{count}} 個執行。它們的 worktree 會自動清理。此操作無法復原。",
+      "promoteTitle": "採用此執行？",
+      "promoteMessageWithSiblings": "這會合併此執行的改動，並封存另外 {{count}} 個執行。它們的 worktree 會自動清理。",
+      "promoteMessageSingle": "這會將此執行標記為已採用，並繼續標準的合併 / PR 流程。"
     },
     "activity": {
       "title": "Arena 活動",
@@ -127,15 +127,15 @@
       "instructionLabel": "彙整指令",
       "includeLabel": "包含",
       "originalPrompt": "原始 Arena 提示詞",
-      "attemptSummaries": "嘗試摘要 ({{count}})",
+      "attemptSummaries": "執行摘要 ({{count}})",
       "arenaActivity": "Arena 活動 ({{count}})",
-      "defaultPrompt": "將 Arena 中各個嘗試彙整成一份簡潔的決策備忘錄。保留分歧、取捨和未解風險。"
+      "defaultPrompt": "將 Arena 中各個執行彙整成一份簡潔的決策備忘錄。保留分歧、取捨和未解風險。"
     },
     "create": {
-      "titleDesign": "啟動設計 Arena / {{count}} 個嘗試",
-      "titleImplementation": "啟動實作 Arena / {{count}} 個嘗試",
+      "titleDesign": "啟動設計 Arena / {{count}} 個執行",
+      "titleImplementation": "啟動實作 Arena / {{count}} 個執行",
       "descriptionDesign": "讓多個 agent 進行設計對話並相互比較。工作區彼此隔離，預設不會建立提交。",
-      "descriptionImplementation": "執行多個實作嘗試，並比較它們的程式碼改動。",
+      "descriptionImplementation": "執行多個實作執行，並比較它們的程式碼改動。",
       "prompt": "提示詞",
       "promptPlaceholder": "描述每個 agent 應該做什麼...",
       "mode": "模式",
@@ -149,20 +149,20 @@
       "loadingBranches": "正在載入分支...",
       "failedBranches": "載入分支失敗",
       "selectBranch": "選擇分支",
-      "attempts": "嘗試",
+      "attempts": "執行",
       "variantPlaceholder": "變體（可選）",
       "validation": {
         "promptRequired": "提示詞必填。",
         "baseBranchRequired": "基準分支必填。",
         "repositoryRequired": "請選擇儲存庫。",
-        "minAttempts": "至少需要 {{count}} 個嘗試。",
-        "maxAttempts": "最多允許 {{count}} 個嘗試。"
+        "minAttempts": "至少需要 {{count}} 個執行。",
+        "maxAttempts": "最多允許 {{count}} 個執行。"
       }
     },
     "workspace": {
       "workspace": "工作區",
       "agent": "Agent",
-      "attemptName": "嘗試 {{index}}",
+      "attemptName": "執行 {{index}}",
       "loadingArena": "正在載入 Arena...",
       "loadingConversation": "正在載入對話...",
       "waitingForChanges": "正在等待首次改動...",
@@ -170,12 +170,12 @@
       "fileCount": "{{count}} 個檔案"
     },
     "pageActions": {
-      "askPlaceholder": "向每個嘗試追問...",
-      "attemptsRunning": "Arena 嘗試正在執行。",
-      "challengePrompt": "將你目前的回答與另一個嘗試進行比較。指出分歧、更強的想法、風險，以及你會如何修改。"
+      "askPlaceholder": "向每個執行追問...",
+      "attemptsRunning": "Arena 執行正在執行。",
+      "challengePrompt": "將你目前的回答與另一個執行進行比較。指出分歧、更強的想法、風險，以及你會如何修改。"
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} 個嘗試（{{running}} 個執行中）",
+      "activeSummary": "{{mode}} / {{total}} 個執行（{{running}} 個執行中）",
       "startSubtitle": "抽卡模式"
     }
   },
@@ -302,24 +302,29 @@
     "linkError": "關聯工作區失敗"
   },
   "attempts": {
-    "title": "任務嘗試",
-    "loading": "正在載入任務嘗試...",
-    "empty": "暫無任務嘗試。",
-    "newWorkflow": "新增工作流嘗試",
-    "newSingleAgent": "新增單一智慧體嘗試",
-    "workflowFallbackTitle": "工作流嘗試",
-    "singleAgentFallbackTitle": "單一智慧體嘗試",
-    "draftWorkflow": "工作流嘗試草稿",
+    "title": "任務執行",
+    "loading": "正在載入任務執行...",
+    "empty": "暫無任務執行。",
+    "newWorkflow": "新增工作流執行",
+    "newSingleAgent": "新增單一智慧體執行",
+    "templatePicker": {
+      "title": "選擇工作流範本",
+      "blank": "空白工作流",
+      "blankDescription": "從空白畫布開始。"
+    },
+    "workflowFallbackTitle": "工作流執行",
+    "singleAgentFallbackTitle": "單一智慧體執行",
+    "draftWorkflow": "工作流執行草稿",
     "workflowRun": "執行 {{id}}",
     "workspace": "工作區 {{id}}",
     "remoteWorkspace": "遠端工作區",
     "openCanvas": "開啟工作流",
     "openSession": "開啟會話",
-    "runWorkflow": "執行工作流嘗試",
-    "deleteAttempt": "刪除嘗試",
-    "deleteWorkflowTitle": "刪除工作流嘗試？",
-    "deleteWorkflowMessage": "這會刪除此工作流嘗試和執行記錄。此操作無法復原。",
-    "deleteWorkflowError": "刪除工作流嘗試失敗。",
+    "runWorkflow": "執行工作流執行",
+    "deleteAttempt": "刪除執行",
+    "deleteWorkflowTitle": "刪除工作流執行？",
+    "deleteWorkflowMessage": "這會刪除此工作流執行和執行記錄。此操作無法復原。",
+    "deleteWorkflowError": "刪除工作流執行失敗。",
     "status": {
       "draft": "草稿",
       "ready": "就緒",
@@ -336,13 +341,13 @@
   },
   "workflow": {
     "entry": {
-      "title": "工作流嘗試",
-      "subtitle": "先設計任務嘗試，再執行智慧體",
+      "title": "工作流執行",
+      "subtitle": "先設計任務執行，再執行智慧體",
       "openCanvas": "開啟工作流",
-      "openCanvasAria": "開啟工作流嘗試"
+      "openCanvasAria": "開啟工作流執行"
     },
     "draft": {
-      "name": "{{title}} 的工作流嘗試",
+      "name": "{{title}} 的工作流執行",
       "untitledTask": "未命名任務"
     },
     "defaultGraph": {
@@ -382,9 +387,9 @@
       },
       "arena": {
         "label": "Arena",
-        "summary": "{{count}} 個嘗試",
-        "attemptA": "嘗試 A",
-        "attemptB": "嘗試 B"
+        "summary": "{{count}} 個執行",
+        "attemptA": "執行 A",
+        "attemptB": "執行 B"
       }
     },
     "edges": {
@@ -398,7 +403,7 @@
         "condition_branch": "透過條件分支路由。",
         "approval": "人工核准後繼續。",
         "rejection": "人工拒絕後路由。",
-        "arena_winner": "提升 Arena 中的勝出嘗試。"
+        "arena_winner": "提升 Arena 中的勝出執行。"
       }
     },
     "metadata": {
@@ -411,9 +416,9 @@
       "routingMode": "路由",
       "action": "操作",
       "mode": "模式",
-      "attempts": "嘗試",
-      "attemptCount": "嘗試數",
-      "attemptCountValue": "{{count}} 個嘗試",
+      "attempts": "執行",
+      "attemptCount": "執行數",
+      "attemptCountValue": "{{count}} 個執行",
       "promote": "提升",
       "branch": "分支 {{index}}"
     },
@@ -429,7 +434,7 @@
       "template": "範本",
       "regex": "正規表示式",
       "max_chars": "最大字元數",
-      "attempts": "嘗試"
+      "attempts": "執行"
     },
     "fieldOptions": {
       "routing_mode": {
@@ -458,26 +463,26 @@
     },
     "errors": {
       "createDraftFailed": "建立工作流草稿失敗。",
-      "notLinkedToAttempt": "此工作流未關聯到任務嘗試。",
+      "notLinkedToAttempt": "此工作流未關聯到任務執行。",
       "repositoryRequired": "此工作流需要一個至少包含一個儲存庫的工作區。請在開始執行前至少選擇一個儲存庫。",
       "runInputRequired": "請先填寫執行輸入，再啟動工作流。",
-      "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流嘗試。",
-      "saveBeforeRun": "請先儲存工作流嘗試，再開始執行。",
-      "saveBeforeSession": "請先儲存工作流嘗試，再開啟智慧體會話。",
+      "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流執行。",
+      "saveBeforeRun": "請先儲存工作流執行，再開始執行。",
+      "saveBeforeSession": "請先儲存工作流執行，再開啟智慧體會話。",
       "startFailed": "啟動工作流執行失敗。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "無法解析工作流 JSON。"
     },
     "repositoryDialog": {
-      "title": "新增工作流嘗試",
+      "title": "新增工作流執行",
       "errors": {
         "repositoryRequired": "建立工作流前請至少選擇一個儲存庫。",
         "branchRequired": "建立工作流前請為每個儲存庫選擇分支。"
       }
     },
     "runDialog": {
-      "title": "執行工作流嘗試",
-      "description": "啟動這個關聯議題的工作流嘗試。",
+      "title": "執行工作流執行",
+      "description": "啟動這個關聯議題的工作流執行。",
       "mainWorkspace": "主工作區",
       "createWorkflowWorkspace": "建立工作流工作區",
       "usesExistingWorkspace": "使用現有工作區。",
@@ -487,7 +492,7 @@
       "startRun": "開始執行"
     },
     "editor": {
-      "runAttempt": "執行工作流嘗試",
+      "runAttempt": "執行工作流執行",
       "runWorkflow": "執行工作流",
       "loadFailed": "載入工作流失敗：{{message}}",
       "backToWorkflows": "返回工作流列表",
@@ -589,10 +594,10 @@
       "selectTarget": "選擇目標",
       "branchCondition": "路由條件",
       "branchConditionPlaceholder": "例如：上游輸出提到了 UI、布局、樣式或互動改動",
-      "attempts": "嘗試",
-      "attemptLabel": "嘗試 {{index}}",
-      "addAttempt": "新增嘗試",
-      "removeAttempt": "移除嘗試 {{index}}",
+      "attempts": "執行",
+      "attemptLabel": "執行 {{index}}",
+      "addAttempt": "新增執行",
+      "removeAttempt": "移除執行 {{index}}",
       "promptOverride": "提示詞範本覆寫",
       "edgeProperties": "連線屬性",
       "source": "來源節點",
@@ -625,7 +630,7 @@
       "loadFailed": "載入執行 {{runId}} 失敗",
       "canvas": "工作流",
       "dashboard": "儀表板",
-      "taskAttempt": "任務嘗試 {{id}}",
+      "taskAttempt": "任務執行 {{id}}",
       "workflowRun": "工作流執行 {{id}}"
     },
     "runCanvas": {
@@ -747,13 +752,13 @@
     },
     "arenaWinner": {
       "title": "需要選擇 Arena 結果",
-      "description": "選擇一個已完成的嘗試，將它的差異套用回工作流工作區。",
+      "description": "選擇一個已完成的執行，將它的差異套用回工作流工作區。",
       "selectFailed": "選擇 Arena 獲勝結果失敗。",
       "noGroupLink": "Arena 分組連結不可用。",
-      "loadingAttempts": "正在載入嘗試...",
+      "loadingAttempts": "正在載入執行...",
       "loadFailed": "載入 Arena 分組失敗：{{message}}",
       "unknownError": "未知錯誤",
-      "noAttempts": "還沒有可用的 Arena 嘗試。",
+      "noAttempts": "還沒有可用的 Arena 執行。",
       "unknownExecutor": "未知執行器",
       "changes": "有變更",
       "noChanges": "無變更",

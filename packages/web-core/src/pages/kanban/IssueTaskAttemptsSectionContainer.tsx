@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import type { WorkflowTemplateResponse } from 'shared/types';
 import { GitBranchIcon, LinkIcon, PlusIcon } from '@phosphor-icons/react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
@@ -29,6 +30,7 @@ import {
   useCreateIssueWorkflowAttempt,
 } from '@/features/workflow';
 import { shouldShowWorkflowTemplate } from '@/features/workflow/model/workflowTemplateVisibility';
+import { WorkflowTemplatePickerDialog } from '@/features/workflow/ui/WorkflowTemplatePickerDialog';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { DeleteWorkspaceDialog } from '@vibe/ui/components/DeleteWorkspaceDialog';
 import type { IssueTaskAttemptCardData } from '@vibe/ui/components/IssueTaskAttemptCard';
@@ -65,10 +67,9 @@ export function IssueTaskAttemptsSectionContainer({
   const { membersWithProfilesById, isLoading: orgLoading } = useOrgContext();
   const { data: workflowAttemptData, isLoading: workflowAttemptsLoading } =
     useWorkflowAttempts(projectId, issueId, { enabled: !!projectId });
-  const { data: workflowTemplateData, isLoading: workflowTemplatesLoading } =
-    useWorkflowTemplates(projectId, { enabled: !!projectId });
-  const [selectedWorkflowTemplateId, setSelectedWorkflowTemplateId] =
-    useState('');
+  const { data: workflowTemplateData } = useWorkflowTemplates(projectId, {
+    enabled: !!projectId,
+  });
   const { deleteAttempt: deleteWorkflowAttempt } =
     useWorkflowAttemptMutations();
   const { createWorkflowAttempt, workflowCreateError } =
@@ -153,29 +154,6 @@ export function IssueTaskAttemptsSectionContainer({
       ),
     [workflowTemplateData]
   );
-  const selectedWorkflowTemplate = useMemo(
-    () =>
-      workflowTemplates.find(
-        (template) => template.id === selectedWorkflowTemplateId
-      ) ?? null,
-    [selectedWorkflowTemplateId, workflowTemplates]
-  );
-
-  useEffect(() => {
-    if (workflowTemplates.length === 0) {
-      setSelectedWorkflowTemplateId('');
-      return;
-    }
-
-    if (
-      !selectedWorkflowTemplateId ||
-      !workflowTemplates.some(
-        (template) => template.id === selectedWorkflowTemplateId
-      )
-    ) {
-      setSelectedWorkflowTemplateId(workflowTemplates[0].id);
-    }
-  }, [selectedWorkflowTemplateId, workflowTemplates]);
 
   const handleAddWorkspace = useCallback(async () => {
     if (!projectId) {
@@ -240,8 +218,27 @@ export function IssueTaskAttemptsSectionContainer({
 
   const handleCreateWorkflowAttempt = useCallback(async () => {
     setError(null);
-    await createWorkflowAttempt({ template: selectedWorkflowTemplate });
-  }, [createWorkflowAttempt, selectedWorkflowTemplate]);
+
+    // Template is chosen inside the creation flow: prompt only when there is a
+    // real choice, otherwise fall back to the single template or a blank graph.
+    let template: WorkflowTemplateResponse | null = workflowTemplates[0] ?? null;
+    if (workflowTemplates.length > 1) {
+      const result = await WorkflowTemplatePickerDialog.show({
+        templates: workflowTemplates.map((tpl) => ({
+          id: tpl.id,
+          name: tpl.name,
+          description: tpl.description,
+        })),
+      });
+      if (result.kind === 'canceled') {
+        return;
+      }
+      template =
+        workflowTemplates.find((tpl) => tpl.id === result.templateId) ?? null;
+    }
+
+    await createWorkflowAttempt({ template });
+  }, [createWorkflowAttempt, workflowTemplates]);
 
   const handleOpenAttempt = useCallback(
     (attemptData: IssueTaskAttemptCardData) => {
@@ -418,13 +415,6 @@ export function IssueTaskAttemptsSectionContainer({
         onDeleteAttempt={handleDeleteAttempt}
         onCreateWorkflowAttempt={handleCreateWorkflowAttempt}
         onCreateSingleAgentAttempt={handleAddWorkspace}
-        workflowTemplateOptions={workflowTemplates.map((template) => ({
-          id: template.id,
-          name: template.name || t('workflow.templates.untitled'),
-        }))}
-        selectedWorkflowTemplateId={selectedWorkflowTemplateId}
-        onWorkflowTemplateChange={setSelectedWorkflowTemplateId}
-        isWorkflowTemplateLoading={workflowTemplatesLoading}
       />
       {error || workflowCreateError ? (
         <p className="px-base pb-base text-xs text-error" role="alert">

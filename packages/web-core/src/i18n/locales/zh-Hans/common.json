@@ -34,9 +34,9 @@
   },
   "arena": {
     "title": "Arena",
-    "attemptCount": "{{count}} 个尝试",
+    "attemptCount": "{{count}} 个执行",
     "memoCount": "{{count}} 份备忘录",
-    "headerTitle": "Arena / {{count}} 个尝试",
+    "headerTitle": "Arena / {{count}} 个执行",
     "headerSummary": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档",
     "headerSummaryWithMemos": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档 / {{memos}} 份备忘录",
     "modes": {
@@ -73,19 +73,19 @@
       "starting": "正在启动...",
       "createMemo": "生成备忘录",
       "bottom": "底部",
-      "addAttempt": "添加尝试 ({{count}}/{{max}})"
+      "addAttempt": "添加执行 ({{count}}/{{max}})"
     },
     "aria": {
       "openArena": "打开 Arena",
       "startArena": "启动 Arena",
       "closeGroup": "关闭此 Arena 组",
       "dissolveGroup": "解散此 Arena 组",
-      "promoteAttempt": "采用此尝试",
-      "retryAttempt": "重试此尝试",
+      "promoteAttempt": "采用此执行",
+      "retryAttempt": "重试此执行",
       "openWorkspaceDetail": "打开 {{name}} 详情",
-      "attemptExecutor": "尝试 {{index}} 的执行器",
-      "attemptVariant": "尝试 {{index}} 的变体",
-      "removeAttempt": "移除尝试 {{index}}"
+      "attemptExecutor": "执行 {{index}} 的执行器",
+      "attemptVariant": "执行 {{index}} 的变体",
+      "removeAttempt": "移除执行 {{index}}"
     },
     "errors": {
       "loadFailed": "加载 Arena 组失败：{{message}}",
@@ -98,16 +98,16 @@
       "promoteFailed": "采用失败",
       "retryFailed": "重试失败",
       "createFailed": "创建 Arena 失败",
-      "emptyGroupRecovered": "已清理失败的空 Arena，请重新启动以创建新的尝试。",
-      "retryUnknownExecutor": "无法重试：此尝试的原始执行器未知。",
+      "emptyGroupRecovered": "已清理失败的空 Arena，请重新启动以创建新的执行。",
+      "retryUnknownExecutor": "无法重试：此执行的原始执行器未知。",
       "diffStream": "Diff 流错误：{{message}}"
     },
     "confirm": {
       "dissolveTitle": "解散此 Arena？",
-      "dissolveMessage": "将归档全部 {{count}} 个尝试。它们的 worktree 会自动清理。此操作无法撤销。",
-      "promoteTitle": "采用此尝试？",
-      "promoteMessageWithSiblings": "这会合并此尝试的改动，并归档另外 {{count}} 个尝试。它们的 worktree 会自动清理。",
-      "promoteMessageSingle": "这会将此尝试标记为已采用，并继续标准的合并 / PR 流程。"
+      "dissolveMessage": "将归档全部 {{count}} 个执行。它们的 worktree 会自动清理。此操作无法撤销。",
+      "promoteTitle": "采用此执行？",
+      "promoteMessageWithSiblings": "这会合并此执行的改动，并归档另外 {{count}} 个执行。它们的 worktree 会自动清理。",
+      "promoteMessageSingle": "这会将此执行标记为已采用，并继续标准的合并 / PR 流程。"
     },
     "activity": {
       "title": "Arena 活动",
@@ -127,15 +127,15 @@
       "instructionLabel": "综合指令",
       "includeLabel": "包含",
       "originalPrompt": "原始 Arena 提示词",
-      "attemptSummaries": "尝试摘要 ({{count}})",
+      "attemptSummaries": "执行摘要 ({{count}})",
       "arenaActivity": "Arena 活动 ({{count}})",
-      "defaultPrompt": "将 Arena 中各个尝试综合成一份简洁的决策备忘录。保留分歧、取舍和未解决风险。"
+      "defaultPrompt": "将 Arena 中各个执行综合成一份简洁的决策备忘录。保留分歧、取舍和未解决风险。"
     },
     "create": {
-      "titleDesign": "启动设计 Arena / {{count}} 个尝试",
-      "titleImplementation": "启动实现 Arena / {{count}} 个尝试",
+      "titleDesign": "启动设计 Arena / {{count}} 个执行",
+      "titleImplementation": "启动实现 Arena / {{count}} 个执行",
       "descriptionDesign": "让多个 agent 进行设计对话并相互比较。工作区彼此隔离，默认不会创建提交。",
-      "descriptionImplementation": "运行多个实现尝试，并比较它们的代码改动。",
+      "descriptionImplementation": "运行多个实现执行，并比较它们的代码改动。",
       "prompt": "提示词",
       "promptPlaceholder": "描述每个 agent 应该做什么...",
       "mode": "模式",
@@ -149,20 +149,20 @@
       "loadingBranches": "正在加载分支...",
       "failedBranches": "加载分支失败",
       "selectBranch": "选择分支",
-      "attempts": "尝试",
+      "attempts": "执行",
       "variantPlaceholder": "变体（可选）",
       "validation": {
         "promptRequired": "提示词必填。",
         "baseBranchRequired": "基准分支必填。",
         "repositoryRequired": "请选择仓库。",
-        "minAttempts": "至少需要 {{count}} 个尝试。",
-        "maxAttempts": "最多允许 {{count}} 个尝试。"
+        "minAttempts": "至少需要 {{count}} 个执行。",
+        "maxAttempts": "最多允许 {{count}} 个执行。"
       }
     },
     "workspace": {
       "workspace": "工作区",
       "agent": "Agent",
-      "attemptName": "尝试 {{index}}",
+      "attemptName": "执行 {{index}}",
       "loadingArena": "正在加载 Arena...",
       "loadingConversation": "正在加载对话...",
       "waitingForChanges": "正在等待首次改动...",
@@ -170,12 +170,12 @@
       "fileCount": "{{count}} 个文件"
     },
     "pageActions": {
-      "askPlaceholder": "向每个尝试追问...",
-      "attemptsRunning": "Arena 尝试正在运行。",
-      "challengePrompt": "将你当前的回答与另一个尝试进行比较。指出分歧、更强的想法、风险，以及你会如何修改。"
+      "askPlaceholder": "向每个执行追问...",
+      "attemptsRunning": "Arena 执行正在运行。",
+      "challengePrompt": "将你当前的回答与另一个执行进行比较。指出分歧、更强的想法、风险，以及你会如何修改。"
     },
     "issueSection": {
-      "activeSummary": "{{mode}} / {{total}} 个尝试（{{running}} 个运行中）",
+      "activeSummary": "{{mode}} / {{total}} 个执行（{{running}} 个运行中）",
       "startSubtitle": "抽卡模式"
     }
   },
@@ -302,27 +302,29 @@
     "linkError": "关联工作区失败"
   },
   "attempts": {
-    "title": "\u4efb\u52a1\u5c1d\u8bd5",
-    "loading": "\u6b63\u5728\u52a0\u8f7d\u4efb\u52a1\u5c1d\u8bd5...",
-    "empty": "\u6682\u65e0\u4efb\u52a1\u5c1d\u8bd5\u3002",
-    "newWorkflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41\u5c1d\u8bd5",
-    "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u5c1d\u8bd5",
-    "workflowTemplate": "模板",
-    "loadingWorkflowTemplates": "正在加载模板...",
-    "noWorkflowTemplates": "暂无模板",
-    "workflowFallbackTitle": "工作流尝试",
-    "singleAgentFallbackTitle": "单智能体尝试",
-    "draftWorkflow": "工作流尝试草稿",
+    "title": "\u4efb\u52a1\u6267\u884c",
+    "loading": "\u6b63\u5728\u52a0\u8f7d\u4efb\u52a1\u6267\u884c...",
+    "empty": "\u6682\u65e0\u4efb\u52a1\u6267\u884c\u3002",
+    "newWorkflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41\u6267\u884c",
+    "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u6267\u884c",
+    "templatePicker": {
+      "title": "选择工作流模板",
+      "blank": "空白工作流",
+      "blankDescription": "从空白画布开始。"
+    },
+    "workflowFallbackTitle": "工作流执行",
+    "singleAgentFallbackTitle": "单智能体执行",
+    "draftWorkflow": "工作流执行草稿",
     "workflowRun": "运行 {{id}}",
     "workspace": "工作区 {{id}}",
     "remoteWorkspace": "远程工作区",
     "openCanvas": "打开工作流",
     "openSession": "打开会话",
-    "runWorkflow": "运行工作流尝试",
-    "deleteAttempt": "删除尝试",
-    "deleteWorkflowTitle": "删除工作流尝试？",
-    "deleteWorkflowMessage": "这会删除该工作流尝试和运行记录。此操作无法撤销。",
-    "deleteWorkflowError": "删除工作流尝试失败。",
+    "runWorkflow": "运行工作流执行",
+    "deleteAttempt": "删除执行",
+    "deleteWorkflowTitle": "删除工作流执行？",
+    "deleteWorkflowMessage": "这会删除该工作流执行和运行记录。此操作无法撤销。",
+    "deleteWorkflowError": "删除工作流执行失败。",
     "status": {
       "draft": "草稿",
       "ready": "就绪",
@@ -339,13 +341,13 @@
   },
   "workflow": {
     "entry": {
-      "title": "工作流尝试",
-      "subtitle": "先设计任务尝试，再运行智能体",
+      "title": "工作流执行",
+      "subtitle": "先设计任务执行，再运行智能体",
       "openCanvas": "打开工作流",
-      "openCanvasAria": "打开工作流尝试"
+      "openCanvasAria": "打开工作流执行"
     },
     "draft": {
-      "name": "{{title}} 的工作流尝试",
+      "name": "{{title}} 的工作流执行",
       "untitledTask": "未命名任务"
     },
     "defaultGraph": {
@@ -385,9 +387,9 @@
       },
       "arena": {
         "label": "Arena",
-        "summary": "{{count}} 个尝试",
-        "attemptA": "尝试 A",
-        "attemptB": "尝试 B"
+        "summary": "{{count}} 个执行",
+        "attemptA": "执行 A",
+        "attemptB": "执行 B"
       }
     },
     "edges": {
@@ -401,7 +403,7 @@
         "condition_branch": "通过条件分支路由。",
         "approval": "人工批准后继续。",
         "rejection": "人工拒绝后路由。",
-        "arena_winner": "提升 Arena 中的胜出尝试。"
+        "arena_winner": "提升 Arena 中的胜出执行。"
       }
     },
     "metadata": {
@@ -414,9 +416,9 @@
       "routingMode": "路由",
       "action": "操作",
       "mode": "模式",
-      "attempts": "尝试",
-      "attemptCount": "尝试数",
-      "attemptCountValue": "{{count}} 个尝试",
+      "attempts": "执行",
+      "attemptCount": "执行数",
+      "attemptCountValue": "{{count}} 个执行",
       "promote": "提升",
       "branch": "分支 {{index}}"
     },
@@ -432,7 +434,7 @@
       "template": "模板",
       "regex": "正则表达式",
       "max_chars": "最大字符数",
-      "attempts": "尝试"
+      "attempts": "执行"
     },
     "fieldOptions": {
       "routing_mode": {
@@ -461,26 +463,26 @@
     },
     "errors": {
       "createDraftFailed": "创建工作流草稿失败。",
-      "notLinkedToAttempt": "此工作流未关联到任务尝试。",
+      "notLinkedToAttempt": "此工作流未关联到任务执行。",
       "repositoryRequired": "此工作流需要一个至少包含一个仓库的工作区。请在开始运行前至少选择一个仓库。",
       "runInputRequired": "请先填写运行输入，再启动工作流。",
-      "draftMissing": "这个本地工作流草稿已不存在，请重新新建工作流尝试。",
-      "saveBeforeRun": "请先保存工作流尝试，再启动运行。",
-      "saveBeforeSession": "请先保存工作流尝试，再打开智能体会话。",
+      "draftMissing": "这个本地工作流草稿已不存在，请重新新建工作流执行。",
+      "saveBeforeRun": "请先保存工作流执行，再启动运行。",
+      "saveBeforeSession": "请先保存工作流执行，再打开智能体会话。",
       "startFailed": "启动工作流运行失败。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "无法解析工作流 JSON。"
     },
     "repositoryDialog": {
-      "title": "新建工作流尝试",
+      "title": "新建工作流执行",
       "errors": {
         "repositoryRequired": "创建工作流前请至少选择一个仓库。",
         "branchRequired": "创建工作流前请为每个仓库选择分支。"
       }
     },
     "runDialog": {
-      "title": "运行工作流尝试",
-      "description": "启动这个关联议题的工作流尝试。",
+      "title": "运行工作流执行",
+      "description": "启动这个关联议题的工作流执行。",
       "mainWorkspace": "主工作区",
       "createWorkflowWorkspace": "创建工作流工作区",
       "usesExistingWorkspace": "使用现有工作区。",
@@ -490,7 +492,7 @@
       "startRun": "开始运行"
     },
     "editor": {
-      "runAttempt": "运行工作流尝试",
+      "runAttempt": "运行工作流执行",
       "runWorkflow": "运行工作流",
       "loadFailed": "加载工作流失败：{{message}}",
       "backToWorkflows": "返回工作流列表",
@@ -524,7 +526,7 @@
       "saveAsTemplate": "保存为模板",
       "savedTemplateName": "{{name}} 模板",
       "templateSavedTitle": "模板已保存",
-      "templateSavedMessage": "“{{name}}” 已可在新建工作流尝试时选择。",
+      "templateSavedMessage": "“{{name}}” 已可在新建工作流执行时选择。",
       "deleteAgentStepTitle": "删除智能体",
       "deleteAgentStepMessage": "这会从工作流中移除此步骤。现有会话历史不会复制到其他步骤。",
       "agentStepActions": "智能体操作",
@@ -596,10 +598,10 @@
       "selectTarget": "选择目标",
       "branchCondition": "路由条件",
       "branchConditionPlaceholder": "例如：上游输出提到了 UI、布局、样式或交互改动",
-      "attempts": "尝试",
-      "attemptLabel": "尝试 {{index}}",
-      "addAttempt": "添加尝试",
-      "removeAttempt": "移除尝试 {{index}}",
+      "attempts": "执行",
+      "attemptLabel": "执行 {{index}}",
+      "addAttempt": "添加执行",
+      "removeAttempt": "移除执行 {{index}}",
       "promptOverride": "提示词模板覆盖",
       "edgeProperties": "连线属性",
       "source": "源节点",
@@ -632,7 +634,7 @@
       "loadFailed": "加载运行 {{runId}} 失败",
       "canvas": "工作流",
       "dashboard": "仪表盘",
-      "taskAttempt": "任务尝试 {{id}}",
+      "taskAttempt": "任务执行 {{id}}",
       "workflowRun": "工作流运行 {{id}}"
     },
     "runCanvas": {
@@ -754,13 +756,13 @@
     },
     "arenaWinner": {
       "title": "需要选择 Arena 结果",
-      "description": "选择一个已完成的尝试，将它的差异应用回工作流工作区。",
+      "description": "选择一个已完成的执行，将它的差异应用回工作流工作区。",
       "selectFailed": "选择 Arena 获胜结果失败。",
       "noGroupLink": "Arena 分组链接不可用。",
-      "loadingAttempts": "正在加载尝试...",
+      "loadingAttempts": "正在加载执行...",
       "loadFailed": "加载 Arena 分组失败：{{message}}",
       "unknownError": "未知错误",
-      "noAttempts": "还没有可用的 Arena 尝试。",
+      "noAttempts": "还没有可用的 Arena 执行。",
       "unknownExecutor": "未知执行器",
       "changes": "有变更",
       "noChanges": "无变更",

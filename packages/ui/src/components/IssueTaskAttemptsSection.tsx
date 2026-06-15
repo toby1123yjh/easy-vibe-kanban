@@ -8,11 +8,6 @@ import {
   type IssueTaskAttemptCardData,
 } from './IssueTaskAttemptCard';
 
-export interface WorkflowTemplateSelectOption {
-  id: string;
-  name: string;
-}
-
 export interface IssueTaskAttemptsSectionProps {
   attempts: IssueTaskAttemptCardData[];
   isLoading?: boolean;
@@ -23,10 +18,6 @@ export interface IssueTaskAttemptsSectionProps {
   onDeleteAttempt?: (attempt: IssueTaskAttemptCardData) => void;
   onCreateWorkflowAttempt?: () => void;
   onCreateSingleAgentAttempt?: () => void;
-  workflowTemplateOptions?: WorkflowTemplateSelectOption[];
-  selectedWorkflowTemplateId?: string;
-  onWorkflowTemplateChange?: (templateId: string) => void;
-  isWorkflowTemplateLoading?: boolean;
 }
 
 export function IssueTaskAttemptsSection({
@@ -39,17 +30,10 @@ export function IssueTaskAttemptsSection({
   onDeleteAttempt,
   onCreateWorkflowAttempt,
   onCreateSingleAgentAttempt,
-  workflowTemplateOptions = [],
-  selectedWorkflowTemplateId = '',
-  onWorkflowTemplateChange,
-  isWorkflowTemplateLoading = false,
 }: IssueTaskAttemptsSectionProps) {
   const { t } = useTranslation('common');
   const hasCreateActions =
     !!onCreateWorkflowAttempt || !!onCreateSingleAgentAttempt;
-  const showWorkflowTemplateSelect =
-    !!onCreateWorkflowAttempt &&
-    (isWorkflowTemplateLoading || workflowTemplateOptions.length > 0);
 
   return (
     <CollapsibleSectionHeader
@@ -68,61 +52,19 @@ export function IssueTaskAttemptsSection({
             {hasCreateActions && (
               <div className="grid gap-half sm:grid-cols-2">
                 {onCreateWorkflowAttempt && (
-                  <div className="flex min-w-0 flex-col gap-half">
-                    {showWorkflowTemplateSelect && (
-                      <label className="flex min-w-0 flex-col gap-1 text-[11px] font-medium text-low">
-                        <span>
-                          {t('attempts.workflowTemplate', {
-                            defaultValue: 'Template',
-                          })}
-                        </span>
-                        <select
-                          value={selectedWorkflowTemplateId}
-                          onChange={(event) =>
-                            onWorkflowTemplateChange?.(event.target.value)
-                          }
-                          disabled={
-                            isWorkflowTemplateLoading ||
-                            workflowTemplateOptions.length === 0
-                          }
-                          className="min-h-8 rounded-sm border border-secondary bg-primary px-2 text-xs text-normal outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand disabled:opacity-60"
-                        >
-                          {isWorkflowTemplateLoading ? (
-                            <option value="">
-                              {t('attempts.loadingWorkflowTemplates', {
-                                defaultValue: 'Loading templates...',
-                              })}
-                            </option>
-                          ) : workflowTemplateOptions.length === 0 ? (
-                            <option value="">
-                              {t('attempts.noWorkflowTemplates', {
-                                defaultValue: 'No templates',
-                              })}
-                            </option>
-                          ) : (
-                            workflowTemplateOptions.map((template) => (
-                              <option key={template.id} value={template.id}>
-                                {template.name}
-                              </option>
-                            ))
-                          )}
-                        </select>
-                      </label>
-                    )}
-                    <button
-                      type="button"
-                      onClick={onCreateWorkflowAttempt}
-                      className="rounded-sm border border-brand/50 bg-brand/10 px-base py-half text-left text-xs font-medium text-high transition-colors hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand"
-                    >
-                      {t('attempts.newWorkflow', 'New workflow attempt')}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={onCreateWorkflowAttempt}
+                    className="rounded-sm border border-brand/50 bg-brand/10 px-base py-half text-center text-xs font-medium text-high transition-colors hover:bg-brand/15 focus:outline-none focus:ring-1 focus:ring-brand"
+                  >
+                    {t('attempts.newWorkflow', 'New workflow attempt')}
+                  </button>
                 )}
                 {onCreateSingleAgentAttempt && (
                   <button
                     type="button"
                     onClick={onCreateSingleAgentAttempt}
-                    className="rounded-sm border border-secondary bg-primary px-base py-half text-left text-xs text-low transition-colors hover:border-border hover:text-high focus:outline-none focus:ring-1 focus:ring-border"
+                    className="rounded-sm border border-secondary bg-primary px-base py-half text-center text-xs font-medium text-normal transition-colors hover:border-border hover:text-high focus:outline-none focus:ring-1 focus:ring-border"
                   >
                     {t('attempts.newSingleAgent', 'New single-agent attempt')}
                   </button>

@@ -18,8 +18,8 @@
       "inProgress": "变基中..."
     },
     "dialog": {
-      "title": "变基任务尝试",
-      "description": "选择一个新的基础分支以将此任务尝试变基到其上。",
+      "title": "变基任务执行",
+      "description": "选择一个新的基础分支以将此任务执行变基到其上。",
       "upstreamLabel": "上游分支",
       "upstreamPlaceholder": "选择上游分支",
       "targetLabel": "目标分支",
@@ -31,7 +31,7 @@
     "changeTarget": {
       "dialog": {
         "title": "更改目标分支",
-        "description": "为任务尝试选择新的目标分支。",
+        "description": "为任务执行选择新的目标分支。",
         "placeholder": "选择目标分支",
         "action": "更改分支",
         "inProgress": "更改中..."
@@ -90,11 +90,11 @@
   },
   "processes": {
     "noLogsAvailable": "没有可用的日志",
-    "selectAttempt": "选择尝试以查看执行进程。",
+    "selectAttempt": "选择执行以查看执行进程。",
     "errorLoadingUpdates": "加载进程的实时更新失败。",
     "reconnecting": "重新连接中...",
     "loading": "加载执行进程中...",
-    "noProcesses": "未找到此尝试的执行进程。",
+    "noProcesses": "未找到此执行的执行进程。",
     "processId": "进程 ID：{{id}}",
     "deleted": "已删除",
     "deletedTooltip": "因恢复而删除：时间轴已恢复到检查点，后续执行已被移除",
@@ -267,7 +267,7 @@
   },
   "createPrDialog": {
     "title": "创建拉取请求",
-    "description": "为此任务尝试创建拉取请求。",
+    "description": "为此任务执行创建拉取请求。",
     "titleLabel": "标题",
     "titlePlaceholder": "输入 PR 标题",
     "descriptionLabel": "描述（可选）",

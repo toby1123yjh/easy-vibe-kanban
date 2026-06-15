@@ -18,8 +18,8 @@
       "inProgress": "重基底中..."
     },
     "dialog": {
-      "title": "重基底任務嘗試",
-      "description": "選擇新的基底分支以將此任務嘗試重基底到該分支上。",
+      "title": "重基底任務執行",
+      "description": "選擇新的基底分支以將此任務執行重基底到該分支上。",
       "upstreamLabel": "上游分支",
       "upstreamPlaceholder": "選擇上游分支",
       "targetLabel": "目標分支",
@@ -31,7 +31,7 @@
     "changeTarget": {
       "dialog": {
         "title": "變更目標分支",
-        "description": "為任務嘗試選擇新的目標分支。",
+        "description": "為任務執行選擇新的目標分支。",
         "placeholder": "選擇目標分支",
         "action": "變更分支",
         "inProgress": "變更中..."
@@ -90,11 +90,11 @@
   },
   "processes": {
     "noLogsAvailable": "沒有可用的日誌",
-    "selectAttempt": "選擇嘗試以查看執行程序。",
+    "selectAttempt": "選擇執行以查看執行程序。",
     "errorLoadingUpdates": "載入程序的即時更新失敗。",
     "reconnecting": "重新連線中...",
     "loading": "載入執行程序中...",
-    "noProcesses": "找不到此嘗試的執行程序。",
+    "noProcesses": "找不到此執行的執行程序。",
     "processId": "程序 ID：{{id}}",
     "deleted": "已刪除",
     "deletedTooltip": "因復原而刪除：時間軸已回復到檢查點，後續執行已移除",
@@ -267,7 +267,7 @@
   },
   "createPrDialog": {
     "title": "建立 PR",
-    "description": "為此任務嘗試建立 PR。",
+    "description": "為此任務執行建立 PR。",
     "titleLabel": "標題",
     "titlePlaceholder": "輸入 PR 標題",
     "descriptionLabel": "描述（選填）",
