@@ -18,7 +18,10 @@ use deployment::Deployment;
 use executors::profile::{ExecutorConfig, ExecutorConfigs};
 use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
-use services::services::container::ContainerService;
+use services::services::{
+    container::ContainerService,
+    execution_process::subscribe_execution_completed,
+};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -49,8 +52,8 @@ use crate::{
     workflow_runtime::{
         arena::{
             ArenaNodeAttemptRequest, ArenaNodeExecution, ArenaNodeRequest, ArenaWinnerExecution,
-            ArenaWinnerRequest, NoopWorkflowArenaCreator, WorkflowArenaCreator,
-            WorkflowArenaWinnerApplier,
+            ArenaWinnerRequest, DeploymentWorkflowArenaCreator, NoopWorkflowArenaCreator,
+            WorkflowArenaCreator, WorkflowArenaWinnerApplier,
         },
         condition_router::{
             ConditionRouterCompletion, RouterUpstreamNode, build_manual_route, build_router_prompt,
@@ -2095,6 +2098,117 @@ fn status_entry_label(entry: &StatusEntry) -> &'static str {
     } else {
         "changed"
     }
+}
+
+// ---------------------------------------------------------------------------
+// Event-driven workflow completion watcher
+//
+// Problem: `reconcile_workflow_run_with_arena` was only called from HTTP
+// handlers (GET polling / SSE stream). When an agent execution process
+// finishes in the background, nothing advanced the workflow until the
+// frontend sent the next poll request.
+//
+// Solution: subscribe to the `EXECUTION_COMPLETION_HUB` that the exit-monitor
+// in `local-deployment` publishes to immediately after
+// `ExecutionProcess::update_completion`. For each event we look up which
+// workflow run owns that execution_process (via node_executions) and spawn a
+// small task that calls `reconcile_workflow_run_with_arena` — exactly what the
+// HTTP handlers do, but driven by the real event rather than polling.
+// ---------------------------------------------------------------------------
+
+/// Spawn a background task that advances workflow runs as soon as their
+/// agent execution processes reach a terminal state.
+///
+/// The task loops forever (until the process exits) consuming events from
+/// `subscribe_execution_completed`. For each completed execution it queries
+/// the `node_executions` table to find any running workflow node that was
+/// backed by that execution_process, then reconciles the parent run.
+///
+/// Concurrent reconcile calls for the same run are safe because
+/// `reconcile_workflow_run_with_arena` is idempotent — it re-reads state from
+/// the DB each time and takes no action if the run is already terminal.
+pub fn spawn_workflow_completion_watcher(deployment: DeploymentImpl) {
+    tokio::spawn(async move {
+        let mut rx = subscribe_execution_completed();
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    // Find the workflow run_id(s) whose running node_execution
+                    // was backed by this execution_process.
+                    let pool = deployment.db().pool.clone();
+                    let run_ids: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
+                        r#"
+                        SELECT DISTINCT run_id
+                        FROM   node_executions
+                        WHERE  execution_process_id = ?
+                          AND  status = 'running'
+                        "#,
+                    )
+                    .bind(event.execution_process_id)
+                    .fetch_all(&pool)
+                    .await
+                    {
+                        Ok(ids) => ids,
+                        Err(err) => {
+                            tracing::warn!(
+                                execution_process_id = %event.execution_process_id,
+                                "workflow watcher: DB lookup failed: {err}"
+                            );
+                            continue;
+                        }
+                    };
+
+                    for run_id in run_ids {
+                        let pool = pool.clone();
+                        let deployment = deployment.clone();
+                        // Spawn a separate task per run so one slow reconcile
+                        // cannot block progress of other runs.
+                        tokio::spawn(async move {
+                            let agent_executor =
+                                DeploymentWorkflowAgentExecutor::new(deployment.clone());
+                            let arena_creator =
+                                DeploymentWorkflowArenaCreator::new(deployment.clone());
+                            if let Err(err) = reconcile_workflow_run_with_arena(
+                                &pool,
+                                run_id,
+                                &agent_executor,
+                                &arena_creator,
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    %run_id,
+                                    "workflow watcher: reconcile failed: {err}"
+                                );
+                            } else {
+                                tracing::debug!(
+                                    %run_id,
+                                    "workflow watcher: reconcile triggered by execution completion"
+                                );
+                            }
+                        });
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // We missed `n` events because we were too slow. The
+                    // HTTP-polling fallback still advances stalled runs, so
+                    // this is non-fatal. Log and keep going.
+                    tracing::warn!(
+                        "workflow watcher: lagged by {n} execution-completion events; \
+                         affected runs will advance on next HTTP poll"
+                    );
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // The sender was dropped — this should never happen in
+                    // practice because it is a static LazyLock.
+                    tracing::error!(
+                        "workflow watcher: execution-completion channel closed unexpectedly"
+                    );
+                    break;
+                }
+            }
+        }
+    });
 }
 
 fn router_started_output_payload(

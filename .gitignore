@@ -120,7 +120,7 @@ Caddyfile.dev
 # AI Workflow benchmark clones (per-developer research, do not commit)
 docs/future/ai-workflow/search-project/*/
 
-# Competitive watch & competitor research — per-developer private research, do not commit
-docs/competitive-watch/
+# Competitor research & daily-radar — per-developer private research, do not commit
+docs/daily-radar/
 docs/research/oss-products-wrapping-claude-code-codex.md
 docs/research/agent-mesh-design.md

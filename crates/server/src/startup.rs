@@ -12,7 +12,7 @@ use utils::assets::asset_dir;
 
 use crate::{
     DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
-    workflow_runtime::runner::recover_stale_workflow_runs,
+    workflow_runtime::runner::{recover_stale_workflow_runs, spawn_workflow_completion_watcher},
 };
 
 /// A running server instance. Callers can read the port, then call `serve()`
@@ -164,6 +164,12 @@ pub async fn initialize_deployment(
     recover_stale_workflow_runs(&deployment.db().pool)
         .await
         .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    // Start the event-driven workflow completion watcher. This eliminates the
+    // need for HTTP polling to advance workflow runs when agent executions
+    // complete — instead each execution's exit-monitor publishes an event that
+    // this task picks up and uses to trigger `reconcile_workflow_run_with_arena`
+    // immediately.
+    spawn_workflow_completion_watcher(deployment.clone());
     deployment
         .container()
         .backfill_before_head_commits()

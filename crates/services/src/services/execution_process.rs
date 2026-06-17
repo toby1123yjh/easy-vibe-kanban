@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{IsTerminal, Write},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use anyhow::{Context, Result};
@@ -15,7 +15,11 @@ use db::{
 use futures::{StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use sqlx::SqlitePool;
-use tokio::{io::AsyncWriteExt, sync::RwLock, task::JoinHandle};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{RwLock, broadcast},
+    task::JoinHandle,
+};
 use utils::{
     assets::prod_asset_dir_path,
     execution_logs::{
@@ -26,6 +30,48 @@ use utils::{
     msg_store::MsgStore,
 };
 use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Global execution-process completion event bus
+//
+// When any execution process finishes (Completed, Failed, or Killed), the
+// exit-monitor in local-deployment calls `publish_execution_completed`.
+// Any subscriber (e.g. the workflow runtime in the server crate) can call
+// `subscribe_execution_completed` to get notified and react without polling.
+// ---------------------------------------------------------------------------
+
+/// Lightweight event fired when an execution process reaches a terminal state.
+#[derive(Debug, Clone)]
+pub struct ExecutionCompletedEvent {
+    /// ID of the execution_process that just finished.
+    pub execution_process_id: Uuid,
+    /// ID of the session that owned the process.
+    pub session_id: Uuid,
+}
+
+static EXECUTION_COMPLETION_HUB: LazyLock<broadcast::Sender<ExecutionCompletedEvent>> =
+    LazyLock::new(|| {
+        // Capacity 256: handles bursts of parallel agent completions without
+        // blocking the exit monitor. Lagged receivers simply miss old events
+        // (they will rely on the HTTP-polling fallback for those runs).
+        let (tx, _) = broadcast::channel(256);
+        tx
+    });
+
+/// Publish an execution-completed event. Called by the exit monitor in
+/// `local-deployment` immediately after `ExecutionProcess::update_completion`.
+pub fn publish_execution_completed(event: ExecutionCompletedEvent) {
+    // `send` returns Err only when there are no subscribers, which is fine —
+    // we just ignore it.
+    let _ = EXECUTION_COMPLETION_HUB.send(event);
+}
+
+/// Subscribe to execution-completed events. Returns a broadcast receiver that
+/// will receive every future event. Callers are responsible for catching up on
+/// any events they may have missed while not subscribed (lagged errors).
+pub fn subscribe_execution_completed() -> broadcast::Receiver<ExecutionCompletedEvent> {
+    EXECUTION_COMPLETION_HUB.subscribe()
+}
 
 pub async fn migrate_execution_logs_to_files() -> Result<()> {
     let pool = DBService::new_migration_pool()

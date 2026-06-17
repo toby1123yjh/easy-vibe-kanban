@@ -45,6 +45,7 @@ use services::services::{
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
     container::{ContainerError, ContainerRef, ContainerService},
     diff_stream::{self, DiffStreamHandle},
+    execution_process::{ExecutionCompletedEvent, publish_execution_completed},
     file::FileService,
     notification::NotificationService,
     queued_message::QueuedMessageService,
@@ -559,6 +560,21 @@ impl LocalContainerService {
                     ExecutionProcess::update_completion(&db.pool, exec_id, status, exit_code).await
             {
                 tracing::error!("Failed to update execution process completion: {}", e);
+            }
+
+            // Notify any subscribers (e.g. workflow runtime) that this execution
+            // process has reached a terminal state. This enables event-driven
+            // workflow progression without relying on HTTP polling.
+            //
+            // We publish the event unconditionally here (even if was_stopped was
+            // true) because the DB already holds a terminal status in that case
+            // and any workflow watcher should still reconcile.  The session_id is
+            // looked up from the DB to keep this path self-contained.
+            if let Ok(Some(ep)) = ExecutionProcess::find_by_id(&db.pool, exec_id).await {
+                publish_execution_completed(ExecutionCompletedEvent {
+                    execution_process_id: exec_id,
+                    session_id: ep.session_id,
+                });
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
