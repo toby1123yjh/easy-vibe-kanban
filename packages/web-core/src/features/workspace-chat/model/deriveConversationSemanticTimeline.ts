@@ -1,4 +1,8 @@
-import { ExecutionProcessStatus, type ExecutionProcess } from 'shared/types';
+import type { ExecutionProcess } from 'shared/types';
+import {
+  isExecutionProcessActive,
+  isExecutionProcessFailedLike,
+} from '@/shared/lib/executionProcessRuntime';
 
 import type {
   ConversationTimelineSource,
@@ -117,11 +121,12 @@ export function deriveConversationSemanticTimeline(
         visibleEntries,
         latestTokenUsageEntry,
         hasPendingApprovalEntry,
-        isRunning:
-          liveExecutionProcess?.status === ExecutionProcessStatus.running,
-        failedOrKilled:
-          liveExecutionProcess?.status === ExecutionProcessStatus.failed ||
-          liveExecutionProcess?.status === ExecutionProcessStatus.killed,
+        isRunning: liveExecutionProcess
+          ? isExecutionProcessActive(liveExecutionProcess)
+          : false,
+        failedOrKilled: liveExecutionProcess
+          ? isExecutionProcessFailedLike(liveExecutionProcess)
+          : false,
       } satisfies ConversationSemanticProcessItem;
     });
 

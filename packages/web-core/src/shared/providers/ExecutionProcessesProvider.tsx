@@ -5,6 +5,7 @@ import {
   ExecutionProcessesContext,
   type ExecutionProcessesContextType,
 } from '@/shared/hooks/useExecutionProcessesContext';
+import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 
 export const ExecutionProcessesProvider: React.FC<{
   sessionId?: string | undefined;
@@ -36,7 +37,7 @@ export const ExecutionProcessesProvider: React.FC<{
           (process.run_reason === 'codingagent' ||
             process.run_reason === 'cleanupscript' ||
             process.run_reason === 'archivescript') &&
-          process.status === 'running'
+          isExecutionProcessActive(process)
       ),
     [visible]
   );

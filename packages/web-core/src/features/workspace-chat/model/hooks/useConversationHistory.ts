@@ -1,11 +1,11 @@
-import {
-  ExecutionProcess,
-  ExecutionProcessStatus,
-  PatchType,
-} from 'shared/types';
+import { ExecutionProcess, PatchType } from 'shared/types';
 import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { streamJsonPatchEntries } from '@/shared/lib/streamJsonPatchEntries';
+import {
+  getExecutionProcessLifecycle,
+  isExecutionProcessActive,
+} from '@/shared/lib/executionProcessRuntime';
 import type {
   AddEntryType,
   ConversationTimelineSource,
@@ -43,9 +43,7 @@ export const useConversationHistory = ({
   const onTimelineUpdatedRef = useRef<
     UseConversationHistoryParams['onTimelineUpdated'] | null
   >(null);
-  const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
-    new Map()
-  );
+  const previousActiveMapRef = useRef<Map<string, boolean>>(new Map());
   const [isLoadingHistoryState, setIsLoadingHistory] = useState(false);
 
   // Derive whether this is the first turn (no follow-up processes exist)
@@ -158,9 +156,7 @@ export const useConversationHistory = ({
   const getActiveAgentProcesses = (): ExecutionProcess[] => {
     return (
       executionProcesses?.current.filter(
-        (p) =>
-          p.status === ExecutionProcessStatus.running &&
-          p.run_reason !== 'devserver'
+        (p) => isExecutionProcessActive(p) && p.run_reason !== 'devserver'
       ) ?? []
     );
   };
@@ -266,8 +262,7 @@ export const useConversationHistory = ({
       for (const executionProcess of [
         ...executionProcesses.current,
       ].reverse()) {
-        if (executionProcess.status === ExecutionProcessStatus.running)
-          continue;
+        if (isExecutionProcessActive(executionProcess)) continue;
 
         const entries =
           await loadEntriesForHistoricExecutionProcess(executionProcess);
@@ -304,7 +299,7 @@ export const useConversationHistory = ({
         const current = displayedExecutionProcesses.current;
         if (
           current[executionProcess.id] ||
-          executionProcess.status === ExecutionProcessStatus.running
+          isExecutionProcessActive(executionProcess)
         )
           continue;
 
@@ -356,7 +351,10 @@ export const useConversationHistory = ({
   );
 
   const idStatusKey = useMemo(
-    () => executionProcessesRaw?.map((p) => `${p.id}:${p.status}`).join(','),
+    () =>
+      executionProcessesRaw
+        ?.map((p) => `${p.id}:${getExecutionProcessLifecycle(p)}`)
+        .join(','),
     [executionProcessesRaw]
   );
 
@@ -384,7 +382,7 @@ export const useConversationHistory = ({
     loadedInitialEntries.current = false;
     emittedEmptyInitialRef.current = false;
     streamingProcessIdsRef.current.clear();
-    previousStatusMapRef.current.clear();
+    previousActiveMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 
@@ -452,10 +450,7 @@ export const useConversationHistory = ({
         );
       }
 
-      if (
-        activeProcess.status === ExecutionProcessStatus.running &&
-        !streamingProcessIdsRef.current.has(activeProcess.id)
-      ) {
+      if (!streamingProcessIdsRef.current.has(activeProcess.id)) {
         streamingProcessIdsRef.current.add(activeProcess.id);
         loadRunningAndEmitWithBackoff(activeProcess).finally(() => {
           streamingProcessIdsRef.current.delete(activeProcess.id);
@@ -476,18 +471,18 @@ export const useConversationHistory = ({
     const processesToReload: ExecutionProcess[] = [];
 
     for (const process of executionProcessesRaw) {
-      const previousStatus = previousStatusMapRef.current.get(process.id);
-      const currentStatus = process.status;
+      const previousActive = previousActiveMapRef.current.get(process.id);
+      const currentActive = isExecutionProcessActive(process);
 
       if (
-        previousStatus === ExecutionProcessStatus.running &&
-        currentStatus !== ExecutionProcessStatus.running &&
+        previousActive === true &&
+        !currentActive &&
         displayedExecutionProcesses.current[process.id]
       ) {
         processesToReload.push(process);
       }
 
-      previousStatusMapRef.current.set(process.id, currentStatus);
+      previousActiveMapRef.current.set(process.id, currentActive);
     }
 
     if (processesToReload.length === 0) return;

@@ -10,6 +10,7 @@ import {
   TerminalIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
+import { getExecutionProcessRuntimeDisplay } from '@/shared/lib/executionProcessRuntime';
 
 export function ProcessListContainer() {
   const {
@@ -153,7 +154,7 @@ export function ProcessListContainer() {
           <ProcessListItem
             key={process.id}
             runReason={process.run_reason}
-            status={process.status}
+            status={getExecutionProcessRuntimeDisplay(process).status}
             startedAt={process.started_at}
             selected={process.id === selectedProcessId}
             onClick={() => handleSelectProcess(process.id)}

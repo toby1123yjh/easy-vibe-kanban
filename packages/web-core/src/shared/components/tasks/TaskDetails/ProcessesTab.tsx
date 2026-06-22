@@ -8,13 +8,18 @@ import {
   Clock,
   Cog,
   ArrowLeft,
+  HelpCircle,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/shared/lib/api';
 import { ProfileVariantBadge } from '@/shared/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useLogStream } from '@/shared/hooks/useLogStream';
 import { ProcessLogsViewerContent } from './ProcessLogsViewer';
-import type { ExecutionProcessStatus, ExecutionProcess } from 'shared/types';
+import type { ExecutionProcess } from 'shared/types';
+import {
+  getExecutionProcessRuntimeDisplay,
+  type ExecutionProcessRuntimeTone,
+} from '@/shared/lib/executionProcessRuntime';
 
 import { useProcessSelection } from '@/shared/hooks/ProcessSelectionContext';
 import { useRetryUi } from '@/shared/hooks/useRetryUi';
@@ -64,30 +69,34 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
     }
   }, [logs]);
 
-  const getStatusIcon = (status: ExecutionProcessStatus) => {
-    switch (status) {
-      case 'running':
+  const getStatusIcon = (tone: ExecutionProcessRuntimeTone) => {
+    switch (tone) {
+      case 'active':
         return <Play className="h-4 w-4 text-blue-500" />;
-      case 'completed':
+      case 'success':
         return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'failed':
+      case 'danger':
         return <AlertCircle className="h-4 w-4 text-destructive" />;
-      case 'killed':
+      case 'warning':
+        return <HelpCircle className="h-4 w-4 text-amber-500" />;
+      case 'neutral':
         return <Square className="h-4 w-4 text-gray-500" />;
       default:
         return <Clock className="h-4 w-4 text-gray-400" />;
     }
   };
 
-  const getStatusColor = (status: ExecutionProcessStatus) => {
-    switch (status) {
-      case 'running':
+  const getStatusColor = (tone: ExecutionProcessRuntimeTone) => {
+    switch (tone) {
+      case 'active':
         return 'bg-blue-50 border-blue-200 text-blue-800';
-      case 'completed':
+      case 'success':
         return 'bg-green-50 border-green-200 text-green-800';
-      case 'failed':
+      case 'danger':
         return 'bg-red-50 border-red-200 text-red-800';
-      case 'killed':
+      case 'warning':
+        return 'bg-amber-50 border-amber-200 text-amber-800';
+      case 'neutral':
         return 'bg-gray-50 border-gray-200 text-gray-800';
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800';
@@ -184,93 +193,111 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {executionProcesses.map((process) => (
-                <div
-                  key={process.id}
-                  className={`border rounded-lg p-4 hover:bg-muted/30 cursor-pointer transition-colors ${
-                    loadingProcessId === process.id
-                      ? 'opacity-50 cursor-wait'
-                      : isProcessGreyed(process.id)
-                        ? 'opacity-50'
-                        : ''
-                  }`}
-                  onClick={() => handleProcessClick(process)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3 min-w-0">
-                      {getStatusIcon(process.status)}
-                      <div className="min-w-0">
-                        <h3 className="font-medium text-sm">
-                          {process.run_reason}
-                        </h3>
-                        <p
-                          className="text-sm text-muted-foreground mt-1 truncate"
-                          title={process.id}
-                        >
-                          {t('processes.processId', { id: process.id })}
-                        </p>
-                        {process.dropped && (
-                          <span
-                            className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200"
-                            title={t('processes.deletedTooltip')}
+              {executionProcesses.map((process) => {
+                const runtimeDisplay =
+                  getExecutionProcessRuntimeDisplay(process);
+
+                return (
+                  <div
+                    key={process.id}
+                    className={`border rounded-lg p-4 hover:bg-muted/30 cursor-pointer transition-colors ${
+                      loadingProcessId === process.id
+                        ? 'opacity-50 cursor-wait'
+                        : isProcessGreyed(process.id)
+                          ? 'opacity-50'
+                          : ''
+                    }`}
+                    onClick={() => handleProcessClick(process)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        {getStatusIcon(runtimeDisplay.tone)}
+                        <div className="min-w-0">
+                          <h3 className="font-medium text-sm">
+                            {process.run_reason}
+                          </h3>
+                          <p
+                            className="text-sm text-muted-foreground mt-1 truncate"
+                            title={process.id}
                           >
-                            {t('processes.deleted')}
-                          </span>
-                        )}
-                        {
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {t('processes.agent')}{' '}
-                            {process.executor_action.typ.type ===
-                              'CodingAgentInitialRequest' ||
-                            process.executor_action.typ.type ===
-                              'CodingAgentFollowUpRequest' ||
-                            process.executor_action.typ.type ===
-                              'ReviewRequest' ? (
-                              <ProfileVariantBadge
-                                executorConfig={
-                                  process.executor_action.typ.executor_config
-                                }
-                              />
-                            ) : null}
+                            {t('processes.processId', { id: process.id })}
                           </p>
-                        }
+                          {process.dropped && (
+                            <span
+                              className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200"
+                              title={t('processes.deletedTooltip')}
+                            >
+                              {t('processes.deleted')}
+                            </span>
+                          )}
+                          {runtimeDisplay.errorLabel && (
+                            <p
+                              className="text-xs text-destructive mt-1 line-clamp-2"
+                              title={runtimeDisplay.errorLabel}
+                            >
+                              {runtimeDisplay.errorLabel}
+                            </p>
+                          )}
+                          {
+                            <p className="text-sm text-muted-foreground mt-1">
+                              {t('processes.agent')}{' '}
+                              {process.executor_action.typ.type ===
+                                'CodingAgentInitialRequest' ||
+                              process.executor_action.typ.type ===
+                                'CodingAgentFollowUpRequest' ||
+                              process.executor_action.typ.type ===
+                                'ReviewRequest' ? (
+                                <ProfileVariantBadge
+                                  executorConfig={
+                                    process.executor_action.typ.executor_config
+                                  }
+                                />
+                              ) : null}
+                            </p>
+                          }
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span
+                          className={`inline-block px-2 py-1 text-xs font-medium border rounded-full ${getStatusColor(
+                            runtimeDisplay.tone
+                          )}`}
+                          title={
+                            runtimeDisplay.source === 'agent_runtime'
+                              ? process.status
+                              : undefined
+                          }
+                        >
+                          {runtimeDisplay.label}
+                        </span>
+                        {process.exit_code !== null && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {t('processes.exit', {
+                              code: process.exit_code.toString(),
+                            })}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span
-                        className={`inline-block px-2 py-1 text-xs font-medium border rounded-full ${getStatusColor(
-                          process.status
-                        )}`}
-                      >
-                        {process.status}
-                      </span>
-                      {process.exit_code !== null && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {t('processes.exit', {
-                            code: process.exit_code.toString(),
-                          })}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-3 text-xs text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>
-                        {t('processes.started', {
-                          date: formatDate(process.started_at),
-                        })}
-                      </span>
-                      {process.completed_at && (
+                    <div className="mt-3 text-xs text-muted-foreground">
+                      <div className="flex justify-between">
                         <span>
-                          {t('processes.completed', {
-                            date: formatDate(process.completed_at),
+                          {t('processes.started', {
+                            date: formatDate(process.started_at),
                           })}
                         </span>
-                      )}
+                        {process.completed_at && (
+                          <span>
+                            {t('processes.completed', {
+                              date: formatDate(process.completed_at),
+                            })}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

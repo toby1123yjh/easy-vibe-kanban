@@ -7,7 +7,6 @@ import {
   type Session,
   type BaseCodingAgent,
   type ExecutorConfig,
-  ExecutionProcessStatus,
   type SelectedSkill,
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
@@ -67,6 +66,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { sessionsApi } from '@/shared/lib/api';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
+import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -245,8 +245,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Get pending approval from running processes
   const pendingApproval = useMemo(() => {
-    const runningProcesses = processes.filter(
-      (p) => p.status === ExecutionProcessStatus.running
+    const runningProcesses = processes.filter((process) =>
+      isExecutionProcessActive(process)
     );
     for (const proc of runningProcesses) {
       const info = getPendingForProcess(proc.id);

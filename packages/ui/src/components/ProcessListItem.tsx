@@ -50,11 +50,16 @@ function getRunReasonIcon(runReason: string): typeof TerminalIcon {
 
 function getStatusColor(status: string): string {
   switch (status) {
+    case 'starting':
     case 'running':
+    case 'waiting_approval':
+    case 'waiting_input':
+    case 'cancelling':
       return 'bg-info';
     case 'completed':
       return 'bg-success';
     case 'failed':
+    case 'crashed':
       return 'bg-destructive';
     case 'killed':
       return 'bg-low';
@@ -94,7 +99,12 @@ export function ProcessListItem({
   const label = getRunReasonLabel(runReason);
   const statusColor = getStatusColor(status);
 
-  const isRunning = status === 'running';
+  const isRunning =
+    status === 'starting' ||
+    status === 'running' ||
+    status === 'waiting_approval' ||
+    status === 'waiting_input' ||
+    status === 'cancelling';
 
   return (
     <button

@@ -26,6 +26,11 @@ import { defineModal } from '@/shared/lib/modals';
 import { repoApi, workspacesApi } from '@/shared/lib/api';
 import { useLogStream } from '@/shared/hooks/useLogStream';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
+import {
+  isExecutionProcessActive,
+  isExecutionProcessFailedLike,
+  isExecutionProcessCompleted,
+} from '@/shared/lib/executionProcessRuntime';
 import type { RepoWithTargetBranch, PatchType, UpdateRepo } from 'shared/types';
 
 export type ScriptType = 'setup' | 'cleanup' | 'dev_server' | 'archive';
@@ -98,16 +103,23 @@ const ScriptFixerDialogImpl = create<ScriptFixerDialogProps>(
     );
 
     // Compute status for the latest process
-    const isProcessRunning = latestProcess?.status === 'running';
-    const isProcessCompleted = latestProcess?.status === 'completed';
+    const isProcessRunning = latestProcess
+      ? isExecutionProcessActive(latestProcess)
+      : false;
+    const isProcessCompleted = latestProcess
+      ? isExecutionProcessCompleted(latestProcess)
+      : false;
     const isProcessKilled = latestProcess?.status === 'killed';
-    const isProcessFailed = latestProcess?.status === 'failed';
+    const isProcessFailed = latestProcess
+      ? isExecutionProcessFailedLike(latestProcess)
+      : false;
     // exit_code can be null, number, or BigInt - convert to Number for comparison
     const exitCode = latestProcess?.exit_code;
     const isExitCodeZero = exitCode == null || Number(exitCode) === 0;
     const isProcessSuccessful = isProcessCompleted && isExitCodeZero;
     const hasProcessError =
-      isProcessFailed || (isProcessCompleted && !isExitCodeZero);
+      !isProcessKilled &&
+      (isProcessFailed || (isProcessCompleted && !isExitCodeZero));
 
     // Reset selectedRepoId on dialog re-open
     useEffect(() => {

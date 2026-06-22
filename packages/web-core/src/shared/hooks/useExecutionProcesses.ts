@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { useHostId } from '@/shared/providers/HostIdProvider';
+import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 import type { ExecutionProcess } from 'shared/types';
 
 type ExecutionProcessState = {
@@ -78,7 +79,7 @@ export const useExecutionProcesses = (
         process.run_reason === 'setupscript' ||
         process.run_reason === 'cleanupscript' ||
         process.run_reason === 'archivescript') &&
-      process.status === 'running'
+      isExecutionProcessActive(process)
   );
   const isLoading = !!sessionId && !isInitialized && !error; // until first snapshot
 
