@@ -43,6 +43,7 @@ use workspace_manager::WorkspaceManager;
 use worktree_manager::WorktreeManager;
 
 use crate::{container::LocalContainerService, pty::PtyService};
+mod agent_runtime_supervisor;
 mod command;
 pub mod container;
 mod copy;

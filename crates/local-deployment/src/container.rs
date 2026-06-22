@@ -63,7 +63,7 @@ use utils::{
 use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
-use crate::{command, copy};
+use crate::{agent_runtime_supervisor, command, copy};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 
@@ -513,7 +513,7 @@ impl LocalContainerService {
                 .map(|rx| rx.boxed()) // wait for result
                 .unwrap_or_else(|| std::future::pending().boxed()); // no signal, stall forever
 
-            let status_result: std::io::Result<std::process::ExitStatus>;
+            let terminal_outcome: agent_runtime_supervisor::AgentRuntimeSupervisorOutcome;
 
             // Wait for process to exit, or exit signal from executor
             tokio::select! {
@@ -529,31 +529,35 @@ impl LocalContainerService {
                         }
                     }
 
-                    // Map the exit result to appropriate exit status
-                    status_result = match exit_result {
-                        Ok(ExecutorExitResult::Success) => Ok(success_exit_status()),
-                        Ok(ExecutorExitResult::Failure) => Ok(failure_exit_status()),
-                        Err(_) => Ok(success_exit_status()), // Channel closed, assume success
+                    // Preserve existing behavior: a closed executor exit signal is treated as success.
+                    terminal_outcome = match exit_result {
+                        Ok(result) => agent_runtime_supervisor::classify_executor_exit_result(result),
+                        Err(_) => agent_runtime_supervisor::classify_executor_exit_result(ExecutorExitResult::Success),
                     };
                 }
                 // Process exit
                 exit_status_result = &mut process_exit_rx => {
-                    status_result = exit_status_result.unwrap_or_else(|e| Err(std::io::Error::other(e)));
+                    terminal_outcome = match exit_status_result {
+                        Ok(Ok(exit_status)) => agent_runtime_supervisor::classify_process_exit(exit_status),
+                        Ok(Err(error)) => agent_runtime_supervisor::classify_watcher_error(error.to_string()),
+                        Err(error) => agent_runtime_supervisor::classify_watcher_error(error.to_string()),
+                    };
                 }
             }
 
-            let (exit_code, status) = match status_result {
-                Ok(exit_status) => {
-                    let code = exit_status.code().unwrap_or(-1) as i64;
-                    let status = if exit_status.success() {
-                        ExecutionProcessStatus::Completed
-                    } else {
-                        ExecutionProcessStatus::Failed
-                    };
-                    (Some(code), status)
-                }
-                Err(_) => (None, ExecutionProcessStatus::Failed),
-            };
+            let status = terminal_outcome
+                .process_status
+                .clone()
+                .expect("terminal agent runtime outcome should include process status");
+            let exit_code = terminal_outcome.exit_code;
+            tracing::debug!(
+                execution_process_id = %exec_id,
+                lifecycle = ?terminal_outcome.lifecycle,
+                process_status = ?status,
+                exit_code = ?exit_code,
+                error_kind = ?terminal_outcome.runtime_error.as_ref().map(|error| error.kind),
+                "classified agent runtime terminal outcome"
+            );
 
             if !ExecutionProcess::was_stopped(&db.pool, exec_id).await
                 && let Err(e) =
@@ -1151,19 +1155,6 @@ impl LocalContainerService {
     }
 }
 
-fn failure_exit_status() -> std::process::ExitStatus {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        ExitStatusExt::from_raw(256) // Exit code 1 (shifted by 8 bits)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::ExitStatusExt;
-        ExitStatusExt::from_raw(1)
-    }
-}
-
 #[async_trait]
 impl ContainerService for LocalContainerService {
     fn msg_stores(&self) -> &Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>> {
@@ -1360,6 +1351,12 @@ impl ContainerService for LocalContainerService {
                 "Container ref not found for workspace"
             )))?;
         let current_dir = PathBuf::from(container_ref);
+        let starting = agent_runtime_supervisor::classify_starting();
+        tracing::debug!(
+            execution_process_id = %execution_process.id,
+            lifecycle = ?starting.lifecycle,
+            "classified agent runtime start outcome"
+        );
 
         let approvals_service: Arc<dyn ExecutorApprovalService> =
             match executor_action.base_executor() {
@@ -1424,6 +1421,12 @@ impl ContainerService for LocalContainerService {
 
         self.add_child_to_store(execution_process.id, spawned.child)
             .await;
+        let running = agent_runtime_supervisor::classify_running();
+        tracing::debug!(
+            execution_process_id = %execution_process.id,
+            lifecycle = ?running.lifecycle,
+            "classified agent runtime running outcome"
+        );
 
         // Store cancellation token for graceful shutdown
         if let Some(cancel) = spawned.cancel {
@@ -1454,6 +1457,13 @@ impl ContainerService for LocalContainerService {
         } else {
             None
         };
+        let cancelling = agent_runtime_supervisor::classify_cancellation_requested();
+        tracing::debug!(
+            execution_process_id = %execution_process.id,
+            lifecycle = ?cancelling.lifecycle,
+            requested_status = ?status,
+            "classified agent runtime cancellation request"
+        );
 
         ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
             .await?;
@@ -1674,19 +1684,6 @@ impl ContainerService for LocalContainerService {
         }
 
         Ok(())
-    }
-}
-
-fn success_exit_status() -> std::process::ExitStatus {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
     }
 }
 
