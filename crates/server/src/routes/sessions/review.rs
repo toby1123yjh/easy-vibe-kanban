@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessView},
     session::Session,
     workspace::{Workspace, WorkspaceError},
     workspace_repo::WorkspaceRepo,
@@ -44,7 +44,7 @@ pub async fn start_review(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<StartReviewRequest>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess, ReviewError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, ReviewError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace = Workspace::find_by_id(pool, session.workspace_id)
@@ -136,5 +136,7 @@ pub async fn start_review(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }

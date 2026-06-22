@@ -1,4 +1,8 @@
-use db::models::{execution_process::ExecutionProcess, scratch::Scratch, workspace::Workspace};
+use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessView},
+    scratch::Scratch,
+    workspace::Workspace,
+};
 use futures::StreamExt;
 use serde_json::json;
 use tokio_stream::wrappers::BroadcastStream;
@@ -10,6 +14,29 @@ use super::{
     patches::execution_process_patch,
     types::{EventPatch, RecordTypes},
 };
+
+#[derive(serde::Deserialize)]
+struct ExecutionProcessPatchFilter {
+    id: Uuid,
+    session_id: Uuid,
+    #[serde(default)]
+    dropped: bool,
+}
+
+fn execution_processes_snapshot_map(
+    processes: Vec<ExecutionProcess>,
+) -> serde_json::Map<String, serde_json::Value> {
+    processes
+        .into_iter()
+        .map(|process| {
+            let process_id = process.id;
+            (
+                process_id.to_string(),
+                serde_json::to_value(ExecutionProcessView::from_process(process)).unwrap(),
+            )
+        })
+        .collect()
+}
 
 impl EventService {
     /// Stream execution processes for a specific session with initial snapshot (raw LogMsg format for WebSocket)
@@ -27,15 +54,7 @@ impl EventService {
                 .await?;
 
         // Convert processes array to object keyed by process ID
-        let processes_map: serde_json::Map<String, serde_json::Value> = processes
-            .into_iter()
-            .map(|process| {
-                (
-                    process.id.to_string(),
-                    serde_json::to_value(process).unwrap(),
-                )
-            })
-            .collect();
+        let processes_map = execution_processes_snapshot_map(processes);
 
         let initial_patch = json!([{
             "op": "replace",
@@ -57,11 +76,11 @@ impl EventService {
                                     match patch_op {
                                         json_patch::PatchOperation::Add(op) => {
                                             // Parse execution process data directly from value
-                                            if let Ok(process) =
-                                                serde_json::from_value::<ExecutionProcess>(
-                                                    op.value.clone(),
-                                                )
-                                                && process.session_id == session_id
+                                            if let Ok(process) = serde_json::from_value::<
+                                                ExecutionProcessPatchFilter,
+                                            >(
+                                                op.value.clone()
+                                            ) && process.session_id == session_id
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -75,11 +94,11 @@ impl EventService {
                                         }
                                         json_patch::PatchOperation::Replace(op) => {
                                             // Parse execution process data directly from value
-                                            if let Ok(process) =
-                                                serde_json::from_value::<ExecutionProcess>(
-                                                    op.value.clone(),
-                                                )
-                                                && process.session_id == session_id
+                                            if let Ok(process) = serde_json::from_value::<
+                                                ExecutionProcessPatchFilter,
+                                            >(
+                                                op.value.clone()
+                                            ) && process.session_id == session_id
                                             {
                                                 if !show_soft_deleted && process.dropped {
                                                     let remove_patch =
@@ -313,5 +332,74 @@ impl EventService {
 
         let initial_stream = futures::stream::iter(vec![Ok(initial_msg), Ok(LogMsg::Ready)]);
         Ok(initial_stream.chain(filtered_stream).boxed())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use db::models::execution_process::{
+        ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutorActionField,
+    };
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
+    use json_patch::PatchOperation;
+    use uuid::Uuid;
+
+    use super::{execution_process_patch, execution_processes_snapshot_map};
+
+    fn coding_agent_process(status: ExecutionProcessStatus) -> ExecutionProcess {
+        let now = Utc::now();
+
+        ExecutionProcess {
+            id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            run_reason: ExecutionProcessRunReason::CodingAgent,
+            executor_action: sqlx::types::Json(ExecutorActionField::ExecutorAction(
+                ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo test".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+            )),
+            status,
+            exit_code: None,
+            dropped: false,
+            started_at: now,
+            completed_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn execution_process_snapshot_matches_live_patch_runtime_projection() {
+        let process = coding_agent_process(ExecutionProcessStatus::Running);
+        let process_id = process.id.to_string();
+
+        let snapshot = execution_processes_snapshot_map(vec![process.clone()]);
+        let snapshot_value = snapshot
+            .get(&process_id)
+            .expect("snapshot should include execution process");
+        let patch = execution_process_patch::add(&process);
+
+        let PatchOperation::Add(op) = &patch.0[0] else {
+            panic!("expected add operation");
+        };
+
+        assert_eq!(
+            snapshot_value["agent_runtime_lifecycle"],
+            op.value["agent_runtime_lifecycle"]
+        );
+        assert_eq!(
+            snapshot_value.get("agent_runtime_error"),
+            op.value.get("agent_runtime_error")
+        );
     }
 }

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
     profile::ExecutorProfileId,
+    runtime::{AgentRunLifecycle, AgentRuntimeError},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -75,6 +76,82 @@ pub struct ExecutionProcess {
     pub completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(rename = "ExecutionProcess")]
+pub struct ExecutionProcessView {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub run_reason: ExecutionProcessRunReason,
+    #[ts(type = "ExecutorAction")]
+    pub executor_action: sqlx::types::Json<ExecutorActionField>,
+    pub status: ExecutionProcessStatus,
+    pub exit_code: Option<i64>,
+    /// dropped: true if this process is excluded from the current
+    /// history view (due to restore/trimming). Hidden from logs/timeline;
+    /// still listed in the Processes tab.
+    pub dropped: bool,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent_runtime_lifecycle: Option<AgentRunLifecycle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub agent_runtime_error: Option<AgentRuntimeError>,
+}
+
+impl ExecutionProcessView {
+    pub fn from_process(process: ExecutionProcess) -> Self {
+        let (agent_runtime_lifecycle, agent_runtime_error) = project_agent_runtime(&process);
+
+        Self {
+            id: process.id,
+            session_id: process.session_id,
+            run_reason: process.run_reason,
+            executor_action: process.executor_action,
+            status: process.status,
+            exit_code: process.exit_code,
+            dropped: process.dropped,
+            started_at: process.started_at,
+            completed_at: process.completed_at,
+            created_at: process.created_at,
+            updated_at: process.updated_at,
+            agent_runtime_lifecycle,
+            agent_runtime_error,
+        }
+    }
+}
+
+impl From<ExecutionProcess> for ExecutionProcessView {
+    fn from(process: ExecutionProcess) -> Self {
+        Self::from_process(process)
+    }
+}
+
+fn project_agent_runtime(
+    process: &ExecutionProcess,
+) -> (Option<AgentRunLifecycle>, Option<AgentRuntimeError>) {
+    if process.run_reason != ExecutionProcessRunReason::CodingAgent {
+        return (None, None);
+    }
+
+    let lifecycle = match process.status {
+        ExecutionProcessStatus::Running => Some(AgentRunLifecycle::Running),
+        ExecutionProcessStatus::Completed => Some(AgentRunLifecycle::Completed),
+        ExecutionProcessStatus::Failed => Some(AgentRunLifecycle::Failed),
+        // The lifecycle contract has no terminal cancelled state yet. Keep
+        // killed processes unset instead of overloading in-flight Cancelling.
+        ExecutionProcessStatus::Killed => None,
+    };
+
+    // Runtime errors are intentionally not inferred from the compatibility
+    // status. The supervisor currently classifies them in memory/logging only;
+    // a later persistence/event task can populate this field losslessly.
+    (lifecycle, None)
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -678,5 +755,104 @@ impl ExecutionProcess {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
+    use serde_json::Value;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn process(
+        run_reason: ExecutionProcessRunReason,
+        status: ExecutionProcessStatus,
+    ) -> ExecutionProcess {
+        let now = Utc::now();
+
+        ExecutionProcess {
+            id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            run_reason,
+            executor_action: sqlx::types::Json(ExecutorActionField::ExecutorAction(
+                ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo test".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+            )),
+            status,
+            exit_code: None,
+            dropped: false,
+            started_at: now,
+            completed_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn view_value(run_reason: ExecutionProcessRunReason, status: ExecutionProcessStatus) -> Value {
+        serde_json::to_value(ExecutionProcessView::from_process(process(
+            run_reason, status,
+        )))
+        .expect("execution process view should serialize")
+    }
+
+    #[test]
+    fn projects_coding_agent_running_lifecycle() {
+        let value = view_value(
+            ExecutionProcessRunReason::CodingAgent,
+            ExecutionProcessStatus::Running,
+        );
+
+        assert_eq!(value["agent_runtime_lifecycle"], "running");
+        assert!(value.get("agent_runtime_error").is_none());
+    }
+
+    #[test]
+    fn projects_coding_agent_terminal_lifecycles() {
+        let completed = view_value(
+            ExecutionProcessRunReason::CodingAgent,
+            ExecutionProcessStatus::Completed,
+        );
+        let failed = view_value(
+            ExecutionProcessRunReason::CodingAgent,
+            ExecutionProcessStatus::Failed,
+        );
+
+        assert_eq!(completed["agent_runtime_lifecycle"], "completed");
+        assert_eq!(failed["agent_runtime_lifecycle"], "failed");
+    }
+
+    #[test]
+    fn does_not_overload_killed_as_cancelling() {
+        let value = view_value(
+            ExecutionProcessRunReason::CodingAgent,
+            ExecutionProcessStatus::Killed,
+        );
+
+        assert!(value.get("agent_runtime_lifecycle").is_none());
+        assert!(value.get("agent_runtime_error").is_none());
+    }
+
+    #[test]
+    fn omits_runtime_fields_for_non_agent_processes() {
+        let value = view_value(
+            ExecutionProcessRunReason::SetupScript,
+            ExecutionProcessStatus::Running,
+        );
+
+        assert!(value.get("agent_runtime_lifecycle").is_none());
+        assert!(value.get("agent_runtime_error").is_none());
     }
 }

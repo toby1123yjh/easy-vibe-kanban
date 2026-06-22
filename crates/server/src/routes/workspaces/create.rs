@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
+    execution_process::ExecutionProcessView,
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
     },
@@ -314,7 +315,7 @@ pub async fn create_and_start_workspace(
     Ok(ResponseJson(ApiResponse::success(
         CreateAndStartWorkspaceResponse {
             workspace,
-            execution_process,
+            execution_process: ExecutionProcessView::from_process(execution_process),
         },
     )))
 }

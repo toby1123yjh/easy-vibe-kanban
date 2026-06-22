@@ -6,7 +6,9 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
-use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
+use db::models::{
+    execution_process::ExecutionProcessView, workspace::Workspace, workspace_repo::WorkspaceRepo,
+};
 use deployment::Deployment;
 use executors::{
     executors::{CodingAgent, ExecutorError},
@@ -182,10 +184,7 @@ async fn resolve_workspace_editor_path(
 pub async fn gh_cli_setup_handler(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<
-    ResponseJson<ApiResponse<db::models::execution_process::ExecutionProcess, GhCliSetupError>>,
-    ApiError,
-> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, GhCliSetupError>>, ApiError> {
     match super::gh_cli_setup::run_gh_cli_setup(&deployment, &workspace).await {
         Ok(execution_process) => {
             deployment
@@ -197,7 +196,9 @@ pub async fn gh_cli_setup_handler(
                 )
                 .await;
 
-            Ok(ResponseJson(ApiResponse::success(execution_process)))
+            Ok(ResponseJson(ApiResponse::success(
+                ExecutionProcessView::from_process(execution_process),
+            )))
         }
         Err(ApiError::Executor(executors::executors::ExecutorError::ExecutableNotFound {
             program,

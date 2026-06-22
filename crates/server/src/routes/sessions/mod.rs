@@ -11,7 +11,7 @@ use axum::{
 use db::models::{
     arena_group::{ArenaLifecycleStatus, ArenaMode},
     coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessView},
     requests::UpdateSession,
     scratch::{Scratch, ScratchType},
     session::{CreateSession, Session, SessionError},
@@ -152,7 +152,7 @@ pub async fn follow_up(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView>>, ApiError> {
     let execution_process = start_coding_agent_execution_for_session(
         &deployment,
         session,
@@ -165,7 +165,9 @@ pub async fn follow_up(
     )
     .await?;
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -310,7 +312,7 @@ pub async fn reset_process(
 pub async fn run_setup_script(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess, RunScriptError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, RunScriptError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace = Workspace::find_by_id(pool, session.workspace_id)
@@ -361,7 +363,9 @@ pub async fn run_setup_script(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {

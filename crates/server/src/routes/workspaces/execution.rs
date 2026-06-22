@@ -1,6 +1,8 @@
 use axum::{Extension, Router, extract::State, response::Json as ResponseJson, routing::post};
 use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    execution_process::{
+        ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutionProcessView,
+    },
     session::{CreateSession, Session},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
@@ -38,7 +40,7 @@ pub fn router() -> Router<DeploymentImpl> {
 pub async fn start_dev_server(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<Vec<ExecutionProcess>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<Vec<ExecutionProcessView>>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let existing_dev_servers =
@@ -133,7 +135,12 @@ pub async fn start_dev_server(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(execution_processes)))
+    Ok(ResponseJson(ApiResponse::success(
+        execution_processes
+            .into_iter()
+            .map(ExecutionProcessView::from_process)
+            .collect(),
+    )))
 }
 
 pub async fn stop_workspace_execution(
@@ -158,7 +165,7 @@ pub async fn stop_workspace_execution(
 pub async fn run_cleanup_script(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess, RunScriptError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, RunScriptError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
@@ -219,13 +226,15 @@ pub async fn run_cleanup_script(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }
 
 pub async fn run_archive_script(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess, RunScriptError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, RunScriptError>>, ApiError> {
     let pool = &deployment.db().pool;
     if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
         .await?
@@ -284,5 +293,7 @@ pub async fn run_archive_script(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }

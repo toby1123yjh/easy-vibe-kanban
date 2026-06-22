@@ -1,5 +1,7 @@
 use db::models::{
-    execution_process::ExecutionProcess, scratch::Scratch, workspace::WorkspaceWithStatus,
+    execution_process::{ExecutionProcess, ExecutionProcessView},
+    scratch::Scratch,
+    workspace::WorkspaceWithStatus,
 };
 use json_patch::{AddOperation, Patch, PatchOperation, RemoveOperation, ReplaceOperation};
 use uuid::Uuid;
@@ -26,7 +28,7 @@ pub mod execution_process_patch {
             path: execution_process_path(process.id)
                 .try_into()
                 .expect("Execution process path should be valid"),
-            value: serde_json::to_value(process)
+            value: serde_json::to_value(ExecutionProcessView::from_process(process.clone()))
                 .expect("Execution process serialization should not fail"),
         })])
     }
@@ -37,7 +39,7 @@ pub mod execution_process_patch {
             path: execution_process_path(process.id)
                 .try_into()
                 .expect("Execution process path should be valid"),
-            value: serde_json::to_value(process)
+            value: serde_json::to_value(ExecutionProcessView::from_process(process.clone()))
                 .expect("Execution process serialization should not fail"),
         })])
     }
@@ -180,5 +182,62 @@ pub mod approvals_patch {
                 .try_into()
                 .expect("Approval path should be valid"),
         })])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use db::models::execution_process::{
+        ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus, ExecutorActionField,
+    };
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+    };
+    use json_patch::PatchOperation;
+    use uuid::Uuid;
+
+    use super::execution_process_patch;
+
+    fn coding_agent_process(status: ExecutionProcessStatus) -> ExecutionProcess {
+        let now = Utc::now();
+
+        ExecutionProcess {
+            id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            run_reason: ExecutionProcessRunReason::CodingAgent,
+            executor_action: sqlx::types::Json(ExecutorActionField::ExecutorAction(
+                ExecutorAction::new(
+                    ExecutorActionType::ScriptRequest(ScriptRequest {
+                        script: "echo test".to_string(),
+                        language: ScriptRequestLanguage::Bash,
+                        context: ScriptContext::SetupScript,
+                        working_dir: None,
+                    }),
+                    None,
+                ),
+            )),
+            status,
+            exit_code: None,
+            dropped: false,
+            started_at: now,
+            completed_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn execution_process_patch_serializes_runtime_projection() {
+        let process = coding_agent_process(ExecutionProcessStatus::Running);
+        let patch = execution_process_patch::add(&process);
+
+        let PatchOperation::Add(op) = &patch.0[0] else {
+            panic!("expected add operation");
+        };
+
+        assert_eq!(op.value["agent_runtime_lifecycle"], "running");
+        assert!(op.value.get("agent_runtime_error").is_none());
     }
 }

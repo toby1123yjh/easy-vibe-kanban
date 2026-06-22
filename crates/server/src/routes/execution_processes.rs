@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    execution_process::{ExecutionProcess, ExecutionProcessStatus, ExecutionProcessView},
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
@@ -37,8 +37,10 @@ struct SessionExecutionProcessQuery {
 async fn get_execution_process_by_id(
     Extension(execution_process): Extension<ExecutionProcess>,
     State(_deployment): State<DeploymentImpl>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcess>>, ApiError> {
-    Ok(ResponseJson(ApiResponse::success(execution_process)))
+) -> Result<ResponseJson<ApiResponse<ExecutionProcessView>>, ApiError> {
+    Ok(ResponseJson(ApiResponse::success(
+        ExecutionProcessView::from_process(execution_process),
+    )))
 }
 
 async fn stream_raw_logs_ws(

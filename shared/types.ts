@@ -297,7 +297,7 @@ export type ExecutionProcess = { id: string, session_id: string, run_reason: Exe
  * history view (due to restore/trimming). Hidden from logs/timeline;
  * still listed in the Processes tab.
  */
-dropped: boolean, started_at: string, completed_at: string | null, created_at: string, updated_at: string, };
+dropped: boolean, started_at: string, completed_at: string | null, created_at: string, updated_at: string, agent_runtime_lifecycle?: AgentRunLifecycle, agent_runtime_error?: AgentRuntimeError, };
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
@@ -951,6 +951,12 @@ export type CodexSkillDescription = { name: string, description: string, short_d
 export type CodexSkillLoadError = { path: string, message: string, };
 
 export type ExecutorDiscoveredOptions = { model_selector: ModelSelectorConfig, slash_commands: Array<SlashCommandDescription>, skills: Array<CodexSkillDescription>, skill_errors: Array<CodexSkillLoadError>, loading_models: boolean, loading_agents: boolean, loading_slash_commands: boolean, loading_skills: boolean, error: string | null, };
+
+export enum AgentRunLifecycle { starting = "starting", running = "running", waiting_approval = "waiting_approval", waiting_input = "waiting_input", cancelling = "cancelling", completed = "completed", failed = "failed", crashed = "crashed" }
+
+export type AgentRuntimeError = { kind: AgentRuntimeErrorKind, message: string, provider?: string | null, exit_code?: number | null, };
+
+export enum AgentRuntimeErrorKind { executable_not_found = "executable_not_found", command_build_failed = "command_build_failed", auth_required = "auth_required", startup_failed = "startup_failed", protocol_failed = "protocol_failed", process_crashed = "process_crashed", output_parse_failed = "output_parse_failed", approval_cancelled = "approval_cancelled", approval_timed_out = "approval_timed_out", cancelled = "cancelled", unknown = "unknown" }
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
