@@ -8,5 +8,6 @@ pub mod logs;
 pub mod mcp_config;
 pub mod model_selector;
 pub mod profile;
+pub mod provider_policy;
 pub mod runtime;
 pub mod stdout_dup;

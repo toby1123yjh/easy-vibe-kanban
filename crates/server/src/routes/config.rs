@@ -16,6 +16,7 @@ use executors::{
     },
     mcp_config::{McpConfig, read_agent_config, write_agent_config},
     profile::{ExecutorConfigs, ExecutorProfileId},
+    provider_policy::AgentProviderPolicy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -571,6 +572,9 @@ pub struct AgentGarageEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub bundled_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub policy: Option<AgentProviderPolicy>,
 }
 
 /// Aggregate discovery for every known agent: availability, capabilities, and
@@ -586,11 +590,14 @@ async fn get_agent_garage(
         .keys()
         .map(|base| {
             let agent = profiles.get_coding_agent_or_default(&ExecutorProfileId::new(*base));
+            let availability = agent.get_availability_info();
+            let capabilities = agent.capabilities();
             AgentGarageEntry {
                 executor: *base,
-                availability: agent.get_availability_info(),
-                capabilities: agent.capabilities(),
+                availability: availability.clone(),
+                capabilities,
                 bundled_version: bundled_version_for(*base),
+                policy: Some(AgentProviderPolicy::for_agent(*base, &agent, availability)),
             }
         })
         .collect();

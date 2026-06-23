@@ -423,7 +423,7 @@ export type AgentGarageEntry = { executor: BaseCodingAgent, availability: Availa
 /**
  * Version of the binary bundled by the npx wrapper (pin & ship), when known.
  */
-bundled_version?: string, };
+bundled_version?: string, policy?: AgentProviderPolicy, };
 
 export type AgentPresetOptionsQuery = { executor: BaseCodingAgent, variant: string | null, };
 
@@ -761,6 +761,16 @@ export type ExecutorProfile = { recently_used_models?: ExecutorRecentModels | nu
 export type ExecutorConfigs = { executors: { [key in BaseCodingAgent]?: ExecutorProfile }, };
 
 export enum BaseAgentCapability { SESSION_FORK = "SESSION_FORK", SETUP_HELPER = "SETUP_HELPER", CONTEXT_USAGE = "CONTEXT_USAGE" }
+
+export enum AgentProviderCapability { INITIAL_RUN = "INITIAL_RUN", FOLLOW_UP = "FOLLOW_UP", SESSION_RESUME = "SESSION_RESUME", SESSION_FORK = "SESSION_FORK", GRACEFUL_CANCEL = "GRACEFUL_CANCEL", TOOL_PERMISSIONS = "TOOL_PERMISSIONS", MCP = "MCP", SETUP_HELPER = "SETUP_HELPER", CONTEXT_USAGE = "CONTEXT_USAGE", MODEL_SELECTOR = "MODEL_SELECTOR", OBSERVED_CONFIG = "OBSERVED_CONFIG", WORKFLOW_AGENT_STEP = "WORKFLOW_AGENT_STEP", TEAM_SLOT = "TEAM_SLOT" }
+
+export type AgentProviderDiagnostic = { kind: AgentProviderDiagnosticKind, message: string, };
+
+export enum AgentProviderDiagnosticKind { MISSING_EXECUTABLE = "MISSING_EXECUTABLE", AUTH_REQUIRED = "AUTH_REQUIRED", CONFIG_MISSING = "CONFIG_MISSING", UNSUPPORTED_PLATFORM = "UNSUPPORTED_PLATFORM", DISABLED_BY_POLICY = "DISABLED_BY_POLICY", LEGACY_LIMITED = "LEGACY_LIMITED", UNKNOWN = "UNKNOWN" }
+
+export type AgentProviderPolicy = { executor: BaseCodingAgent, readiness: AgentProviderReadiness, capabilities: Array<AgentProviderCapability>, legacy: boolean, disabled: boolean, diagnostics: Array<AgentProviderDiagnostic>, };
+
+export enum AgentProviderReadiness { UNKNOWN = "UNKNOWN", READY = "READY", INSTALLED = "INSTALLED", MISSING_EXECUTABLE = "MISSING_EXECUTABLE", AUTH_REQUIRED = "AUTH_REQUIRED", MISCONFIGURED = "MISCONFIGURED", UNSUPPORTED = "UNSUPPORTED", DISABLED = "DISABLED", DEGRADED = "DEGRADED" }
 
 export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
