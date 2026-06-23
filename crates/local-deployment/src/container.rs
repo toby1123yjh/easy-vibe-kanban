@@ -67,6 +67,20 @@ use crate::{agent_runtime_supervisor, command, copy};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 
+fn trace_launch_diagnostic(
+    execution_process_id: Uuid,
+    outcome: &agent_runtime_supervisor::AgentRuntimeSupervisorOutcome,
+) {
+    tracing::warn!(
+        execution_process_id = %execution_process_id,
+        lifecycle = ?outcome.lifecycle,
+        process_status = ?outcome.process_status,
+        error_kind = ?outcome.runtime_error.as_ref().map(|error| error.kind),
+        launch_phase = ?outcome.runtime_error.as_ref().and_then(|error| error.launch_phase),
+        "classified agent runtime launch failure"
+    );
+}
+
 async fn should_disable_default_commit_for_workspace(
     pool: &SqlitePool,
     workspace_id: Uuid,
@@ -1399,17 +1413,35 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
 
+        let provider = executor_action
+            .base_executor()
+            .map(|executor| executor.to_string());
+
         // Create the child and stream, add to execution tracker with timeout
-        let mut spawned = tokio::time::timeout(
+        let spawn_result = tokio::time::timeout(
             Duration::from_secs(30),
             executor_action.spawn(&current_dir, approvals_service, &env),
         )
-        .await
-        .map_err(|_| {
-            ContainerError::Other(anyhow!(
-                "Timeout: process took more than 30 seconds to start"
-            ))
-        })??;
+        .await;
+
+        let mut spawned = match spawn_result {
+            Ok(Ok(spawned)) => spawned,
+            Ok(Err(error)) => {
+                let outcome = agent_runtime_supervisor::classify_launch_executor_error(
+                    &error,
+                    provider.as_deref(),
+                );
+                trace_launch_diagnostic(execution_process.id, &outcome);
+                return Err(ContainerError::ExecutorError(error));
+            }
+            Err(_) => {
+                let outcome = agent_runtime_supervisor::classify_launch_timeout();
+                trace_launch_diagnostic(execution_process.id, &outcome);
+                return Err(ContainerError::Other(anyhow!(
+                    "Timeout: process took more than 30 seconds to start"
+                )));
+            }
+        };
 
         if let Err(e) = self
             .track_child_msgs_in_store(execution_process.id, &mut spawned.child)

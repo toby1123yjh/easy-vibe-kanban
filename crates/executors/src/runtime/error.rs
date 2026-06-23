@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::launch_phase::AgentRuntimeLaunchPhase;
 use crate::{approvals::ExecutorApprovalError, executors::ExecutorError};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -27,6 +28,8 @@ pub struct AgentRuntimeError {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_phase: Option<AgentRuntimeLaunchPhase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
 }
 
@@ -36,12 +39,18 @@ impl AgentRuntimeError {
             kind,
             message: message.into(),
             provider: None,
+            launch_phase: None,
             exit_code: None,
         }
     }
 
     pub fn with_provider(mut self, provider: Option<impl Into<String>>) -> Self {
         self.provider = provider.map(Into::into);
+        self
+    }
+
+    pub fn with_launch_phase(mut self, launch_phase: Option<AgentRuntimeLaunchPhase>) -> Self {
+        self.launch_phase = launch_phase;
         self
     }
 
@@ -190,6 +199,21 @@ mod tests {
         );
 
         assert_eq!(runtime_error.provider.as_deref(), Some("codex"));
+        assert_eq!(runtime_error.launch_phase, None);
         assert_eq!(runtime_error.exit_code, None);
+    }
+
+    #[test]
+    fn preserves_launch_phase_context() {
+        let runtime_error = AgentRuntimeError::new(
+            AgentRuntimeErrorKind::StartupFailed,
+            "agent startup timed out",
+        )
+        .with_launch_phase(Some(AgentRuntimeLaunchPhase::Warmup));
+
+        assert_eq!(
+            runtime_error.launch_phase,
+            Some(AgentRuntimeLaunchPhase::Warmup)
+        );
     }
 }

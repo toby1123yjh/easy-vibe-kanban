@@ -319,6 +319,7 @@ fn generate_types_content() -> String {
         executors::runtime::AgentRunLifecycle::decl(),
         executors::runtime::AgentRuntimeError::decl(),
         executors::runtime::AgentRuntimeErrorKind::decl(),
+        executors::runtime::AgentRuntimeLaunchPhase::decl(),
         serde_json::Value::decl(),
         relay_protocol::RelayWsMessageType::decl(),
         relay_webrtc::DataChannelMessage::decl(),

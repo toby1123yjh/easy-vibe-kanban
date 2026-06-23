@@ -2,8 +2,11 @@ use std::process::ExitStatus;
 
 use db::models::execution_process::ExecutionProcessStatus;
 use executors::{
-    executors::ExecutorExitResult,
-    runtime::{AgentRunLifecycle, AgentRuntimeError, AgentRuntimeErrorKind},
+    approvals::ExecutorApprovalError,
+    executors::{ExecutorError, ExecutorExitResult},
+    runtime::{
+        AgentRunLifecycle, AgentRuntimeError, AgentRuntimeErrorKind, AgentRuntimeLaunchPhase,
+    },
 };
 
 const EXECUTOR_SIGNAL_SUCCESS_EXIT_CODE: i64 = 0;
@@ -27,6 +30,37 @@ pub(crate) fn classify_running() -> AgentRuntimeSupervisorOutcome {
 
 pub(crate) fn classify_cancellation_requested() -> AgentRuntimeSupervisorOutcome {
     in_flight(AgentRunLifecycle::Cancelling)
+}
+
+pub(crate) fn classify_launch_timeout() -> AgentRuntimeSupervisorOutcome {
+    terminal(
+        AgentRunLifecycle::Failed,
+        ExecutionProcessStatus::Failed,
+        None,
+        Some(
+            runtime_error(
+                AgentRuntimeErrorKind::StartupFailed,
+                "agent startup timed out before the provider accepted the run",
+                None,
+            )
+            .with_launch_phase(Some(AgentRuntimeLaunchPhase::Warmup)),
+        ),
+    )
+}
+
+pub(crate) fn classify_launch_executor_error(
+    error: &ExecutorError,
+    provider: Option<&str>,
+) -> AgentRuntimeSupervisorOutcome {
+    terminal(
+        AgentRunLifecycle::Failed,
+        ExecutionProcessStatus::Failed,
+        None,
+        Some(
+            AgentRuntimeError::from_executor_error(error, provider)
+                .with_launch_phase(Some(launch_phase_for_executor_error(error))),
+        ),
+    )
 }
 
 pub(crate) fn classify_executor_exit_result(
@@ -125,8 +159,41 @@ fn runtime_error(
     AgentRuntimeError::new(kind, message).with_exit_code(exit_code)
 }
 
+fn launch_phase_for_executor_error(error: &ExecutorError) -> AgentRuntimeLaunchPhase {
+    match error {
+        ExecutorError::CommandBuild(_) => AgentRuntimeLaunchPhase::CommandBuild,
+        ExecutorError::ExecutorApprovalError(approval_error) => {
+            launch_phase_for_approval_error(approval_error)
+        }
+        ExecutorError::Json(_) => AgentRuntimeLaunchPhase::ProtocolConnect,
+        ExecutorError::AuthRequired(_) => AgentRuntimeLaunchPhase::Warmup,
+        ExecutorError::FollowUpNotSupported(_) => AgentRuntimeLaunchPhase::SessionResume,
+        ExecutorError::ExecutableNotFound { .. }
+        | ExecutorError::UnknownExecutorType(_)
+        | ExecutorError::SetupHelperNotSupported
+        | ExecutorError::SpawnError(_)
+        | ExecutorError::TomlSerialize(_)
+        | ExecutorError::TomlDeserialize(_)
+        | ExecutorError::Io(_) => AgentRuntimeLaunchPhase::ProcessSpawn,
+    }
+}
+
+fn launch_phase_for_approval_error(error: &ExecutorApprovalError) -> AgentRuntimeLaunchPhase {
+    match error {
+        ExecutorApprovalError::Cancelled => AgentRuntimeLaunchPhase::Warmup,
+        ExecutorApprovalError::SessionNotRegistered
+        | ExecutorApprovalError::RequestFailed(_)
+        | ExecutorApprovalError::ServiceUnavailable => AgentRuntimeLaunchPhase::ProtocolConnect,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use executors::command::CommandBuildError;
+    use futures::io::Error as FuturesIoError;
+
     use super::*;
 
     fn success_status() -> ExitStatus {
@@ -151,6 +218,20 @@ mod tests {
 
             ExitStatusExt::from_raw(code as u32)
         }
+    }
+
+    fn assert_launch_error(
+        outcome: AgentRuntimeSupervisorOutcome,
+        kind: AgentRuntimeErrorKind,
+        launch_phase: AgentRuntimeLaunchPhase,
+    ) {
+        assert_eq!(outcome.lifecycle, AgentRunLifecycle::Failed);
+        assert_eq!(outcome.process_status, Some(ExecutionProcessStatus::Failed));
+        assert_eq!(outcome.exit_code, None);
+
+        let runtime_error = outcome.runtime_error.expect("runtime error");
+        assert_eq!(runtime_error.kind, kind);
+        assert_eq!(runtime_error.launch_phase, Some(launch_phase));
     }
 
     #[test]
@@ -226,5 +307,91 @@ mod tests {
         assert_eq!(outcome.process_status, None);
         assert_eq!(outcome.exit_code, None);
         assert_eq!(outcome.runtime_error, None);
+    }
+
+    #[test]
+    fn classifies_launch_timeout_as_warmup_failure() {
+        assert_launch_error(
+            classify_launch_timeout(),
+            AgentRuntimeErrorKind::StartupFailed,
+            AgentRuntimeLaunchPhase::Warmup,
+        );
+    }
+
+    #[test]
+    fn classifies_command_build_failure_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::CommandBuild(CommandBuildError::EmptyCommand),
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::CommandBuildFailed,
+            AgentRuntimeLaunchPhase::CommandBuild,
+        );
+    }
+
+    #[test]
+    fn classifies_executable_missing_as_process_spawn_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::ExecutableNotFound {
+                    program: "codex".to_string(),
+                },
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::ExecutableNotFound,
+            AgentRuntimeLaunchPhase::ProcessSpawn,
+        );
+    }
+
+    #[test]
+    fn classifies_auth_required_as_warmup_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::AuthRequired("login required".to_string()),
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::AuthRequired,
+            AgentRuntimeLaunchPhase::Warmup,
+        );
+    }
+
+    #[test]
+    fn classifies_spawn_error_as_process_spawn_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::SpawnError(FuturesIoError::new(
+                    io::ErrorKind::NotFound,
+                    "spawn failed",
+                )),
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::StartupFailed,
+            AgentRuntimeLaunchPhase::ProcessSpawn,
+        );
+    }
+
+    #[test]
+    fn classifies_protocol_like_approval_error_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::ExecutorApprovalError(ExecutorApprovalError::ServiceUnavailable),
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::ProtocolFailed,
+            AgentRuntimeLaunchPhase::ProtocolConnect,
+        );
+    }
+
+    #[test]
+    fn classifies_follow_up_unsupported_as_session_resume_phase() {
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::FollowUpNotSupported("codex".to_string()),
+                Some("codex"),
+            ),
+            AgentRuntimeErrorKind::StartupFailed,
+            AgentRuntimeLaunchPhase::SessionResume,
+        );
     }
 }
