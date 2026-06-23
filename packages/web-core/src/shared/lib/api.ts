@@ -100,6 +100,7 @@ import {
   OpenRemoteWorkspaceInEditorRequest,
   OpenRemoteEditorResponse,
   ProfileResponse,
+  AgentGarageEntry,
 } from 'shared/types';
 import type { Project as RemoteProject } from 'shared/remote-types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
@@ -1555,6 +1556,11 @@ export const scratchApi = {
 
 // Agents API
 export const agentsApi = {
+  getGarage: async (): Promise<AgentGarageEntry[]> => {
+    const response = await makeRequest('/api/agents/garage');
+    return handleApiResponse<AgentGarageEntry[]>(response);
+  },
+
   getDiscoveredOptionsStreamUrl: (
     agent: BaseCodingAgent,
     opts?: { workspaceId?: string; sessionId?: string; repoId?: string }

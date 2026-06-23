@@ -59,6 +59,13 @@ async fn is_open_design_arena_workspace(
     ))
 }
 
+fn should_block_direct_follow_up_while_running(
+    retry_process_id: Option<Uuid>,
+    has_running_coding_agent: bool,
+) -> bool {
+    retry_process_id.is_none() && has_running_coding_agent
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SessionQuery {
     pub workspace_id: Uuid,
@@ -191,6 +198,16 @@ pub async fn start_coding_agent_execution_for_session(
 
     tracing::info!("{:?}", workspace);
 
+    if should_block_direct_follow_up_while_running(
+        retry_process_id,
+        ExecutionProcess::has_running_coding_agent_for_session(pool, session.id).await?,
+    ) {
+        return Err(ApiError::BadRequest(
+            "A coding agent is already running for this session. Queue the follow-up instead."
+                .to_string(),
+        ));
+    }
+
     deployment
         .container()
         .ensure_container_exists(&workspace)
@@ -286,6 +303,31 @@ pub async fn start_coding_agent_execution_for_session(
     }
 
     Ok(execution_process)
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::should_block_direct_follow_up_while_running;
+
+    #[test]
+    fn blocks_direct_follow_up_when_session_agent_is_running() {
+        assert!(should_block_direct_follow_up_while_running(None, true));
+    }
+
+    #[test]
+    fn allows_retry_path_even_when_session_agent_is_running() {
+        assert!(!should_block_direct_follow_up_while_running(
+            Some(Uuid::new_v4()),
+            true
+        ));
+    }
+
+    #[test]
+    fn allows_direct_follow_up_when_session_agent_is_idle() {
+        assert!(!should_block_direct_follow_up_while_running(None, false));
+    }
 }
 
 pub async fn reset_process(

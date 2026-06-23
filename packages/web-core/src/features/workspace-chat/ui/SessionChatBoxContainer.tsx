@@ -30,6 +30,7 @@ import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueIntera
 import { useSessionSend } from '../model/hooks/useSessionSend';
 import { useSessionAttachments } from '../model/hooks/useSessionAttachments';
 import { useMessageEditRetry } from '../model/hooks/useMessageEditRetry';
+import { useAgentProviderPolicy } from '@/shared/hooks/useAgentProviderPolicy';
 import { useBranchStatus } from '@/shared/hooks/useBranchStatus';
 import { useWorkspaceBranch } from '../model/hooks/useWorkspaceBranch';
 import { useApprovalMutation } from '../model/hooks/useApprovalMutation';
@@ -67,6 +68,7 @@ import { sessionsApi } from '@/shared/lib/api';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
 import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
+import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -470,6 +472,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     configExecutorProfile: config?.executor_profile,
     onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
   });
+  const providerPolicy = useAgentProviderPolicy(effectiveExecutor);
 
   const supportsContextUsage =
     !!effectiveExecutor &&
@@ -894,6 +897,52 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     ? new Date() > new Date(pendingApproval.timeoutAt)
     : false;
 
+  const hasMessageContent =
+    localMessage.trim().length > 0 || reviewMarkdown.length > 0;
+  const runtimeActionPolicy = useMemo(
+    () =>
+      deriveRuntimeActionPolicy({
+        processes,
+        hasContent: hasMessageContent,
+        hasWorkspace: !!workspaceId,
+        hasSession: !!sessionId,
+        hasExecutor: !!executorConfig,
+        isNewSessionMode,
+        isWorkspaceBusy: isAttemptRunning,
+        isSending,
+        isStopping,
+        isQueueLoading,
+        isQueued,
+        hasPendingApproval: !!pendingApproval && !pendingApproval.questions,
+        hasPendingQuestion: !!pendingApproval?.questions,
+        isApprovalTimedOut,
+        isApprovalSubmitting: isApproving || isDenying,
+        isQuestionSubmitting: isAnswering,
+        hasRetryTarget: !!editContext.activeEdit,
+        providerPolicy,
+      }),
+    [
+      processes,
+      hasMessageContent,
+      workspaceId,
+      sessionId,
+      executorConfig,
+      isNewSessionMode,
+      isAttemptRunning,
+      isSending,
+      isStopping,
+      isQueueLoading,
+      isQueued,
+      pendingApproval,
+      isApprovalTimedOut,
+      isApproving,
+      isDenying,
+      isAnswering,
+      editContext.activeEdit,
+      providerPolicy,
+    ]
+  );
+
   const status = computeExecutionStatus({
     isInFeedbackMode,
     isInEditMode,
@@ -1056,10 +1105,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onStop: stopExecution,
         onPasteFiles: uploadFiles,
       }}
+      actionPolicy={runtimeActionPolicy}
       session={{
         sessions,
         selectedSessionId: sessionId,
         onSelectSession: onSelectSession ?? (() => {}),
+        isInitialSendMode: isNewSessionMode,
         isNewSessionMode: needsExecutorSelection,
         onNewSession: onStartNewSession,
         onRenameSession: handleRenameSession,
