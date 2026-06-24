@@ -1,13 +1,15 @@
 import { SpinnerIcon, type Icon } from '@phosphor-icons/react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
-interface PrimaryButtonProps {
+interface PrimaryButtonProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'value' | 'onClick'> {
   variant?: 'default' | 'secondary' | 'tertiary';
   actionIcon?: Icon | 'spinner';
   value?: string;
   onClick?: () => void;
   disabled?: boolean;
-  children?: React.ReactNode;
+  children?: ReactNode;
   className?: string;
 }
 
@@ -19,6 +21,7 @@ export function PrimaryButton({
   disabled,
   children,
   className,
+  ...props
 }: PrimaryButtonProps) {
   const variantStyles = disabled
     ? 'cursor-not-allowed bg-panel'
@@ -37,6 +40,7 @@ export function PrimaryButton({
       )}
       onClick={onClick}
       disabled={disabled}
+      {...props}
     >
       {value}
       {children}
