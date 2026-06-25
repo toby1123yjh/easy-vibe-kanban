@@ -19,8 +19,7 @@ use executors::profile::{ExecutorConfig, ExecutorConfigs};
 use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
 use services::services::{
-    container::ContainerService,
-    execution_process::subscribe_execution_completed,
+    container::ContainerService, execution_process::subscribe_execution_completed,
 };
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
@@ -45,7 +44,8 @@ use crate::{
     routes::{
         sessions::start_coding_agent_execution_for_session,
         workflows::{
-            TriggerWorkflowRequest, WorkflowNodeExecutionResponse, WorkflowRunResponse,
+            TriggerWorkflowRequest, WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS,
+            WorkflowNodeExecutionResponse, WorkflowRunResponse, build_workflow_run_runtime_view,
             ensure_agent_node_sessions, get_workflow_template, persist_workflow_graph,
         },
     },
@@ -498,6 +498,14 @@ pub async fn get_workflow_run_response(
     .ok_or_else(|| ApiError::BadRequest("Workflow run not found".to_string()))?;
 
     let nodes = node_execution_responses(pool, run_id).await?;
+    let status = workflow_run_status_from_str(&row.try_get::<String, _>("status")?)?;
+    let runtime_view = build_workflow_run_runtime_view(
+        run_id,
+        status,
+        &nodes,
+        chrono::Utc::now(),
+        WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS,
+    );
 
     Ok(WorkflowRunResponse {
         id: row.try_get("id")?,
@@ -508,13 +516,14 @@ pub async fn get_workflow_run_response(
         trigger_source: row.try_get("trigger_source")?,
         input_text: row.try_get("input_text")?,
         output_text: row.try_get("output_text")?,
-        status: workflow_run_status_from_str(&row.try_get::<String, _>("status")?)?,
+        status,
         started_at: row.try_get("started_at")?,
         finished_at: row.try_get("finished_at")?,
         error_text: row.try_get("error_text")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         nodes,
+        runtime_view: Some(runtime_view),
     })
 }
 

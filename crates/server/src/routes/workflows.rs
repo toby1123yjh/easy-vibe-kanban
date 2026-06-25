@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use api_types::{DeleteResponse, MutationResponse};
 use axum::{
     BoxError, Json, Router,
@@ -156,6 +158,9 @@ pub struct WorkflowRunResponse {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub nodes: Vec<WorkflowNodeExecutionResponse>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub runtime_view: Option<WorkflowRunRuntimeView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -179,6 +184,70 @@ pub struct WorkflowNodeExecutionResponse {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum WorkflowRuntimeHealth {
+    Ok,
+    Starting,
+    Slow,
+    ProcessMissing,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum WorkflowNodeWorkStatus {
+    Pending,
+    Starting,
+    Running,
+    AwaitingHuman,
+    AwaitingArena,
+    Succeeded,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkflowNodeWorkView {
+    pub node_id: String,
+    pub node_type: String,
+    pub iteration: i64,
+    pub status: WorkflowNodeWorkStatus,
+    pub pending_work_count: i32,
+    pub starting_child_count: i32,
+    pub active_execution_id: Option<Uuid>,
+    pub active_session_id: Option<Uuid>,
+    pub execution_process_id: Option<Uuid>,
+    pub active_started_at: Option<DateTime<Utc>>,
+    pub active_elapsed_ms: Option<i32>,
+    pub active_slow: bool,
+    pub active_slow_threshold_ms: i32,
+    pub runtime_health: WorkflowRuntimeHealth,
+    pub can_open_session: bool,
+    pub can_retry: bool,
+    pub can_approve: bool,
+    pub can_reject: bool,
+    pub can_select_arena_winner: bool,
+    pub can_select_condition_branch: bool,
+    pub can_cancel_node: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkflowRunRuntimeView {
+    pub run_id: Uuid,
+    pub status: WorkflowRunStatus,
+    pub active_node_count: i32,
+    pub pending_node_count: i32,
+    pub waiting_node_count: i32,
+    pub failed_node_count: i32,
+    pub completed_node_count: i32,
+    pub node_work: Vec<WorkflowNodeWorkView>,
+}
+
+pub const WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS: i32 = 5 * 60 * 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkflowActionResponse {
@@ -1570,6 +1639,214 @@ fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, Wo
     }
 }
 
+pub fn build_workflow_run_runtime_view(
+    run_id: Uuid,
+    status: WorkflowRunStatus,
+    nodes: &[WorkflowNodeExecutionResponse],
+    now: DateTime<Utc>,
+    active_slow_threshold_ms: i32,
+) -> WorkflowRunRuntimeView {
+    let mut ordered_node_ids = Vec::new();
+    let mut grouped_nodes: HashMap<&str, Vec<&WorkflowNodeExecutionResponse>> = HashMap::new();
+
+    for node in nodes {
+        if !grouped_nodes.contains_key(node.node_id.as_str()) {
+            ordered_node_ids.push(node.node_id.as_str());
+        }
+        grouped_nodes
+            .entry(node.node_id.as_str())
+            .or_default()
+            .push(node);
+    }
+
+    let node_work = ordered_node_ids
+        .into_iter()
+        .filter_map(|node_id| {
+            grouped_nodes.get(node_id).and_then(|executions| {
+                let current = executions
+                    .iter()
+                    .copied()
+                    .max_by(|left, right| compare_node_execution_order(left, right))?;
+                Some(build_workflow_node_work_view(
+                    current,
+                    executions,
+                    now,
+                    active_slow_threshold_ms,
+                ))
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let active_node_count = node_work
+        .iter()
+        .filter(|work| {
+            matches!(
+                work.status,
+                WorkflowNodeWorkStatus::Starting | WorkflowNodeWorkStatus::Running
+            )
+        })
+        .count() as i32;
+    let pending_node_count = node_work
+        .iter()
+        .filter(|work| work.status == WorkflowNodeWorkStatus::Pending)
+        .count() as i32;
+    let waiting_node_count = node_work
+        .iter()
+        .filter(|work| {
+            matches!(
+                work.status,
+                WorkflowNodeWorkStatus::AwaitingHuman | WorkflowNodeWorkStatus::AwaitingArena
+            )
+        })
+        .count() as i32;
+    let failed_node_count = node_work
+        .iter()
+        .filter(|work| work.status == WorkflowNodeWorkStatus::Failed)
+        .count() as i32;
+    let completed_node_count = node_work
+        .iter()
+        .filter(|work| {
+            matches!(
+                work.status,
+                WorkflowNodeWorkStatus::Succeeded | WorkflowNodeWorkStatus::Skipped
+            )
+        })
+        .count() as i32;
+
+    WorkflowRunRuntimeView {
+        run_id,
+        status,
+        active_node_count,
+        pending_node_count,
+        waiting_node_count,
+        failed_node_count,
+        completed_node_count,
+        node_work,
+    }
+}
+
+fn compare_node_execution_order(
+    left: &WorkflowNodeExecutionResponse,
+    right: &WorkflowNodeExecutionResponse,
+) -> std::cmp::Ordering {
+    left.iteration
+        .cmp(&right.iteration)
+        .then_with(|| left.updated_at.cmp(&right.updated_at))
+}
+
+fn build_workflow_node_work_view(
+    current: &WorkflowNodeExecutionResponse,
+    executions: &[&WorkflowNodeExecutionResponse],
+    now: DateTime<Utc>,
+    active_slow_threshold_ms: i32,
+) -> WorkflowNodeWorkView {
+    let status = workflow_node_work_status(current);
+    let is_active = matches!(
+        status,
+        WorkflowNodeWorkStatus::Starting | WorkflowNodeWorkStatus::Running
+    );
+    let is_waiting = matches!(
+        status,
+        WorkflowNodeWorkStatus::AwaitingHuman | WorkflowNodeWorkStatus::AwaitingArena
+    );
+    let active_elapsed_ms = if is_active {
+        current.started_at.map(|started_at| {
+            now.signed_duration_since(started_at)
+                .num_milliseconds()
+                .max(0)
+                .min(i64::from(i32::MAX)) as i32
+        })
+    } else {
+        None
+    };
+    let active_slow = active_elapsed_ms
+        .map(|elapsed_ms| elapsed_ms >= active_slow_threshold_ms)
+        .unwrap_or(false);
+    let runtime_health = workflow_runtime_health(current, status, active_slow);
+
+    WorkflowNodeWorkView {
+        node_id: current.node_id.clone(),
+        node_type: current.node_type.clone(),
+        iteration: current.iteration,
+        status,
+        pending_work_count: executions
+            .iter()
+            .filter(|node| node.status == NodeExecutionStatus::Pending)
+            .count() as i32,
+        starting_child_count: executions
+            .iter()
+            .filter(|node| {
+                node.status == NodeExecutionStatus::Running && node.execution_process_id.is_none()
+            })
+            .count() as i32,
+        active_execution_id: if is_active || is_waiting {
+            Some(current.id)
+        } else {
+            None
+        },
+        active_session_id: current.session_id,
+        execution_process_id: current.execution_process_id,
+        active_started_at: if is_active || is_waiting {
+            current.started_at
+        } else {
+            None
+        },
+        active_elapsed_ms,
+        active_slow,
+        active_slow_threshold_ms,
+        runtime_health,
+        can_open_session: current.session_id.is_some()
+            && matches!(current.node_type.as_str(), "agent" | "condition"),
+        can_retry: current.status == NodeExecutionStatus::Failed,
+        can_approve: current.status == NodeExecutionStatus::AwaitingHuman
+            && current.node_type == "human_gate",
+        can_reject: current.status == NodeExecutionStatus::AwaitingHuman
+            && current.node_type == "human_gate",
+        can_select_arena_winner: current.status == NodeExecutionStatus::AwaitingArena
+            && current.node_type == "arena",
+        can_select_condition_branch: current.status == NodeExecutionStatus::AwaitingHuman
+            && current.node_type == "condition",
+        can_cancel_node: false,
+    }
+}
+
+fn workflow_node_work_status(node: &WorkflowNodeExecutionResponse) -> WorkflowNodeWorkStatus {
+    match node.status {
+        NodeExecutionStatus::Pending => WorkflowNodeWorkStatus::Pending,
+        NodeExecutionStatus::Running if node.execution_process_id.is_none() => {
+            WorkflowNodeWorkStatus::Starting
+        }
+        NodeExecutionStatus::Running => WorkflowNodeWorkStatus::Running,
+        NodeExecutionStatus::AwaitingHuman => WorkflowNodeWorkStatus::AwaitingHuman,
+        NodeExecutionStatus::AwaitingArena => WorkflowNodeWorkStatus::AwaitingArena,
+        NodeExecutionStatus::Succeeded => WorkflowNodeWorkStatus::Succeeded,
+        NodeExecutionStatus::Failed => WorkflowNodeWorkStatus::Failed,
+        NodeExecutionStatus::Skipped => WorkflowNodeWorkStatus::Skipped,
+    }
+}
+
+fn workflow_runtime_health(
+    node: &WorkflowNodeExecutionResponse,
+    status: WorkflowNodeWorkStatus,
+    active_slow: bool,
+) -> WorkflowRuntimeHealth {
+    match status {
+        WorkflowNodeWorkStatus::Starting if active_slow => WorkflowRuntimeHealth::ProcessMissing,
+        WorkflowNodeWorkStatus::Starting => WorkflowRuntimeHealth::Starting,
+        WorkflowNodeWorkStatus::Running if active_slow => WorkflowRuntimeHealth::Slow,
+        WorkflowNodeWorkStatus::Running
+        | WorkflowNodeWorkStatus::AwaitingHuman
+        | WorkflowNodeWorkStatus::AwaitingArena
+        | WorkflowNodeWorkStatus::Succeeded
+        | WorkflowNodeWorkStatus::Failed
+        | WorkflowNodeWorkStatus::Skipped => WorkflowRuntimeHealth::Ok,
+        WorkflowNodeWorkStatus::Pending if node.started_at.is_none() => {
+            WorkflowRuntimeHealth::Unknown
+        }
+        WorkflowNodeWorkStatus::Pending => WorkflowRuntimeHealth::Ok,
+    }
+}
+
 fn txid() -> i64 {
     Utc::now().timestamp_millis()
 }
@@ -1807,4 +2084,264 @@ fn workflow_event_to_sse_event(event: workflow::WorkflowEvent) -> Event {
     let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
 
     Event::default().id(id).event(event_name).data(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ts(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn node(
+        id: u128,
+        node_id: &str,
+        node_type: &str,
+        status: NodeExecutionStatus,
+        iteration: i64,
+        updated_at: &str,
+    ) -> WorkflowNodeExecutionResponse {
+        WorkflowNodeExecutionResponse {
+            id: Uuid::from_u128(id),
+            run_id: Uuid::from_u128(100),
+            node_id: node_id.to_string(),
+            node_type: node_type.to_string(),
+            iteration,
+            status,
+            input_text: None,
+            output_text: None,
+            session_id: None,
+            execution_process_id: None,
+            arena_group_id: None,
+            tokens_used: None,
+            cost_estimate: None,
+            started_at: None,
+            finished_at: None,
+            error_text: None,
+            created_at: ts("2026-06-25T00:00:00Z"),
+            updated_at: ts(updated_at),
+        }
+    }
+
+    #[test]
+    fn runtime_view_marks_running_process_elapsed_and_slow_health() {
+        let run_id = Uuid::from_u128(100);
+        let mut running = node(
+            1,
+            "agent-implement",
+            "agent",
+            NodeExecutionStatus::Running,
+            0,
+            "2026-06-25T00:05:00Z",
+        );
+        running.session_id = Some(Uuid::from_u128(2));
+        running.execution_process_id = Some(Uuid::from_u128(3));
+        running.started_at = Some(ts("2026-06-25T00:05:00Z"));
+
+        let view = build_workflow_run_runtime_view(
+            run_id,
+            WorkflowRunStatus::Running,
+            &[running],
+            ts("2026-06-25T00:10:01Z"),
+            300_000,
+        );
+
+        assert_eq!(view.active_node_count, 1);
+        let work = &view.node_work[0];
+        assert_eq!(work.status, WorkflowNodeWorkStatus::Running);
+        assert_eq!(work.active_elapsed_ms, Some(301_000));
+        assert!(work.active_slow);
+        assert_eq!(work.runtime_health, WorkflowRuntimeHealth::Slow);
+        assert!(work.can_open_session);
+        assert_eq!(work.active_session_id, Some(Uuid::from_u128(2)));
+        assert_eq!(work.execution_process_id, Some(Uuid::from_u128(3)));
+    }
+
+    #[test]
+    fn runtime_view_distinguishes_starting_child_from_missing_process() {
+        let mut starting = node(
+            1,
+            "agent-starting",
+            "agent",
+            NodeExecutionStatus::Running,
+            0,
+            "2026-06-25T00:09:30Z",
+        );
+        starting.started_at = Some(ts("2026-06-25T00:09:30Z"));
+        let mut missing = node(
+            2,
+            "agent-missing-process",
+            "agent",
+            NodeExecutionStatus::Running,
+            0,
+            "2026-06-25T00:00:00Z",
+        );
+        missing.started_at = Some(ts("2026-06-25T00:00:00Z"));
+
+        let view = build_workflow_run_runtime_view(
+            Uuid::from_u128(100),
+            WorkflowRunStatus::Running,
+            &[starting, missing],
+            ts("2026-06-25T00:10:00Z"),
+            300_000,
+        );
+
+        let starting = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "agent-starting")
+            .unwrap();
+        assert_eq!(starting.status, WorkflowNodeWorkStatus::Starting);
+        assert_eq!(starting.starting_child_count, 1);
+        assert_eq!(starting.runtime_health, WorkflowRuntimeHealth::Starting);
+        assert!(!starting.active_slow);
+
+        let missing = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "agent-missing-process")
+            .unwrap();
+        assert_eq!(missing.status, WorkflowNodeWorkStatus::Starting);
+        assert_eq!(
+            missing.runtime_health,
+            WorkflowRuntimeHealth::ProcessMissing
+        );
+        assert!(missing.active_slow);
+    }
+
+    #[test]
+    fn runtime_view_exposes_action_gates_for_waiting_and_failed_work() {
+        let mut condition = node(
+            2,
+            "router",
+            "condition",
+            NodeExecutionStatus::AwaitingHuman,
+            0,
+            "2026-06-25T00:00:02Z",
+        );
+        condition.session_id = Some(Uuid::from_u128(20));
+        let nodes = vec![
+            node(
+                1,
+                "approval",
+                "human_gate",
+                NodeExecutionStatus::AwaitingHuman,
+                0,
+                "2026-06-25T00:00:01Z",
+            ),
+            condition,
+            node(
+                3,
+                "arena",
+                "arena",
+                NodeExecutionStatus::AwaitingArena,
+                0,
+                "2026-06-25T00:00:03Z",
+            ),
+            node(
+                4,
+                "fix",
+                "agent",
+                NodeExecutionStatus::Failed,
+                0,
+                "2026-06-25T00:00:04Z",
+            ),
+        ];
+
+        let view = build_workflow_run_runtime_view(
+            Uuid::from_u128(100),
+            WorkflowRunStatus::AwaitingHuman,
+            &nodes,
+            ts("2026-06-25T00:10:00Z"),
+            WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS,
+        );
+
+        assert_eq!(view.waiting_node_count, 3);
+        assert_eq!(view.failed_node_count, 1);
+
+        let approval = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "approval")
+            .unwrap();
+        assert!(approval.can_approve);
+        assert!(approval.can_reject);
+        assert!(!approval.can_select_condition_branch);
+
+        let condition = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "router")
+            .unwrap();
+        assert!(condition.can_open_session);
+        assert!(condition.can_select_condition_branch);
+        assert!(!condition.can_approve);
+
+        let arena = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "arena")
+            .unwrap();
+        assert!(arena.can_select_arena_winner);
+
+        let failed = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "fix")
+            .unwrap();
+        assert!(failed.can_retry);
+        assert!(!failed.can_cancel_node);
+    }
+
+    #[test]
+    fn runtime_view_uses_latest_iteration_as_node_work_state() {
+        let nodes = vec![
+            node(
+                1,
+                "fan-in",
+                "agent",
+                NodeExecutionStatus::Succeeded,
+                0,
+                "2026-06-25T00:00:01Z",
+            ),
+            node(
+                2,
+                "fan-in",
+                "agent",
+                NodeExecutionStatus::Pending,
+                1,
+                "2026-06-25T00:00:02Z",
+            ),
+            node(
+                3,
+                "end",
+                "end",
+                NodeExecutionStatus::Skipped,
+                0,
+                "2026-06-25T00:00:03Z",
+            ),
+        ];
+
+        let view = build_workflow_run_runtime_view(
+            Uuid::from_u128(100),
+            WorkflowRunStatus::Running,
+            &nodes,
+            ts("2026-06-25T00:10:00Z"),
+            WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS,
+        );
+
+        let fan_in = view
+            .node_work
+            .iter()
+            .find(|work| work.node_id == "fan-in")
+            .unwrap();
+        assert_eq!(fan_in.iteration, 1);
+        assert_eq!(fan_in.status, WorkflowNodeWorkStatus::Pending);
+        assert_eq!(fan_in.pending_work_count, 1);
+        assert_eq!(view.pending_node_count, 1);
+        assert_eq!(view.completed_node_count, 1);
+    }
 }

@@ -1,6 +1,7 @@
 import type {
   NodeExecutionStatus,
   WorkflowNodeExecutionResponse,
+  WorkflowRunRuntimeView,
   WorkflowRunResponse,
   WorkflowRunStatus,
 } from 'shared/types';
@@ -91,10 +92,12 @@ export interface WorkflowRunDashboardSummary {
 }
 
 export function buildWorkflowRunDashboardSummary(
-  run: WorkflowRunResponse
+  run: WorkflowRunResponse,
+  runtimeView?: WorkflowRunRuntimeView | null
 ): WorkflowRunDashboardSummary {
   const nodes = run.nodes;
-  const totalSteps = nodes.length;
+  const workItems = runtimeView?.node_work;
+  const totalSteps = workItems?.length ?? nodes.length;
 
   let completedSteps = 0;
   let skippedSteps = 0;
@@ -104,22 +107,43 @@ export function buildWorkflowRunDashboardSummary(
   let totalTokens = 0;
   let totalCostEstimate = 0;
 
-  for (const node of nodes) {
-    if (node.status === 'succeeded') {
-      completedSteps++;
-    } else if (node.status === 'skipped') {
-      skippedSteps++;
-    } else if (
-      node.status === 'awaiting_human' ||
-      node.status === 'awaiting_arena'
-    ) {
-      waitingSteps++;
-    } else if (node.status === 'failed') {
-      failedSteps++;
-    } else if (node.status === 'running') {
-      runningSteps++;
+  if (workItems) {
+    for (const work of workItems) {
+      if (work.status === 'succeeded') {
+        completedSteps++;
+      } else if (work.status === 'skipped') {
+        skippedSteps++;
+      } else if (
+        work.status === 'awaiting_human' ||
+        work.status === 'awaiting_arena'
+      ) {
+        waitingSteps++;
+      } else if (work.status === 'failed') {
+        failedSteps++;
+      } else if (work.status === 'running' || work.status === 'starting') {
+        runningSteps++;
+      }
     }
+  } else {
+    for (const node of nodes) {
+      if (node.status === 'succeeded') {
+        completedSteps++;
+      } else if (node.status === 'skipped') {
+        skippedSteps++;
+      } else if (
+        node.status === 'awaiting_human' ||
+        node.status === 'awaiting_arena'
+      ) {
+        waitingSteps++;
+      } else if (node.status === 'failed') {
+        failedSteps++;
+      } else if (node.status === 'running') {
+        runningSteps++;
+      }
+    }
+  }
 
+  for (const node of nodes) {
     if (node.tokens_used !== null && node.tokens_used !== undefined) {
       totalTokens += Number(node.tokens_used);
     }

@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   ExecutorConfig,
   WorkflowNodeExecutionResponse,
+  WorkflowNodeWorkView,
 } from 'shared/types';
 import {
   AlertCircle,
@@ -66,6 +67,7 @@ interface WorkflowNodeSessionPanelProps {
   runStepDisabled?: boolean;
   runStepTitle?: string;
   afterHeaderContent?: ReactNode;
+  runtimeWork?: WorkflowNodeWorkView | null;
 }
 
 interface WorkflowNodeSessionHeaderProps {
@@ -80,6 +82,7 @@ interface WorkflowNodeSessionHeaderProps {
   onRunStep?: () => void;
   runStepDisabled?: boolean;
   runStepTitle?: string;
+  runtimeWork?: WorkflowNodeWorkView | null;
 }
 
 const cockpitToneClassMap: Record<StatusTone, string> = {
@@ -113,6 +116,7 @@ export function WorkflowNodeSessionPanel({
   runStepDisabled,
   runStepTitle,
   afterHeaderContent,
+  runtimeWork,
 }: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
   const preferredExecutorConfig = useMemo(
@@ -136,6 +140,7 @@ export function WorkflowNodeSessionPanel({
         runStepDisabled={runStepDisabled}
         runStepTitle={runStepTitle}
         afterHeaderContent={afterHeaderContent}
+        runtimeWork={runtimeWork}
       />
     );
   }
@@ -155,6 +160,7 @@ export function WorkflowNodeSessionPanel({
           onRunStep={onRunStep}
           runStepDisabled={runStepDisabled}
           runStepTitle={runStepTitle}
+          runtimeWork={runtimeWork}
         />
       )}
       {afterHeaderContent}
@@ -184,6 +190,7 @@ function WorkflowNodeSessionHeader({
   onRunStep,
   runStepDisabled,
   runStepTitle,
+  runtimeWork,
 }: WorkflowNodeSessionHeaderProps) {
   const { t } = useTranslation('common');
   const agentDisplay = getWorkflowAgentDisplay(nodeData ?? {});
@@ -285,7 +292,7 @@ function WorkflowNodeSessionHeader({
         </div>
       </div>
 
-      <WorkflowNodeRunSummary execution={execution} />
+      <WorkflowNodeRunSummary execution={execution} runtimeWork={runtimeWork} />
       <WorkflowNodeTechnicalDetails execution={execution} />
     </div>
   );
@@ -317,19 +324,38 @@ function formatWorkflowTimestamp(value: string | null): string | null {
   return time.toLocaleString();
 }
 
+function formatElapsedMs(value: number): string {
+  const diffSecs = Math.floor(Math.max(0, value) / 1000);
+  const minutes = Math.floor(diffSecs / 60);
+  const seconds = diffSecs % 60;
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
 function WorkflowNodeRunSummary({
   execution,
+  runtimeWork,
 }: {
   execution: WorkflowNodeExecutionResponse;
+  runtimeWork?: WorkflowNodeWorkView | null;
 }) {
   const { t } = useTranslation('common');
-  const statusTone = getNodeStatusTone(execution.status);
+  const statusTone = runtimeWork?.active_slow
+    ? 'warning'
+    : getNodeStatusTone(execution.status);
   const startedLabel = formatWorkflowTimestamp(execution.started_at);
   const finishedLabel = formatWorkflowTimestamp(execution.finished_at);
   const durationLabel = formatWorkflowDuration(
     execution.started_at,
     execution.finished_at
   );
+  const runtimeDurationLabel =
+    runtimeWork?.active_elapsed_ms != null
+      ? formatElapsedMs(runtimeWork.active_elapsed_ms)
+      : durationLabel;
   const hasError = execution.status === 'failed' || !!execution.error_text;
   const routerOutput = parseConditionRouterOutput(execution.output_text);
   const routerReadableOutput =
@@ -353,7 +379,7 @@ function WorkflowNodeRunSummary({
         detail: startedLabel
           ? t('workflow.nodeSession.startedDuration', {
               started: startedLabel,
-              duration: durationLabel,
+              duration: runtimeDurationLabel,
             })
           : t('workflow.nodeSession.agentWorking'),
       };
@@ -645,6 +671,7 @@ function WorkflowNodeSessionFallback({
   runStepDisabled,
   runStepTitle,
   afterHeaderContent,
+  runtimeWork,
 }: Omit<WorkflowNodeSessionPanelProps, 'workspaceId'>) {
   const { t } = useTranslation('common');
   return (
@@ -665,6 +692,7 @@ function WorkflowNodeSessionFallback({
           onRunStep={onRunStep}
           runStepDisabled={runStepDisabled}
           runStepTitle={runStepTitle}
+          runtimeWork={runtimeWork}
         />
       )}
       {afterHeaderContent}

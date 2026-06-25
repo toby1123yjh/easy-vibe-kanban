@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { WorkflowRunResponse } from 'shared/types';
+import type { WorkflowNodeWorkView, WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -11,6 +11,12 @@ import {
   formatWorkflowDuration,
   getNodeStatusTone,
 } from '../model/workflowRunView';
+import {
+  getDefaultWorkflowRuntimeNodeId,
+  getWorkflowNodeActionGate,
+  getWorkflowNodeWork,
+  getWorkflowRuntimeView,
+} from '../model/workflowRuntimeView';
 import {
   getConditionRouterHumanPrompt,
   getConditionRouterReason,
@@ -35,15 +41,23 @@ export interface WorkflowRunDashboardTabProps {
 }
 
 function getDefaultSelectedNodeId(run: WorkflowRunResponse): string | null {
-  const actionableNode = run.nodes.find(
-    (node) =>
-      node.status === 'awaiting_arena' ||
-      node.status === 'awaiting_human' ||
-      node.status === 'failed' ||
-      node.status === 'running'
-  );
+  return getDefaultWorkflowRuntimeNodeId(getWorkflowRuntimeView(run));
+}
 
-  return actionableNode?.node_id ?? run.nodes[0]?.node_id ?? null;
+function getExecutionForWork(
+  run: WorkflowRunResponse,
+  work: WorkflowNodeWorkView | null
+) {
+  if (!work) return null;
+  return (
+    run.nodes.find((node) => node.id === work.active_execution_id) ??
+    run.nodes.find(
+      (node) =>
+        node.node_id === work.node_id && node.iteration === work.iteration
+    ) ??
+    run.nodes.find((node) => node.node_id === work.node_id) ??
+    null
+  );
 }
 
 function getReadableWorkflowNodeOutput(
@@ -68,7 +82,8 @@ export function WorkflowRunDashboardTab({
   const { data: template } = useWorkflowTemplate(run.workflow_id);
   const mutations = useWorkflowRunMutations();
   const appNav = useAppNavigation();
-  const summary = buildWorkflowRunDashboardSummary(run);
+  const runtimeView = getWorkflowRuntimeView(run);
+  const summary = buildWorkflowRunDashboardSummary(run, runtimeView);
   const [actionError, setActionError] = useState<string | null>(null);
   const formatDuration = (start: string | null, end: string | null) => {
     const label = formatWorkflowDuration(start, end);
@@ -90,8 +105,9 @@ export function WorkflowRunDashboardTab({
     setSelectedNodeId(getDefaultSelectedNodeId(run));
   }, [run, selectedNodeId]);
 
-  const selectedNode =
-    run.nodes.find((n) => n.node_id === selectedNodeId) || null;
+  const selectedNodeWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
+  const selectedNode = getExecutionForWork(run, selectedNodeWork);
+  const selectedNodeActionGate = getWorkflowNodeActionGate(selectedNodeWork);
   const selectedNodeOutput = selectedNode
     ? getReadableWorkflowNodeOutput(
         selectedNode.node_type,
@@ -470,8 +486,8 @@ export function WorkflowRunDashboardTab({
                 </div>
               )}
 
-              {selectedNode.status === 'awaiting_human' &&
-                selectedNode.node_type !== 'condition' && (
+              {selectedNodeActionGate.canApprove &&
+                selectedNodeActionGate.canReject && (
                   <div className="flex gap-2 pt-2">
                     <button
                       className="flex-1 rounded bg-success px-3 py-1.5 text-white font-medium hover:opacity-90 disabled:opacity-50"
@@ -494,7 +510,7 @@ export function WorkflowRunDashboardTab({
                   </div>
                 )}
 
-              {selectedNode.status === 'awaiting_arena' && (
+              {selectedNodeActionGate.canSelectArenaWinner && (
                 <WorkflowArenaWinnerPanel
                   arenaGroupId={selectedNode.arena_group_id}
                   issueId={run.issue_id}

@@ -34,6 +34,7 @@ import {
 import type {
   NodeExecutionStatus,
   WorkflowNodeExecutionResponse,
+  WorkflowNodeWorkView,
   WorkflowRunResponse,
 } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
@@ -43,6 +44,12 @@ import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
 import { buildWorkspaceSessionHref } from '../model/workflowRunView';
+import {
+  getDefaultWorkflowRuntimeNodeId,
+  getWorkflowNodeActionGate,
+  getWorkflowNodeWork,
+  getWorkflowRuntimeView,
+} from '../model/workflowRuntimeView';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { queueWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import {
@@ -308,6 +315,26 @@ function getExecutionForNode(
   return run.nodes.find((node) => node.node_id === nodeId) ?? null;
 }
 
+function getExecutionForWork(
+  run: WorkflowRunResponse,
+  work: WorkflowNodeWorkView | null,
+  nodeId: string | null
+): WorkflowNodeExecutionResponse | null {
+  if (work) {
+    return (
+      run.nodes.find((node) => node.id === work.active_execution_id) ??
+      run.nodes.find(
+        (node) =>
+          node.node_id === work.node_id && node.iteration === work.iteration
+      ) ??
+      run.nodes.find((node) => node.node_id === work.node_id) ??
+      null
+    );
+  }
+
+  return nodeId ? getExecutionForNode(run, nodeId) : null;
+}
+
 function getDefaultPositions(graph: WorkflowGraph) {
   return Object.fromEntries(
     graph.nodes.map((node, index) => [
@@ -398,6 +425,7 @@ export function WorkflowRunCanvasTab({
   >([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<ReactFlowEdge>([]);
   const consumedQueuedFocusForRunRef = useRef<string | null>(null);
+  const runtimeView = useMemo(() => getWorkflowRuntimeView(run), [run]);
 
   const selectNodeById = useCallback((nodeId: string | null) => {
     setActionError(null);
@@ -428,18 +456,12 @@ export function WorkflowRunCanvasTab({
       return;
     }
 
-    const activeNode = run.nodes.find(
-      (node) =>
-        node.status === 'awaiting_arena' ||
-        node.status === 'awaiting_human' ||
-        node.status === 'failed' ||
-        node.status === 'running'
-    );
+    const activeNodeId = getDefaultWorkflowRuntimeNodeId(runtimeView);
 
-    if (activeNode) {
-      setSelectedNodeId(activeNode.node_id);
+    if (activeNodeId) {
+      setSelectedNodeId(activeNodeId);
     }
-  }, [run.nodes, selectedNodeId]);
+  }, [run.nodes, runtimeView, selectedNodeId]);
 
   const graph = useMemo(
     () => (template ? parseWorkflowGraph(template.graph_json) : null),
@@ -501,9 +523,12 @@ export function WorkflowRunCanvasTab({
     setNodes,
   ]);
 
-  const selectedExecution = selectedNodeId
-    ? getExecutionForNode(run, selectedNodeId)
-    : null;
+  const selectedWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
+  const selectedExecution = getExecutionForWork(
+    run,
+    selectedWork,
+    selectedNodeId
+  );
   const selectedGraphNode =
     graph && selectedNodeId
       ? (graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
@@ -696,6 +721,7 @@ export function WorkflowRunCanvasTab({
             projectId={projectId}
             run={run}
             selectedExecution={selectedExecution}
+            selectedWork={selectedWork}
             selectedGraphNode={selectedGraphNode}
             selectedNodeId={selectedNodeId}
             onEditWorkflowConfig={handleEditSelectedNodeConfig}
@@ -718,6 +744,7 @@ interface NodeDetailPanelProps {
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse | null;
+  selectedWork: WorkflowNodeWorkView | null;
   selectedGraphNode: WorkflowNode | null;
   selectedNodeId: string | null;
   onEditWorkflowConfig: () => void;
@@ -735,6 +762,7 @@ function NodeDetailPanel({
   projectId,
   run,
   selectedExecution,
+  selectedWork,
   selectedGraphNode,
   selectedNodeId,
   onEditWorkflowConfig,
@@ -751,6 +779,7 @@ function NodeDetailPanel({
     selectedExecution?.node_type === 'condition' ||
     selectedGraphNode?.type === 'condition';
   const isConversationalNode = isAgent || isCondition;
+  const selectedActionGate = getWorkflowNodeActionGate(selectedWork);
   const conversationNodeData =
     selectedGraphNode?.type === 'condition'
       ? {
@@ -778,9 +807,9 @@ function NodeDetailPanel({
       : t('workflow.runCanvas.selectNode');
 
   const conditionActionPanel =
-    selectedExecution?.node_type === 'condition' &&
     selectedGraphNode?.type === 'condition' &&
-    selectedExecution.status === 'awaiting_human' ? (
+    selectedActionGate.canSelectConditionBranch &&
+    selectedExecution ? (
       <ConditionRouterActionPanel
         graph={graph}
         conditionNode={selectedGraphNode}
@@ -801,6 +830,7 @@ function NodeDetailPanel({
             afterHeaderContent={conditionActionPanel}
             nodeData={conversationNodeData}
             selectedExecution={selectedExecution}
+            selectedWork={selectedWork}
             selectedGraphNode={selectedGraphNode}
             workspaceId={run.workspace_id}
             sessionHref={sessionHref}
@@ -851,6 +881,7 @@ function NodeDetailPanel({
         ) : isAgent ? (
           <WorkflowNodeConversationPanel
             selectedExecution={selectedExecution}
+            selectedWork={selectedWork}
             selectedGraphNode={selectedGraphNode}
             workspaceId={run.workspace_id}
             sessionHref={sessionHref}
@@ -870,6 +901,7 @@ function NodeDetailPanel({
             projectId={projectId}
             run={run}
             selectedExecution={selectedExecution}
+            selectedWork={selectedWork}
             selectedGraphNode={selectedGraphNode}
             workspaceHref={workspaceHref}
           />
@@ -1023,6 +1055,7 @@ function NodeDetailsTab({
   projectId,
   run,
   selectedExecution,
+  selectedWork,
   selectedGraphNode,
   workspaceHref,
 }: {
@@ -1037,10 +1070,12 @@ function NodeDetailsTab({
   projectId: string;
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse;
+  selectedWork: WorkflowNodeWorkView | null;
   selectedGraphNode: WorkflowNode | null;
   workspaceHref: string | null;
 }) {
   const { t } = useTranslation('common');
+  const actionGate = getWorkflowNodeActionGate(selectedWork);
   return (
     <div className="space-y-base">
       <div>
@@ -1057,9 +1092,8 @@ function NodeDetailsTab({
         </div>
       </div>
 
-      {selectedExecution.status === 'awaiting_human' &&
-      selectedExecution.node_type === 'condition' &&
-      selectedGraphNode?.type === 'condition' ? (
+      {selectedGraphNode?.type === 'condition' &&
+      actionGate.canSelectConditionBranch ? (
         <ConditionRouterActionPanel
           graph={graph}
           conditionNode={selectedGraphNode}
@@ -1067,7 +1101,7 @@ function NodeDetailsTab({
           onSelectBranch={onSelectConditionBranch}
           selectedExecution={selectedExecution}
         />
-      ) : selectedExecution.status === 'awaiting_human' ? (
+      ) : actionGate.canApprove && actionGate.canReject ? (
         <div className="space-y-half rounded border border-warning/50 bg-warning/10 p-half">
           <h4 className="text-sm font-semibold text-warning">
             {t('workflow.runCanvas.humanActionRequired')}
@@ -1102,7 +1136,7 @@ function NodeDetailsTab({
         </div>
       ) : null}
 
-      {selectedExecution.status === 'awaiting_arena' ? (
+      {actionGate.canSelectArenaWinner ? (
         <WorkflowArenaWinnerPanel
           arenaGroupId={selectedExecution.arena_group_id}
           issueId={run.issue_id}
@@ -1143,6 +1177,7 @@ function WorkflowNodeConversationPanel({
   afterHeaderContent,
   nodeData,
   selectedExecution,
+  selectedWork,
   selectedGraphNode,
   workspaceId,
   sessionHref,
@@ -1152,6 +1187,7 @@ function WorkflowNodeConversationPanel({
   afterHeaderContent?: ReactNode;
   nodeData?: WorkflowNodeData | null;
   selectedExecution: WorkflowNodeExecutionResponse;
+  selectedWork: WorkflowNodeWorkView | null;
   selectedGraphNode: WorkflowNode | null;
   workspaceId: string | null;
   sessionHref: string | null;
@@ -1189,6 +1225,7 @@ function WorkflowNodeConversationPanel({
         runStepDisabled
         runStepTitle={t('workflow.canvas.runStepUnavailable')}
         afterHeaderContent={afterHeaderContent}
+        runtimeWork={selectedWork}
       />
     </div>
   );
