@@ -18,7 +18,11 @@ import {
   DropdownMenuLabel,
 } from '@vibe/ui/components/Dropdown';
 import { ToolbarDropdown } from '@vibe/ui/components/Toolbar';
-import { AgentProviderCapability, type ExecutorConfig } from 'shared/types';
+import {
+  AgentProviderCapability,
+  type ExecutorConfig,
+  type SelectedSkill,
+} from 'shared/types';
 import type { WorkflowNode } from '../model/workflowGraph';
 import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
 
@@ -32,6 +36,7 @@ export interface WorkflowAgentStepEditValue {
   prompt: string;
   includeWorkflowContext: boolean;
   executorConfig: ExecutorConfig | null;
+  selectedSkills: SelectedSkill[];
 }
 
 export interface WorkflowAgentStepEditPanelProps {
@@ -61,6 +66,7 @@ export function WorkflowAgentStepEditPanel({
   const { profiles, config } = useUserSystem();
   const [displayName, setDisplayName] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const [includeWorkflowContext, setIncludeWorkflowContext] = useState(true);
 
   const storedExecutorConfig = useMemo(
@@ -69,7 +75,13 @@ export function WorkflowAgentStepEditPanel({
   );
 
   useEffect(() => {
-    if (!node) return;
+    if (!node) {
+      setDisplayName('');
+      setPrompt('');
+      setSelectedSkills([]);
+      setIncludeWorkflowContext(true);
+      return;
+    }
     setDisplayName(
       typeof node.data.display_name === 'string' ? node.data.display_name : ''
     );
@@ -78,6 +90,7 @@ export function WorkflowAgentStepEditPanel({
         ? node.data.prompt_template
         : ''
     );
+    setSelectedSkills(node.data.selected_skills ?? []);
     setIncludeWorkflowContext(node.data.include_workflow_context !== false);
   }, [node]);
 
@@ -136,6 +149,7 @@ export function WorkflowAgentStepEditPanel({
       prompt,
       includeWorkflowContext,
       executorConfig,
+      selectedSkills,
     });
   };
 
@@ -202,6 +216,8 @@ export function WorkflowAgentStepEditPanel({
               disabled={isConfigDisabled}
               className="max-h-[42vh] min-h-[180px] overflow-y-auto px-3 py-2"
               executor={effectiveExecutor}
+              selectedSkills={selectedSkills}
+              onSelectedSkillsChange={setSelectedSkills}
               sendShortcut={config?.send_message_shortcut}
             />
           </div>

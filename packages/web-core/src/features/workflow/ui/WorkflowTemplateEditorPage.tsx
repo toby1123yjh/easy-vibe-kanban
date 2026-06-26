@@ -779,6 +779,7 @@ export function WorkflowTemplateEditorPage({
     prompt,
     includeWorkflowContext,
     executorConfig,
+    selectedSkills,
   }: WorkflowAgentStepEditValue) => {
     if (!graph || !editPanelNodeId || readOnly || isUpdating) {
       return;
@@ -796,6 +797,7 @@ export function WorkflowTemplateEditorPage({
         prompt,
         executorConfig,
         includeWorkflowContext,
+        selectedSkills,
       }),
     });
     const nextNode = nextGraph.nodes.find(
@@ -805,6 +807,8 @@ export function WorkflowTemplateEditorPage({
       currentNode?.data.prompt_template !== nextNode?.data.prompt_template ||
       (currentNode?.data.include_workflow_context !== false) !==
         (nextNode?.data.include_workflow_context !== false) ||
+      JSON.stringify(currentNode?.data.selected_skills ?? []) !==
+        JSON.stringify(nextNode?.data.selected_skills ?? []) ||
       JSON.stringify(currentNode?.data.executor_config ?? null) !==
         JSON.stringify(nextNode?.data.executor_config ?? null);
     setGraph(nextGraph);

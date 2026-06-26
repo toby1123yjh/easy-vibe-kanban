@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+api-types = { path = "../api-types" }
 regex = "1.11.1"
 serde = { workspace = true }
 serde_json = { workspace = true }

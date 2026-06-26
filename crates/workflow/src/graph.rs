@@ -1,3 +1,4 @@
+use api_types::SelectedSkill;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -135,6 +136,8 @@ pub struct WorkflowNodeData {
     pub executor_config: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_template: Option<String>,
+    #[serde(default, skip_serializing_if = "selected_skills_is_empty")]
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_workflow_context: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -161,6 +164,12 @@ pub struct WorkflowNodeData {
     pub regex: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_chars: Option<usize>,
+}
+
+fn selected_skills_is_empty(selected_skills: &Option<Vec<SelectedSkill>>) -> bool {
+    selected_skills
+        .as_ref()
+        .is_none_or(|selected_skills| selected_skills.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -323,6 +332,53 @@ mod tests {
                 .condition
                 .as_deref(),
             Some("Implementation is required")
+        );
+    }
+
+    #[test]
+    fn parses_and_serializes_agent_selected_skills() {
+        let graph: WorkflowGraph = serde_json::from_value(serde_json::json!({
+            "version": 2,
+            "nodes": [
+                {
+                    "id": "agent",
+                    "type": "agent",
+                    "data": {
+                        "display_name": "Implement",
+                        "prompt_template": "Use the selected skill.",
+                        "selected_skills": [
+                            {
+                                "name": "trellis-before-dev",
+                                "path": "C:/skills/trellis-before-dev/SKILL.md"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "edges": []
+        }))
+        .unwrap();
+
+        let skills = graph.nodes[0].data.selected_skills.as_ref().unwrap();
+        assert_eq!(skills[0].name, "trellis-before-dev");
+        assert_eq!(
+            skills[0].path,
+            std::path::PathBuf::from("C:/skills/trellis-before-dev/SKILL.md")
+        );
+
+        let value = serde_json::to_value(&graph).unwrap();
+        assert_eq!(
+            value["nodes"][0]["data"]["selected_skills"][0]["path"],
+            "C:/skills/trellis-before-dev/SKILL.md"
+        );
+
+        let mut empty_skills_graph = graph;
+        empty_skills_graph.nodes[0].data.selected_skills = Some(Vec::new());
+        let empty_value = serde_json::to_value(&empty_skills_graph).unwrap();
+        assert!(
+            empty_value["nodes"][0]["data"]
+                .get("selected_skills")
+                .is_none()
         );
     }
 

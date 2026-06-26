@@ -2798,6 +2798,7 @@ name = "executors"
 version = "0.1.44"
 dependencies = [
  "agent-client-protocol",
+ "api-types",
  "async-stream",
  "async-trait",
  "base64 0.22.1",
@@ -12678,6 +12679,7 @@ dependencies = [
 name = "workflow"
 version = "0.1.0"
 dependencies = [
+ "api-types",
  "regex",
  "serde",
  "serde_json",

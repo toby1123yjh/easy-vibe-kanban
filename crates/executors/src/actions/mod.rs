@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
@@ -23,13 +20,8 @@ pub mod coding_agent_initial;
 pub mod review;
 pub mod script;
 
+pub use api_types::SelectedSkill;
 pub use review::RepoReviewContext;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-pub struct SelectedSkill {
-    pub name: String,
-    pub path: PathBuf,
-}
 
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]

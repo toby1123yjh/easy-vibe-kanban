@@ -4,6 +4,7 @@ version = "0.1.44"
 edition = "2024"
 
 [dependencies]
+api-types = { path = "../api-types" }
 workspace_utils = { path = "../utils", package = "utils" }
 git = { path = "../git" }
 tokio = { workspace = true }

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { CheckIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { AgentIcon } from '@/shared/components/AgentIcon';
@@ -17,7 +17,11 @@ import {
 } from '@vibe/ui/components/Dropdown';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { ToolbarDropdown } from '@vibe/ui/components/Toolbar';
-import { AgentProviderCapability, type ExecutorConfig } from 'shared/types';
+import {
+  AgentProviderCapability,
+  type ExecutorConfig,
+  type SelectedSkill,
+} from 'shared/types';
 import type { WorkflowNode, WorkflowNodeData } from '../model/workflowGraph';
 import {
   coerceWorkflowNodeExecutorConfig,
@@ -29,9 +33,12 @@ const WORKFLOW_AGENT_DRAFT_REQUIRED_CAPABILITIES = [
   AgentProviderCapability.WORKFLOW_AGENT_STEP,
 ] as const;
 
+const EMPTY_SELECTED_SKILLS: SelectedSkill[] = [];
+
 interface WorkflowAgentDraftSubmit {
   prompt: string;
   executorConfig: ExecutorConfig | null;
+  selectedSkills: SelectedSkill[];
 }
 
 interface WorkflowAgentNodeDraftPanelProps {
@@ -62,6 +69,22 @@ export function WorkflowAgentNodeDraftPanel({
       ? node.data.prompt_template
       : '';
   const includeWorkflowContext = node.data.include_workflow_context !== false;
+  const selectedSkills = node.data.selected_skills ?? EMPTY_SELECTED_SKILLS;
+  const promptRef = useRef(prompt);
+  const includeWorkflowContextRef = useRef(includeWorkflowContext);
+  const selectedSkillsRef = useRef(selectedSkills);
+
+  useEffect(() => {
+    promptRef.current = prompt;
+  }, [prompt]);
+
+  useEffect(() => {
+    includeWorkflowContextRef.current = includeWorkflowContext;
+  }, [includeWorkflowContext]);
+
+  useEffect(() => {
+    selectedSkillsRef.current = selectedSkills;
+  }, [selectedSkills]);
 
   const storedExecutorConfig = useMemo(
     () => coerceWorkflowNodeExecutorConfig(node.data.executor_config),
@@ -72,7 +95,8 @@ export function WorkflowAgentNodeDraftPanel({
     (
       nextPrompt: string,
       nextExecutorConfig: ExecutorConfig | null,
-      nextIncludeWorkflowContext: boolean
+      nextIncludeWorkflowContext: boolean,
+      nextSelectedSkills: SelectedSkill[]
     ) => {
       if (readOnly || !onChange) return;
       onChange(
@@ -81,6 +105,7 @@ export function WorkflowAgentNodeDraftPanel({
           prompt: nextPrompt,
           executorConfig: nextExecutorConfig,
           includeWorkflowContext: nextIncludeWorkflowContext,
+          selectedSkills: nextSelectedSkills,
         })
       );
     },
@@ -103,7 +128,12 @@ export function WorkflowAgentNodeDraftPanel({
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
     onPersist: (nextConfig) =>
-      persistDraft(prompt, nextConfig, includeWorkflowContext),
+      persistDraft(
+        promptRef.current,
+        nextConfig,
+        includeWorkflowContextRef.current,
+        selectedSkillsRef.current
+      ),
   });
 
   const policyExecutorSource = useMemo(() => {
@@ -128,11 +158,33 @@ export function WorkflowAgentNodeDraftPanel({
   );
 
   const handlePromptChange = (nextPrompt: string) => {
-    persistDraft(nextPrompt, executorConfig, includeWorkflowContext);
+    promptRef.current = nextPrompt;
+    persistDraft(
+      nextPrompt,
+      executorConfig,
+      includeWorkflowContextRef.current,
+      selectedSkillsRef.current
+    );
   };
 
   const handleWorkflowContextChange = (checked: boolean) => {
-    persistDraft(prompt, executorConfig, checked);
+    includeWorkflowContextRef.current = checked;
+    persistDraft(
+      promptRef.current,
+      executorConfig,
+      checked,
+      selectedSkillsRef.current
+    );
+  };
+
+  const handleSelectedSkillsChange = (nextSelectedSkills: SelectedSkill[]) => {
+    selectedSkillsRef.current = nextSelectedSkills;
+    persistDraft(
+      promptRef.current,
+      executorConfig,
+      includeWorkflowContextRef.current,
+      nextSelectedSkills
+    );
   };
 
   const isDisabled = readOnly || !onChange || isSubmitting;
@@ -148,8 +200,17 @@ export function WorkflowAgentNodeDraftPanel({
   const handleDone = () => {
     if (!canSubmit || !executorConfig) return;
 
-    persistDraft(prompt, executorConfig, includeWorkflowContext);
-    onSubmit?.({ prompt, executorConfig });
+    persistDraft(
+      promptRef.current,
+      executorConfig,
+      includeWorkflowContextRef.current,
+      selectedSkillsRef.current
+    );
+    onSubmit?.({
+      prompt: promptRef.current,
+      executorConfig,
+      selectedSkills: selectedSkillsRef.current,
+    });
     onDone?.();
   };
 
@@ -179,6 +240,8 @@ export function WorkflowAgentNodeDraftPanel({
                 disabled={isDisabled}
                 className="min-h-double max-h-[44vh] overflow-y-auto"
                 executor={effectiveExecutor}
+                selectedSkills={selectedSkills}
+                onSelectedSkillsChange={handleSelectedSkillsChange}
                 autoFocus
                 sendShortcut={config?.send_message_shortcut}
               />

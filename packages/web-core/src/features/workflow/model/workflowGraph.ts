@@ -2,6 +2,7 @@ import type {
   Node as ReactFlowNode,
   Edge as ReactFlowEdge,
 } from '@xyflow/react';
+import type { SelectedSkill } from 'shared/types';
 import { createDefaultNodeData } from './workflowNodeCatalog';
 import { getWorkflowEdgeLabel } from './workflowPresentation';
 
@@ -91,6 +92,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   role_template_id?: string;
   executor_config?: unknown;
   prompt_template?: string;
+  selected_skills?: SelectedSkill[];
   include_workflow_context?: boolean;
   output_capture?: OutputCaptureMode;
   attempts?: WorkflowArenaAttemptConfig[];

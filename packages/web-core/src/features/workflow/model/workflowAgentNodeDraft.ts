@@ -1,4 +1,8 @@
-import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
+import {
+  BaseCodingAgent,
+  type ExecutorConfig,
+  type SelectedSkill,
+} from 'shared/types';
 import type { WorkflowNode, WorkflowNodeData } from './workflowGraph';
 
 const BASE_CODING_AGENT_VALUES = new Set<BaseCodingAgent>(
@@ -58,16 +62,24 @@ export function createWorkflowAgentNodeDraftPatch({
   prompt,
   executorConfig,
   includeWorkflowContext,
+  selectedSkills,
 }: {
   prompt: string;
   executorConfig: ExecutorConfig | null;
   includeWorkflowContext?: boolean;
+  selectedSkills?: SelectedSkill[];
 }): Partial<WorkflowNodeData> {
   return {
     prompt_template: prompt,
     executor_config: executorConfig ?? undefined,
     ...(typeof includeWorkflowContext === 'boolean'
       ? { include_workflow_context: includeWorkflowContext }
+      : {}),
+    ...(selectedSkills
+      ? {
+          selected_skills:
+            selectedSkills.length > 0 ? selectedSkills : undefined,
+        }
       : {}),
   };
 }

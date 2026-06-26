@@ -15,7 +15,10 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::profile::{ExecutorConfig, ExecutorConfigs};
+use executors::{
+    actions::SelectedSkill,
+    profile::{ExecutorConfig, ExecutorConfigs},
+};
 use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
 use services::services::{
@@ -117,6 +120,7 @@ pub struct AgentNodeRequest {
     pub session_id: Option<Uuid>,
     pub workspace_id: Uuid,
     pub prompt: String,
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     pub executor_config: Option<Value>,
 }
 
@@ -294,7 +298,7 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             &self.deployment,
             session.clone(),
             request.prompt,
-            None,
+            request.selected_skills,
             executor_config,
             None,
             None,
@@ -1362,6 +1366,7 @@ where
                     session_id,
                     workspace_id,
                     prompt,
+                    selected_skills: agent_node_selected_skills(node),
                     executor_config: node.data.executor_config.clone(),
                 })
                 .await
@@ -1454,6 +1459,7 @@ where
                     session_id: Some(router_session_id),
                     workspace_id,
                     prompt,
+                    selected_skills: None,
                     executor_config: Some(router_executor_config),
                 })
                 .await
@@ -1755,6 +1761,14 @@ fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> Str
     } else {
         node_prompt
     }
+}
+
+fn agent_node_selected_skills(node: &WorkflowNode) -> Option<Vec<SelectedSkill>> {
+    node.data
+        .selected_skills
+        .as_ref()
+        .filter(|skills| !skills.is_empty())
+        .cloned()
 }
 
 fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
@@ -3360,6 +3374,27 @@ mod tests {
         );
         assert!(!prompt.contains("# Workflow Agent Envelope"));
         assert!(!prompt.contains("## Direct Upstream Handoff"));
+    }
+
+    #[test]
+    fn agent_node_selected_skills_preserves_non_empty_skills_only() {
+        let mut node = workflow_node(
+            "agent-implement",
+            WorkflowNodeKind::Agent,
+            "Implement the requested change.",
+        );
+
+        assert_eq!(agent_node_selected_skills(&node), None);
+
+        node.data.selected_skills = Some(Vec::new());
+        assert_eq!(agent_node_selected_skills(&node), None);
+
+        node.data.selected_skills = Some(vec![SelectedSkill {
+            name: "trellis-before-dev".to_string(),
+            path: "C:/skills/trellis-before-dev/SKILL.md".into(),
+        }]);
+
+        assert_eq!(agent_node_selected_skills(&node), node.data.selected_skills);
     }
 
     #[test]

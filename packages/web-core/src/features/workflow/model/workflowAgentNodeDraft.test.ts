@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
+import {
+  BaseCodingAgent,
+  type ExecutorConfig,
+  type SelectedSkill,
+} from 'shared/types';
 import type { WorkflowNode } from './workflowGraph';
 import {
   coerceWorkflowNodeExecutorConfig,
@@ -50,6 +54,39 @@ describe('workflow agent node draft sessions', () => {
       prompt_template: 'Run exactly this prompt',
       executor_config: undefined,
       include_workflow_context: false,
+    });
+  });
+
+  it('persists selected skills and omits empty skill selections', () => {
+    const selectedSkills: SelectedSkill[] = [
+      {
+        name: 'trellis-before-dev',
+        path: 'C:/skills/trellis-before-dev/SKILL.md',
+      },
+    ];
+
+    expect(
+      createWorkflowAgentNodeDraftPatch({
+        prompt: 'Use the selected skill',
+        executorConfig: null,
+        selectedSkills,
+      })
+    ).toEqual({
+      prompt_template: 'Use the selected skill',
+      executor_config: undefined,
+      selected_skills: selectedSkills,
+    });
+
+    expect(
+      createWorkflowAgentNodeDraftPatch({
+        prompt: 'No selected skill',
+        executorConfig: null,
+        selectedSkills: [],
+      })
+    ).toEqual({
+      prompt_template: 'No selected skill',
+      executor_config: undefined,
+      selected_skills: undefined,
     });
   });
 
