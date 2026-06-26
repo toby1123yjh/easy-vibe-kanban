@@ -1,6 +1,5 @@
 import {
   AgentProviderCapability,
-  AgentProviderReadiness,
   type AgentProviderPolicy,
   type ExecutionProcess,
 } from 'shared/types';
@@ -9,6 +8,7 @@ import {
   isExecutionProcessActive,
   isExecutionProcessFailedLike,
 } from './executionProcessRuntime';
+import { getAgentProviderBlockedReason } from './agentProviderOptions';
 
 export type RuntimeAction =
   | 'send_initial'
@@ -69,12 +69,6 @@ export interface RuntimeActionPolicyInput {
   providerPolicy?: AgentProviderPolicy | null;
 }
 
-const READY_PROVIDER_STATES = new Set<AgentProviderReadiness>([
-  AgentProviderReadiness.READY,
-  AgentProviderReadiness.INSTALLED,
-  AgentProviderReadiness.DEGRADED,
-]);
-
 const CODING_AGENT_RUN_REASON = 'codingagent';
 
 function allow(action: RuntimeAction): RuntimeActionDecision {
@@ -94,23 +88,6 @@ function isCodingAgentProcess(process: ExecutionProcess): boolean {
 
 function lastProcess(processes: ExecutionProcess[]): ExecutionProcess | null {
   return processes.length > 0 ? processes[processes.length - 1] : null;
-}
-
-function providerBlockReason(
-  providerPolicy: AgentProviderPolicy | null | undefined,
-  capability: AgentProviderCapability
-): RuntimeActionBlockedReason | null {
-  if (!providerPolicy) return null;
-  if (
-    providerPolicy.disabled ||
-    !READY_PROVIDER_STATES.has(providerPolicy.readiness)
-  ) {
-    return 'provider_not_ready';
-  }
-  if (!providerPolicy.capabilities.includes(capability)) {
-    return 'provider_capability_missing';
-  }
-  return null;
 }
 
 function mutationBlockReason(
@@ -152,17 +129,17 @@ export function deriveRuntimeActionPolicy(
     activeLifecycle === 'cancelling' ||
     latestLifecycle === 'cancelling';
 
-  const providerInitialBlock = providerBlockReason(
+  const providerInitialBlock = getAgentProviderBlockedReason(
     input.providerPolicy,
-    AgentProviderCapability.INITIAL_RUN
+    [AgentProviderCapability.INITIAL_RUN]
   );
-  const providerFollowUpBlock = providerBlockReason(
+  const providerFollowUpBlock = getAgentProviderBlockedReason(
     input.providerPolicy,
-    AgentProviderCapability.FOLLOW_UP
+    [AgentProviderCapability.FOLLOW_UP]
   );
-  const providerResumeBlock = providerBlockReason(
+  const providerResumeBlock = getAgentProviderBlockedReason(
     input.providerPolicy,
-    AgentProviderCapability.SESSION_RESUME
+    [AgentProviderCapability.SESSION_RESUME]
   );
   const mutationBlock = mutationBlockReason(input);
   const ownedInputBlock = ownedInputModeBlockReason(input);

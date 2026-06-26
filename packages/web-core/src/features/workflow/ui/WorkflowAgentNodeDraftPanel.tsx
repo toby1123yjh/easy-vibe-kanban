@@ -5,8 +5,10 @@ import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { getAgentProviderBlockedReasonLabel } from '@/shared/lib/agentProviderOptions';
 import { toPrettyCase } from '@/shared/lib/string';
 import { ChatBoxBase, VisualVariant } from '@vibe/ui/components/ChatBoxBase';
 import {
@@ -15,12 +17,17 @@ import {
 } from '@vibe/ui/components/Dropdown';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { ToolbarDropdown } from '@vibe/ui/components/Toolbar';
-import type { BaseCodingAgent, ExecutorConfig } from 'shared/types';
+import { AgentProviderCapability, type ExecutorConfig } from 'shared/types';
 import type { WorkflowNode, WorkflowNodeData } from '../model/workflowGraph';
 import {
   coerceWorkflowNodeExecutorConfig,
   createWorkflowAgentNodeDraftPatch,
 } from '../model/workflowAgentNodeDraft';
+
+const WORKFLOW_AGENT_DRAFT_REQUIRED_CAPABILITIES = [
+  AgentProviderCapability.INITIAL_RUN,
+  AgentProviderCapability.WORKFLOW_AGENT_STEP,
+] as const;
 
 interface WorkflowAgentDraftSubmit {
   prompt: string;
@@ -99,6 +106,27 @@ export function WorkflowAgentNodeDraftPanel({
       persistDraft(prompt, nextConfig, includeWorkflowContext),
   });
 
+  const policyExecutorSource = useMemo(() => {
+    const next = [...executorOptions];
+    if (effectiveExecutor && !next.includes(effectiveExecutor)) {
+      next.unshift(effectiveExecutor);
+    }
+    return next;
+  }, [effectiveExecutor, executorOptions]);
+  const { options: policyExecutorOptions } = useAgentProviderOptions({
+    executors: policyExecutorSource,
+    requiredCapabilities: WORKFLOW_AGENT_DRAFT_REQUIRED_CAPABILITIES,
+  });
+  const selectedExecutorOption = useMemo(
+    () =>
+      effectiveExecutor
+        ? policyExecutorOptions.find(
+            (option) => option.executor === effectiveExecutor
+          )
+        : null,
+    [effectiveExecutor, policyExecutorOptions]
+  );
+
   const handlePromptChange = (nextPrompt: string) => {
     persistDraft(nextPrompt, executorConfig, includeWorkflowContext);
   };
@@ -111,9 +139,14 @@ export function WorkflowAgentNodeDraftPanel({
   const primaryActionLabel =
     submitLabel ??
     (onSubmit ? t('workflow.agentDraft.startRun') : t('buttons.save'));
+  const canSubmit =
+    !isDisabled &&
+    !!prompt.trim() &&
+    !!executorConfig &&
+    selectedExecutorOption?.enabled !== false;
 
   const handleDone = () => {
-    if (isDisabled || !prompt.trim() || !executorConfig) return;
+    if (!canSubmit || !executorConfig) return;
 
     persistDraft(prompt, executorConfig, includeWorkflowContext);
     onSubmit?.({ prompt, executorConfig });
@@ -164,15 +197,23 @@ export function WorkflowAgentNodeDraftPanel({
                   <DropdownMenuLabel>
                     {t('modelSelector.agent')}
                   </DropdownMenuLabel>
-                  {executorOptions.map((executor) => (
+                  {policyExecutorOptions.map((option) => (
                     <DropdownMenuItem
-                      key={executor}
+                      key={option.executor}
                       icon={
-                        effectiveExecutor === executor ? CheckIcon : undefined
+                        effectiveExecutor === option.executor
+                          ? CheckIcon
+                          : undefined
                       }
-                      onClick={() => setExecutor(executor as BaseCodingAgent)}
+                      disabled={!option.enabled}
+                      badge={
+                        getAgentProviderBlockedReasonLabel(
+                          option.disabledReason
+                        ) ?? undefined
+                      }
+                      onClick={() => setExecutor(option.executor)}
                     >
-                      {toPrettyCase(executor)}
+                      {toPrettyCase(option.executor)}
                     </DropdownMenuItem>
                   ))}
                 </ToolbarDropdown>
@@ -229,7 +270,7 @@ export function WorkflowAgentNodeDraftPanel({
                 }
                 onClick={handleDone}
                 actionIcon={isSubmitting ? 'spinner' : undefined}
-                disabled={isDisabled || !prompt.trim() || !executorConfig}
+                disabled={!canSubmit}
               />
             }
           />

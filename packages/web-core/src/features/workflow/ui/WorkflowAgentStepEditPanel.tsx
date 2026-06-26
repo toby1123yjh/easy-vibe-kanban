@@ -6,8 +6,10 @@ import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { getAgentProviderBlockedReasonLabel } from '@/shared/lib/agentProviderOptions';
 import { toPrettyCase } from '@/shared/lib/string';
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@vibe/ui/components/Button';
@@ -16,9 +18,14 @@ import {
   DropdownMenuLabel,
 } from '@vibe/ui/components/Dropdown';
 import { ToolbarDropdown } from '@vibe/ui/components/Toolbar';
-import type { BaseCodingAgent, ExecutorConfig } from 'shared/types';
+import { AgentProviderCapability, type ExecutorConfig } from 'shared/types';
 import type { WorkflowNode } from '../model/workflowGraph';
 import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
+
+const WORKFLOW_AGENT_REQUIRED_CAPABILITIES = [
+  AgentProviderCapability.INITIAL_RUN,
+  AgentProviderCapability.WORKFLOW_AGENT_STEP,
+] as const;
 
 export interface WorkflowAgentStepEditValue {
   displayName: string;
@@ -92,9 +99,35 @@ export function WorkflowAgentStepEditPanel({
     onPersist: onExecutorConfigChange,
   });
 
+  const policyExecutorSource = useMemo(() => {
+    const next = [...executorOptions];
+    if (effectiveExecutor && !next.includes(effectiveExecutor)) {
+      next.unshift(effectiveExecutor);
+    }
+    return next;
+  }, [effectiveExecutor, executorOptions]);
+  const { options: policyExecutorOptions } = useAgentProviderOptions({
+    executors: policyExecutorSource,
+    requiredCapabilities: WORKFLOW_AGENT_REQUIRED_CAPABILITIES,
+  });
+  const selectedExecutorOption = useMemo(
+    () =>
+      effectiveExecutor
+        ? policyExecutorOptions.find(
+            (option) => option.executor === effectiveExecutor
+          )
+        : null,
+    [effectiveExecutor, policyExecutorOptions]
+  );
+
   const isTitleDisabled = readOnly || isSaving || !node;
   const isConfigDisabled = isTitleDisabled || isRunning;
-  const canSave = !readOnly && !isSaving && !!node && !!executorConfig;
+  const canSave =
+    !readOnly &&
+    !isSaving &&
+    !!node &&
+    !!executorConfig &&
+    selectedExecutorOption?.enabled !== false;
 
   const handleSave = () => {
     if (!canSave) return;
@@ -225,15 +258,23 @@ export function WorkflowAgentStepEditPanel({
                 <DropdownMenuLabel>
                   {t('workflow.agentEdit.agent')}
                 </DropdownMenuLabel>
-                {executorOptions.map((executor) => (
+                {policyExecutorOptions.map((option) => (
                   <DropdownMenuItem
-                    key={executor}
+                    key={option.executor}
                     icon={
-                      effectiveExecutor === executor ? CheckIcon : undefined
+                      effectiveExecutor === option.executor
+                        ? CheckIcon
+                        : undefined
                     }
-                    onClick={() => setExecutor(executor as BaseCodingAgent)}
+                    disabled={!option.enabled}
+                    badge={
+                      getAgentProviderBlockedReasonLabel(
+                        option.disabledReason
+                      ) ?? undefined
+                    }
+                    onClick={() => setExecutor(option.executor)}
                   >
-                    {toPrettyCase(executor)}
+                    {toPrettyCase(option.executor)}
                   </DropdownMenuItem>
                 ))}
               </ToolbarDropdown>

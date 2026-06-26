@@ -1,5 +1,5 @@
 import { create, useModal } from '@ebay/nice-modal-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@vibe/ui/components/KeyboardDialog';
-import { BaseCodingAgent } from 'shared/types';
+import { AgentProviderCapability, BaseCodingAgent } from 'shared/types';
 import type { Repo } from 'shared/types';
 import { repoApi } from '@/shared/lib/api';
 import {
@@ -24,6 +24,7 @@ import {
 } from '@/shared/lib/arenaApi';
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
 import { useRepoBranches } from '@/shared/hooks/useRepoBranches';
+import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import BranchSelector from '@/shared/components/tasks/BranchSelector';
 import { defineModal } from '@/shared/lib/modals';
@@ -49,7 +50,13 @@ interface AttemptDraft {
 
 const ARENA_MIN_ATTEMPTS = 2;
 const ARENA_MAX_ATTEMPTS_DEFAULT = 6;
-const EXECUTOR_OPTIONS = Object.values(BaseCodingAgent);
+const FALLBACK_EXECUTOR_OPTIONS = Object.values(
+  BaseCodingAgent
+) as BaseCodingAgent[];
+const DEFAULT_EXECUTOR = FALLBACK_EXECUTOR_OPTIONS[0] as BaseCodingAgent;
+const ARENA_REQUIRED_CAPABILITIES = [
+  AgentProviderCapability.INITIAL_RUN,
+] as const;
 
 let attemptIdCounter = 0;
 function nextAttemptId(): string {
@@ -63,6 +70,18 @@ function defaultDraft(executor: BaseCodingAgent): AttemptDraft {
     executor,
     variant: '',
   };
+}
+
+function getDefaultArenaExecutor(
+  index: number,
+  executors: readonly BaseCodingAgent[]
+): BaseCodingAgent {
+  return (
+    executors[index] ??
+    executors[0] ??
+    FALLBACK_EXECUTOR_OPTIONS[index] ??
+    DEFAULT_EXECUTOR
+  );
 }
 
 function getRepoDisplayName(repo: Repo): string {
@@ -100,15 +119,45 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     const [baseBranch, setBaseBranch] = useState('main');
     const [repoId, setRepoId] = useState<string | null>(null);
     const [attempts, setAttempts] = useState<AttemptDraft[]>(() => [
-      defaultDraft(EXECUTOR_OPTIONS[0] as BaseCodingAgent),
-      defaultDraft(
-        (EXECUTOR_OPTIONS[1] as BaseCodingAgent) ??
-          (EXECUTOR_OPTIONS[0] as BaseCodingAgent)
-      ),
+      defaultDraft(getDefaultArenaExecutor(0, FALLBACK_EXECUTOR_OPTIONS)),
+      defaultDraft(getDefaultArenaExecutor(1, FALLBACK_EXECUTOR_OPTIONS)),
     ]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const canceledRef = useRef(false);
+
+    const { options: arenaExecutorOptions, garage: agentGarage } =
+      useAgentProviderOptions({
+        fallbackExecutors: FALLBACK_EXECUTOR_OPTIONS,
+        requiredCapabilities: ARENA_REQUIRED_CAPABILITIES,
+      });
+    const enabledArenaExecutors = useMemo(
+      () =>
+        arenaExecutorOptions
+          .filter((option) => option.enabled)
+          .map((option) => option.executor),
+      [arenaExecutorOptions]
+    );
+    const arenaExecutorOptionByExecutor = useMemo(
+      () =>
+        new Map(
+          arenaExecutorOptions.map((option) => [option.executor, option])
+        ),
+      [arenaExecutorOptions]
+    );
+    const getProviderDisabledLabel = useCallback(
+      (reason: string | null | undefined): string => {
+        if (reason === 'provider_capability_missing') {
+          return t('agentProvider.disabled.capabilityMissing', {
+            defaultValue: 'Missing required capability',
+          });
+        }
+        return t('agentProvider.disabled.notReady', {
+          defaultValue: 'Provider not ready',
+        });
+      },
+      [t]
+    );
 
     // Discover repos available for this project. We don't currently
     // filter by project membership — the user is expected to pick the
@@ -200,7 +249,31 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       }
     }, [baseBranch, branches, selectedProjectDefault, selectedRepo]);
 
-    const canAddAttempt = attempts.length < maxAttempts;
+    useEffect(() => {
+      if (enabledArenaExecutors.length === 0) return;
+
+      setAttempts((prev) => {
+        let changed = false;
+        const next = prev.map((attempt, index) => {
+          const option = arenaExecutorOptionByExecutor.get(attempt.executor);
+          const shouldReplace =
+            option?.enabled === false || (agentGarage !== null && !option);
+
+          if (!shouldReplace) return attempt;
+
+          changed = true;
+          return {
+            ...attempt,
+            executor: getDefaultArenaExecutor(index, enabledArenaExecutors),
+          };
+        });
+
+        return changed ? next : prev;
+      });
+    }, [agentGarage, arenaExecutorOptionByExecutor, enabledArenaExecutors]);
+
+    const canAddAttempt =
+      attempts.length < maxAttempts && enabledArenaExecutors.length > 0;
     const canRemoveAttempt = attempts.length > ARENA_MIN_ATTEMPTS;
 
     const handleClose = () => {
@@ -231,7 +304,9 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       if (!canAddAttempt) return;
       setAttempts((prev) => [
         ...prev,
-        defaultDraft(EXECUTOR_OPTIONS[0] as BaseCodingAgent),
+        defaultDraft(
+          getDefaultArenaExecutor(prev.length, enabledArenaExecutors)
+        ),
       ]);
     };
 
@@ -254,6 +329,26 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       if (!baseBranch.trim())
         return t('arena.create.validation.baseBranchRequired');
       if (!repoId) return t('arena.create.validation.repositoryRequired');
+      if (arenaExecutorOptions.length === 0) {
+        return t('arena.create.validation.noAvailableAgents', {
+          defaultValue: 'No agents are available for arena runs.',
+        });
+      }
+      const unavailableAttempt = attempts.find((attempt) => {
+        const option = arenaExecutorOptionByExecutor.get(attempt.executor);
+        return option?.enabled === false || (agentGarage !== null && !option);
+      });
+      if (unavailableAttempt) {
+        const option = arenaExecutorOptionByExecutor.get(
+          unavailableAttempt.executor
+        );
+        const reason = getProviderDisabledLabel(option?.disabledReason);
+        return t('arena.create.validation.executorUnavailable', {
+          agent: unavailableAttempt.executor,
+          reason,
+          defaultValue: `${unavailableAttempt.executor} is unavailable for arena runs: ${reason}.`,
+        });
+      }
       if (attempts.length < ARENA_MIN_ATTEMPTS)
         return t('arena.create.validation.minAttempts', {
           count: ARENA_MIN_ATTEMPTS,
@@ -263,7 +358,18 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           count: maxAttempts,
         });
       return null;
-    }, [prompt, baseBranch, repoId, attempts.length, maxAttempts, t]);
+    }, [
+      agentGarage,
+      arenaExecutorOptionByExecutor,
+      arenaExecutorOptions.length,
+      attempts,
+      baseBranch,
+      getProviderDisabledLabel,
+      maxAttempts,
+      prompt,
+      repoId,
+      t,
+    ]);
 
     const handleSubmit = async () => {
       if (validationError) {
@@ -515,12 +621,33 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
                       aria-label={t('arena.aria.attemptExecutor', {
                         index: idx + 1,
                       })}
+                      disabled={arenaExecutorOptions.length === 0}
                     >
-                      {EXECUTOR_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
+                      {arenaExecutorOptions.length === 0 ? (
+                        <option value={attempt.executor}>
+                          {t('arena.create.noAvailableAgents', {
+                            defaultValue: 'No available agents',
+                          })}
                         </option>
-                      ))}
+                      ) : (
+                        arenaExecutorOptions.map((option) => {
+                          const disabledLabel = option.enabled
+                            ? null
+                            : getProviderDisabledLabel(option.disabledReason);
+                          return (
+                            <option
+                              key={option.executor}
+                              value={option.executor}
+                              disabled={!option.enabled}
+                              title={disabledLabel ?? undefined}
+                            >
+                              {disabledLabel
+                                ? `${option.executor} - ${disabledLabel}`
+                                : option.executor}
+                            </option>
+                          );
+                        })
+                      )}
                     </select>
                     <Input
                       value={attempt.variant}

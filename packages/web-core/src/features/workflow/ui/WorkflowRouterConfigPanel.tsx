@@ -5,8 +5,10 @@ import { Loader2, X } from 'lucide-react';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { getAgentProviderBlockedReasonLabel } from '@/shared/lib/agentProviderOptions';
 import { toPrettyCase } from '@/shared/lib/string';
 import { cn } from '@/shared/lib/utils';
 import { Button } from '@vibe/ui/components/Button';
@@ -15,8 +17,17 @@ import {
   DropdownMenuLabel,
 } from '@vibe/ui/components/Dropdown';
 import { ToolbarDropdown } from '@vibe/ui/components/Toolbar';
-import type { BaseCodingAgent, ExecutorConfig } from 'shared/types';
+import {
+  AgentProviderCapability,
+  type BaseCodingAgent,
+  type ExecutorConfig,
+} from 'shared/types';
 import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
+
+const WORKFLOW_ROUTER_REQUIRED_CAPABILITIES = [
+  AgentProviderCapability.INITIAL_RUN,
+  AgentProviderCapability.WORKFLOW_AGENT_STEP,
+] as const;
 
 export interface WorkflowRouterConfigPanelProps {
   routerExecutorConfig?: unknown;
@@ -65,6 +76,18 @@ export function WorkflowRouterConfigPanel({
     configExecutorProfile: config?.executor_profile,
   });
 
+  const policyExecutorSource = useMemo(() => {
+    const next = [...executorOptions];
+    if (effectiveExecutor && !next.includes(effectiveExecutor)) {
+      next.unshift(effectiveExecutor);
+    }
+    return next;
+  }, [effectiveExecutor, executorOptions]);
+  const { options: policyExecutorOptions } = useAgentProviderOptions({
+    executors: policyExecutorSource,
+    requiredCapabilities: WORKFLOW_ROUTER_REQUIRED_CAPABILITIES,
+  });
+
   const isConfigDisabled = readOnly || isSaving;
   const hasStoredExecutorConfig = storedExecutorConfig !== null;
   const hasRouterExecutorSelection =
@@ -75,7 +98,19 @@ export function WorkflowRouterConfigPanel({
   const selectedRouterExecutorConfig = hasRouterExecutorSelection
     ? executorConfig
     : null;
-  const canSave = !isConfigDisabled && !!selectedRouterExecutorConfig;
+  const selectedExecutorOption = useMemo(
+    () =>
+      selectedRouterExecutor
+        ? policyExecutorOptions.find(
+            (option) => option.executor === selectedRouterExecutor
+          )
+        : null,
+    [policyExecutorOptions, selectedRouterExecutor]
+  );
+  const canSave =
+    !isConfigDisabled &&
+    !!selectedRouterExecutorConfig &&
+    selectedExecutorOption?.enabled !== false;
 
   const handleExecutorSelect = (executor: BaseCodingAgent) => {
     setHasExplicitExecutorSelection(true);
@@ -146,19 +181,23 @@ export function WorkflowRouterConfigPanel({
                     defaultValue: 'Agent',
                   })}
                 </DropdownMenuLabel>
-                {executorOptions.map((executor) => (
+                {policyExecutorOptions.map((option) => (
                   <DropdownMenuItem
-                    key={executor}
+                    key={option.executor}
                     icon={
-                      selectedRouterExecutor === executor
+                      selectedRouterExecutor === option.executor
                         ? CheckIcon
                         : undefined
                     }
-                    onClick={() =>
-                      handleExecutorSelect(executor as BaseCodingAgent)
+                    disabled={!option.enabled}
+                    badge={
+                      getAgentProviderBlockedReasonLabel(
+                        option.disabledReason
+                      ) ?? undefined
                     }
+                    onClick={() => handleExecutorSelect(option.executor)}
                   >
-                    {toPrettyCase(executor)}
+                    {toPrettyCase(option.executor)}
                   </DropdownMenuItem>
                 ))}
               </ToolbarDropdown>
