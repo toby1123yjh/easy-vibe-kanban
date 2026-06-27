@@ -40,6 +40,9 @@ tokio = { workspace = true }
 globwalk = "0.9"
 portable-pty = "0.8"
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal", "process"] }
+
 [build-dependencies]
 dotenv = "0.15"
 

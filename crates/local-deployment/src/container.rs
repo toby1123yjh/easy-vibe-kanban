@@ -63,7 +63,10 @@ use utils::{
 use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
-use crate::{agent_runtime_supervisor, command, copy};
+use crate::{
+    agent_process_registry::{AgentProcessRegistry, RegisteredAgentProcess},
+    agent_runtime_supervisor, command, copy,
+};
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
 
@@ -106,6 +109,7 @@ pub struct LocalContainerService {
     /// When stopping execution, we await these to ensure logs are fully persisted.
     db_stream_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
     exit_monitor_handles: Arc<RwLock<HashMap<Uuid, JoinHandle<()>>>>,
+    agent_process_registry: AgentProcessRegistry,
     workspace_touch_times: Arc<RwLock<HashMap<Uuid, Instant>>>,
     config: Arc<RwLock<Config>>,
     git: GitService,
@@ -135,6 +139,7 @@ impl LocalContainerService {
         let cancellation_tokens = Arc::new(RwLock::new(HashMap::new()));
         let db_stream_handles = Arc::new(RwLock::new(HashMap::new()));
         let exit_monitor_handles = Arc::new(RwLock::new(HashMap::new()));
+        let agent_process_registry = AgentProcessRegistry::default();
         let workspace_touch_times = Arc::new(RwLock::new(HashMap::new()));
         let notification_service = NotificationService::new(config.clone());
 
@@ -146,6 +151,7 @@ impl LocalContainerService {
             msg_stores,
             db_stream_handles,
             exit_monitor_handles,
+            agent_process_registry,
             workspace_touch_times,
             config,
             git,
@@ -157,6 +163,9 @@ impl LocalContainerService {
             remote_client,
         };
 
+        container
+            .cleanup_registered_agent_processes("startup")
+            .await;
         container.spawn_workspace_cleanup();
 
         container
@@ -236,6 +245,79 @@ impl LocalContainerService {
     async fn remove_child_from_store(&self, id: &Uuid) {
         let mut map = self.child_store.write().await;
         map.remove(id);
+    }
+
+    async fn cleanup_registered_agent_processes(&self, reason: &'static str) {
+        match self.agent_process_registry.cleanup_all().await {
+            Ok(report) if !report.is_empty() => {
+                tracing::info!(
+                    reason,
+                    attempted = report.attempted,
+                    removed = report.removed,
+                    survivors = report.survivors,
+                    "cleaned registered agent process trees"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    reason,
+                    error = %error,
+                    "failed to clean registered agent process registry"
+                );
+            }
+        }
+    }
+
+    async fn remove_registered_agent_process(
+        &self,
+        execution_process_id: Uuid,
+        reason: &'static str,
+    ) {
+        if let Err(error) = self
+            .agent_process_registry
+            .remove_execution(execution_process_id)
+            .await
+        {
+            tracing::warn!(
+                reason,
+                execution_process_id = %execution_process_id,
+                error = %error,
+                "failed to remove agent process registry entry"
+            );
+        }
+    }
+
+    async fn cleanup_registered_agent_execution(
+        &self,
+        execution_process_id: Uuid,
+        reason: &'static str,
+    ) {
+        match self
+            .agent_process_registry
+            .cleanup_execution(execution_process_id)
+            .await
+        {
+            Ok(report) if !report.is_empty() => {
+                tracing::info!(
+                    reason,
+                    execution_process_id = %execution_process_id,
+                    attempted = report.attempted,
+                    removed = report.removed,
+                    survivors = report.survivors,
+                    "cleaned registered agent process tree for execution"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    reason,
+                    execution_process_id = %execution_process_id,
+                    error = %error,
+                    "failed to clean agent process registry entry"
+                );
+            }
+        }
     }
 
     async fn add_cancellation_token(&self, id: Uuid, token: CancellationToken) {
@@ -857,6 +939,9 @@ impl LocalContainerService {
                 let mut child = child_lock.write().await;
                 let _ = child.start_kill();
             }
+            container
+                .remove_registered_agent_process(exec_id, "exit_monitor")
+                .await;
             child_store.write().await.remove(&exec_id);
         })
     }
@@ -1443,11 +1528,48 @@ impl ContainerService for LocalContainerService {
             }
         };
 
+        let pid = match spawned.child.inner().id() {
+            Some(pid) => pid,
+            None => {
+                let _ = command::kill_process_group(&mut spawned.child).await;
+                return Err(ContainerError::Other(anyhow!(
+                    "Spawned execution process has no OS pid"
+                )));
+            }
+        };
+        let registered_process = RegisteredAgentProcess::new(
+            execution_process.id,
+            Some(execution_process.session_id),
+            Some(workspace.id),
+            provider.clone(),
+            pid,
+            Some(pid),
+            None,
+        );
+        if let Err(error) = self
+            .agent_process_registry
+            .register(registered_process)
+            .await
+        {
+            tracing::warn!(
+                execution_process_id = %execution_process.id,
+                session_id = %execution_process.session_id,
+                workspace_id = %workspace.id,
+                pid,
+                error = %error,
+                "failed to register spawned agent process; killing child"
+            );
+            let _ = command::kill_process_group(&mut spawned.child).await;
+            return Err(ContainerError::Io(error));
+        }
+
         if let Err(e) = self
             .track_child_msgs_in_store(execution_process.id, &mut spawned.child)
             .await
         {
             let _ = command::kill_process_group(&mut spawned.child).await;
+            self.remove_registered_agent_process(execution_process.id, "spawn_tracking_failed")
+                .await;
             return Err(e);
         }
 
@@ -1478,12 +1600,7 @@ impl ContainerService for LocalContainerService {
         execution_process: &ExecutionProcess,
         status: ExecutionProcessStatus,
     ) -> Result<(), ContainerError> {
-        let child = self
-            .get_child_from_store(&execution_process.id)
-            .await
-            .ok_or_else(|| {
-                ContainerError::Other(anyhow!("Child process not found for execution"))
-            })?;
+        let child = self.get_child_from_store(&execution_process.id).await;
         let exit_code = if status == ExecutionProcessStatus::Completed {
             Some(0)
         } else {
@@ -1497,8 +1614,13 @@ impl ContainerService for LocalContainerService {
             "classified agent runtime cancellation request"
         );
 
-        ExecutionProcess::update_completion(&self.db.pool, execution_process.id, status, exit_code)
-            .await?;
+        ExecutionProcess::update_completion(
+            &self.db.pool,
+            execution_process.id,
+            status.clone(),
+            exit_code,
+        )
+        .await?;
 
         // Try graceful cancellation first, then force kill
         if let Some(cancel) = self.take_cancellation_token(&execution_process.id).await {
@@ -1521,18 +1643,31 @@ impl ContainerService for LocalContainerService {
             }
         }
 
-        {
-            let mut child_guard = child.write().await;
-            if let Err(e) = command::kill_process_group(&mut child_guard).await {
-                tracing::error!(
-                    "Failed to stop execution process {}: {}",
-                    execution_process.id,
-                    e
-                );
-                return Err(e);
+        if let Some(child) = child {
+            {
+                let mut child_guard = child.write().await;
+                if let Err(e) = command::kill_process_group(&mut child_guard).await {
+                    tracing::error!(
+                        "Failed to stop execution process {}: {}",
+                        execution_process.id,
+                        e
+                    );
+                    return Err(e);
+                }
             }
+            self.remove_child_from_store(&execution_process.id).await;
+            self.remove_registered_agent_process(execution_process.id, "explicit_stop")
+                .await;
+        } else {
+            tracing::warn!(
+                execution_process_id = %execution_process.id,
+                session_id = %execution_process.session_id,
+                requested_status = ?status,
+                "execution process has no in-memory child handle; cleaning stale registry entry"
+            );
+            self.cleanup_registered_agent_execution(execution_process.id, "missing_child_stop")
+                .await;
         }
-        self.remove_child_from_store(&execution_process.id).await;
 
         // Mark the process finished in the MsgStore and wait for DB persistence
         let db_stream_handle = self.take_db_stream_handle(&execution_process.id).await;
@@ -1714,6 +1849,8 @@ impl ContainerService for LocalContainerService {
                 tracing::info!("Successfully killed process: id={}", process.id);
             }
         }
+
+        self.cleanup_registered_agent_processes("shutdown").await;
 
         Ok(())
     }
