@@ -428,6 +428,7 @@
     "unableToRenderDiff": "無法顯示差異。",
     "updatedTodos": "更新的待辦事項",
     "viewInChangesPanel": "在變更面板中檢視",
+    "openFilePreview": "開啟檔案預覽",
     "sessions": {
       "newSession": "新工作階段",
       "latest": "最新",

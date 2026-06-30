@@ -28,6 +28,7 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
+  Files,
   Swords,
   User,
 } from 'lucide-react';
@@ -80,6 +81,10 @@ import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { AgentIcon } from '@/shared/components/AgentIcon';
+import {
+  WorkspaceFilesInlineInspector,
+  useWorkspaceFilePreviewState,
+} from '@/features/workspace-files';
 import {
   WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
   workflowCanvasEdgeTypes,
@@ -1076,6 +1081,33 @@ function NodeDetailsTab({
 }) {
   const { t } = useTranslation('common');
   const actionGate = getWorkflowNodeActionGate(selectedWork);
+  const [showFilesInspector, setShowFilesInspector] = useState(false);
+  const { target, openTarget, clearTarget } = useWorkspaceFilePreviewState();
+  const previewScopeKey = `${run.workspace_id ?? 'no-workspace'}:${selectedExecution.id}`;
+
+  useEffect(() => {
+    setShowFilesInspector(false);
+    clearTarget();
+  }, [clearTarget, previewScopeKey]);
+
+  if (showFilesInspector && run.workspace_id) {
+    return (
+      <div className="h-full min-h-[520px] overflow-hidden rounded border border-secondary">
+        <WorkspaceFilesInlineInspector
+          workspaceId={run.workspace_id}
+          target={target}
+          source="workflow"
+          sessionId={selectedExecution.session_id ?? undefined}
+          compact
+          title={t('workflow.dashboard.inspectFiles')}
+          onSelectFile={openTarget}
+          onClearTarget={clearTarget}
+          onClose={() => setShowFilesInspector(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-base">
       <div>
@@ -1168,6 +1200,9 @@ function NodeDetailsTab({
         selectedExecution={selectedExecution}
         sessionHref={null}
         workspaceHref={workspaceHref}
+        onInspectFiles={
+          run.workspace_id ? () => setShowFilesInspector(true) : undefined
+        }
       />
     </div>
   );
@@ -1236,11 +1271,13 @@ function NodeExecutionTab({
   selectedExecution,
   sessionHref,
   workspaceHref,
+  onInspectFiles,
 }: {
   run: WorkflowRunResponse;
   selectedExecution: WorkflowNodeExecutionResponse;
   sessionHref: string | null;
   workspaceHref: string | null;
+  onInspectFiles?: () => void;
 }) {
   const { t } = useTranslation('common');
   return (
@@ -1287,6 +1324,17 @@ function NodeExecutionTab({
             <a href={workspaceHref}>
               {t('workflow.dashboard.openWorkflowWorkspace')}
             </a>
+          </Button>
+        ) : null}
+        {onInspectFiles ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={onInspectFiles}
+          >
+            <Files className="mr-half size-3" />
+            {t('workflow.dashboard.inspectFiles')}
           </Button>
         ) : null}
       </div>

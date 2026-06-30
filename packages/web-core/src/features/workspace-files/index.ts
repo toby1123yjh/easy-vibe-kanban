@@ -1,6 +1,8 @@
 export * from './model/types';
 export * from './model/fileClassification';
 export * from './model/previewTarget';
+export * from './model/useWorkspaceFilePreviewResolver';
+export * from './model/WorkspaceFilePreviewActionsProvider';
 export * from './model/workspaceFileRawUrl';
 export * from './model/workspaceFileKeys';
 export * from './model/workspaceFileTree';
@@ -8,5 +10,7 @@ export * from './model/useWorkspaceFileTree';
 export * from './model/useWorkspaceFileContent';
 export * from './model/useWorkspaceFilePreviewState';
 export * from './model/WorkspaceFilesSelectionProvider';
+export * from './ui/WorkspaceFilePreviewTrigger';
 export * from './ui/WorkspaceFileBrowserPanel';
 export * from './ui/WorkspaceFilePreviewPanel';
+export * from './ui/WorkspaceFilesInlineInspector';

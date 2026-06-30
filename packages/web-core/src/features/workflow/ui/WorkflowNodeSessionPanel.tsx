@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -16,6 +17,7 @@ import {
   AlertCircle,
   Clock,
   ExternalLink,
+  Files,
   Play,
   Settings2,
 } from 'lucide-react';
@@ -34,6 +36,12 @@ import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
+import {
+  WorkspaceFilePreviewActionsProvider,
+  WorkspaceFilesInlineInspector,
+  useWorkspaceFilePreviewState,
+  type WorkspaceFilePreviewTarget,
+} from '@/features/workspace-files';
 import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { cn } from '@/shared/lib/utils';
@@ -68,6 +76,8 @@ interface WorkflowNodeSessionPanelProps {
   runStepTitle?: string;
   afterHeaderContent?: ReactNode;
   runtimeWork?: WorkflowNodeWorkView | null;
+  onInspectFiles?: () => void;
+  inspectFilesDisabled?: boolean;
 }
 
 interface WorkflowNodeSessionHeaderProps {
@@ -83,6 +93,8 @@ interface WorkflowNodeSessionHeaderProps {
   runStepDisabled?: boolean;
   runStepTitle?: string;
   runtimeWork?: WorkflowNodeWorkView | null;
+  onInspectFiles?: () => void;
+  inspectFilesDisabled?: boolean;
 }
 
 const cockpitToneClassMap: Record<StatusTone, string> = {
@@ -119,9 +131,28 @@ export function WorkflowNodeSessionPanel({
   runtimeWork,
 }: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
+  const [showFilesInspector, setShowFilesInspector] = useState(false);
+  const { target, openTarget, clearTarget } = useWorkspaceFilePreviewState();
+  const previewScopeKey = `${workspaceId ?? 'no-workspace'}:${nodeSessionId ?? 'no-session'}`;
   const preferredExecutorConfig = useMemo(
     () => coerceWorkflowNodeExecutorConfig(nodeData?.executor_config),
     [nodeData?.executor_config]
+  );
+
+  useEffect(() => {
+    setShowFilesInspector(false);
+    clearTarget();
+  }, [clearTarget, previewScopeKey]);
+
+  const handleInspectFiles = useCallback(() => {
+    setShowFilesInspector(true);
+  }, []);
+  const handleOpenWorkspaceFilePreview = useCallback(
+    (target: WorkspaceFilePreviewTarget) => {
+      openTarget(target);
+      setShowFilesInspector(true);
+    },
+    [openTarget]
   );
 
   if (!workspaceId || !nodeSessionId) {
@@ -161,18 +192,40 @@ export function WorkflowNodeSessionPanel({
           runStepDisabled={runStepDisabled}
           runStepTitle={runStepTitle}
           runtimeWork={runtimeWork}
+          onInspectFiles={handleInspectFiles}
+          inspectFilesDisabled={!workspaceId}
         />
       )}
       {afterHeaderContent}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <WorkflowNodeEmbeddedSession
-          execution={execution}
-          nodeSessionId={nodeSessionId}
-          sessionHref={sessionHref}
-          workspaceId={workspaceId}
-          workspaceHref={workspaceHref}
-          preferredExecutorConfig={preferredExecutorConfig}
-        />
+        <WorkspaceFilePreviewActionsProvider
+          enabled={Boolean(workspaceId)}
+          onOpenWorkspaceFilePreview={handleOpenWorkspaceFilePreview}
+        >
+          {showFilesInspector ? (
+            <WorkspaceFilesInlineInspector
+              key={`${workspaceId}-${nodeSessionId}`}
+              workspaceId={workspaceId}
+              target={target}
+              source="workflow"
+              sessionId={nodeSessionId}
+              compact
+              title="Files"
+              onSelectFile={openTarget}
+              onClearTarget={clearTarget}
+              onClose={() => setShowFilesInspector(false)}
+            />
+          ) : (
+            <WorkflowNodeEmbeddedSession
+              execution={execution}
+              nodeSessionId={nodeSessionId}
+              sessionHref={sessionHref}
+              workspaceId={workspaceId}
+              workspaceHref={workspaceHref}
+              preferredExecutorConfig={preferredExecutorConfig}
+            />
+          )}
+        </WorkspaceFilePreviewActionsProvider>
       </div>
     </div>
   );
@@ -191,6 +244,8 @@ function WorkflowNodeSessionHeader({
   runStepDisabled,
   runStepTitle,
   runtimeWork,
+  onInspectFiles,
+  inspectFilesDisabled,
 }: WorkflowNodeSessionHeaderProps) {
   const { t } = useTranslation('common');
   const agentDisplay = getWorkflowAgentDisplay(nodeData ?? {});
@@ -208,6 +263,7 @@ function WorkflowNodeSessionHeader({
   const statusTone = getNodeStatusTone(execution.status);
   const canRunStep = Boolean(onRunStep) && !runStepDisabled;
   const canEditConfig = Boolean(onEditConfig) && !editConfigDisabled;
+  const canInspectFiles = Boolean(onInspectFiles) && !inspectFilesDisabled;
   const openHref = sessionHref || workspaceHref;
 
   return (
@@ -269,6 +325,17 @@ function WorkflowNodeSessionHeader({
           >
             <Settings2 className="h-3.5 w-3.5" />
             {t('workflow.nodeSession.editConfig')}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            disabled={!canInspectFiles}
+            onClick={onInspectFiles}
+            className="gap-1.5"
+          >
+            <Files className="h-3.5 w-3.5" />
+            {t('workflow.nodeSession.inspectFiles')}
           </Button>
           {openHref ? (
             <Button asChild size="xs" variant="outline" className="gap-1.5">

@@ -3,6 +3,7 @@ import {
   CaretDownIcon,
   ArrowSquareUpRightIcon,
   FileIcon as DefaultFileIcon,
+  FileTextIcon,
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
@@ -41,6 +42,9 @@ interface ChatAggregatedDiffEntriesProps {
   onHoverChange: (hovered: boolean) => void;
   /** Callback to open file in changes panel */
   onOpenInChanges: (() => void) | null;
+  onOpenFilePreview?: () => void;
+  filePreviewDisabled?: boolean;
+  filePreviewTitle?: string;
   className?: string;
   fileIcon?: React.ElementType;
   isVSCode?: boolean;
@@ -189,6 +193,9 @@ export function ChatAggregatedDiffEntries({
   onToggle,
   onHoverChange,
   onOpenInChanges,
+  onOpenFilePreview,
+  filePreviewDisabled = false,
+  filePreviewTitle,
   className,
   fileIcon,
   isVSCode = false,
@@ -197,6 +204,7 @@ export function ChatAggregatedDiffEntries({
 }: ChatAggregatedDiffEntriesProps) {
   const { t } = useTranslation('tasks');
   const FileIcon = fileIcon ?? DefaultFileIcon;
+  const previewTitle = filePreviewTitle ?? t('conversation.openFilePreview');
 
   const handleClick = () => {
     if (isVSCode) {
@@ -292,6 +300,21 @@ export function ChatAggregatedDiffEntries({
           <span className="text-xs text-low shrink-0">
             · {entries.length} {entries.length === 1 ? 'edit' : 'edits'}
           </span>
+          {!isVSCode && onOpenFilePreview && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFilePreview();
+              }}
+              disabled={filePreviewDisabled}
+              className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors disabled:pointer-events-none disabled:opacity-50"
+              title={previewTitle}
+              aria-label={previewTitle}
+            >
+              <FileTextIcon className="size-icon-xs" />
+            </button>
+          )}
           {!isVSCode && onOpenInChanges && (
             <button
               type="button"
@@ -301,6 +324,7 @@ export function ChatAggregatedDiffEntries({
               }}
               className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
               title={t('conversation.viewInChangesPanel')}
+              aria-label={t('conversation.viewInChangesPanel')}
             >
               <ArrowSquareUpRightIcon className="size-icon-xs" />
             </button>

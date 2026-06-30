@@ -428,6 +428,7 @@
     "unableToRenderDiff": "No se puede mostrar la diferencia.",
     "updatedTodos": "Tareas actualizadas",
     "viewInChangesPanel": "Ver en panel de cambios",
+    "openFilePreview": "Open file preview",
     "sessions": {
       "newSession": "Nueva sesión",
       "latest": "Última",

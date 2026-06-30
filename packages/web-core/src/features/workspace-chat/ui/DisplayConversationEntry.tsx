@@ -25,6 +25,10 @@ import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
 import { useLogsPanelActions } from '@/shared/hooks/useLogsPanel';
+import {
+  useWorkspaceFilePreviewActions,
+  useWorkspaceFilePreviewResolver,
+} from '@/features/workspace-files';
 import { cn } from '@/shared/lib/utils';
 import {
   ScriptFixerDialog,
@@ -184,6 +188,9 @@ function renderToolUseEntry(
             change={change}
             expansionKey={`edit:${expansionKey}:${idx}`}
             status={status}
+            workspaceId={workspaceWithSession?.id}
+            sessionId={sessionId}
+            repos={repos}
           />
         ))}
       </>
@@ -324,7 +331,14 @@ function DisplayConversationEntry(props: Props) {
 
   // Handle aggregated diff groups (consecutive file_edit entries for same file)
   if (aggregatedDiffGroup) {
-    return <AggregatedDiffGroupEntry group={aggregatedDiffGroup} />;
+    return (
+      <AggregatedDiffGroupEntry
+        group={aggregatedDiffGroup}
+        workspaceId={workspaceWithSession?.id}
+        sessionId={sessionId}
+        repos={props.repos}
+      />
+    );
   }
 
   // Handle aggregated thinking groups (thinking entries in previous turns)
@@ -511,11 +525,17 @@ function FileEditEntry({
   change,
   expansionKey,
   status,
+  workspaceId,
+  sessionId,
+  repos,
 }: {
   path: string;
   change: FileEditAction['changes'][number];
   expansionKey: string;
   status: ToolStatus;
+  workspaceId: string | undefined;
+  sessionId: string | undefined;
+  repos: RepoWithTargetBranch[];
 }) {
   // Auto-expand when pending approval
   const pendingApproval = status.status === 'pending_approval';
@@ -526,6 +546,13 @@ function FileEditEntry({
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const { canOpenWorkspaceFilePreview, openWorkspaceFilePreview } =
+    useWorkspaceFilePreviewActions();
+  const resolveFilePreviewTarget = useWorkspaceFilePreviewResolver(
+    workspaceId,
+    repos,
+    sessionId
+  );
   const FileIcon = useMemo(
     () => getFileIcon(path, actualTheme),
     [path, actualTheme]
@@ -575,6 +602,27 @@ function FileEditEntry({
     if (!hasDiffPath(path)) return;
     viewFileInChanges(path);
   }, [viewFileInChanges, hasDiffPath, path]);
+  const previewResolution = useMemo(
+    () =>
+      resolveFilePreviewTarget({
+        path,
+        source: 'chat',
+      }),
+    [path, resolveFilePreviewTarget]
+  );
+  const handleOpenFilePreview = useCallback(() => {
+    if (
+      !canOpenWorkspaceFilePreview ||
+      previewResolution.status !== 'resolved'
+    ) {
+      return;
+    }
+    openWorkspaceFilePreview(previewResolution.target);
+  }, [
+    canOpenWorkspaceFilePreview,
+    openWorkspaceFilePreview,
+    previewResolution,
+  ]);
   const handleOpenInVSCode = useCallback((filename: string) => {
     openFileInVSCode(filename, { openAsDiff: false });
   }, []);
@@ -596,6 +644,11 @@ function FileEditEntry({
           ? (entryDiffContent) => (
               <FileEntryDiffBody diffContent={entryDiffContent} />
             )
+          : undefined
+      }
+      onOpenFilePreview={
+        canOpenWorkspaceFilePreview && previewResolution.status === 'resolved'
+          ? handleOpenFilePreview
           : undefined
       }
       onOpenInChanges={handleOpenInChanges}
@@ -1309,10 +1362,27 @@ function AggregatedThinkingGroupEntry({
   );
 }
 
-function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
+function AggregatedDiffGroupEntry({
+  group,
+  workspaceId,
+  sessionId,
+  repos,
+}: {
+  group: AggregatedDiffGroup;
+  workspaceId: string | undefined;
+  sessionId: string | undefined;
+  repos: RepoWithTargetBranch[];
+}) {
   const { theme } = useTheme();
   const actualTheme = getActualTheme(theme);
   const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const { canOpenWorkspaceFilePreview, openWorkspaceFilePreview } =
+    useWorkspaceFilePreviewActions();
+  const resolveFilePreviewTarget = useWorkspaceFilePreviewResolver(
+    workspaceId,
+    repos,
+    sessionId
+  );
   const [expanded, toggle] = usePersistedExpanded(
     `diff:${group.patchKey}`,
     false
@@ -1362,6 +1432,27 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
     if (!hasDiffPath(group.filePath)) return;
     viewFileInChanges(group.filePath);
   }, [viewFileInChanges, hasDiffPath, group.filePath]);
+  const previewResolution = useMemo(
+    () =>
+      resolveFilePreviewTarget({
+        path: group.filePath,
+        source: 'diff',
+      }),
+    [group.filePath, resolveFilePreviewTarget]
+  );
+  const handleOpenFilePreview = useCallback(() => {
+    if (
+      !canOpenWorkspaceFilePreview ||
+      previewResolution.status !== 'resolved'
+    ) {
+      return;
+    }
+    openWorkspaceFilePreview(previewResolution.target);
+  }, [
+    canOpenWorkspaceFilePreview,
+    openWorkspaceFilePreview,
+    previewResolution,
+  ]);
   const handleOpenInVSCode = useCallback((filePath: string) => {
     openFileInVSCode(filePath, { openAsDiff: false });
   }, []);
@@ -1374,6 +1465,11 @@ function AggregatedDiffGroupEntry({ group }: { group: AggregatedDiffGroup }) {
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
+      onOpenFilePreview={
+        canOpenWorkspaceFilePreview && previewResolution.status === 'resolved'
+          ? handleOpenFilePreview
+          : undefined
+      }
       onOpenInChanges={handleOpenInChanges}
       fileIcon={FileIcon}
       isVSCode={isVSCode}

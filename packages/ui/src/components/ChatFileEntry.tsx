@@ -4,6 +4,7 @@ import {
   CaretDownIcon,
   ArrowSquareUpRightIcon,
   FileIcon as DefaultFileIcon,
+  FileTextIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
@@ -35,6 +36,12 @@ interface ChatFileEntryProps {
   diffContent?: ChatFileEntryDiffInput;
   /** Optional callback to open file in changes panel */
   onOpenInChanges?: () => void;
+  /** Optional callback to open the current workspace file preview */
+  onOpenFilePreview?: () => void;
+  /** Optional disabled state for the file preview action */
+  filePreviewDisabled?: boolean;
+  /** Optional title / aria-label for the file preview action */
+  filePreviewTitle?: string;
   /** Optional file icon override from the app layer */
   fileIcon?: React.ElementType;
   /** Whether host app is running inside VSCode iframe */
@@ -55,6 +62,9 @@ export function ChatFileEntry({
   status,
   diffContent,
   onOpenInChanges,
+  onOpenFilePreview,
+  filePreviewDisabled = false,
+  filePreviewTitle,
   fileIcon,
   isVSCode = false,
   onOpenInVSCode,
@@ -65,6 +75,7 @@ export function ChatFileEntry({
   const FileIcon = fileIcon ?? DefaultFileIcon;
   const isDenied = status?.status === 'denied';
   const hasDiffContent = Boolean(diffContent && renderDiffBody);
+  const previewTitle = filePreviewTitle ?? t('conversation.openFilePreview');
 
   const handleClick = () => {
     if (isVSCode) {
@@ -116,6 +127,21 @@ export function ChatFileEntry({
               )}
             </span>
             <span className="text-sm text-normal truncate">{filename}</span>
+            {onOpenFilePreview && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenFilePreview();
+                }}
+                disabled={filePreviewDisabled}
+                className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors disabled:pointer-events-none disabled:opacity-50"
+                title={previewTitle}
+                aria-label={previewTitle}
+              >
+                <FileTextIcon className="size-icon-xs" />
+              </button>
+            )}
             {onOpenInChanges && (
               <button
                 type="button"
@@ -125,6 +151,7 @@ export function ChatFileEntry({
                 }}
                 className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
                 title={t('conversation.viewInChangesPanel')}
+                aria-label={t('conversation.viewInChangesPanel')}
               >
                 <ArrowSquareUpRightIcon className="size-icon-xs" />
               </button>
@@ -184,6 +211,21 @@ export function ChatFileEntry({
           )}
         </span>
         <span className="text-sm text-normal truncate">{filename}</span>
+        {onOpenFilePreview && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFilePreview();
+            }}
+            disabled={filePreviewDisabled}
+            className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors disabled:pointer-events-none disabled:opacity-50"
+            title={previewTitle}
+            aria-label={previewTitle}
+          >
+            <FileTextIcon className="size-icon-xs" />
+          </button>
+        )}
         {onOpenInChanges && (
           <button
             type="button"
@@ -193,6 +235,7 @@ export function ChatFileEntry({
             }}
             className="shrink-0 p-0.5 rounded hover:bg-muted text-low hover:text-normal transition-colors"
             title={t('conversation.viewInChangesPanel')}
+            aria-label={t('conversation.viewInChangesPanel')}
           >
             <ArrowSquareUpRightIcon className="size-icon-xs" />
           </button>

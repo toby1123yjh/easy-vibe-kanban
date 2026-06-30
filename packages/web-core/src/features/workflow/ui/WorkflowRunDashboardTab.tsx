@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowNodeWorkView, WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
@@ -30,10 +30,15 @@ import {
   Clock,
   ExternalLink,
   Code,
+  Files,
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
 import { WorkflowAgentSessionsList } from './WorkflowAgentSessionsList';
+import {
+  WorkspaceFilesInlineInspector,
+  useWorkspaceFilePreviewState,
+} from '@/features/workspace-files';
 
 export interface WorkflowRunDashboardTabProps {
   projectId: string;
@@ -93,6 +98,8 @@ export function WorkflowRunDashboardTab({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     getDefaultSelectedNodeId(run)
   );
+  const [showFilesInspector, setShowFilesInspector] = useState(false);
+  const { target, openTarget, clearTarget } = useWorkspaceFilePreviewState();
 
   useEffect(() => {
     if (
@@ -118,6 +125,10 @@ export function WorkflowRunDashboardTab({
   const workflowWorkspaceHref = run.workspace_id
     ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
     : null;
+  const handleOpenWorkflowWorkspace = useCallback(() => {
+    if (!run.workspace_id) return;
+    appNav.goToProjectIssueWorkspace(projectId, run.issue_id, run.workspace_id);
+  }, [appNav, projectId, run.issue_id, run.workspace_id]);
 
   const handleCancelRun = async () => {
     setActionError(null);
@@ -392,25 +403,50 @@ export function WorkflowRunDashboardTab({
           </div>
         </section>
 
-        {/* Code Changes */}
+        {/* Code / Artifacts */}
         <section className="rounded border border-secondary bg-panel p-4">
           <h2 className="mb-2 text-sm font-semibold text-high">
             {t('workflow.dashboard.codeChanges')}
           </h2>
           {run.workspace_id ? (
-            <button
-              onClick={() =>
-                appNav.goToProjectIssueWorkspace(
-                  projectId,
-                  run.issue_id,
-                  run.workspace_id!
-                )
-              }
-              className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium text-brand hover:underline border border-secondary"
-            >
-              <Code className="h-4 w-4" />
-              {t('workflow.dashboard.openWorkflowWorkspace')}
-            </button>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-half">
+                <button
+                  onClick={handleOpenWorkflowWorkspace}
+                  className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium text-brand hover:underline border border-secondary"
+                >
+                  <Code className="h-4 w-4" />
+                  {t('workflow.dashboard.openWorkflowWorkspace')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFilesInspector((current) => !current)}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium border border-secondary',
+                    showFilesInspector
+                      ? 'text-high'
+                      : 'text-brand hover:underline'
+                  )}
+                  aria-expanded={showFilesInspector}
+                >
+                  <Files className="h-4 w-4" />
+                  {t('workflow.dashboard.inspectFiles')}
+                </button>
+              </div>
+              {showFilesInspector ? (
+                <div className="h-[420px] overflow-hidden rounded border border-secondary">
+                  <WorkspaceFilesInlineInspector
+                    workspaceId={run.workspace_id}
+                    target={target}
+                    source="workflow"
+                    title={t('workflow.dashboard.inspectFiles')}
+                    onSelectFile={openTarget}
+                    onClearTarget={clearTarget}
+                    onClose={() => setShowFilesInspector(false)}
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="text-xs text-low italic">
               {t('workflow.dashboard.noCodeChanges')}

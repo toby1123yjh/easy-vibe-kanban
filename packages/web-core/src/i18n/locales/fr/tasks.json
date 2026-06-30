@@ -194,6 +194,7 @@
     },
     "updatedTodos": "À faire mis à jour",
     "viewInChangesPanel": "Voir dans le panneau des modifications",
+    "openFilePreview": "Open file preview",
     "unableToRenderDiff": "Impossible d'afficher le diff."
   },
   "attempt": {

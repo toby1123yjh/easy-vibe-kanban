@@ -428,6 +428,7 @@
     "unableToRenderDiff": "差分を表示できません。",
     "updatedTodos": "更新されたTodo",
     "viewInChangesPanel": "変更パネルで表示",
+    "openFilePreview": "Open file preview",
     "sessions": {
       "newSession": "新規セッション",
       "latest": "最新",

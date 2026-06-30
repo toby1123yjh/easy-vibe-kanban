@@ -428,6 +428,7 @@
     "unableToRenderDiff": "차이를 표시할 수 없습니다.",
     "updatedTodos": "업데이트된 할 일",
     "viewInChangesPanel": "변경사항 패널에서 보기",
+    "openFilePreview": "Open file preview",
     "sessions": {
       "newSession": "새 세션",
       "latest": "최신",

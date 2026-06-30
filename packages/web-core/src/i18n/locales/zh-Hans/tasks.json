@@ -453,6 +453,7 @@
     "saveAsDefault": "设为默认",
     "updatedTodos": "更新的待办事项",
     "viewInChangesPanel": "在更改面板中查看",
+    "openFilePreview": "打开文件预览",
     "unableToRenderDiff": "无法显示差异。"
   },
   "scriptFixer": {
