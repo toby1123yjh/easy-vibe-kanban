@@ -44,6 +44,9 @@ import {
   RunAgentSetupResponse,
   GhCliSetupError,
   RunScriptError,
+  WorkspaceFileContent,
+  WorkspaceFileDirectoryResponse,
+  WorkspaceFileTreeResponse,
   StatusResponse,
   CreateOrganizationRequest,
   CreateOrganizationResponse,
@@ -546,6 +549,53 @@ export const workspacesApi = {
       `/api/workspaces/${workspaceId}/messages/first`
     );
     return handleApiResponse<string | null>(response);
+  },
+
+  files: {
+    tree: async (workspaceId: string): Promise<WorkspaceFileTreeResponse> => {
+      const response = await makeRequest(
+        `/api/workspaces/${workspaceId}/files/tree`
+      );
+      return handleApiResponse<WorkspaceFileTreeResponse>(response);
+    },
+
+    directory: async (
+      workspaceId: string,
+      params: { repoId: string; path?: string | null }
+    ): Promise<WorkspaceFileDirectoryResponse> => {
+      const query = new URLSearchParams();
+      query.set('repo_id', params.repoId);
+      if (params.path) {
+        query.set('path', params.path);
+      }
+      const response = await makeRequest(
+        `/api/workspaces/${workspaceId}/files/directory?${query.toString()}`
+      );
+      return handleApiResponse<WorkspaceFileDirectoryResponse>(response);
+    },
+
+    content: async (
+      workspaceId: string,
+      params: { repoId: string; path: string }
+    ): Promise<WorkspaceFileContent> => {
+      const query = new URLSearchParams();
+      query.set('repo_id', params.repoId);
+      query.set('path', params.path);
+      const response = await makeRequest(
+        `/api/workspaces/${workspaceId}/files/content?${query.toString()}`
+      );
+      return handleApiResponse<WorkspaceFileContent>(response);
+    },
+
+    rawUrl: (
+      workspaceId: string,
+      params: { repoId: string; path: string }
+    ): string => {
+      const query = new URLSearchParams();
+      query.set('repo_id', params.repoId);
+      query.set('path', params.path);
+      return `/api/workspaces/${workspaceId}/files/raw?${query.toString()}`;
+    },
   },
 
   merge: async (
