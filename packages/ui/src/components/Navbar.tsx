@@ -3,6 +3,7 @@ import type { Icon } from '@phosphor-icons/react';
 import {
   Layout as LayoutIcon,
   ChatsTeardrop as ChatsTeardropIcon,
+  Files as FilesIcon,
   GitDiff as GitDiffIcon,
   Terminal as TerminalIcon,
   Desktop as DesktopIcon,
@@ -95,6 +96,7 @@ function NavbarIconButton({
 export type MobileTabId =
   | 'workspaces'
   | 'chat'
+  | 'files'
   | 'changes'
   | 'logs'
   | 'preview'
@@ -103,6 +105,7 @@ export type MobileTabId =
 export const MOBILE_TABS: { id: MobileTabId; icon: Icon; label: string }[] = [
   { id: 'workspaces', icon: LayoutIcon, label: 'Wksps' },
   { id: 'chat', icon: ChatsTeardropIcon, label: 'Chat' },
+  { id: 'files', icon: FilesIcon, label: 'Files' },
   { id: 'changes', icon: GitDiffIcon, label: 'Diff' },
   { id: 'logs', icon: TerminalIcon, label: 'Logs' },
   { id: 'preview', icon: DesktopIcon, label: 'Preview' },

@@ -13,6 +13,7 @@ import {
   ColumnsIcon,
   RowsIcon,
   TextAlignLeftIcon,
+  FilesIcon,
   EyeSlashIcon,
   SidebarSimpleIcon,
   ChatsTeardropIcon,
@@ -651,6 +652,29 @@ export const Actions = {
         .getState()
         .toggleRightMainPanelMode(
           RIGHT_MAIN_PANEL_MODES.CHANGES,
+          ctx.currentWorkspaceId ?? undefined
+        );
+    },
+  },
+
+  ToggleFilesMode: {
+    id: 'toggle-files-mode',
+    label: 'Toggle Files Panel',
+    icon: FilesIcon,
+    shortcut: 'V F',
+    requiresTarget: ActionTargetType.NONE,
+    isVisible: (ctx) => !ctx.isCreateMode && ctx.layoutMode === 'workspaces',
+    isActive: (ctx) => ctx.rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.FILES,
+    isEnabled: (ctx) => !ctx.isCreateMode,
+    getLabel: (ctx) =>
+      ctx.rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.FILES
+        ? 'Hide Files Panel'
+        : 'Show Files Panel',
+    execute: (ctx) => {
+      useUiPreferencesStore
+        .getState()
+        .toggleRightMainPanelMode(
+          RIGHT_MAIN_PANEL_MODES.FILES,
           ctx.currentWorkspaceId ?? undefined
         );
     },
@@ -1542,6 +1566,7 @@ export const NavbarActionGroups = {
     Actions.ToggleLeftSidebar,
     Actions.ToggleLeftMainPanel,
     Actions.ToggleChangesMode,
+    Actions.ToggleFilesMode,
     Actions.ToggleLogsMode,
     Actions.TogglePreviewMode,
     Actions.ToggleRightSidebar,
@@ -1560,6 +1585,7 @@ export const ContextBarActionGroups = {
   secondary: [
     Actions.ToggleDevServer,
     Actions.TogglePreviewMode,
+    Actions.ToggleFilesMode,
     Actions.ToggleChangesMode,
   ] as ActionDefinition[],
 };

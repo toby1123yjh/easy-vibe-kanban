@@ -13,9 +13,13 @@ import { useFileInViewStore } from '@/shared/stores/useFileInViewStore';
 
 interface ChangesViewProviderProps {
   children: React.ReactNode;
+  workspaceId?: string;
 }
 
-export function ChangesViewProvider({ children }: ChangesViewProviderProps) {
+export function ChangesViewProvider({
+  children,
+  workspaceId,
+}: ChangesViewProviderProps) {
   const diffPaths = useDiffPaths();
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedLineNumber, setSelectedLineNumber] = useState<number | null>(
@@ -59,10 +63,10 @@ export function ChangesViewProvider({ children }: ChangesViewProviderProps) {
 
   const viewFileInChanges = useCallback(
     (filePath: string) => {
-      setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.CHANGES);
+      setRightMainPanelMode(RIGHT_MAIN_PANEL_MODES.CHANGES, workspaceId);
       setSelectedFilePath(filePath);
     },
-    [setRightMainPanelMode]
+    [setRightMainPanelMode, workspaceId]
   );
 
   const findMatchingDiffPath = useCallback((text: string): string | null => {

@@ -5,6 +5,7 @@ import type { IssuePriority } from 'shared/remote-types';
 
 export const RIGHT_MAIN_PANEL_MODES = {
   CHANGES: 'changes',
+  FILES: 'files',
   LOGS: 'logs',
   PREVIEW: 'preview',
 } as const;
@@ -18,6 +19,7 @@ export type MobileTab =
   | 'workspaces'
   | 'chat'
   | 'changes'
+  | 'files'
   | 'logs'
   | 'preview'
   | 'git';
@@ -244,6 +246,7 @@ export const PERSIST_KEYS = {
   gitPanelAddRepositories: 'git-panel-add-repositories',
   rightPanelprocesses: 'right-panel-processes',
   rightPanelPreview: 'right-panel-preview',
+  rightPanelFiles: 'right-panel-files',
   // Process panel sections
   processesSection: 'processes-section',
   // Changes panel sections
@@ -283,6 +286,7 @@ export type PersistKey =
   | typeof PERSIST_KEYS.processesSection
   | typeof PERSIST_KEYS.changesSection
   | typeof PERSIST_KEYS.devServerSection
+  | typeof PERSIST_KEYS.rightPanelFiles
   | typeof PERSIST_KEYS.terminalSection
   | typeof PERSIST_KEYS.notesSection
   | typeof PERSIST_KEYS.showGitHubComments

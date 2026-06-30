@@ -7,5 +7,6 @@ export * from './model/workspaceFileTree';
 export * from './model/useWorkspaceFileTree';
 export * from './model/useWorkspaceFileContent';
 export * from './model/useWorkspaceFilePreviewState';
+export * from './model/WorkspaceFilesSelectionProvider';
 export * from './ui/WorkspaceFileBrowserPanel';
 export * from './ui/WorkspaceFilePreviewPanel';

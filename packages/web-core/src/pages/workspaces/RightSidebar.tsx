@@ -9,6 +9,10 @@ import { WorkspaceNotesContainer } from './WorkspaceNotesContainer';
 import { useDiffs } from '@/shared/stores/useWorkspaceDiffStore';
 import { ArrowsOutSimpleIcon } from '@phosphor-icons/react';
 import { useLogsPanel } from '@/shared/hooks/useLogsPanel';
+import {
+  useWorkspaceFilesSelection,
+  WorkspaceFileBrowserPanel,
+} from '@/features/workspace-files';
 import type { RepoWithTargetBranch, Workspace } from 'shared/types';
 import {
   PERSIST_KEYS,
@@ -46,10 +50,19 @@ export const RightSidebar = memo(function RightSidebar({
   const { t } = useTranslation(['tasks', 'common']);
   const diffs = useDiffs();
   const isTerminalVisible = useUiPreferencesStore((s) => s.isTerminalVisible);
+  const setRightMainPanelMode = useUiPreferencesStore(
+    (s) => s.setRightMainPanelMode
+  );
   const { expandTerminal, isTerminalExpanded } = useLogsPanel();
+  const { target: selectedFileTarget, openTarget: openFileTarget } =
+    useWorkspaceFilesSelection(selectedWorkspace?.id);
 
   const [changesExpanded] = usePersistedExpanded(
     PERSIST_KEYS.changesSection,
+    true
+  );
+  const [filesExpanded] = usePersistedExpanded(
+    PERSIST_KEYS.rightPanelFiles,
     true
   );
   const [processesExpanded] = usePersistedExpanded(
@@ -75,12 +88,15 @@ export const RightSidebar = memo(function RightSidebar({
 
   const hasUpperContent =
     rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES ||
+    rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.FILES ||
     rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.LOGS ||
     rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.PREVIEW;
 
   const upperExpanded = (() => {
     if (rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES)
       return changesExpanded;
+    if (rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.FILES)
+      return filesExpanded;
     if (rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.LOGS)
       return processesExpanded;
     if (rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.PREVIEW)
@@ -141,6 +157,33 @@ export const RightSidebar = memo(function RightSidebar({
           });
         }
         break;
+      case RIGHT_MAIN_PANEL_MODES.FILES:
+        if (selectedWorkspace) {
+          result.unshift({
+            title: 'Files',
+            persistKey: PERSIST_KEYS.rightPanelFiles,
+            visible: hasUpperContent,
+            expanded: upperExpanded,
+            content: (
+              <WorkspaceFileBrowserPanel
+                key={selectedWorkspace.id}
+                workspaceId={selectedWorkspace.id}
+                selectedTarget={selectedFileTarget}
+                source="file-tree"
+                className="border-r-0"
+                onSelectFile={(target) => {
+                  openFileTarget(target);
+                  setRightMainPanelMode(
+                    RIGHT_MAIN_PANEL_MODES.FILES,
+                    selectedWorkspace.id
+                  );
+                }}
+              />
+            ),
+            actions: [],
+          });
+        }
+        break;
       case RIGHT_MAIN_PANEL_MODES.LOGS:
         result.unshift({
           title: 'Logs',
@@ -182,6 +225,7 @@ export const RightSidebar = memo(function RightSidebar({
     terminalExpanded,
     notesExpanded,
     changesExpanded,
+    filesExpanded,
     processesExpanded,
     devServerExpanded,
     isTerminalVisible,
@@ -189,6 +233,9 @@ export const RightSidebar = memo(function RightSidebar({
     hasUpperContent,
     upperExpanded,
     expandTerminal,
+    selectedFileTarget,
+    openFileTarget,
+    setRightMainPanelMode,
     t,
   ]);
 
