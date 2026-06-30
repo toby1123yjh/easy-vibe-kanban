@@ -1252,6 +1252,7 @@ fn handle_direct_item_completed(
                 },
             );
         }
+        AppThreadItem::UserMessage { .. } => {}
         // Render any item we don't have a dedicated handler for as a generic
         // entry rather than dropping it. The "started" handler stays silent so
         // each item surfaces once, on its authoritative completed event.
@@ -2982,6 +2983,40 @@ mod tests {
             entry.content.contains("hook-1"),
             "fallback should include the raw payload, got: {}",
             entry.content
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_user_message_item_is_ignored() {
+        let entries = normalize_lines(&[json!({
+            "jsonrpc": "2.0",
+            "method": "item/completed",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "completedAtMs": 2,
+                "item": {
+                    "type": "userMessage",
+                    "id": "9cca169a-7473-493f-aa34-05c6822fd1d3",
+                    "clientId": null,
+                    "content": [{
+                        "type": "text",
+                        "text": "hello",
+                        "text_elements": []
+                    }]
+                }
+            }
+        })
+        .to_string()])
+        .await;
+
+        assert!(
+            entries.iter().all(|entry| {
+                !entry
+                    .content
+                    .contains("Unsupported Codex event: userMessage")
+            }),
+            "user messages are input echoes and should not be rendered as unsupported events"
         );
     }
 }
