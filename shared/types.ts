@@ -507,6 +507,20 @@ export type AttachmentResponse = { id: string, file_path: string, original_name:
 
 export type AttachmentMetadata = { exists: boolean, file_name: string | null, path: string | null, size_bytes: bigint | null, format: string | null, proxy_url: string | null, };
 
+export type WorkspaceFileKind = "file" | "directory";
+
+export type WorkspaceFileEntry = { workspace_id: string, repo_id: string, repo_name: string, path: string, name: string, kind: WorkspaceFileKind, size_bytes: bigint | null, modified_at: string | null, mime_type: string | null, is_binary: boolean | null, };
+
+export type WorkspaceFileRepoNode = { workspace_id: string, repo_id: string, repo_name: string, repo_display_name: string, entries: Array<WorkspaceFileEntry>, truncated: boolean, };
+
+export type WorkspaceFileTreeResponse = { repos: Array<WorkspaceFileRepoNode>, };
+
+export type WorkspaceFileDirectoryResponse = { workspace_id: string, repo_id: string, repo_name: string, path: string, entries: Array<WorkspaceFileEntry>, truncated: boolean, };
+
+export type WorkspaceFileContentKind = "text" | "image" | "binary" | "unsupported";
+
+export type WorkspaceFileContent = { workspace_id: string, repo_id: string, repo_name: string, path: string, name: string, kind: WorkspaceFileContentKind, mime_type: string | null, language: string | null, content: string | null, raw_url: string | null, size_bytes: bigint, truncated: boolean, };
+
 export type WorkspaceRepoInput = { repo_id: string, target_branch: string, };
 
 export type RunAgentSetupRequest = { executor_profile_id: ExecutorProfileId, };
