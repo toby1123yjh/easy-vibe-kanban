@@ -127,6 +127,7 @@ export function WorkflowAgentNodeDraftPanel({
     lastUsedConfig: null,
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
+    hiddenAgents: config?.hidden_agents,
     onPersist: (nextConfig) =>
       persistDraft(
         promptRef.current,
@@ -145,6 +146,7 @@ export function WorkflowAgentNodeDraftPanel({
   }, [effectiveExecutor, executorOptions]);
   const { options: policyExecutorOptions } = useAgentProviderOptions({
     executors: policyExecutorSource,
+    preserveExecutors: [effectiveExecutor],
     requiredCapabilities: WORKFLOW_AGENT_DRAFT_REQUIRED_CAPABILITIES,
   });
   const selectedExecutorOption = useMemo(

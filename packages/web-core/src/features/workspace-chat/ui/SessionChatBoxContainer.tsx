@@ -470,6 +470,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     lastUsedConfig: latestConfig,
     scratchConfig: scratchExecutorConfig,
     configExecutorProfile: config?.executor_profile,
+    hiddenAgents: config?.hidden_agents,
     onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
   });
   const providerPolicy = useAgentProviderPolicy(effectiveExecutor);

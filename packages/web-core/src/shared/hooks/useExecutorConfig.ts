@@ -6,6 +6,7 @@ import type {
   ExecutorProfileId,
 } from 'shared/types';
 import { getVariantOptions } from '@/shared/lib/executor';
+import { filterVisibleAgents } from '@/shared/lib/agentVisibility';
 import { usePresetOptions } from '@/shared/hooks/usePresetOptions';
 
 function getProfileKey(
@@ -32,11 +33,29 @@ function useEffectiveExecutor(
   profiles: Record<string, ExecutorProfile> | null,
   scratchConfig: ExecutorConfig | null | undefined,
   lastUsedConfig: ExecutorConfig | null,
-  configExecutorProfile: ExecutorProfileId | null | undefined
+  configExecutorProfile: ExecutorProfileId | null | undefined,
+  hiddenAgents?: readonly BaseCodingAgent[] | null
 ) {
   const options = useMemo(
-    () => Object.keys(profiles ?? {}) as BaseCodingAgent[],
-    [profiles]
+    () =>
+      filterVisibleAgents({
+        agents: Object.keys(profiles ?? {}) as BaseCodingAgent[],
+        hiddenAgents,
+        preserveAgents: [
+          userSelections.executor,
+          scratchConfig?.executor,
+          lastUsedConfig?.executor,
+          configExecutorProfile?.executor,
+        ],
+      }),
+    [
+      profiles,
+      hiddenAgents,
+      userSelections.executor,
+      scratchConfig?.executor,
+      lastUsedConfig?.executor,
+      configExecutorProfile?.executor,
+    ]
   );
 
   const effective = useMemo(
@@ -182,6 +201,7 @@ interface UseExecutorConfigOptions {
   lastUsedConfig: ExecutorConfig | null;
   scratchConfig?: ExecutorConfig | null;
   configExecutorProfile?: ExecutorProfileId | null;
+  hiddenAgents?: readonly BaseCodingAgent[] | null;
   onPersist?: (config: ExecutorConfig) => void;
 }
 
@@ -203,6 +223,7 @@ export function useExecutorConfig({
   lastUsedConfig,
   scratchConfig,
   configExecutorProfile,
+  hiddenAgents,
   onPersist,
 }: UseExecutorConfigOptions): UseExecutorConfigResult {
   const [userSelections, setUserSelections] = useState<Partial<ExecutorConfig>>(
@@ -214,7 +235,8 @@ export function useExecutorConfig({
     profiles,
     scratchConfig,
     lastUsedConfig,
-    configExecutorProfile
+    configExecutorProfile,
+    hiddenAgents
   );
 
   const variant = useEffectiveVariant(

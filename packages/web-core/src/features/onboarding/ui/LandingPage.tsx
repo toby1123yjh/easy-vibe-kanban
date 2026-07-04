@@ -35,6 +35,7 @@ import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { AgentIcon, getAgentName } from '@/shared/components/AgentIcon';
 import { IdeIcon } from '@/shared/components/IdeIcon';
+import { filterVisibleAgents } from '@/shared/lib/agentVisibility';
 import { getIdeName } from '@/shared/lib/ideName';
 import { cn, playSound } from '@/shared/lib/utils';
 import { isTauriApp } from '@/shared/lib/platform';
@@ -227,10 +228,20 @@ export function LandingPage() {
     };
 
     if (profiles) {
-      return (Object.keys(profiles) as BaseCodingAgent[]).sort(compareAgents);
+      return filterVisibleAgents({
+        agents: (Object.keys(profiles) as BaseCodingAgent[]).sort(
+          compareAgents
+        ),
+        hiddenAgents: config?.hidden_agents,
+        preserveAgents: [selectedAgent],
+      });
     }
-    return [...Object.values(BaseCodingAgent)].sort(compareAgents);
-  }, [profiles]);
+    return filterVisibleAgents({
+      agents: [...Object.values(BaseCodingAgent)].sort(compareAgents),
+      hiddenAgents: config?.hidden_agents,
+      preserveAgents: [selectedAgent],
+    });
+  }, [config?.hidden_agents, profiles, selectedAgent]);
 
   const editorOptions = useMemo(() => Object.values(EditorType), []);
 

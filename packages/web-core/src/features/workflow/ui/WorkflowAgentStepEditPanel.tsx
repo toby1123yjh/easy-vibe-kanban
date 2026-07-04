@@ -109,6 +109,7 @@ export function WorkflowAgentStepEditPanel({
     lastUsedConfig: null,
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
+    hiddenAgents: config?.hidden_agents,
     onPersist: onExecutorConfigChange,
   });
 
@@ -121,6 +122,7 @@ export function WorkflowAgentStepEditPanel({
   }, [effectiveExecutor, executorOptions]);
   const { options: policyExecutorOptions } = useAgentProviderOptions({
     executors: policyExecutorSource,
+    preserveExecutors: [effectiveExecutor],
     requiredCapabilities: WORKFLOW_AGENT_REQUIRED_CAPABILITIES,
   });
   const selectedExecutorOption = useMemo(

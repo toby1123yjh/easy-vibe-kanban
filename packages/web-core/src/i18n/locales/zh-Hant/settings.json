@@ -325,6 +325,9 @@
         "deleteText": "刪除",
         "makeDefault": "設為預設",
         "isDefault": "預設",
+        "isHidden": "已隱藏",
+        "showInPickers": "在選擇器中顯示",
+        "hideFromPickers": "從選擇器中隱藏",
         "jsonLabel": "代理設定（JSON）",
         "jsonPlaceholder": "載入設定檔中...",
         "jsonLoading": "載入中...",
@@ -334,6 +337,7 @@
         "deleteFailed": "刪除設定失敗。請重試。",
         "saveFailed": "儲存代理設定失敗。請重試。",
         "saveConfigFailed": "儲存設定失敗。請重試。",
+        "visibilitySaveFailed": "更新代理可見性失敗。請重試。",
         "schemaNotFound": "找不到執行器類型 {{executor}} 的結構描述"
       },
       "tree": {

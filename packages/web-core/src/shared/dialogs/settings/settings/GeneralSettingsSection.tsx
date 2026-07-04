@@ -25,6 +25,7 @@ import {
   getExecutorVariantKeys,
   getSortedExecutorVariantKeys,
 } from '@/shared/lib/executor';
+import { filterVisibleAgents } from '@/shared/lib/agentVisibility';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { TagManager } from '@/shared/components/TagManager';
@@ -80,9 +81,11 @@ export function GeneralSettingsSection() {
 
   // Executor options for the default coding agent dropdown
   const executorOptions = profiles
-    ? Object.keys(profiles)
-        .sort()
-        .map((key) => ({ value: key, label: toPrettyCase(key) }))
+    ? filterVisibleAgents({
+        agents: Object.keys(profiles).sort() as BaseCodingAgent[],
+        hiddenAgents: config?.hidden_agents,
+        preserveAgents: [draft?.executor_profile?.executor],
+      }).map((key) => ({ value: key, label: toPrettyCase(key) }))
     : [];
 
   const selectedAgentProfile =

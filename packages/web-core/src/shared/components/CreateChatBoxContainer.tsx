@@ -132,6 +132,7 @@ export function CreateChatBoxContainer({
     lastUsedConfig: preferredExecutorConfig,
     scratchConfig,
     configExecutorProfile: config?.executor_profile,
+    hiddenAgents: config?.hidden_agents,
     onPersist: (cfg) => setDraftConfig(cfg),
   });
 

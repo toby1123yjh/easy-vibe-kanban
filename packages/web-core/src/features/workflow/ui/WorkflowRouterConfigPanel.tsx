@@ -74,6 +74,7 @@ export function WorkflowRouterConfigPanel({
     lastUsedConfig: null,
     scratchConfig: storedExecutorConfig,
     configExecutorProfile: config?.executor_profile,
+    hiddenAgents: config?.hidden_agents,
   });
 
   const policyExecutorSource = useMemo(() => {
@@ -85,6 +86,7 @@ export function WorkflowRouterConfigPanel({
   }, [effectiveExecutor, executorOptions]);
   const { options: policyExecutorOptions } = useAgentProviderOptions({
     executors: policyExecutorSource,
+    preserveExecutors: [storedExecutorConfig?.executor],
     requiredCapabilities: WORKFLOW_ROUTER_REQUIRED_CAPABILITIES,
   });
 

@@ -68,6 +68,8 @@ pub struct Config {
     pub relay_enabled: bool,
     #[serde(default)]
     pub host_nickname: Option<String>,
+    #[serde(default)]
+    pub hidden_agents: Vec<BaseCodingAgent>,
 }
 
 impl Config {
@@ -99,6 +101,7 @@ impl Config {
             send_message_shortcut: SendMessageShortcut::default(),
             relay_enabled: true,
             host_nickname: None,
+            hidden_agents: Vec::new(),
         }
     }
 
@@ -155,6 +158,7 @@ impl Default for Config {
             send_message_shortcut: SendMessageShortcut::default(),
             relay_enabled: true,
             host_nickname: None,
+            hidden_agents: Vec::new(),
         }
     }
 }

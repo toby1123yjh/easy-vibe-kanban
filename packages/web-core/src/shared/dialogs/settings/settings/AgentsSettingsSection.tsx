@@ -6,6 +6,8 @@ import {
   TrashIcon,
   DotsThreeIcon,
   StarIcon,
+  EyeIcon,
+  EyeSlashIcon,
 } from '@phosphor-icons/react';
 import {
   DropdownMenu,
@@ -55,6 +57,8 @@ export function AgentsSettingsSection() {
   // Local editor state
   const [profilesSuccess, setProfilesSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [visibilitySavingAgent, setVisibilitySavingAgent] =
+    useState<BaseCodingAgent | null>(null);
 
   // Form-based editor state
   const [selectedExecutorType, setSelectedExecutorType] =
@@ -242,6 +246,45 @@ export function AgentsSettingsSection() {
     }
   };
 
+  const handleToggleAgentVisibility = async (executor: BaseCodingAgent) => {
+    if (!config) return;
+
+    setSaveError(null);
+    setVisibilitySavingAgent(executor);
+    const hiddenAgents = new Set(config.hidden_agents ?? []);
+
+    if (hiddenAgents.has(executor)) {
+      hiddenAgents.delete(executor);
+    } else {
+      hiddenAgents.add(executor);
+    }
+
+    try {
+      const success = await updateAndSaveConfig({
+        hidden_agents: Array.from(hiddenAgents),
+      });
+      if (!success) {
+        setSaveError(
+          t('settings.agents.errors.visibilitySaveFailed', {
+            defaultValue:
+              'Failed to update agent visibility. Please try again.',
+          })
+        );
+        return;
+      }
+      await reloadSystem();
+    } catch (err) {
+      console.error('Error updating agent visibility:', err);
+      setSaveError(
+        t('settings.agents.errors.visibilitySaveFailed', {
+          defaultValue: 'Failed to update agent visibility. Please try again.',
+        })
+      );
+    } finally {
+      setVisibilitySavingAgent(null);
+    }
+  };
+
   const handleExecutorConfigChange = (
     executorType: string,
     configuration: string,
@@ -387,8 +430,19 @@ export function AgentsSettingsSection() {
               isFirst
             >
               {Object.keys(localParsedProfiles.executors).map((executor) => {
+                const typedExecutor = executor as BaseCodingAgent;
                 const isDefault =
                   config?.executor_profile?.executor === executor;
+                const isHidden = (config?.hidden_agents ?? []).includes(
+                  typedExecutor
+                );
+                const visibilityTitle = isHidden
+                  ? t('settings.agents.editor.showInPickers', {
+                      defaultValue: 'Show in pickers',
+                    })
+                  : t('settings.agents.editor.hideFromPickers', {
+                      defaultValue: 'Hide from pickers',
+                    });
                 return (
                   <TwoColumnPickerItem
                     key={executor}
@@ -406,16 +460,54 @@ export function AgentsSettingsSection() {
                     }}
                     leading={
                       <AgentIcon
-                        agent={executor as BaseCodingAgent}
+                        agent={typedExecutor}
                         className="size-icon-sm shrink-0"
                       />
                     }
                     trailing={
-                      isDefault && (
-                        <TwoColumnPickerBadge variant="brand">
-                          {t('settings.agents.editor.isDefault')}
-                        </TwoColumnPickerBadge>
-                      )
+                      <div className="flex shrink-0 items-center gap-half">
+                        {isHidden && (
+                          <TwoColumnPickerBadge>
+                            {t('settings.agents.editor.isHidden', {
+                              defaultValue: 'Hidden',
+                            })}
+                          </TwoColumnPickerBadge>
+                        )}
+                        {isDefault && (
+                          <TwoColumnPickerBadge variant="brand">
+                            {t('settings.agents.editor.isDefault')}
+                          </TwoColumnPickerBadge>
+                        )}
+                        <button
+                          type="button"
+                          className={cn(
+                            'rounded-sm p-half text-low transition-colors',
+                            'hover:bg-secondary hover:text-normal',
+                            'disabled:pointer-events-none disabled:opacity-50'
+                          )}
+                          title={visibilityTitle}
+                          aria-label={visibilityTitle}
+                          disabled={!config || visibilitySavingAgent !== null}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleToggleAgentVisibility(typedExecutor);
+                          }}
+                        >
+                          {visibilitySavingAgent === typedExecutor ? (
+                            <SpinnerIcon
+                              className="size-icon-2xs animate-spin"
+                              weight="bold"
+                            />
+                          ) : isHidden ? (
+                            <EyeSlashIcon
+                              className="size-icon-2xs"
+                              weight="bold"
+                            />
+                          ) : (
+                            <EyeIcon className="size-icon-2xs" weight="bold" />
+                          )}
+                        </button>
+                      </div>
                     }
                   >
                     {toPrettyCase(executor)}

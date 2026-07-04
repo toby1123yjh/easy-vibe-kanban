@@ -333,6 +333,9 @@
         "deleteText": "Delete",
         "makeDefault": "Make Default",
         "isDefault": "Default",
+        "isHidden": "Hidden",
+        "showInPickers": "Show in pickers",
+        "hideFromPickers": "Hide from pickers",
         "jsonLabel": "Agent Configuration (JSON)",
         "jsonPlaceholder": "Loading profiles...",
         "jsonLoading": "Loading...",
@@ -342,6 +345,7 @@
         "deleteFailed": "Failed to delete configuration. Please try again.",
         "saveFailed": "Failed to save agent configurations. Please try again.",
         "saveConfigFailed": "Failed to save configuration. Please try again.",
+        "visibilitySaveFailed": "Failed to update agent visibility. Please try again.",
         "schemaNotFound": "Schema not found for executor type: {{executor}}"
       },
       "tree": {
