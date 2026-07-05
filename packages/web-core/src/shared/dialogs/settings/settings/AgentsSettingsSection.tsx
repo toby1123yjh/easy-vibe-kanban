@@ -6,8 +6,6 @@ import {
   TrashIcon,
   DotsThreeIcon,
   StarIcon,
-  EyeIcon,
-  EyeSlashIcon,
 } from '@phosphor-icons/react';
 import {
   DropdownMenu,
@@ -15,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
+import { Switch } from '@vibe/ui/components/Switch';
 import { ExecutorConfigForm } from './ExecutorConfigForm';
 import { useMachineProfiles } from '@/shared/hooks/useProfiles';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -437,11 +436,11 @@ export function AgentsSettingsSection() {
                   typedExecutor
                 );
                 const visibilityTitle = isHidden
-                  ? t('settings.agents.editor.showInPickers', {
-                      defaultValue: 'Show in pickers',
+                  ? t('settings.agents.editor.enableAgent', {
+                      defaultValue: 'Enable agent',
                     })
-                  : t('settings.agents.editor.hideFromPickers', {
-                      defaultValue: 'Hide from pickers',
+                  : t('settings.agents.editor.disableAgent', {
+                      defaultValue: 'Disable agent',
                     });
                 return (
                   <TwoColumnPickerItem
@@ -468,8 +467,8 @@ export function AgentsSettingsSection() {
                       <div className="flex shrink-0 items-center gap-half">
                         {isHidden && (
                           <TwoColumnPickerBadge>
-                            {t('settings.agents.editor.isHidden', {
-                              defaultValue: 'Hidden',
+                            {t('settings.agents.editor.isDisabled', {
+                              defaultValue: 'Disabled',
                             })}
                           </TwoColumnPickerBadge>
                         )}
@@ -478,19 +477,11 @@ export function AgentsSettingsSection() {
                             {t('settings.agents.editor.isDefault')}
                           </TwoColumnPickerBadge>
                         )}
-                        <button
-                          type="button"
-                          className={cn(
-                            'rounded-sm p-half text-low transition-colors',
-                            'hover:bg-secondary hover:text-normal',
-                            'disabled:pointer-events-none disabled:opacity-50'
-                          )}
+                        <div
+                          className="flex items-center gap-half"
                           title={visibilityTitle}
-                          aria-label={visibilityTitle}
-                          disabled={!config || visibilitySavingAgent !== null}
                           onClick={(event) => {
                             event.stopPropagation();
-                            void handleToggleAgentVisibility(typedExecutor);
                           }}
                         >
                           {visibilitySavingAgent === typedExecutor ? (
@@ -498,15 +489,19 @@ export function AgentsSettingsSection() {
                               className="size-icon-2xs animate-spin"
                               weight="bold"
                             />
-                          ) : isHidden ? (
-                            <EyeSlashIcon
-                              className="size-icon-2xs"
-                              weight="bold"
-                            />
                           ) : (
-                            <EyeIcon className="size-icon-2xs" weight="bold" />
+                            <Switch
+                              checked={!isHidden}
+                              disabled={
+                                !config || visibilitySavingAgent !== null
+                              }
+                              aria-label={visibilityTitle}
+                              onCheckedChange={() => {
+                                void handleToggleAgentVisibility(typedExecutor);
+                              }}
+                            />
                           )}
-                        </button>
+                        </div>
                       </div>
                     }
                   >
@@ -581,7 +576,47 @@ export function AgentsSettingsSection() {
 
           {/* Config form */}
           {selectedExecutorType && selectedConfiguration && (
-            <div className="bg-secondary/50 border border-border rounded-sm p-4">
+            <div className="space-y-3 rounded-sm border border-border bg-secondary/50 p-4">
+              {(() => {
+                const selectedAgentHidden = (
+                  config?.hidden_agents ?? []
+                ).includes(selectedExecutorType);
+                const toggleTitle = selectedAgentHidden
+                  ? t('settings.agents.editor.enableAgent')
+                  : t('settings.agents.editor.disableAgent');
+
+                return (
+                  <div className="flex items-start justify-between gap-4 rounded-sm border border-border bg-background/50 px-3 py-2">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-sm font-medium text-normal">
+                        {t('settings.agents.editor.enabledLabel')}
+                      </div>
+                      <p className="text-xs leading-relaxed text-low">
+                        {t('settings.agents.editor.enabledDescription')}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                      {visibilitySavingAgent === selectedExecutorType && (
+                        <SpinnerIcon
+                          className="size-icon-xs animate-spin text-low"
+                          weight="bold"
+                        />
+                      )}
+                      <Switch
+                        checked={!selectedAgentHidden}
+                        disabled={!config || visibilitySavingAgent !== null}
+                        title={toggleTitle}
+                        aria-label={toggleTitle}
+                        onCheckedChange={() => {
+                          void handleToggleAgentVisibility(
+                            selectedExecutorType
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
               <ExecutorConfigForm
                 key={`${selectedExecutorType}-${selectedConfiguration}`}
                 executor={selectedExecutorType}

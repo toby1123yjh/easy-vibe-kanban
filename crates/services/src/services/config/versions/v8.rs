@@ -25,6 +25,18 @@ fn default_relay_enabled() -> bool {
     true
 }
 
+fn default_hidden_agents() -> Vec<BaseCodingAgent> {
+    vec![
+        BaseCodingAgent::Amp,
+        BaseCodingAgent::QwenCode,
+        BaseCodingAgent::CursorAgent,
+        BaseCodingAgent::Copilot,
+        BaseCodingAgent::Droid,
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock,
+    ]
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
 pub enum SendMessageShortcut {
     #[default]
@@ -68,7 +80,7 @@ pub struct Config {
     pub relay_enabled: bool,
     #[serde(default)]
     pub host_nickname: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_hidden_agents")]
     pub hidden_agents: Vec<BaseCodingAgent>,
 }
 
@@ -101,7 +113,7 @@ impl Config {
             send_message_shortcut: SendMessageShortcut::default(),
             relay_enabled: true,
             host_nickname: None,
-            hidden_agents: Vec::new(),
+            hidden_agents: default_hidden_agents(),
         }
     }
 
@@ -158,7 +170,37 @@ impl Default for Config {
             send_message_shortcut: SendMessageShortcut::default(),
             relay_enabled: true,
             host_nickname: None,
-            hidden_agents: Vec::new(),
+            hidden_agents: default_hidden_agents(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_hides_non_primary_agents() {
+        let hidden_agents = Config::default().hidden_agents;
+
+        assert!(!hidden_agents.contains(&BaseCodingAgent::ClaudeCode));
+        assert!(!hidden_agents.contains(&BaseCodingAgent::Codex));
+        assert!(!hidden_agents.contains(&BaseCodingAgent::Gemini));
+        assert!(!hidden_agents.contains(&BaseCodingAgent::Opencode));
+        assert!(hidden_agents.contains(&BaseCodingAgent::Amp));
+        assert!(hidden_agents.contains(&BaseCodingAgent::QwenCode));
+        assert!(hidden_agents.contains(&BaseCodingAgent::CursorAgent));
+        assert!(hidden_agents.contains(&BaseCodingAgent::Copilot));
+        assert!(hidden_agents.contains(&BaseCodingAgent::Droid));
+    }
+
+    #[test]
+    fn missing_hidden_agents_uses_default_hidden_agents() {
+        let mut raw_config = serde_json::to_value(Config::default()).unwrap();
+        raw_config.as_object_mut().unwrap().remove("hidden_agents");
+
+        let config: Config = serde_json::from_value(raw_config).unwrap();
+
+        assert_eq!(config.hidden_agents, default_hidden_agents());
     }
 }
