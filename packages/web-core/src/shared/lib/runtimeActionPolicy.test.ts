@@ -145,7 +145,7 @@ describe('runtime action policy', () => {
     expect(policy.stop.reason).toBe('runtime_cancelling');
   });
 
-  it('blocks failed terminal follow-up', () => {
+  it('allows follow-up after a failed terminal run', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
         processes: [
@@ -157,7 +157,8 @@ describe('runtime action policy', () => {
       })
     );
 
-    expect(policy.send_follow_up.reason).toBe('runtime_terminal');
+    expect(policy.send_follow_up.allowed).toBe(true);
+    expect(policy.queue_follow_up.reason).toBe('runtime_terminal');
   });
 
   it('preserves approval approve and request-change rules', () => {

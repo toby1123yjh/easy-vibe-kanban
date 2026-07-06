@@ -186,8 +186,6 @@ export function deriveRuntimeActionPolicy(
     sendFollowUp = block('send_follow_up', 'runtime_cancelling');
   } else if (activeCodingProcess || input.isWorkspaceBusy) {
     sendFollowUp = block('send_follow_up', 'runtime_busy');
-  } else if (latestFailedLike) {
-    sendFollowUp = block('send_follow_up', 'runtime_terminal');
   } else if (providerFollowUpBlock) {
     sendFollowUp = block('send_follow_up', providerFollowUpBlock);
   } else {
