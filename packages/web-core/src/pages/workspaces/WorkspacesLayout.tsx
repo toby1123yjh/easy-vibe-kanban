@@ -52,6 +52,7 @@ import {
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 
 const WORKSPACES_GUIDE_ID = 'workspaces-guide';
+const MAIN_PANEL_MIN_SIZE = '12%';
 
 export function WorkspacesLayout() {
   const appNavigation = useAppNavigation();
@@ -380,7 +381,7 @@ export function WorkspacesLayout() {
                 {isLeftMainPanelVisible && (
                   <Panel
                     id="left-main"
-                    minSize="20%"
+                    minSize={MAIN_PANEL_MIN_SIZE}
                     className="min-w-0 h-full overflow-hidden"
                   >
                     {isCreateMode ? (
@@ -415,7 +416,7 @@ export function WorkspacesLayout() {
                 {rightMainPanelMode !== null && (
                   <Panel
                     id="right-main"
-                    minSize="20%"
+                    minSize={MAIN_PANEL_MIN_SIZE}
                     className="min-w-0 h-full overflow-hidden"
                   >
                     {rightMainPanelMode === RIGHT_MAIN_PANEL_MODES.CHANGES &&

@@ -27,6 +27,10 @@ import {
 
 import { ProjectRightSidebarContainer } from './ProjectRightSidebarContainer';
 
+const KANBAN_BOARD_MIN_SIZE = '12%';
+const KANBAN_RIGHT_PANEL_MIN_SIZE = '400px';
+const KANBAN_RIGHT_PANEL_MAX_SIZE = '88%';
+
 /**
  * Component that registers project mutations with ActionsContext.
  * Must be rendered inside both ActionsProvider and ProjectProvider.
@@ -151,7 +155,7 @@ function ProjectKanbanLayout({ projectName }: { projectName: string }) {
     >
       <Panel
         id="kanban-left"
-        minSize="20%"
+        minSize={KANBAN_BOARD_MIN_SIZE}
         className="min-w-0 h-full overflow-hidden bg-primary"
       >
         <ProjectKanbanBoard />
@@ -167,8 +171,8 @@ function ProjectKanbanLayout({ projectName }: { projectName: string }) {
       {isRightPanelOpen && (
         <Panel
           id="kanban-right"
-          minSize="400px"
-          maxSize="800px"
+          minSize={KANBAN_RIGHT_PANEL_MIN_SIZE}
+          maxSize={KANBAN_RIGHT_PANEL_MAX_SIZE}
           className="min-w-0 h-full overflow-hidden bg-secondary"
         >
           <ProjectRightSidebarContainer />
