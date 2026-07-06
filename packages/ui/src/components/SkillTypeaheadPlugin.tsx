@@ -160,16 +160,16 @@ export function SkillTypeaheadPlugin({
           >
             <TypeaheadMenu.Header>
               <SparkleIcon className="size-icon-xs" weight="bold" />
-              Skills
+              技能
             </TypeaheadMenu.Header>
 
             {isEmpty ? (
-              <TypeaheadMenu.Empty>No skills available</TypeaheadMenu.Empty>
+              <TypeaheadMenu.Empty>暂无可用技能</TypeaheadMenu.Empty>
             ) : options.length === 0 && !showLoadingRow ? null : (
               <TypeaheadMenu.ScrollArea>
                 {showLoadingRow && (
                   <div className="px-base py-half text-sm text-low select-none">
-                    Loading skills...
+                    正在加载技能...
                   </div>
                 )}
                 {options.map((option, index) => {
@@ -186,10 +186,12 @@ export function SkillTypeaheadPlugin({
                       setHighlightedIndex={setHighlightedIndex}
                       onClick={() => selectOptionAndCleanUp(option)}
                     >
-                      <div className="flex items-center justify-between gap-half font-medium">
-                        <span className="font-mono">${option.skill.name}</span>
+                      <div className="flex min-w-0 items-center justify-between gap-half font-medium">
+                        <span className="min-w-0 truncate font-mono">
+                          ${option.skill.name}
+                        </span>
                         {option.skill.scope && (
-                          <span className="text-xs text-low">
+                          <span className="shrink-0 text-xs text-low">
                             {option.skill.scope}
                           </span>
                         )}

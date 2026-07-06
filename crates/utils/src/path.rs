@@ -15,11 +15,6 @@ pub fn make_path_relative(path: &str, worktree_path: &str) -> String {
     let path_obj = normalize_macos_private_alias(Path::new(&path));
     let worktree_path_obj = normalize_macos_private_alias(Path::new(worktree_path));
 
-    // If path is already relative, return as is
-    if path_obj.is_relative() {
-        return path.to_string();
-    }
-
     if let Ok(relative_path) = path_obj.strip_prefix(&worktree_path_obj) {
         let result = relative_path.to_string_lossy().to_string();
         tracing::trace!("Successfully made relative: '{}' -> '{}'", path, result);
@@ -27,6 +22,13 @@ pub fn make_path_relative(path: &str, worktree_path: &str) -> String {
             return ".".to_string();
         }
         return result;
+    }
+
+    // If path is already relative, return as is. This check must happen after
+    // strip_prefix because Windows treats POSIX-style paths like /tmp/foo as
+    // relative, while agent logs can still report paths in that format.
+    if path_obj.is_relative() {
+        return path.to_string();
     }
 
     if !path_obj.exists() || !worktree_path_obj.exists() {

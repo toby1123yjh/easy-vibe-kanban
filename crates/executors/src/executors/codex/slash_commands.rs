@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use codex_app_server_protocol::{
-    ConfigEdit, JSONRPCNotification, MergeStrategy, SkillScope, SkillsListResponse,
+    ConfigEdit, JSONRPCNotification, MergeStrategy, ReviewTarget, SkillScope, SkillsListResponse,
+    ThreadGoal, ThreadGoalSetParams, ThreadGoalStatus, ThreadSettingsUpdateParams,
 };
 use codex_protocol::{
-    config_types::ServiceTier,
+    config_types::{Personality, ServiceTier},
     protocol::{AgentMessageEvent, ErrorEvent, EventMsg},
 };
 use serde_json::json;
@@ -18,7 +19,8 @@ use crate::{
     actions::SelectedSkill,
     env::ExecutionEnv,
     executors::{
-        ExecutorError, ExecutorExitResult, SlashCommandDescription, SpawnedChild,
+        ExecutorError, ExecutorExitResult, SlashCommandDescription, SlashCommandSource,
+        SlashCommandSupportLevel, SpawnedChild,
         utils::{SlashCommandCall, parse_slash_command},
     },
     stdout_dup::spawn_local_output_process,
@@ -31,10 +33,29 @@ const DEFAULT_PROJECT_DOC_FILENAME: &str = "AGENTS.md";
 pub enum CodexSlashCommand {
     Init,
     Compact { instructions: Option<String> },
+    Review { instructions: Option<String> },
     Status,
     Mcp,
     Skills,
     Fast { enable: Option<bool>, status: bool },
+    Goal(CodexGoalCommand),
+    Personality(CodexPersonalityCommand),
+}
+
+#[derive(Debug, Clone)]
+pub enum CodexGoalCommand {
+    Show,
+    Set { objective: String },
+    Clear,
+    Pause,
+    Resume,
+}
+
+#[derive(Debug, Clone)]
+pub enum CodexPersonalityCommand {
+    Show,
+    Set(Personality),
+    Invalid { value: String },
 }
 
 impl CodexSlashCommand {
@@ -43,6 +64,13 @@ impl CodexSlashCommand {
         match cmd.name.as_str() {
             "init" => Some(Self::Init),
             "compact" => Some(Self::Compact {
+                instructions: if cmd.arguments.is_empty() {
+                    None
+                } else {
+                    Some(cmd.arguments.to_string())
+                },
+            }),
+            "review" => Some(Self::Review {
                 instructions: if cmd.arguments.is_empty() {
                     None
                 } else {
@@ -60,42 +88,362 @@ impl CodexSlashCommand {
                     _ => None,
                 },
             }),
+            "goal" => Some(Self::Goal(parse_goal_command(cmd.arguments))),
+            "personality" => Some(Self::Personality(parse_personality_command(cmd.arguments))),
             _ => None,
         }
     }
 }
 
+fn parse_goal_command(arguments: &str) -> CodexGoalCommand {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() {
+        return CodexGoalCommand::Show;
+    }
+
+    match trimmed.to_ascii_lowercase().as_str() {
+        "clear" => CodexGoalCommand::Clear,
+        "pause" => CodexGoalCommand::Pause,
+        "resume" => CodexGoalCommand::Resume,
+        _ => CodexGoalCommand::Set {
+            objective: trimmed.to_string(),
+        },
+    }
+}
+
+fn parse_personality_command(arguments: &str) -> CodexPersonalityCommand {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() {
+        return CodexPersonalityCommand::Show;
+    }
+
+    match trimmed.to_ascii_lowercase().as_str() {
+        "friendly" => CodexPersonalityCommand::Set(Personality::Friendly),
+        "pragmatic" => CodexPersonalityCommand::Set(Personality::Pragmatic),
+        "none" => CodexPersonalityCommand::Set(Personality::None),
+        _ => CodexPersonalityCommand::Invalid {
+            value: trimmed.to_string(),
+        },
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CodexSlashCommandCatalogEntry {
+    name: &'static str,
+    description: &'static str,
+    supported: bool,
+}
+
+// Synced from the Codex TUI slash command catalog pinned by
+// codex-app-server-protocol. Only entries that vibe-kanban can execute through
+// Codex app-server are advertised to the UI.
+const CODEX_SLASH_COMMAND_CATALOG: &[CodexSlashCommandCatalogEntry] = &[
+    CodexSlashCommandCatalogEntry {
+        name: "compact",
+        description: "summarize conversation to prevent hitting the context limit",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "review",
+        description: "review my current changes and find issues",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "init",
+        description: "create an AGENTS.md file with instructions for Codex",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "status",
+        description: "show current session configuration and token usage",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "mcp",
+        description: "list configured MCP tools; use /mcp verbose for details",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "skills",
+        description: "use skills to improve how Codex performs specific tasks",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "fast",
+        description: "toggle fast mode for highest speed inference (2x plan usage)",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "model",
+        description: "choose what model and reasoning effort to use",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "ide",
+        description: "include current selection, open files, and other context from your IDE",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "permissions",
+        description: "choose what Codex is allowed to do",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "keymap",
+        description: "remap TUI shortcuts",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "vim",
+        description: "toggle Vim mode for the composer",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "setup-default-sandbox",
+        description: "set up elevated agent sandbox",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "sandbox-add-read-dir",
+        description: "let sandbox read a directory: /sandbox-add-read-dir <absolute_path>",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "experimental",
+        description: "toggle experimental features",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "approve",
+        description: "approve one retry of a recent auto-review denial",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "memories",
+        description: "configure memory use and generation",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "hooks",
+        description: "view and manage lifecycle hooks",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "rename",
+        description: "rename the current thread",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "new",
+        description: "start a new chat during a conversation",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "archive",
+        description: "archive this session and exit",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "resume",
+        description: "resume a saved chat",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "fork",
+        description: "fork the current chat",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "app",
+        description: "continue this session in Codex Desktop",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "plan",
+        description: "switch to Plan mode",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "goal",
+        description: "set or view the goal for a long-running task",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "agent",
+        description: "switch the active agent thread",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "side",
+        description: "start a side conversation in an ephemeral fork",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "btw",
+        description: "start a side conversation in an ephemeral fork",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "copy",
+        description: "copy last response as markdown",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "raw",
+        description: "toggle raw scrollback mode for copy-friendly terminal selection",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "diff",
+        description: "show git diff (including untracked files)",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "mention",
+        description: "mention a file",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "debug-config",
+        description: "show config layers and requirement sources for debugging",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "title",
+        description: "configure which items appear in the terminal title",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "statusline",
+        description: "configure which items appear in the status line",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "theme",
+        description: "choose a syntax highlighting theme",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "pets",
+        description: "choose or hide the terminal pet",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "apps",
+        description: "manage apps",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "plugins",
+        description: "browse plugins",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "logout",
+        description: "log out of Codex",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "quit",
+        description: "exit Codex",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "exit",
+        description: "exit Codex",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "feedback",
+        description: "send logs to maintainers",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "rollout",
+        description: "print the rollout file path",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "ps",
+        description: "list background terminals",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "stop",
+        description: "stop all background terminals",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "clear",
+        description: "clear the terminal and start a new chat",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "personality",
+        description: "choose a communication style for Codex",
+        supported: true,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "realtime",
+        description: "toggle realtime voice mode (experimental)",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "settings",
+        description: "configure realtime microphone/speaker",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "test-approval",
+        description: "test approval request",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "subagents",
+        description: "switch the active agent thread",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "debug-m-drop",
+        description: "DO NOT USE",
+        supported: false,
+    },
+    CodexSlashCommandCatalogEntry {
+        name: "debug-m-update",
+        description: "DO NOT USE",
+        supported: false,
+    },
+];
+
 pub(super) fn supported_slash_commands() -> Vec<SlashCommandDescription> {
-    vec![
-        SlashCommandDescription {
-            name: "compact".to_string(),
-            description: Some(
-                "summarize conversation to prevent hitting the context limit".to_string(),
-            ),
-        },
-        SlashCommandDescription {
-            name: "init".to_string(),
-            description: Some("create an AGENTS.md file with instructions for Codex".to_string()),
-        },
-        SlashCommandDescription {
-            name: "status".to_string(),
-            description: Some("show current session configuration and token usage".to_string()),
-        },
-        SlashCommandDescription {
-            name: "mcp".to_string(),
-            description: Some("list configured MCP tools".to_string()),
-        },
-        SlashCommandDescription {
-            name: "skills".to_string(),
-            description: Some("list available Codex skills for this workspace".to_string()),
-        },
-        SlashCommandDescription {
-            name: "fast".to_string(),
-            description: Some(
-                "toggle fast mode for highest speed inference (2x plan usage). Use `/fast on` or `/fast off` to set explicitly".to_string(),
-            ),
-        },
-    ]
+    CODEX_SLASH_COMMAND_CATALOG
+        .iter()
+        .filter(|command| command.supported)
+        .map(|command| SlashCommandDescription {
+            name: command.name.to_string(),
+            description: Some(command.description.to_string()),
+            source: Some(SlashCommandSource::Builtin),
+            support_level: Some(SlashCommandSupportLevel::Product),
+        })
+        .collect()
+}
+
+pub(super) fn skill_slash_commands(
+    skills: &[crate::executor_discovery::CodexSkillDescription],
+) -> Vec<SlashCommandDescription> {
+    skills
+        .iter()
+        .filter(|skill| skill.enabled)
+        .map(|skill| SlashCommandDescription {
+            name: skill.name.clone(),
+            description: skill
+                .short_description
+                .clone()
+                .or_else(|| Some(skill.description.clone())),
+            source: Some(SlashCommandSource::Skill),
+            support_level: Some(SlashCommandSupportLevel::Skill),
+        })
+        .collect()
 }
 
 impl Codex {
@@ -140,6 +488,14 @@ impl Codex {
                         .await
                     }
                 },
+                CodexSlashCommand::Review { instructions } => {
+                    let review_target = match instructions {
+                        Some(instructions) => ReviewTarget::Custom { instructions },
+                        None => ReviewTarget::UncommittedChanges,
+                    };
+                    self.spawn_review_target(current_dir, review_target, session_id, env)
+                        .await
+                }
                 CodexSlashCommand::Status => {
                     self.handle_app_server_slash_command(current_dir, command, session_id, env)
                         .await
@@ -156,6 +512,32 @@ impl Codex {
                     self.handle_app_server_slash_command(current_dir, command, session_id, env)
                         .await
                 }
+                CodexSlashCommand::Goal(_) => match session_id {
+                    Some(_) => {
+                        self.handle_app_server_slash_command(current_dir, command, session_id, env)
+                            .await
+                    }
+                    None => {
+                        self.return_static_reply(
+                            current_dir,
+                            Ok("_No active Codex session to manage a goal._".to_string()),
+                        )
+                        .await
+                    }
+                },
+                CodexSlashCommand::Personality(_) => match session_id {
+                    Some(_) => {
+                        self.handle_app_server_slash_command(current_dir, command, session_id, env)
+                            .await
+                    }
+                    None => {
+                        self.return_static_reply(
+                            current_dir,
+                            Ok("_No active Codex session to change personality._".to_string()),
+                        )
+                        .await
+                    }
+                },
             };
         }
 
@@ -219,6 +601,11 @@ impl Codex {
                         let thread_id = fork_response.thread.id;
                         tracing::debug!("forked thread for compact, new thread_id={thread_id}");
                         client.thread_compact_start(thread_id).await?;
+                    }
+                    CodexSlashCommand::Review { .. } => {
+                        return Err(ExecutorError::Io(std::io::Error::other(
+                            "Unsupported Codex slash command",
+                        )));
                     }
                     CodexSlashCommand::Status => {
                         let message =
@@ -300,6 +687,32 @@ impl Codex {
                         } else {
                             "**Fast mode disabled.**".to_string()
                         };
+                        log_event_raw(client.log_writer(), message).await?;
+                        exit_signal_tx
+                            .send_exit_signal(ExecutorExitResult::Success)
+                            .await;
+                    }
+                    CodexSlashCommand::Goal(goal_command) => {
+                        let thread_id = session_id.ok_or_else(|| {
+                            ExecutorError::Io(std::io::Error::other(
+                                "No active Codex session to manage a goal",
+                            ))
+                        })?;
+                        let message = handle_goal_command(&client, thread_id, goal_command).await?;
+                        log_event_raw(client.log_writer(), message).await?;
+                        exit_signal_tx
+                            .send_exit_signal(ExecutorExitResult::Success)
+                            .await;
+                    }
+                    CodexSlashCommand::Personality(personality_command) => {
+                        let thread_id = session_id.ok_or_else(|| {
+                            ExecutorError::Io(std::io::Error::other(
+                                "No active Codex session to change personality",
+                            ))
+                        })?;
+                        let message =
+                            handle_personality_command(&client, thread_id, personality_command)
+                                .await?;
                         log_event_raw(client.log_writer(), message).await?;
                         exit_signal_tx
                             .send_exit_signal(ExecutorExitResult::Success)
@@ -392,6 +805,157 @@ pub async fn log_event_raw(log_writer: &LogWriter, message: String) -> Result<()
         }),
     )
     .await
+}
+
+async fn handle_goal_command(
+    client: &AppServerClient,
+    thread_id: String,
+    command: CodexGoalCommand,
+) -> Result<String, ExecutorError> {
+    match command {
+        CodexGoalCommand::Show => {
+            let response = client.thread_goal_get(thread_id).await?;
+            Ok(match response.goal {
+                Some(goal) => format_goal_status_message(&goal),
+                None => "_No active goal for this Codex session._\n\nUsage: `/goal <objective>`"
+                    .to_string(),
+            })
+        }
+        CodexGoalCommand::Set { objective } => {
+            let response = client
+                .thread_goal_set(ThreadGoalSetParams {
+                    thread_id,
+                    objective: Some(objective),
+                    status: Some(ThreadGoalStatus::Active),
+                    token_budget: None,
+                })
+                .await?;
+            Ok(format!(
+                "**Goal set.**\n\n{}",
+                format_goal_details(&response.goal)
+            ))
+        }
+        CodexGoalCommand::Clear => {
+            let response = client.thread_goal_clear(thread_id).await?;
+            if response.cleared {
+                Ok("**Goal cleared.**".to_string())
+            } else {
+                Ok("_No active goal to clear._".to_string())
+            }
+        }
+        CodexGoalCommand::Pause => {
+            let response = client
+                .thread_goal_set(ThreadGoalSetParams {
+                    thread_id,
+                    objective: None,
+                    status: Some(ThreadGoalStatus::Paused),
+                    token_budget: None,
+                })
+                .await?;
+            Ok(format!(
+                "**Goal paused.**\n\n{}",
+                format_goal_details(&response.goal)
+            ))
+        }
+        CodexGoalCommand::Resume => {
+            let response = client
+                .thread_goal_set(ThreadGoalSetParams {
+                    thread_id,
+                    objective: None,
+                    status: Some(ThreadGoalStatus::Active),
+                    token_budget: None,
+                })
+                .await?;
+            Ok(format!(
+                "**Goal resumed.**\n\n{}",
+                format_goal_details(&response.goal)
+            ))
+        }
+    }
+}
+
+async fn handle_personality_command(
+    client: &AppServerClient,
+    thread_id: String,
+    command: CodexPersonalityCommand,
+) -> Result<String, ExecutorError> {
+    match command {
+        CodexPersonalityCommand::Show => Ok(personality_usage_message()),
+        CodexPersonalityCommand::Invalid { value } => Ok(format!(
+            "`{value}` is not a supported Codex personality.\n\n{}",
+            personality_usage_message()
+        )),
+        CodexPersonalityCommand::Set(personality) => {
+            client
+                .thread_settings_update(ThreadSettingsUpdateParams {
+                    thread_id,
+                    personality: Some(personality),
+                    ..Default::default()
+                })
+                .await?;
+            Ok(format!(
+                "**Personality set to `{}`.**",
+                personality_label(personality)
+            ))
+        }
+    }
+}
+
+fn format_goal_status_message(goal: &ThreadGoal) -> String {
+    format!("# Current Goal\n\n{}", format_goal_details(goal))
+}
+
+fn format_goal_details(goal: &ThreadGoal) -> String {
+    let mut lines = vec![
+        format!("- **Objective**: {}", goal.objective),
+        format!("- **Status**: `{}`", goal_status_label(goal.status)),
+        format!("- **Tokens used**: `{}`", goal.tokens_used),
+        format!(
+            "- **Time used**: `{}`",
+            format_seconds(goal.time_used_seconds)
+        ),
+    ];
+    if let Some(token_budget) = goal.token_budget {
+        lines.push(format!("- **Token budget**: `{token_budget}`"));
+    }
+    lines.join("\n")
+}
+
+fn goal_status_label(status: ThreadGoalStatus) -> &'static str {
+    match status {
+        ThreadGoalStatus::Active => "active",
+        ThreadGoalStatus::Paused => "paused",
+        ThreadGoalStatus::Blocked => "blocked",
+        ThreadGoalStatus::UsageLimited => "usage_limited",
+        ThreadGoalStatus::BudgetLimited => "budget_limited",
+        ThreadGoalStatus::Complete => "complete",
+    }
+}
+
+fn format_seconds(seconds: i64) -> String {
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = seconds / 60;
+    let seconds = seconds % 60;
+    if minutes < 60 {
+        return format!("{minutes}m {seconds}s");
+    }
+    let hours = minutes / 60;
+    let minutes = minutes % 60;
+    format!("{hours}h {minutes}m")
+}
+
+fn personality_usage_message() -> String {
+    "Usage: `/personality friendly`, `/personality pragmatic`, or `/personality none`.".to_string()
+}
+
+fn personality_label(personality: Personality) -> &'static str {
+    match personality {
+        Personality::Friendly => "friendly",
+        Personality::Pragmatic => "pragmatic",
+        Personality::None => "none",
+    }
 }
 
 async fn fetch_status_message(
@@ -783,9 +1347,14 @@ fn format_skill_scope(scope: SkillScope) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use codex_app_server_protocol::{ThreadGoal, ThreadGoalStatus};
+    use codex_protocol::config_types::Personality;
     use serde_json::json;
 
-    use super::{CodexSlashCommand, format_skills_status, supported_slash_commands};
+    use super::{
+        CodexGoalCommand, CodexPersonalityCommand, CodexSlashCommand, format_goal_details,
+        format_seconds, format_skills_status, skill_slash_commands, supported_slash_commands,
+    };
 
     #[test]
     fn parses_fast_enable_and_disable() {
@@ -836,10 +1405,105 @@ mod tests {
     }
 
     #[test]
+    fn parses_goal_commands() {
+        assert!(matches!(
+            CodexSlashCommand::parse("/goal"),
+            Some(CodexSlashCommand::Goal(CodexGoalCommand::Show))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/goal clear"),
+            Some(CodexSlashCommand::Goal(CodexGoalCommand::Clear))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/goal pause"),
+            Some(CodexSlashCommand::Goal(CodexGoalCommand::Pause))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/goal resume"),
+            Some(CodexSlashCommand::Goal(CodexGoalCommand::Resume))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/goal ship Codex slash commands"),
+            Some(CodexSlashCommand::Goal(CodexGoalCommand::Set { objective }))
+                if objective == "ship Codex slash commands"
+        ));
+    }
+
+    #[test]
+    fn parses_personality_commands() {
+        assert!(matches!(
+            CodexSlashCommand::parse("/personality"),
+            Some(CodexSlashCommand::Personality(
+                CodexPersonalityCommand::Show
+            ))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/personality friendly"),
+            Some(CodexSlashCommand::Personality(
+                CodexPersonalityCommand::Set(Personality::Friendly)
+            ))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/personality pragmatic"),
+            Some(CodexSlashCommand::Personality(
+                CodexPersonalityCommand::Set(Personality::Pragmatic)
+            ))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/personality none"),
+            Some(CodexSlashCommand::Personality(
+                CodexPersonalityCommand::Set(Personality::None)
+            ))
+        ));
+        assert!(matches!(
+            CodexSlashCommand::parse("/personality verbose"),
+            Some(CodexSlashCommand::Personality(
+                CodexPersonalityCommand::Invalid { value }
+            )) if value == "verbose"
+        ));
+    }
+
+    #[test]
+    fn parses_review_with_optional_instructions() {
+        assert!(matches!(
+            CodexSlashCommand::parse("/review"),
+            Some(CodexSlashCommand::Review { instructions: None })
+        ));
+
+        assert!(matches!(
+            CodexSlashCommand::parse("/review focus on regressions"),
+            Some(CodexSlashCommand::Review {
+                instructions: Some(instructions)
+            }) if instructions == "focus on regressions"
+        ));
+    }
+
+    #[test]
     fn advertised_slash_commands_are_supported_by_parser() {
         let commands = supported_slash_commands();
+        let command_names = commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            command_names,
+            vec![
+                "compact",
+                "review",
+                "init",
+                "status",
+                "mcp",
+                "skills",
+                "fast",
+                "goal",
+                "personality"
+            ]
+        );
+
         assert!(commands.iter().any(|cmd| cmd.name == "skills"));
+        assert!(commands.iter().any(|cmd| cmd.name == "review"));
         assert!(!commands.iter().any(|cmd| cmd.name == "model"));
+        assert!(!commands.iter().any(|cmd| cmd.name == "plan"));
 
         for command in commands {
             let prompt = format!("/{}", command.name);
@@ -849,6 +1513,40 @@ mod tests {
                 command.name
             );
         }
+    }
+
+    #[test]
+    fn skill_slash_commands_only_include_enabled_skills() {
+        let commands = skill_slash_commands(&[
+            crate::executor_discovery::CodexSkillDescription {
+                name: "frontend-design".to_string(),
+                description: "Design frontend UX".to_string(),
+                short_description: Some("Design UX".to_string()),
+                path: "skills/frontend-design/SKILL.md".into(),
+                scope: "repo".to_string(),
+                enabled: true,
+            },
+            crate::executor_discovery::CodexSkillDescription {
+                name: "disabled-skill".to_string(),
+                description: "Disabled".to_string(),
+                short_description: None,
+                path: "skills/disabled/SKILL.md".into(),
+                scope: "repo".to_string(),
+                enabled: false,
+            },
+        ]);
+
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].name, "frontend-design");
+        assert_eq!(
+            commands[0].source,
+            Some(crate::executors::SlashCommandSource::Skill)
+        );
+        assert_eq!(
+            commands[0].support_level,
+            Some(crate::executors::SlashCommandSupportLevel::Skill)
+        );
+        assert_eq!(commands[0].description.as_deref(), Some("Design UX"));
     }
 
     #[test]
@@ -881,5 +1579,34 @@ mod tests {
         assert!(formatted.contains("`$demo-skill`"));
         assert!(formatted.contains("Demo skill description"));
         assert!(formatted.contains("enabled"));
+    }
+
+    #[test]
+    fn formats_goal_details() {
+        let goal = ThreadGoal {
+            thread_id: "thread_123".to_string(),
+            objective: "finish slash commands".to_string(),
+            status: ThreadGoalStatus::Paused,
+            token_budget: Some(12000),
+            tokens_used: 345,
+            time_used_seconds: 3723,
+            created_at: 1,
+            updated_at: 2,
+        };
+
+        let formatted = format_goal_details(&goal);
+
+        assert!(formatted.contains("finish slash commands"));
+        assert!(formatted.contains("`paused`"));
+        assert!(formatted.contains("`345`"));
+        assert!(formatted.contains("`1h 2m`"));
+        assert!(formatted.contains("`12000`"));
+    }
+
+    #[test]
+    fn formats_seconds_for_short_and_long_durations() {
+        assert_eq!(format_seconds(12), "12s");
+        assert_eq!(format_seconds(125), "2m 5s");
+        assert_eq!(format_seconds(3723), "1h 2m");
     }
 }

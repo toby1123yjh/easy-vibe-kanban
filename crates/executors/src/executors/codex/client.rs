@@ -20,10 +20,12 @@ use codex_app_server_protocol::{
     ListMcpServerStatusResponse, McpServerStatusDetail, ModelListParams, ModelListResponse,
     RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget, ServerRequest,
     SkillsListParams, SkillsListResponse, ThreadCompactStartParams, ThreadCompactStartResponse,
-    ThreadForkParams, ThreadForkResponse, ThreadItem, ThreadReadParams, ThreadReadResponse,
-    ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer,
-    ToolRequestUserInputQuestion, ToolRequestUserInputResponse, TurnCompletedNotification,
-    TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
+    ThreadForkParams, ThreadForkResponse, ThreadGoalClearParams, ThreadGoalClearResponse,
+    ThreadGoalGetParams, ThreadGoalGetResponse, ThreadGoalSetParams, ThreadGoalSetResponse,
+    ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadSettingsUpdateParams,
+    ThreadSettingsUpdateResponse, ThreadStartParams, ThreadStartResponse,
+    ToolRequestUserInputAnswer, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
+    TurnCompletedNotification, TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
 };
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use futures::TryFutureExt;
@@ -283,6 +285,50 @@ impl AppServerClient {
             },
         };
         self.send_request(request, "thread/read").await
+    }
+
+    pub async fn thread_goal_set(
+        &self,
+        params: ThreadGoalSetParams,
+    ) -> Result<ThreadGoalSetResponse, ExecutorError> {
+        let request = ClientRequest::ThreadGoalSet {
+            request_id: self.next_request_id(),
+            params,
+        };
+        self.send_request(request, "thread/goal/set").await
+    }
+
+    pub async fn thread_goal_get(
+        &self,
+        thread_id: String,
+    ) -> Result<ThreadGoalGetResponse, ExecutorError> {
+        let request = ClientRequest::ThreadGoalGet {
+            request_id: self.next_request_id(),
+            params: ThreadGoalGetParams { thread_id },
+        };
+        self.send_request(request, "thread/goal/get").await
+    }
+
+    pub async fn thread_goal_clear(
+        &self,
+        thread_id: String,
+    ) -> Result<ThreadGoalClearResponse, ExecutorError> {
+        let request = ClientRequest::ThreadGoalClear {
+            request_id: self.next_request_id(),
+            params: ThreadGoalClearParams { thread_id },
+        };
+        self.send_request(request, "thread/goal/clear").await
+    }
+
+    pub async fn thread_settings_update(
+        &self,
+        params: ThreadSettingsUpdateParams,
+    ) -> Result<ThreadSettingsUpdateResponse, ExecutorError> {
+        let request = ClientRequest::ThreadSettingsUpdate {
+            request_id: self.next_request_id(),
+            params,
+        };
+        self.send_request(request, "thread/settings/update").await
     }
 
     pub async fn config_batch_write(
@@ -1000,6 +1046,10 @@ fn request_id(request: &ClientRequest) -> RequestId {
         | ClientRequest::ModelList { request_id, .. }
         | ClientRequest::ThreadCompactStart { request_id, .. }
         | ClientRequest::ThreadRead { request_id, .. }
+        | ClientRequest::ThreadGoalSet { request_id, .. }
+        | ClientRequest::ThreadGoalGet { request_id, .. }
+        | ClientRequest::ThreadGoalClear { request_id, .. }
+        | ClientRequest::ThreadSettingsUpdate { request_id, .. }
         | ClientRequest::ConfigRead { request_id, .. }
         | ClientRequest::ConfigBatchWrite { request_id, .. }
         | ClientRequest::GetAccountRateLimits { request_id, .. } => request_id.clone(),
@@ -1111,5 +1161,49 @@ mod version_check_tests {
             params: ModelListParams::default(),
         };
         assert_eq!(super::request_id(&req), RequestId::Integer(7));
+    }
+
+    #[test]
+    fn request_id_handles_goal_and_settings_requests() {
+        use codex_app_server_protocol::{
+            ClientRequest, RequestId, ThreadGoalClearParams, ThreadGoalGetParams,
+            ThreadGoalSetParams, ThreadSettingsUpdateParams,
+        };
+
+        let goal_set = ClientRequest::ThreadGoalSet {
+            request_id: RequestId::Integer(8),
+            params: ThreadGoalSetParams {
+                thread_id: "thread_123".to_string(),
+                objective: Some("ship slash commands".to_string()),
+                status: None,
+                token_budget: None,
+            },
+        };
+        assert_eq!(super::request_id(&goal_set), RequestId::Integer(8));
+
+        let goal_get = ClientRequest::ThreadGoalGet {
+            request_id: RequestId::Integer(9),
+            params: ThreadGoalGetParams {
+                thread_id: "thread_123".to_string(),
+            },
+        };
+        assert_eq!(super::request_id(&goal_get), RequestId::Integer(9));
+
+        let goal_clear = ClientRequest::ThreadGoalClear {
+            request_id: RequestId::Integer(10),
+            params: ThreadGoalClearParams {
+                thread_id: "thread_123".to_string(),
+            },
+        };
+        assert_eq!(super::request_id(&goal_clear), RequestId::Integer(10));
+
+        let settings_update = ClientRequest::ThreadSettingsUpdate {
+            request_id: RequestId::Integer(11),
+            params: ThreadSettingsUpdateParams {
+                thread_id: "thread_123".to_string(),
+                ..Default::default()
+            },
+        };
+        assert_eq!(super::request_id(&settings_update), RequestId::Integer(11));
     }
 }

@@ -448,6 +448,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
+                        opts.loading_skills = true;
                         opts
                     })
                     .unwrap_or_else(|| {
@@ -455,6 +456,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
+                        opts.loading_skills = true;
                         opts
                     }),
             )
@@ -477,6 +479,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
+                        opts.loading_skills = true;
                         opts
                     })
                     .unwrap_or_else(|| {
@@ -484,6 +487,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
+                        opts.loading_skills = true;
                         opts
                     }),
             )
@@ -498,6 +502,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             opts.loading_models = false;
             opts.loading_agents = true;
             opts.loading_slash_commands = true;
+            opts.loading_skills = true;
             (None, opts)
         };
 
@@ -511,7 +516,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             let mut final_options = default_discovered_options();
 
             match this.discover_agents_and_slash_commands_initial(&discovery_path).await {
-                Ok((mut agent_options, slash_commands_initial, plugins)) => {
+                Ok((mut agent_options, slash_commands_initial, plugins, skills)) => {
                     let default_agents = [
                         "Bash",
                         "general-purpose",
@@ -545,6 +550,10 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                     final_options.slash_commands = slash_commands_with_descriptions;
                     yield patch::update_slash_commands(final_options.slash_commands.clone());
                     yield patch::slash_commands_loaded();
+
+                    final_options.skills = skills.clone();
+                    yield patch::update_skills(skills);
+                    yield patch::skills_loaded();
 
                     let cache = executor_options_cache();
                     if let Some(path) = &target_path {
@@ -760,6 +769,7 @@ pub struct ClaudeLogProcessor {
     main_model_name: Option<String>,
     main_model_context_window: u32,
     context_tokens_used: u32,
+    retry_status_fingerprint: Option<String>,
 }
 
 impl ClaudeLogProcessor {
@@ -779,6 +789,7 @@ impl ClaudeLogProcessor {
             last_assistant_message: None,
             main_model_context_window: DEFAULT_CLAUDE_CONTEXT_WINDOW,
             context_tokens_used: 0,
+            retry_status_fingerprint: None,
         }
     }
 
@@ -1270,6 +1281,7 @@ impl ClaudeLogProcessor {
                 task_type,
                 prompt,
                 summary,
+                extra,
                 ..
             } => {
                 // emit billing warning if required
@@ -1295,10 +1307,21 @@ impl ClaudeLogProcessor {
                     }
                     Some("status") => {
                         if let Some(status) = status {
-                            patches.push(add_system_message(status.clone(), entry_index_provider));
+                            if status == "requesting" {
+                                patches.push(add_loading_entry(entry_index_provider));
+                            } else {
+                                patches
+                                    .push(add_system_message(status.clone(), entry_index_provider));
+                            }
                         }
                     }
                     Some("compact_boundary") => {}
+                    Some("api_retry") => {
+                        let content =
+                            Self::format_api_retry_message(status, description, summary, extra);
+                        self.push_deduped_retry_notice(&mut patches, entry_index_provider, content);
+                    }
+                    Some("hook_started" | "hook_response" | "thinking_tokens") => {}
                     Some("task_started") => {
                         if let Some(tool_use_id) = tool_use_id
                             && !self.tool_map.contains_key(tool_use_id)
@@ -1417,7 +1440,7 @@ impl ClaudeLogProcessor {
                 }
             }
             ClaudeJson::Assistant { message, .. } => {
-                if let Some(patch) = extract_model_name(self, message, entry_index_provider) {
+                if let Some(patch) = extract_model_name(self, message) {
                     patches.push(patch);
                 }
 
@@ -1746,8 +1769,7 @@ impl ClaudeLogProcessor {
             } => match event {
                 ClaudeStreamEvent::MessageStart { message } => {
                     if message.role == "assistant" {
-                        if let Some(patch) = extract_model_name(self, message, entry_index_provider)
-                        {
+                        if let Some(patch) = extract_model_name(self, message) {
                             patches.push(patch);
                         }
 
@@ -1972,12 +1994,98 @@ impl ClaudeLogProcessor {
                 let idx = entry_index_provider.next();
                 patches.push(ConversationPatch::add_normalized_entry(idx, entry));
             }
+            ClaudeJson::RateLimitEvent {
+                rate_limit_info, ..
+            } => {
+                let content = Self::format_rate_limit_event_message(rate_limit_info.as_ref());
+                self.push_deduped_retry_notice(&mut patches, entry_index_provider, content);
+            }
             ClaudeJson::ControlRequest { .. }
             | ClaudeJson::ControlResponse { .. }
-            | ClaudeJson::ControlCancelRequest { .. }
-            | ClaudeJson::RateLimitEvent { .. } => {}
+            | ClaudeJson::ControlCancelRequest { .. } => {}
         }
         patches
+    }
+
+    fn push_deduped_retry_notice(
+        &mut self,
+        patches: &mut Vec<json_patch::Patch>,
+        entry_index_provider: &EntryIndexProvider,
+        content: String,
+    ) {
+        if self.retry_status_fingerprint.as_deref() == Some(content.as_str()) {
+            return;
+        }
+
+        self.retry_status_fingerprint = Some(content.clone());
+        patches.push(add_system_message(content, entry_index_provider));
+    }
+
+    fn format_api_retry_message(
+        status: &Option<String>,
+        description: &Option<String>,
+        summary: &Option<String>,
+        extra: &HashMap<String, serde_json::Value>,
+    ) -> String {
+        let message = first_extra_field(
+            extra,
+            &["message", "error", "reason", "detail", "details", "cause"],
+        )
+        .or_else(|| non_empty_clone(description))
+        .or_else(|| non_empty_clone(summary))
+        .or_else(|| non_empty_clone(status));
+
+        let mut details = Vec::new();
+        if let Some(attempt) = first_extra_field(
+            extra,
+            &[
+                "attempt",
+                "attemptNumber",
+                "attempt_number",
+                "retryAttempt",
+                "retry_attempt",
+                "retryCount",
+                "retry_count",
+            ],
+        ) {
+            details.push(format!("attempt {attempt}"));
+        }
+
+        if let Some((key, value)) = first_extra_field_with_key(
+            extra,
+            &[
+                "next",
+                "delay",
+                "delayMs",
+                "delay_ms",
+                "retryAfter",
+                "retry_after",
+                "retryAfterMs",
+                "retry_after_ms",
+                "nextRetry",
+                "next_retry",
+                "nextRetryMs",
+                "next_retry_ms",
+                "sleepMs",
+                "sleep_ms",
+            ],
+        ) {
+            details.push(format!("next in {}", format_retry_delay(&key, &value)));
+        }
+
+        format_retry_notice("Claude Code retrying API request", message, details)
+    }
+
+    fn format_rate_limit_event_message(rate_limit_info: Option<&serde_json::Value>) -> String {
+        let message = rate_limit_info
+            .and_then(value_to_display_string)
+            .or_else(|| rate_limit_info.and_then(compact_json_display));
+
+        format_retry_notice(
+            "Claude Code rate limit notice",
+            message,
+            Vec::<String>::new(),
+        )
     }
     /// Generate concise, readable content for tool usage using structured data
     fn generate_concise_content(
@@ -2114,26 +2222,123 @@ fn add_system_message(
     ConversationPatch::add_normalized_entry(id, entry)
 }
 
+fn non_empty_clone(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn first_extra_field(extra: &HashMap<String, serde_json::Value>, keys: &[&str]) -> Option<String> {
+    first_extra_field_with_key(extra, keys).map(|(_, value)| value)
+}
+
+fn first_extra_field_with_key(
+    extra: &HashMap<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<(String, String)> {
+    keys.iter().find_map(|key| {
+        extra
+            .get(*key)
+            .and_then(value_to_display_string)
+            .map(|value| ((*key).to_string(), value))
+    })
+}
+
+fn value_to_display_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        serde_json::Value::Object(object) => [
+            "message",
+            "error",
+            "reason",
+            "description",
+            "detail",
+            "code",
+            "type",
+        ]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(value_to_display_string)),
+        _ => None,
+    }
+}
+
+fn compact_json_display(value: &serde_json::Value) -> Option<String> {
+    let mut text = serde_json::to_string(value).ok()?;
+    const MAX_LEN: usize = 180;
+    if text.len() > MAX_LEN {
+        text.truncate(MAX_LEN);
+        text.push_str("...");
+    }
+    Some(text)
+}
+
+fn format_retry_delay(key: &str, value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed
+            .chars()
+            .any(|ch| ch.is_ascii_alphabetic() || ch == ':')
+    {
+        return trimmed.to_string();
+    }
+
+    let key = key.to_ascii_lowercase();
+    if key.contains("ms") || key == "next" {
+        format!("{trimmed}ms")
+    } else if key.contains("after") || key.contains("second") || key.ends_with("_s") {
+        format!("{trimmed}s")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn format_retry_notice(base: &str, message: Option<String>, details: Vec<String>) -> String {
+    let mut content = base.to_string();
+    if let Some(message) = message {
+        content.push_str(": ");
+        content.push_str(&message);
+    }
+    if !details.is_empty() {
+        content.push_str(" (");
+        content.push_str(&details.join(", "));
+        content.push(')');
+    }
+    content
+}
+
+fn add_loading_entry(entry_index_provider: &EntryIndexProvider) -> json_patch::Patch {
+    let entry = NormalizedEntry {
+        timestamp: None,
+        entry_type: NormalizedEntryType::Loading,
+        content: String::new(),
+        metadata: None,
+    };
+    let id = entry_index_provider.next();
+    ConversationPatch::add_normalized_entry(id, entry)
+}
+
 fn extract_model_name(
     processor: &mut ClaudeLogProcessor,
     message: &ClaudeMessage,
-    entry_index_provider: &EntryIndexProvider,
 ) -> Option<json_patch::Patch> {
     if processor.model_name.is_none()
         && let Some(model) = message.model.as_ref()
     {
         processor.model_name = Some(model.clone());
-        let entry = NormalizedEntry {
-            timestamp: None,
-            entry_type: NormalizedEntryType::SystemMessage,
-            content: format!("System initialized with model: {model}"),
-            metadata: None,
-        };
-        let id = entry_index_provider.next();
-        Some(ConversationPatch::add_normalized_entry(id, entry))
-    } else {
-        None
     }
+
+    None
 }
 
 struct StreamingMessageState {
@@ -2277,6 +2482,35 @@ impl StreamingContentState {
 }
 
 // Data structures for parsing Claude's JSON output format
+fn deserialize_string_list_from_values<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let Some(value) = value else {
+        return Ok(vec![]);
+    };
+
+    let values = match value {
+        serde_json::Value::Array(values) => values,
+        serde_json::Value::String(value) => return Ok(vec![value]),
+        _ => return Ok(vec![]),
+    };
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match value {
+            serde_json::Value::String(value) => Some(value),
+            serde_json::Value::Object(object) => object
+                .get("name")
+                .or_else(|| object.get("command"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            _ => None,
+        })
+        .collect())
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClaudeJson {
@@ -2295,6 +2529,8 @@ pub enum ClaudeJson {
         plugins: Vec<ClaudePlugin>,
         #[serde(default)]
         agents: Vec<String>,
+        #[serde(default, deserialize_with = "deserialize_string_list_from_values")]
+        skills: Vec<String>,
         #[serde(default)]
         task_id: Option<String>,
         #[serde(default)]
@@ -2309,6 +2545,9 @@ pub enum ClaudeJson {
         summary: Option<String>,
         #[serde(default)]
         last_tool_name: Option<String>,
+        #[serde(default)]
+        #[serde(flatten)]
+        extra: HashMap<String, serde_json::Value>,
     },
     Assistant {
         message: ClaudeMessage,
@@ -2861,15 +3100,12 @@ mod tests {
         let parsed: ClaudeJson = serde_json::from_str(assistant_json).unwrap();
         let entries = normalize(&parsed, "");
 
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 1);
         assert!(matches!(
             entries[0].entry_type,
-            NormalizedEntryType::SystemMessage
+            NormalizedEntryType::AssistantMessage
         ));
-        assert_eq!(
-            entries[0].content,
-            "System initialized with model: claude-sonnet-4-20250514"
-        );
+        assert_eq!(entries[0].content, "Hi! I'm Claude Code.");
     }
 
     #[test]
@@ -2912,6 +3148,70 @@ mod tests {
             NormalizedEntryType::Thinking
         ));
         assert_eq!(entries[0].content, "Let me think about this...");
+    }
+
+    #[test]
+    fn test_claude_hook_system_events_are_hidden() {
+        let hook_started_json = r#"{"type":"system","subtype":"hook_started"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(hook_started_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert!(entries.is_empty());
+
+        let hook_response_json = r#"{"type":"system","subtype":"hook_response"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(hook_response_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert!(entries.is_empty());
+
+        let thinking_tokens_json = r#"{"type":"system","subtype":"thinking_tokens"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(thinking_tokens_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_claude_api_retry_system_event_is_visible() {
+        let api_retry_json = r#"{"type":"system","subtype":"api_retry","message":"rate limited","attempt":2,"delayMs":5000}"#;
+        let parsed: ClaudeJson = serde_json::from_str(api_retry_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(
+            entries[0].entry_type,
+            NormalizedEntryType::SystemMessage
+        ));
+        assert_eq!(
+            entries[0].content,
+            "Claude Code retrying API request: rate limited (attempt 2, next in 5000ms)"
+        );
+    }
+
+    #[test]
+    fn test_claude_rate_limit_event_is_visible() {
+        let rate_limit_json =
+            r#"{"type":"rate_limit_event","rate_limit_info":{"message":"limit reached"}}"#;
+        let parsed: ClaudeJson = serde_json::from_str(rate_limit_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(
+            entries[0].entry_type,
+            NormalizedEntryType::SystemMessage
+        ));
+        assert_eq!(
+            entries[0].content,
+            "Claude Code rate limit notice: limit reached"
+        );
+    }
+
+    #[test]
+    fn test_claude_requesting_status_renders_as_loading() {
+        let status_json = r#"{"type":"system","subtype":"status","status":"requesting"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(status_json).unwrap();
+
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(
+            entries[0].entry_type,
+            NormalizedEntryType::Loading
+        ));
     }
 
     #[test]

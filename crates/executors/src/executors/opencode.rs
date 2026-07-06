@@ -718,6 +718,8 @@ impl StandardCodingAgentExecutor for Opencode {
                         .map(|cmd| SlashCommandDescription {
                             name: cmd.name.trim_start_matches('/').to_string(),
                             description: cmd.description,
+                            source: None,
+                            support_level: None,
                         })
                         .filter(|cmd| seen.insert(cmd.name.clone()))
                         .chain(defaults)

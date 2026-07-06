@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::OnceLock,
     time::Duration,
 };
 
@@ -18,11 +17,89 @@ use super::{ClaudeCode, ClaudeJson, ClaudePlugin, base_command};
 use crate::{
     command::{CommandBuildError, CommandBuilder, apply_overrides},
     env::{ExecutionEnv, RepoContext},
-    executors::{ExecutorError, SlashCommandDescription},
+    executor_discovery::CodexSkillDescription,
+    executors::{
+        ExecutorError, SlashCommandDescription, SlashCommandSource, SlashCommandSupportLevel,
+    },
     model_selector::AgentInfo,
 };
 
 const SLASH_COMMANDS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Clone, Copy)]
+struct ClaudeKnownSlashCommand {
+    name: &'static str,
+    description: &'static str,
+    support_level: SlashCommandSupportLevel,
+}
+
+const CLAUDE_KNOWN_SLASH_COMMANDS: &[ClaudeKnownSlashCommand] = &[
+    ClaudeKnownSlashCommand {
+        name: "compact",
+        description: "Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "review",
+        description: "Review a pull request",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "security-review",
+        description: "Complete a security review of the pending changes on the current branch",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "init",
+        description: "Initialize a new CLAUDE.md file with codebase documentation",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "context",
+        description: "Visualize current context usage",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "usage",
+        description: "Show Claude usage and billing information",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "insights",
+        description: "Show Claude Code usage insights",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "goal",
+        description: "View or manage Claude's current task goal",
+        support_level: SlashCommandSupportLevel::Product,
+    },
+    ClaudeKnownSlashCommand {
+        name: "clear",
+        description: "Clear Claude's current conversation context",
+        support_level: SlashCommandSupportLevel::Native,
+    },
+    ClaudeKnownSlashCommand {
+        name: "config",
+        description: "Open or manage Claude Code configuration",
+        support_level: SlashCommandSupportLevel::Native,
+    },
+    ClaudeKnownSlashCommand {
+        name: "reload-skills",
+        description: "Reload Claude Code skills",
+        support_level: SlashCommandSupportLevel::Native,
+    },
+    ClaudeKnownSlashCommand {
+        name: "team-onboarding",
+        description: "Run Claude Code team onboarding",
+        support_level: SlashCommandSupportLevel::Native,
+    },
+    ClaudeKnownSlashCommand {
+        name: "heapdump",
+        description: "Create a Claude Code diagnostic heap dump",
+        support_level: SlashCommandSupportLevel::Diagnostic,
+    },
+];
 
 impl ClaudeCode {
     fn extract_description(content: &str) -> Option<String> {
@@ -140,55 +217,15 @@ impl ClaudeCode {
     }
 
     pub(super) fn hardcoded_slash_commands() -> Vec<SlashCommandDescription> {
-        static KNOWN_SLASH_COMMANDS: OnceLock<Vec<SlashCommandDescription>> = OnceLock::new();
-        KNOWN_SLASH_COMMANDS.get_or_init(|| {
-            vec![
-                SlashCommandDescription {
-                    name: "compact".to_string(),
-                    description: Some(
-                        "Clear conversation history but keep a summary in context. Optional: /compact [instructions for summarization]"
-                            .to_string(),
-                    ),
-                },
-                SlashCommandDescription {
-                    name: "review".to_string(),
-                    description: Some("Review a pull request".to_string()),
-                },
-                SlashCommandDescription {
-                    name: "security-review".to_string(),
-                    description: Some(
-                        "Complete a security review of the pending changes on the current branch"
-                            .to_string(),
-                    ),
-                },
-                SlashCommandDescription {
-                    name: "init".to_string(),
-                    description: Some(
-                        "Initialize a new CLAUDE.md file with codebase documentation".to_string(),
-                    ),
-                },
-                SlashCommandDescription {
-                    name: "pr-comments".to_string(),
-                    description: Some("Get comments from a GitHub pull request".to_string()),
-                },
-                SlashCommandDescription {
-                    name: "context".to_string(),
-                    description: Some(
-                        "Visualize current context usage as a colored grid".to_string(),
-                    ),
-                },
-                SlashCommandDescription {
-                    name: "cost".to_string(),
-                    description: Some(
-                        "Show the total cost and duration of the current session".to_string(),
-                    ),
-                },
-                SlashCommandDescription {
-                    name: "release-notes".to_string(),
-                    description: Some("View release notes".to_string()),
-                },
-            ]
-        }).clone()
+        CLAUDE_KNOWN_SLASH_COMMANDS
+            .iter()
+            .map(|command| SlashCommandDescription {
+                name: command.name.to_string(),
+                description: Some(command.description.to_string()),
+                source: Some(SlashCommandSource::Fallback),
+                support_level: Some(SlashCommandSupportLevel::Fallback),
+            })
+            .collect()
     }
 
     async fn build_slash_commands_discovery_command_builder(
@@ -213,7 +250,7 @@ impl ClaudeCode {
     async fn discover_available_command_and_plugins(
         &self,
         current_dir: &Path,
-    ) -> Result<(Vec<String>, Vec<ClaudePlugin>, Vec<String>), ExecutorError> {
+    ) -> Result<(Vec<String>, Vec<ClaudePlugin>, Vec<String>, Vec<String>), ExecutorError> {
         let command_builder = self
             .build_slash_commands_discovery_command_builder()
             .await?;
@@ -244,7 +281,8 @@ impl ClaudeCode {
 
         let mut lines = BufReader::new(stdout).lines();
 
-        let mut discovered: Option<(Vec<String>, Vec<ClaudePlugin>, Vec<String>)> = None;
+        let mut discovered: Option<(Vec<String>, Vec<ClaudePlugin>, Vec<String>, Vec<String>)> =
+            None;
         let discovery = async {
             while let Some(line) = lines.next_line().await.map_err(ExecutorError::Io)? {
                 if let Ok(json) = serde_json::from_str::<ClaudeJson>(&line)
@@ -253,11 +291,17 @@ impl ClaudeCode {
                         slash_commands,
                         plugins,
                         agents,
+                        skills,
                         ..
                     } = &json
                     && matches!(subtype.as_deref(), Some("init"))
                 {
-                    discovered = Some((slash_commands.clone(), plugins.clone(), agents.clone()));
+                    discovered = Some((
+                        slash_commands.clone(),
+                        plugins.clone(),
+                        agents.clone(),
+                        skills.clone(),
+                    ));
                     break;
                 }
             }
@@ -269,7 +313,7 @@ impl ClaudeCode {
         let _ = child.kill().await;
 
         let result = match res {
-            Ok(Ok(())) => discovered.unwrap_or_else(|| (vec![], vec![], vec![])),
+            Ok(Ok(())) => discovered.unwrap_or_else(|| (vec![], vec![], vec![], vec![])),
             Ok(Err(e)) => return Err(e),
             Err(_) => {
                 return Err(ExecutorError::Io(std::io::Error::other(
@@ -289,10 +333,11 @@ impl ClaudeCode {
             Vec<AgentInfo>,
             Vec<SlashCommandDescription>,
             Vec<ClaudePlugin>,
+            Vec<CodexSkillDescription>,
         ),
         ExecutorError,
     > {
-        let (names, plugins, agents) = self
+        let (names, plugins, agents, skills) = self
             .discover_available_command_and_plugins(current_dir)
             .await?;
 
@@ -304,23 +349,46 @@ impl ClaudeCode {
         // removed builtins disappear. The hardcoded table only supplies nice
         // descriptions for well-known builtins; custom descriptions are filled
         // later from command frontmatter.
-        let builtin_descriptions: HashMap<String, Option<String>> =
-            Self::hardcoded_slash_commands()
-                .into_iter()
-                .map(|c| (c.name, c.description))
-                .collect();
+        let builtin_descriptions: HashMap<&str, &str> = CLAUDE_KNOWN_SLASH_COMMANDS
+            .iter()
+            .map(|command| (command.name, command.description))
+            .collect();
+        let discovered_skills = Self::map_discovered_skills(current_dir, skills);
+        let skill_names: HashSet<String> = discovered_skills
+            .iter()
+            .map(|skill| skill.name.clone())
+            .collect();
+        let plugin_names: HashSet<String> =
+            plugins.iter().map(|plugin| plugin.name.clone()).collect();
 
         let mut seen = HashSet::new();
-        let slash_commands: Vec<SlashCommandDescription> = names
+        let mut slash_commands: Vec<SlashCommandDescription> = names
             .into_iter()
             .filter(|name| !name.is_empty() && seen.insert(name.clone()))
             .map(|name| {
-                let description = builtin_descriptions.get(&name).cloned().flatten();
-                SlashCommandDescription { name, description }
+                let description = builtin_descriptions
+                    .get(name.as_str())
+                    .map(|description| (*description).to_string());
+                Self::classify_slash_command(name, description, &skill_names, &plugin_names)
             })
             .collect();
 
-        Ok((agent_options, slash_commands, plugins))
+        for skill in &discovered_skills {
+            if skill.name.is_empty() || !seen.insert(skill.name.clone()) {
+                continue;
+            }
+            slash_commands.push(Self::classify_slash_command(
+                skill.name.clone(),
+                skill
+                    .short_description
+                    .clone()
+                    .or_else(|| Some(skill.description.clone())),
+                &skill_names,
+                &plugin_names,
+            ));
+        }
+
+        Ok((agent_options, slash_commands, plugins, discovered_skills))
     }
 
     pub async fn fill_slash_command_descriptions(
@@ -338,8 +406,56 @@ impl ClaudeCode {
                     .get(&cmd.name)
                     .cloned()
                     .or(cmd.description.clone()),
+                source: cmd.source,
+                support_level: cmd.support_level,
             })
             .collect()
+    }
+
+    fn classify_slash_command(
+        name: String,
+        description: Option<String>,
+        skill_names: &HashSet<String>,
+        plugin_names: &HashSet<String>,
+    ) -> SlashCommandDescription {
+        if let Some(command) = CLAUDE_KNOWN_SLASH_COMMANDS
+            .iter()
+            .find(|command| command.name == name)
+        {
+            return SlashCommandDescription {
+                name,
+                description: description.or_else(|| Some(command.description.to_string())),
+                source: Some(SlashCommandSource::Builtin),
+                support_level: Some(command.support_level),
+            };
+        }
+
+        if skill_names.contains(&name) {
+            return SlashCommandDescription {
+                name,
+                description,
+                source: Some(SlashCommandSource::Skill),
+                support_level: Some(SlashCommandSupportLevel::Skill),
+            };
+        }
+
+        if let Some((prefix, _)) = name.split_once(':')
+            && plugin_names.contains(prefix)
+        {
+            return SlashCommandDescription {
+                name,
+                description,
+                source: Some(SlashCommandSource::Plugin),
+                support_level: Some(SlashCommandSupportLevel::Custom),
+            };
+        }
+
+        SlashCommandDescription {
+            name,
+            description,
+            source: Some(SlashCommandSource::Custom),
+            support_level: Some(SlashCommandSupportLevel::Custom),
+        }
     }
 
     fn map_discovered_agents(agents: Vec<String>) -> Vec<AgentInfo> {
@@ -364,6 +480,54 @@ impl ClaudeCode {
             .collect()
     }
 
+    fn map_discovered_skills(
+        current_dir: &Path,
+        skills: Vec<String>,
+    ) -> Vec<CodexSkillDescription> {
+        let mut seen = HashSet::new();
+        let home_claude = dirs::home_dir().map(|home| home.join(".claude"));
+
+        skills
+            .into_iter()
+            .filter_map(|name| {
+                let name = name.trim().to_string();
+                if name.is_empty() || !seen.insert(name.clone()) {
+                    return None;
+                }
+
+                let project_path = current_dir
+                    .join(".claude")
+                    .join("skills")
+                    .join(&name)
+                    .join("SKILL.md");
+                let global_path = home_claude
+                    .as_ref()
+                    .map(|claude_dir| claude_dir.join("skills").join(&name).join("SKILL.md"));
+                let path = if project_path.exists() {
+                    project_path
+                } else if let Some(global_path) = global_path
+                    && global_path.exists()
+                {
+                    global_path
+                } else {
+                    PathBuf::from(".claude")
+                        .join("skills")
+                        .join(&name)
+                        .join("SKILL.md")
+                };
+
+                Some(CodexSkillDescription {
+                    name,
+                    description: "Claude Code skill".to_string(),
+                    short_description: None,
+                    path,
+                    scope: "claude".to_string(),
+                    enabled: true,
+                })
+            })
+            .collect()
+    }
+
     fn format_agent_label(raw: &str) -> String {
         let raw = raw.trim();
 
@@ -372,5 +536,109 @@ impl ClaudeCode {
         } else {
             raw.to_case(Case::Title)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn fallback_commands_use_current_claude_names_and_fallback_metadata() {
+        let commands = ClaudeCode::hardcoded_slash_commands();
+        let names = commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect::<HashSet<_>>();
+
+        assert!(names.contains("usage"));
+        assert!(names.contains("insights"));
+        assert!(names.contains("goal"));
+        assert!(!names.contains("cost"));
+        assert!(!names.contains("release-notes"));
+        assert!(!names.contains("pr-comments"));
+
+        for command in commands {
+            assert_eq!(command.source, Some(SlashCommandSource::Fallback));
+            assert_eq!(
+                command.support_level,
+                Some(SlashCommandSupportLevel::Fallback)
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_known_product_commands_as_builtins() {
+        let command = ClaudeCode::classify_slash_command(
+            "usage".to_string(),
+            None,
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert_eq!(command.source, Some(SlashCommandSource::Builtin));
+        assert_eq!(
+            command.support_level,
+            Some(SlashCommandSupportLevel::Product)
+        );
+        assert_eq!(
+            command.description.as_deref(),
+            Some("Show Claude usage and billing information")
+        );
+    }
+
+    #[test]
+    fn classifies_skill_plugin_and_custom_commands_without_product_support() {
+        let skill_names = HashSet::from(["frontend-design".to_string()]);
+        let plugin_names = HashSet::from(["superpowers".to_string()]);
+
+        let skill = ClaudeCode::classify_slash_command(
+            "frontend-design".to_string(),
+            None,
+            &skill_names,
+            &plugin_names,
+        );
+        assert_eq!(skill.source, Some(SlashCommandSource::Skill));
+        assert_eq!(skill.support_level, Some(SlashCommandSupportLevel::Skill));
+
+        let plugin = ClaudeCode::classify_slash_command(
+            "superpowers:brainstorm".to_string(),
+            None,
+            &skill_names,
+            &plugin_names,
+        );
+        assert_eq!(plugin.source, Some(SlashCommandSource::Plugin));
+        assert_eq!(plugin.support_level, Some(SlashCommandSupportLevel::Custom));
+
+        let custom = ClaudeCode::classify_slash_command(
+            "ccg:daily-radar".to_string(),
+            None,
+            &skill_names,
+            &plugin_names,
+        );
+        assert_eq!(custom.source, Some(SlashCommandSource::Custom));
+        assert_eq!(custom.support_level, Some(SlashCommandSupportLevel::Custom));
+    }
+
+    #[test]
+    fn maps_discovered_skills_as_enabled_claude_skills() {
+        let skills = ClaudeCode::map_discovered_skills(
+            Path::new("."),
+            vec![
+                "frontend-design".to_string(),
+                "frontend-design".to_string(),
+                " ".to_string(),
+                "code-search".to_string(),
+            ],
+        );
+
+        assert_eq!(skills.len(), 2);
+        assert_eq!(skills[0].name, "frontend-design");
+        assert_eq!(skills[0].description, "Claude Code skill");
+        assert_eq!(skills[0].scope, "claude");
+        assert!(skills[0].enabled);
+        assert_eq!(skills[1].name, "code-search");
     }
 }

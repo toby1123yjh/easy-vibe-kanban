@@ -371,12 +371,17 @@ impl StandardCodingAgentExecutor for Codex {
             ..Default::default()
         };
         options.loading_models = true;
+        options.loading_slash_commands = true;
         options.loading_skills = skills_cwd.is_some();
         let initial_patch = patch::executor_discovered_options(options);
 
         let this = self.clone();
         let models_cwd = skills_cwd.clone();
         let discovery_stream = async_stream::stream! {
+            let slash_commands = slash_commands::supported_slash_commands();
+            yield patch::update_slash_commands(slash_commands);
+            yield patch::slash_commands_loaded();
+
             // Models: prefer the live `model/list` over the hardcoded fallback so
             // new Codex models appear automatically. Run against the resolved cwd
             // (config like model providers can be workspace-scoped).
@@ -415,6 +420,9 @@ impl StandardCodingAgentExecutor for Codex {
 
             match result {
                 Ok(Ok((skills, errors))) => {
+                    let mut slash_commands = slash_commands::supported_slash_commands();
+                    slash_commands.extend(slash_commands::skill_slash_commands(&skills));
+                    yield patch::update_slash_commands(slash_commands);
                     yield patch::update_skills(skills);
                     yield patch::update_skill_errors(errors);
                 }
@@ -447,10 +455,23 @@ impl StandardCodingAgentExecutor for Codex {
         session_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
         let review_target = ReviewTarget::Custom {
             instructions: prompt.to_string(),
         };
+        self.spawn_review_target(current_dir, review_target, session_id, env)
+            .await
+    }
+}
+
+impl Codex {
+    async fn spawn_review_target(
+        &self,
+        current_dir: &Path,
+        review_target: ReviewTarget,
+        session_id: Option<&str>,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let command_parts = self.build_command_builder()?.build_initial()?;
         let action = CodexSessionAction::Review {
             target: review_target,
         };
