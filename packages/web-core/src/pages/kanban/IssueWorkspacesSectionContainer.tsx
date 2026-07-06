@@ -8,6 +8,7 @@ import { useOrgContext } from '@/shared/hooks/useOrgContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import { useProjectWorkspaceCreateDraft } from '@/shared/hooks/useProjectWorkspaceCreateDraft';
 import { workspacesApi } from '@/shared/lib/api';
 import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
@@ -37,6 +38,7 @@ export function IssueWorkspacesSectionContainer({
   const { t } = useTranslation('common');
   const { projectId } = useParams({ strict: false });
   const appNavigation = useAppNavigation();
+  const routeState = useCurrentKanbanRouteState();
   const { openWorkspaceCreateFromState } = useProjectWorkspaceCreateDraft();
   const { userId } = useAuth();
   const { workspaces } = useUserContext();
@@ -146,7 +148,8 @@ export function IssueWorkspacesSectionContainer({
     const defaults = await getWorkspaceDefaults(
       workspaces,
       localWorkspaceIds,
-      projectId
+      projectId,
+      routeState.hostId
     );
     const createState = buildWorkspaceCreateInitialState({
       prompt: initialPrompt,
@@ -176,6 +179,7 @@ export function IssueWorkspacesSectionContainer({
     activeWorkspaces,
     archivedWorkspaces,
     workspaces,
+    routeState.hostId,
     t,
   ]);
 
@@ -188,8 +192,12 @@ export function IssueWorkspacesSectionContainer({
     const { WorkspaceSelectionDialog } = await import(
       '@/shared/dialogs/command-bar/WorkspaceSelectionDialog'
     );
-    await WorkspaceSelectionDialog.show({ projectId, issueId });
-  }, [projectId, issueId]);
+    await WorkspaceSelectionDialog.show({
+      projectId,
+      issueId,
+      hostId: routeState.hostId,
+    });
+  }, [projectId, issueId, routeState.hostId]);
 
   // Handle clicking a workspace card to open it
   const handleWorkspaceClick = useCallback(

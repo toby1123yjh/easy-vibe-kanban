@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
+import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import {
   getExplicitProjectWorkspaceDefaults,
@@ -29,6 +30,7 @@ export function useWorkflowRepositorySelection({
   const { getIssue } = useProjectContext();
   const { workspaces } = useUserContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
+  const routeState = useCurrentKanbanRouteState();
 
   const localWorkspaceIds = useMemo(
     () => buildLocalWorkspaceIdSet(activeWorkspaces, archivedWorkspaces),
@@ -41,7 +43,8 @@ export function useWorkflowRepositorySelection({
     if (!projectId) return null;
 
     const explicitProjectDefaults = await getExplicitProjectWorkspaceDefaults(
-      projectId
+      projectId,
+      routeState.hostId
     ).catch(() => null);
     if (explicitProjectDefaults?.preferredRepos.length) {
       return explicitProjectDefaults.preferredRepos.map((repo) => ({
@@ -54,7 +57,8 @@ export function useWorkflowRepositorySelection({
     const defaults = await getWorkspaceDefaults(
       workspaces,
       localWorkspaceIds,
-      projectId
+      projectId,
+      routeState.hostId
     );
     const linkedIssue = issue
       ? buildLinkedIssueCreateState(issue, projectId)
@@ -77,12 +81,22 @@ export function useWorkflowRepositorySelection({
       return null;
     }
 
-    await saveProjectRepoDefaults(projectId, result.repos).catch(
-      () => undefined
-    );
+    await saveProjectRepoDefaults(
+      projectId,
+      result.repos,
+      routeState.hostId
+    ).catch(() => undefined);
 
     return result.repos;
-  }, [projectId, getIssue, issueId, issueTitle, workspaces, localWorkspaceIds]);
+  }, [
+    projectId,
+    routeState.hostId,
+    getIssue,
+    issueId,
+    issueTitle,
+    workspaces,
+    localWorkspaceIds,
+  ]);
 
   return { selectWorkflowRepositories };
 }

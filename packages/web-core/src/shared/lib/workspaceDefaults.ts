@@ -33,13 +33,15 @@ export function buildExplicitProjectWorkspaceDefaults(
  * an unrelated project.
  */
 export async function getExplicitProjectWorkspaceDefaults(
-  projectId: string
+  projectId: string,
+  hostId?: string | null
 ): Promise<WorkspaceDefaults | null> {
-  const allRepos = await repoApi.list();
+  const allRepos = await repoApi.list(hostId);
   const availableRepoIds = new Set(allRepos.map((r) => r.id));
   const scratchDefaults = await getValidProjectRepoDefaults(
     projectId,
-    availableRepoIds
+    availableRepoIds,
+    hostId
   );
 
   return buildExplicitProjectWorkspaceDefaults(scratchDefaults);
@@ -55,16 +57,18 @@ export async function getExplicitProjectWorkspaceDefaults(
 export async function getWorkspaceDefaults(
   remoteWorkspaces: Workspace[],
   localWorkspaceIds: Set<string>,
-  projectId?: string | null
+  projectId?: string | null,
+  hostId?: string | null
 ): Promise<WorkspaceDefaults | null> {
   // Priority 1: Scratch project-repo defaults
   if (projectId) {
     try {
-      const allRepos = await repoApi.list();
+      const allRepos = await repoApi.list(hostId);
       const availableRepoIds = new Set(allRepos.map((r) => r.id));
       const scratchDefaults = await getValidProjectRepoDefaults(
         projectId,
-        availableRepoIds
+        availableRepoIds,
+        hostId
       );
       if (scratchDefaults.length > 0) {
         return {

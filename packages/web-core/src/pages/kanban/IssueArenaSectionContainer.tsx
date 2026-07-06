@@ -8,6 +8,7 @@ import {
 } from '@/shared/hooks/useArenaGroup';
 import { CreateArenaDialog } from '@/features/arena';
 import { arenaApi } from '@/shared/lib/arenaApi';
+import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 
 interface IssueArenaSectionContainerProps {
   issueId: string;
@@ -24,6 +25,7 @@ export function IssueArenaSectionContainer({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation('common');
+  const routeState = useCurrentKanbanRouteState();
 
   const {
     data: activeArena,
@@ -62,6 +64,7 @@ export function IssueArenaSectionContainer({
     const result = await CreateArenaDialog.show({
       projectId,
       issueId,
+      hostId: routeState.hostId,
       initialPrompt,
     });
     if (result.kind === 'created') {

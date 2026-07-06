@@ -909,7 +909,8 @@ export function KanbanIssuePanelContainer({
           const defaults = await getWorkspaceDefaults(
             workspaces,
             localWorkspaceIds,
-            projectId
+            projectId,
+            routeState.hostId
           );
 
           const createState = buildWorkspaceCreateInitialState({

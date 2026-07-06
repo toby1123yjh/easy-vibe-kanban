@@ -3,6 +3,8 @@ import type { CreateModeInitialState } from '@/shared/types/createMode';
 import { useCreateModeState } from '@/features/create-mode/model/useCreateModeState';
 import { useWorkspaces } from '@/shared/hooks/useWorkspaces';
 import { useUserContext } from '@/shared/hooks/useUserContext';
+import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
+import { getDestinationHostId } from '@/shared/lib/routes/appNavigation';
 import {
   CreateModeContext,
   type CreateModeContextValue,
@@ -27,6 +29,11 @@ export function CreateModeProvider({
   } = useWorkspaces();
   const { workspaces: remoteWorkspaces, isLoading: remoteWorkspacesLoading } =
     useUserContext();
+  const destination = useCurrentAppDestination();
+  const hostId = useMemo(
+    () => getDestinationHostId(destination),
+    [destination]
+  );
   const mostRecentWorkspace = activeWorkspaces[0] ?? archivedWorkspaces[0];
   const localWorkspaceIds = useMemo(
     () =>
@@ -40,6 +47,7 @@ export function CreateModeProvider({
   const state = useCreateModeState({
     initialState,
     draftId,
+    hostId,
     lastWorkspaceId: mostRecentWorkspace?.id ?? null,
     remoteWorkspaces,
     localWorkspaceIds,

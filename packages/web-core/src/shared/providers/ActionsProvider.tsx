@@ -169,9 +169,9 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       const { WorkspaceSelectionDialog } = await import(
         '@/shared/dialogs/command-bar/WorkspaceSelectionDialog'
       );
-      await WorkspaceSelectionDialog.show({ projectId, issueId });
+      await WorkspaceSelectionDialog.show({ projectId, issueId, hostId });
     },
-    []
+    [hostId]
   );
 
   // Open relationship selection dialog (uses dynamic import to avoid circular deps)

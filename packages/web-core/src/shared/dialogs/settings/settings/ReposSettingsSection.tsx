@@ -133,6 +133,7 @@ export function ReposSettingsSection({
   const { t } = useTranslation('settings');
   const queryClient = useQueryClient();
   const machineClient = useSettingsMachineClient();
+  const repoDefaultsHostId = machineClient?.target.apiHostId;
   const reposQueryKey = [
     'repos',
     ...(machineClient?.queryScopeKey ?? ['machine', 'unselected']),
@@ -206,7 +207,10 @@ export function ReposSettingsSection({
     (async () => {
       const names: string[] = [];
       for (const project of allProjects) {
-        const defaults = await getProjectRepoDefaults(project.id);
+        const defaults = await getProjectRepoDefaults(
+          project.id,
+          repoDefaultsHostId
+        );
         if (cancelled) return;
         if (defaults?.some((r) => r.repo_id === selectedRepoId)) {
           names.push(project.name);
@@ -221,7 +225,7 @@ export function ReposSettingsSection({
     return () => {
       cancelled = true;
     };
-  }, [selectedRepoId, allProjects]);
+  }, [selectedRepoId, allProjects, repoDefaultsHostId]);
 
   // Check for unsaved changes
   const hasUnsavedChanges = useMemo(() => {

@@ -32,6 +32,7 @@ import { defineModal } from '@/shared/lib/modals';
 interface CreateArenaDialogProps {
   projectId: string;
   issueId: string;
+  hostId?: string | null;
   /** Suggested initial prompt (e.g. issue title + description). */
   initialPrompt?: string;
   /** Hard ceiling for attempts (project-level config; defaults to 6). */
@@ -100,6 +101,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
   ({
     projectId,
     issueId,
+    hostId,
     initialPrompt = '',
     maxAttempts: maxAttemptsProp,
   }) => {
@@ -163,8 +165,8 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     // filter by project membership — the user is expected to pick the
     // repo whose worktree should host these attempts.
     const { data: repos, isLoading: reposLoading } = useQuery<Repo[]>({
-      queryKey: ['repoApi.list'],
-      queryFn: () => repoApi.list(),
+      queryKey: ['repoApi.list', hostId ?? 'local'],
+      queryFn: () => repoApi.list(hostId),
       staleTime: 60_000,
     });
 
@@ -174,11 +176,17 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     );
     const { data: projectRepoDefaults = [], isLoading: defaultsLoading } =
       useQuery({
-        queryKey: ['projectRepoDefaults', projectId, repoIdsKey],
+        queryKey: [
+          'projectRepoDefaults',
+          projectId,
+          hostId ?? 'local',
+          repoIdsKey,
+        ],
         queryFn: () =>
           getValidProjectRepoDefaults(
             projectId,
-            new Set((repos ?? []).map((repo) => repo.id))
+            new Set((repos ?? []).map((repo) => repo.id)),
+            hostId
           ),
         enabled: !!projectId && !!repos?.length,
         staleTime: 60_000,

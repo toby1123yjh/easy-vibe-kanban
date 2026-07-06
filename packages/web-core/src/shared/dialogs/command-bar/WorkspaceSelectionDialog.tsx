@@ -31,6 +31,7 @@ import { useUserContext } from '@/shared/hooks/useUserContext';
 export interface WorkspaceSelectionDialogProps {
   projectId: string;
   issueId: string;
+  hostId?: string | null;
 }
 
 const PAGE_SIZE = 50;
@@ -58,9 +59,11 @@ function getLinkWorkspaceErrorMessage(error: unknown): string | null {
 function WorkspaceSelectionContent({
   projectId,
   issueId,
+  hostId,
 }: {
   projectId: string;
   issueId: string;
+  hostId?: string | null;
 }) {
   const { t } = useTranslation('common');
   const modal = useModal();
@@ -182,7 +185,8 @@ function WorkspaceSelectionContent({
       const defaults = await getWorkspaceDefaults(
         workspaces,
         localWorkspaceIds,
-        projectId
+        projectId,
+        hostId
       );
 
       const createState = buildWorkspaceCreateInitialState({
@@ -214,6 +218,7 @@ function WorkspaceSelectionContent({
     getIssue,
     issueId,
     projectId,
+    hostId,
     workspaces,
     isLinking,
     activeWorkspaces,
@@ -324,6 +329,7 @@ function WorkspaceSelectionContent({
 function WorkspaceSelectionWithContext({
   projectId,
   issueId,
+  hostId,
 }: WorkspaceSelectionDialogProps) {
   if (!projectId) {
     return null;
@@ -332,16 +338,24 @@ function WorkspaceSelectionWithContext({
   return (
     <UserProvider>
       <ProjectProvider projectId={projectId}>
-        <WorkspaceSelectionContent projectId={projectId} issueId={issueId} />
+        <WorkspaceSelectionContent
+          projectId={projectId}
+          issueId={issueId}
+          hostId={hostId}
+        />
       </ProjectProvider>
     </UserProvider>
   );
 }
 
 const WorkspaceSelectionDialogImpl = create<WorkspaceSelectionDialogProps>(
-  ({ projectId, issueId }) => {
+  ({ projectId, issueId, hostId }) => {
     return (
-      <WorkspaceSelectionWithContext projectId={projectId} issueId={issueId} />
+      <WorkspaceSelectionWithContext
+        projectId={projectId}
+        issueId={issueId}
+        hostId={hostId}
+      />
     );
   }
 );

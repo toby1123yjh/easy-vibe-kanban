@@ -216,6 +216,7 @@ function getLatestWorkspaceIdForRemoteProject({
 interface UseCreateModeStateParams {
   initialState?: CreateModeInitialState | null;
   draftId?: string | null;
+  hostId?: string | null;
   lastWorkspaceId: string | null;
   remoteWorkspaces: RemoteWorkspace[];
   localWorkspaceIds: Set<string>;
@@ -248,6 +249,7 @@ interface UseCreateModeStateResult {
 export function useCreateModeState({
   initialState,
   draftId,
+  hostId,
   lastWorkspaceId,
   remoteWorkspaces,
   localWorkspaceIds,
@@ -443,20 +445,22 @@ export function useCreateModeState({
     const remoteProjectId = state.linkedIssue?.remoteProjectId;
     if (!remoteProjectId) return;
     if (state.repos.length > 0) return;
-    if (scratchDefaultsProjectRef.current === remoteProjectId) return;
+    const lookupKey = `${hostId ?? 'local'}:${remoteProjectId}`;
+    if (scratchDefaultsProjectRef.current === lookupKey) return;
 
-    scratchDefaultsProjectRef.current = remoteProjectId;
+    scratchDefaultsProjectRef.current = lookupKey;
     let cancelled = false;
 
     (async () => {
       try {
-        const allRepos = await repoApi.list();
+        const allRepos = await repoApi.list(hostId);
         if (cancelled) return;
 
         const availableRepoIds = new Set(allRepos.map((r) => r.id));
         const scratchDefaults = await getValidProjectRepoDefaults(
           remoteProjectId,
-          availableRepoIds
+          availableRepoIds,
+          hostId
         );
         if (cancelled) return;
 
@@ -490,7 +494,7 @@ export function useCreateModeState({
     return () => {
       cancelled = true;
     };
-  }, [state.linkedIssue?.remoteProjectId, state.repos.length]);
+  }, [hostId, state.linkedIssue?.remoteProjectId, state.repos.length]);
 
   // ============================================================================
   // Persistence to scratch (debounced)
