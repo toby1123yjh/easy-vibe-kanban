@@ -45,12 +45,38 @@ pub mod qa_mock;
 pub mod qwen;
 pub mod utils;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SlashCommandSource {
+    Builtin,
+    Skill,
+    Plugin,
+    Custom,
+    Fallback,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SlashCommandSupportLevel {
+    Product,
+    Native,
+    Skill,
+    Custom,
+    Diagnostic,
+    Unsupported,
+    Fallback,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct SlashCommandDescription {
     /// Command name without the leading slash, e.g. `help` for `/help`.
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SlashCommandSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_level: Option<SlashCommandSupportLevel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

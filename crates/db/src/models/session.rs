@@ -5,7 +5,7 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::workspace_repo::WorkspaceRepo;
+use super::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -182,8 +182,15 @@ impl Session {
         }
 
         let repo = &repos[0];
-        let path = match repo.default_working_dir.as_deref() {
-            Some(subdir) if !subdir.is_empty() => std::path::PathBuf::from(&repo.name).join(subdir),
+        let workspace = Workspace::find_by_id(pool, workspace_id).await?;
+        let path = match (
+            workspace.as_ref().map(Workspace::is_direct_folder),
+            repo.default_working_dir.as_deref(),
+        ) {
+            (Some(true), _) => std::path::PathBuf::from(&repo.name),
+            (_, Some(subdir)) if !subdir.is_empty() => {
+                std::path::PathBuf::from(&repo.name).join(subdir)
+            }
             _ => std::path::PathBuf::from(&repo.name),
         };
 

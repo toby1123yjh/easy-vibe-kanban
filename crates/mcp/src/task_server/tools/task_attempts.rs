@@ -177,8 +177,10 @@ impl McpServer {
         };
 
         let create_and_start_payload = CreateAndStartWorkspaceRequest {
+            mode: db::models::requests::CreateWorkspaceMode::Worktree,
             name: Some(name.clone()),
             repos: workspace_repos,
+            directory_path: None,
             linked_issue,
             executor_config: ExecutorConfig {
                 executor: base_executor,
@@ -189,6 +191,7 @@ impl McpServer {
                 permission_policy: None,
             },
             prompt: workspace_prompt,
+            selected_skills: None,
             attachment_ids: None,
         };
 

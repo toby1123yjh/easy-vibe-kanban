@@ -29,7 +29,7 @@ use executors::executors::qa_mock::QaMockExecutor;
 use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType,
+        ExecutorAction, ExecutorActionType, SelectedSkill,
         coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
@@ -515,6 +515,9 @@ pub trait ContainerService {
         let workspace = Workspace::find_by_id(pool, workspace_id)
             .await?
             .ok_or(ContainerError::Other(anyhow!("Workspace not found")))?;
+        if workspace.is_direct_folder() {
+            return Ok(());
+        }
         if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
             .await
             .unwrap_or(true)
@@ -1081,6 +1084,17 @@ pub trait ContainerService {
         executor_config: ExecutorConfig,
         prompt: String,
     ) -> Result<ExecutionProcess, ContainerError> {
+        self.start_workspace_with_selected_skills(workspace, executor_config, prompt, None)
+            .await
+    }
+
+    async fn start_workspace_with_selected_skills(
+        &self,
+        workspace: &Workspace,
+        executor_config: ExecutorConfig,
+        prompt: String,
+        selected_skills: Option<Vec<SelectedSkill>>,
+    ) -> Result<ExecutionProcess, ContainerError> {
         // Create container
         self.create(workspace).await?;
 
@@ -1102,11 +1116,19 @@ pub trait ContainerService {
         )
         .await?;
 
-        let repos_with_setup: Vec<_> = repos.iter().filter(|r| r.setup_script.is_some()).collect();
+        let repos_with_setup: Vec<&Repo> = if workspace.is_direct_folder() {
+            Vec::new()
+        } else {
+            repos.iter().filter(|r| r.setup_script.is_some()).collect()
+        };
 
         let all_parallel = repos_with_setup.iter().all(|r| r.parallel_setup_script);
 
-        let cleanup_action = self.cleanup_actions_for_repos(&repos);
+        let cleanup_action = if workspace.is_direct_folder() {
+            None
+        } else {
+            self.cleanup_actions_for_repos(&repos)
+        };
 
         let working_dir = session
             .agent_working_dir
@@ -1117,7 +1139,7 @@ pub trait ContainerService {
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,
-                selected_skills: None,
+                selected_skills,
                 executor_config: executor_config.clone(),
                 working_dir,
             }),
@@ -1173,7 +1195,7 @@ pub trait ContainerService {
         // Capture current HEAD per repository as the "before" commit for this execution
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-        if repositories.is_empty() {
+        if repositories.is_empty() && !workspace.is_direct_folder() {
             return Err(ContainerError::Other(anyhow!(
                 "Workspace has no repositories configured"
             )));

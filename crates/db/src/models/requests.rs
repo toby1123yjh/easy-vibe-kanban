@@ -1,4 +1,4 @@
-use executors::profile::ExecutorConfig;
+use executors::{actions::SelectedSkill, profile::ExecutorConfig};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -28,13 +28,30 @@ pub struct LinkedIssueInfo {
     pub issue_id: Uuid,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum CreateWorkspaceMode {
+    #[default]
+    Worktree,
+    DirectFolder,
+}
+
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateAndStartWorkspaceRequest {
+    #[serde(default)]
+    pub mode: CreateWorkspaceMode,
     pub name: Option<String>,
     pub repos: Vec<WorkspaceRepoInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub directory_path: Option<String>,
     pub linked_issue: Option<LinkedIssueInfo>,
     pub executor_config: ExecutorConfig,
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub selected_skills: Option<Vec<SelectedSkill>>,
     pub attachment_ids: Option<Vec<Uuid>>,
 }
 

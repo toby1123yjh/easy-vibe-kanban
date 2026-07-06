@@ -351,6 +351,14 @@ impl LocalContainerService {
     }
 
     async fn cleanup_workspace(&self, workspace: &Workspace) {
+        if !workspace.can_delete_container_path() {
+            tracing::info!(
+                "Skipping filesystem cleanup for external workspace {}",
+                workspace.id
+            );
+            return;
+        }
+
         let Some(container_ref) = &workspace.container_ref else {
             return;
         };
@@ -1322,6 +1330,27 @@ impl ContainerService for LocalContainerService {
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError> {
+        if workspace.is_direct_folder() {
+            let container_ref = workspace
+                .container_ref
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Direct folder workspace is missing a container path"
+                    ))
+                })?;
+            let container_path = PathBuf::from(container_ref);
+            let metadata = tokio::fs::metadata(&container_path).await?;
+            if !metadata.is_dir() {
+                return Err(ContainerError::Other(anyhow!(
+                    "Direct folder workspace path is not a directory: {}",
+                    container_path.display()
+                )));
+            }
+            return Ok(container_ref.to_string());
+        }
+
         let label = workspace.name.as_deref().unwrap_or("workspace");
         let workspace_dir_name =
             LocalContainerService::dir_name_from_workspace(&workspace.id, label);
@@ -1359,7 +1388,9 @@ impl ContainerService for LocalContainerService {
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError> {
         self.try_stop(workspace, true).await;
-        self.cleanup_workspace(workspace).await;
+        if workspace.can_delete_container_path() {
+            self.cleanup_workspace(workspace).await;
+        }
         Ok(())
     }
 
@@ -1368,6 +1399,30 @@ impl ContainerService for LocalContainerService {
         workspace: &Workspace,
     ) -> Result<ContainerRef, ContainerError> {
         self.touch(workspace).await?;
+        if workspace.is_direct_folder() {
+            let container_ref = workspace
+                .container_ref
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ContainerError::Other(anyhow!(
+                        "Direct folder workspace is missing a container path"
+                    ))
+                })?;
+            let container_path = PathBuf::from(container_ref);
+            let metadata = tokio::fs::metadata(&container_path).await?;
+            if !metadata.is_dir() {
+                return Err(ContainerError::Other(anyhow!(
+                    "Direct folder workspace path is not a directory: {}",
+                    container_path.display()
+                )));
+            }
+            if workspace.worktree_deleted {
+                Workspace::clear_worktree_deleted(&self.db.pool, workspace.id).await?;
+            }
+            return Ok(container_ref.to_string());
+        }
+
         let (repositories, workspace_inputs) = self.workspace_repo_inputs(workspace.id).await?;
 
         let workspace_dir = if let Some(container_ref) = &workspace.container_ref {

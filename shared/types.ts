@@ -152,7 +152,7 @@ export type CreateScratch = { payload: ScratchPayload, };
 
 export type UpdateScratch = { payload: ScratchPayload, };
 
-export type Workspace = { id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
+export type Workspace = { id: string, task_id: string | null, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
 /**
  * AI Arena group this workspace belongs to, if any.
  * `None` for workspaces created outside of arena (race) mode.
@@ -165,7 +165,11 @@ arena_group_id: string | null,
  */
 arena_status: ArenaStatus, };
 
-export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
+export type WorkspaceKind = "worktree" | "direct_folder";
+
+export type ContainerOwnership = "managed" | "external";
+
+export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
 /**
  * AI Arena group this workspace belongs to, if any.
  * `None` for workspaces created outside of arena (race) mode.
@@ -501,6 +505,8 @@ export type CreateWorkspaceApiRequest = { name: string | null, };
 
 export type LinkedIssueInfo = { remote_project_id: string, issue_id: string, };
 
+export type CreateWorkspaceMode = "worktree" | "direct_folder";
+
 export type CreatePrApiRequest = { title: string, body: string | null, target_branch: string | null, draft: boolean | null, repo_id: string, auto_generate_description: boolean, };
 
 export type AttachmentResponse = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, created_at: string, updated_at: string, };
@@ -559,7 +565,7 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_n
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type CreateAndStartWorkspaceRequest = { name: string | null, repos: Array<WorkspaceRepoInput>, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, attachment_ids: Array<string> | null, };
+export type CreateAndStartWorkspaceRequest = { mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, attachment_ids: Array<string> | null, };
 
 export type CreateAndStartWorkspaceResponse = { workspace: Workspace, execution_process: ExecutionProcess, };
 
@@ -740,11 +746,15 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid };
 
+export type SlashCommandSource = "builtin" | "skill" | "plugin" | "custom" | "fallback";
+
+export type SlashCommandSupportLevel = "product" | "native" | "skill" | "custom" | "diagnostic" | "unsupported" | "fallback";
+
 export type SlashCommandDescription = { 
 /**
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
-name: string, description?: string | null, };
+name: string, description?: string | null, source?: SlashCommandSource | null, support_level?: SlashCommandSupportLevel | null, };
 
 export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 

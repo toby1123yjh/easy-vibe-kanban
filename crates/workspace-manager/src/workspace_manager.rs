@@ -167,22 +167,33 @@ impl ManagedWorkspace {
     }
 
     pub async fn prepare_deletion_context(&self) -> Result<WorkspaceDeletionContext, sqlx::Error> {
-        let repositories =
-            WorkspaceRepo::find_repos_for_workspace(&self.db.pool, self.workspace.id).await?;
+        let repositories = if self.workspace.can_delete_container_path() {
+            WorkspaceRepo::find_repos_for_workspace(&self.db.pool, self.workspace.id).await?
+        } else {
+            Vec::new()
+        };
         let session_ids = Session::find_by_workspace_id(&self.db.pool, self.workspace.id)
             .await?
             .into_iter()
             .map(|session| session.id)
             .collect::<Vec<_>>();
-        let repo_paths = repositories
-            .iter()
-            .map(|repo| repo.path.clone())
-            .collect::<Vec<_>>();
+        let repo_paths = if self.workspace.can_delete_container_path() {
+            repositories
+                .iter()
+                .map(|repo| repo.path.clone())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
 
         Ok(WorkspaceDeletionContext {
             workspace_id: self.workspace.id,
             branch_name: self.workspace.branch.clone(),
-            workspace_dir: self.workspace.container_ref.clone().map(PathBuf::from),
+            workspace_dir: self
+                .workspace
+                .can_delete_container_path()
+                .then(|| self.workspace.container_ref.clone().map(PathBuf::from))
+                .flatten(),
             repositories,
             repo_paths,
             session_ids,

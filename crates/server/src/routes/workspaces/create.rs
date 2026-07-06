@@ -1,12 +1,17 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
     execution_process::ExecutionProcessView,
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
+        CreateWorkspaceMode,
     },
     workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
 use services::services::container::ContainerService;
@@ -72,6 +77,118 @@ fn normalize_prompt(prompt: &str) -> Option<String> {
         None
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+fn path_to_api_string(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+
+async fn validate_direct_folder_path(
+    deployment: &DeploymentImpl,
+    directory_path: Option<String>,
+) -> Result<PathBuf, ApiError> {
+    let raw_path = directory_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .ok_or_else(|| {
+            ApiError::BadRequest(
+                "A directory path is required for direct folder workspaces.".to_string(),
+            )
+        })?;
+
+    let normalized_path = deployment.repo().normalize_path(raw_path).map_err(|e| {
+        ApiError::BadRequest(format!("Invalid directory path '{}': {}", raw_path, e))
+    })?;
+
+    let metadata = tokio::fs::metadata(&normalized_path).await.map_err(|e| {
+        ApiError::BadRequest(format!(
+            "Directory path is not accessible: {} ({})",
+            normalized_path.display(),
+            e
+        ))
+    })?;
+
+    if !metadata.is_dir() {
+        return Err(ApiError::BadRequest(format!(
+            "Directory path is not a directory: {}",
+            normalized_path.display()
+        )));
+    }
+
+    let _ = tokio::fs::read_dir(&normalized_path).await.map_err(|e| {
+        ApiError::BadRequest(format!(
+            "Directory path is not readable: {} ({})",
+            normalized_path.display(),
+            e
+        ))
+    })?;
+
+    Ok(normalized_path)
+}
+
+async fn create_direct_folder_workspace_record(
+    deployment: &DeploymentImpl,
+    name: Option<String>,
+    directory_path: Option<String>,
+) -> Result<Workspace, ApiError> {
+    let selected_dir = validate_direct_folder_path(deployment, directory_path).await?;
+    let selected_dir_str = path_to_api_string(&selected_dir);
+    let workspace_id = Uuid::new_v4();
+    let workspace_name = name.filter(|workspace_name| !workspace_name.is_empty());
+    let is_git_repo =
+        selected_dir.join(".git").exists() && deployment.git().is_repo_openable(&selected_dir);
+
+    if is_git_repo {
+        let current_branch = deployment.git().get_current_branch(&selected_dir)?;
+        let repo = deployment
+            .repo()
+            .register(&deployment.db().pool, &selected_dir_str, None)
+            .await?;
+        let target_branch = repo
+            .default_target_branch
+            .clone()
+            .unwrap_or_else(|| current_branch.clone());
+        let container_ref = selected_dir.parent().ok_or_else(|| {
+            ApiError::BadRequest(
+                "Cannot use a filesystem root as a git direct folder workspace.".to_string(),
+            )
+        })?;
+        let workspace = Workspace::create_direct_folder(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: current_branch,
+                name: workspace_name,
+            },
+            workspace_id,
+            &path_to_api_string(container_ref),
+        )
+        .await?;
+
+        WorkspaceRepo::create_many(
+            &deployment.db().pool,
+            workspace.id,
+            &[CreateWorkspaceRepo {
+                repo_id: repo.id,
+                target_branch,
+            }],
+        )
+        .await?;
+
+        Ok(workspace)
+    } else {
+        Workspace::create_direct_folder(
+            &deployment.db().pool,
+            &CreateWorkspace {
+                branch: "direct-folder".to_string(),
+                name: workspace_name,
+            },
+            workspace_id,
+            &selected_dir_str,
+        )
+        .await
+        .map_err(ApiError::from)
     }
 }
 
@@ -215,11 +332,14 @@ pub async fn create_and_start_workspace(
     Json(payload): Json<CreateAndStartWorkspaceRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateAndStartWorkspaceResponse>>, ApiError> {
     let CreateAndStartWorkspaceRequest {
+        mode,
         name,
         repos,
+        directory_path,
         linked_issue,
         executor_config,
         prompt,
+        selected_skills,
         attachment_ids,
     } = payload;
 
@@ -229,23 +349,38 @@ pub async fn create_and_start_workspace(
         )
     })?;
 
-    if repos.is_empty() {
-        return Err(ApiError::BadRequest(
-            "At least one repository is required".to_string(),
-        ));
-    }
+    let managed_workspace = match mode {
+        CreateWorkspaceMode::Worktree => {
+            if repos.is_empty() {
+                return Err(ApiError::BadRequest(
+                    "At least one repository is required".to_string(),
+                ));
+            }
 
-    let mut managed_workspace = deployment
-        .workspace_manager()
-        .load_managed_workspace(create_workspace_record(&deployment, name).await?)
-        .await?;
+            let mut managed_workspace = deployment
+                .workspace_manager()
+                .load_managed_workspace(create_workspace_record(&deployment, name).await?)
+                .await?;
 
-    for repo in &repos {
-        managed_workspace
-            .add_repository(repo, deployment.git())
-            .await
-            .map_err(ApiError::from)?;
-    }
+            for repo in &repos {
+                managed_workspace
+                    .add_repository(repo, deployment.git())
+                    .await
+                    .map_err(ApiError::from)?;
+            }
+
+            managed_workspace
+        }
+        CreateWorkspaceMode::DirectFolder => {
+            deployment
+                .workspace_manager()
+                .load_managed_workspace(
+                    create_direct_folder_workspace_record(&deployment, name, directory_path)
+                        .await?,
+                )
+                .await?
+        }
+    };
 
     if let Some(ids) = &attachment_ids {
         managed_workspace.associate_attachments(ids).await?;
@@ -298,7 +433,12 @@ pub async fn create_and_start_workspace(
 
     let execution_process = deployment
         .container()
-        .start_workspace(&workspace, executor_config.clone(), workspace_prompt)
+        .start_workspace_with_selected_skills(
+            &workspace,
+            executor_config.clone(),
+            workspace_prompt,
+            selected_skills,
+        )
         .await?;
 
     deployment

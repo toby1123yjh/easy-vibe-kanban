@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use executors::actions::{ExecutorAction, ExecutorActionType};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqlitePool, Type};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -33,6 +33,26 @@ pub struct ContainerInfo {
     pub workspace_id: Uuid,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
+#[sqlx(type_name = "workspace_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum WorkspaceKind {
+    #[default]
+    Worktree,
+    DirectFolder,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
+#[sqlx(type_name = "container_ownership", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum ContainerOwnership {
+    #[default]
+    Managed,
+    External,
+}
+
 #[derive(Debug)]
 struct WorkspaceContainerRefRow {
     id: Uuid,
@@ -44,6 +64,8 @@ pub struct Workspace {
     pub id: Uuid,
     pub task_id: Option<Uuid>,
     pub container_ref: Option<String>,
+    pub workspace_kind: WorkspaceKind,
+    pub container_ownership: ContainerOwnership,
     pub branch: String,
     pub setup_completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -96,6 +118,18 @@ pub struct CreateWorkspace {
 }
 
 impl Workspace {
+    pub fn is_direct_folder(&self) -> bool {
+        self.workspace_kind == WorkspaceKind::DirectFolder
+    }
+
+    pub fn is_managed_container(&self) -> bool {
+        self.container_ownership == ContainerOwnership::Managed
+    }
+
+    pub fn can_delete_container_path(&self) -> bool {
+        self.is_managed_container()
+    }
+
     /// Fetch all workspaces. Newest first.
     pub async fn fetch_all(pool: &SqlitePool) -> Result<Vec<Self>, WorkspaceError> {
         let workspaces = sqlx::query_as!(
@@ -103,6 +137,8 @@ impl Workspace {
             r#"SELECT id AS "id!: Uuid",
                           task_id AS "task_id: Uuid",
                           container_ref,
+                          workspace_kind AS "workspace_kind!: WorkspaceKind",
+                          container_ownership AS "container_ownership!: ContainerOwnership",
                           branch,
                           setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                           created_at AS "created_at!: DateTime<Utc>",
@@ -207,6 +243,8 @@ impl Workspace {
             r#"SELECT  id                AS "id!: Uuid",
                        task_id           AS "task_id: Uuid",
                        container_ref,
+                       workspace_kind    AS "workspace_kind!: WorkspaceKind",
+                       container_ownership AS "container_ownership!: ContainerOwnership",
                        branch,
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
@@ -231,6 +269,8 @@ impl Workspace {
             r#"SELECT  id                AS "id!: Uuid",
                        task_id           AS "task_id: Uuid",
                        container_ref,
+                       workspace_kind    AS "workspace_kind!: WorkspaceKind",
+                       container_ownership AS "container_ownership!: ContainerOwnership",
                        branch,
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
@@ -276,6 +316,8 @@ impl Workspace {
                 w.id as "id!: Uuid",
                 w.task_id as "task_id: Uuid",
                 w.container_ref,
+                w.workspace_kind as "workspace_kind!: WorkspaceKind",
+                w.container_ownership as "container_ownership!: ContainerOwnership",
                 w.branch as "branch!",
                 w.setup_completed_at as "setup_completed_at: DateTime<Utc>",
                 w.created_at as "created_at!: DateTime<Utc>",
@@ -291,6 +333,7 @@ impl Workspace {
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
             WHERE w.container_ref IS NOT NULL
                 AND w.worktree_deleted = FALSE
+                AND w.container_ownership = 'managed'
                 AND w.id NOT IN (
                     SELECT DISTINCT s2.workspace_id
                     FROM sessions s2
@@ -333,10 +376,57 @@ impl Workspace {
             Workspace,
             r#"INSERT INTO workspaces (id, task_id, container_ref, branch, setup_completed_at, name)
                VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool", arena_group_id as "arena_group_id: Uuid", arena_status as "arena_status!: ArenaStatus""#,
+               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, workspace_kind as "workspace_kind!: WorkspaceKind", container_ownership as "container_ownership!: ContainerOwnership", branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool", arena_group_id as "arena_group_id: Uuid", arena_status as "arena_status!: ArenaStatus""#,
             id,
             Option::<Uuid>::None,
             Option::<String>::None,
+            data.branch,
+            Option::<DateTime<Utc>>::None,
+            data.name
+        )
+        .fetch_one(pool)
+        .await?)
+    }
+
+    pub async fn create_direct_folder(
+        pool: &SqlitePool,
+        data: &CreateWorkspace,
+        id: Uuid,
+        container_ref: &str,
+    ) -> Result<Self, WorkspaceError> {
+        Ok(sqlx::query_as!(
+            Workspace,
+            r#"INSERT INTO workspaces (
+                    id,
+                    task_id,
+                    container_ref,
+                    workspace_kind,
+                    container_ownership,
+                    branch,
+                    setup_completed_at,
+                    name
+               )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING id as "id!: Uuid",
+                         task_id as "task_id: Uuid",
+                         container_ref,
+                         workspace_kind as "workspace_kind!: WorkspaceKind",
+                         container_ownership as "container_ownership!: ContainerOwnership",
+                         branch,
+                         setup_completed_at as "setup_completed_at: DateTime<Utc>",
+                         created_at as "created_at!: DateTime<Utc>",
+                         updated_at as "updated_at!: DateTime<Utc>",
+                         archived as "archived!: bool",
+                         pinned as "pinned!: bool",
+                         name,
+                         worktree_deleted as "worktree_deleted!: bool",
+                         arena_group_id as "arena_group_id: Uuid",
+                         arena_status as "arena_status!: ArenaStatus""#,
+            id,
+            Option::<Uuid>::None,
+            container_ref,
+            WorkspaceKind::DirectFolder,
+            ContainerOwnership::External,
             data.branch,
             Option::<DateTime<Utc>>::None,
             data.name
@@ -469,6 +559,8 @@ impl Workspace {
             r#"SELECT  id                AS "id!: Uuid",
                        task_id           AS "task_id: Uuid",
                        container_ref,
+                       workspace_kind    AS "workspace_kind!: WorkspaceKind",
+                       container_ownership AS "container_ownership!: ContainerOwnership",
                        branch,
                        setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                        created_at        AS "created_at!: DateTime<Utc>",
@@ -618,6 +710,8 @@ impl Workspace {
                 w.id AS "id!: Uuid",
                 w.task_id AS "task_id: Uuid",
                 w.container_ref,
+                w.workspace_kind AS "workspace_kind!: WorkspaceKind",
+                w.container_ownership AS "container_ownership!: ContainerOwnership",
                 w.branch,
                 w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                 w.created_at AS "created_at!: DateTime<Utc>",
@@ -662,6 +756,8 @@ impl Workspace {
                     id: rec.id,
                     task_id: rec.task_id,
                     container_ref: rec.container_ref,
+                    workspace_kind: rec.workspace_kind,
+                    container_ownership: rec.container_ownership,
                     branch: rec.branch,
                     setup_completed_at: rec.setup_completed_at,
                     created_at: rec.created_at,
@@ -716,6 +812,8 @@ impl Workspace {
                 w.id AS "id!: Uuid",
                 w.task_id AS "task_id: Uuid",
                 w.container_ref,
+                w.workspace_kind AS "workspace_kind!: WorkspaceKind",
+                w.container_ownership AS "container_ownership!: ContainerOwnership",
                 w.branch,
                 w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
                 w.created_at AS "created_at!: DateTime<Utc>",
@@ -763,6 +861,8 @@ impl Workspace {
                 id: rec.id,
                 task_id: rec.task_id,
                 container_ref: rec.container_ref,
+                workspace_kind: rec.workspace_kind,
+                container_ownership: rec.container_ownership,
                 branch: rec.branch,
                 setup_completed_at: rec.setup_completed_at,
                 created_at: rec.created_at,
@@ -792,9 +892,48 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use uuid::Uuid;
 
-    use super::Workspace;
+    use super::{ArenaStatus, ContainerOwnership, Workspace, WorkspaceKind};
+
+    fn workspace_with_ownership(
+        workspace_kind: WorkspaceKind,
+        container_ownership: ContainerOwnership,
+    ) -> Workspace {
+        let now = Utc::now();
+
+        Workspace {
+            id: Uuid::new_v4(),
+            task_id: None,
+            container_ref: Some("/tmp/workspace".to_string()),
+            workspace_kind,
+            container_ownership,
+            branch: "main".to_string(),
+            setup_completed_at: None,
+            created_at: now,
+            updated_at: now,
+            archived: false,
+            pinned: false,
+            name: None,
+            worktree_deleted: false,
+            arena_group_id: None,
+            arena_status: ArenaStatus::Active,
+        }
+    }
+
+    #[test]
+    fn container_path_deletion_is_limited_to_managed_workspaces() {
+        let managed =
+            workspace_with_ownership(WorkspaceKind::Worktree, ContainerOwnership::Managed);
+        let external =
+            workspace_with_ownership(WorkspaceKind::DirectFolder, ContainerOwnership::External);
+
+        assert!(managed.can_delete_container_path());
+        assert!(!external.can_delete_container_path());
+        assert!(external.is_direct_folder());
+        assert!(!external.is_managed_container());
+    }
 
     #[test]
     fn best_matching_container_ref_prefers_deepest_match() {
