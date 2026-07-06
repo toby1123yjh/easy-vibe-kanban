@@ -37,6 +37,7 @@ export type RowFamily =
   // Aggregated group types
   | 'aggregated_tool' // AGGREGATED_GROUP
   | 'aggregated_diff' // AGGREGATED_DIFF_GROUP
+  | 'aggregated_file_change' // AGGREGATED_FILE_CHANGE_GROUP
   | 'aggregated_thinking'; // AGGREGATED_THINKING_GROUP
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,9 @@ export function classifyRowFamily(entry: DisplayEntry): RowFamily {
   // Aggregated group types
   if (entry.type === 'AGGREGATED_GROUP') return 'aggregated_tool';
   if (entry.type === 'AGGREGATED_DIFF_GROUP') return 'aggregated_diff';
+  if (entry.type === 'AGGREGATED_FILE_CHANGE_GROUP') {
+    return 'aggregated_file_change';
+  }
   if (entry.type === 'AGGREGATED_THINKING_GROUP') return 'aggregated_thinking';
 
   // Non-normalized entries (STDOUT/STDERR/DIFF) — treat as tool summary
@@ -288,6 +292,7 @@ export function estimationHintForFamily(family: RowFamily): SizeEstimationHint {
     // default collapsed state; ResizeObserver corrects on user expand.
     case 'aggregated_tool':
     case 'aggregated_diff':
+    case 'aggregated_file_change':
     case 'aggregated_thinking':
       return 'compact';
 

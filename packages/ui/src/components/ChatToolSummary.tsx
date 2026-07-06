@@ -6,6 +6,7 @@ import {
   GlobeIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
+import { ActivityText } from './ActivityText';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 
 interface ChatToolSummaryProps {
@@ -41,6 +42,8 @@ export const ChatToolSummary = forwardRef<
   // Can expand if text is truncated and onToggle is provided
   const canExpand = isTruncated && onToggle;
   const isClickable = Boolean(onViewContent || canExpand);
+  const isActive =
+    status?.status === 'created' || status?.status === 'pending_approval';
 
   const handleClick = () => {
     if (onViewContent) {
@@ -85,7 +88,8 @@ export const ChatToolSummary = forwardRef<
           />
         )}
       </span>
-      <span
+      <ActivityText
+        active={isActive}
         ref={ref}
         className={cn(
           !expanded && 'truncate',
@@ -93,7 +97,7 @@ export const ChatToolSummary = forwardRef<
         )}
       >
         {summary}
-      </span>
+      </ActivityText>
     </div>
   );
 });

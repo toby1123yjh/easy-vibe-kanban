@@ -185,6 +185,7 @@
     "deniedByUser": "使用者拒絕了 {{toolName}}",
     "tool": "工具",
     "thinking": "思考中",
+    "processed": "已處理",
     "toolSummary": {
       "read": "讀取 {{path}}",
       "searched": "搜尋 \"{{query}}\"",

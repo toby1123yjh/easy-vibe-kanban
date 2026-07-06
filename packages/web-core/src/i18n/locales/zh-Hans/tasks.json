@@ -454,7 +454,59 @@
     "updatedTodos": "更新的待办事项",
     "viewInChangesPanel": "在更改面板中查看",
     "openFilePreview": "打开文件预览",
-    "unableToRenderDiff": "无法显示差异。"
+    "unableToRenderDiff": "无法显示差异。",
+    "aggregated": {
+      "readFiles_one": "已读取 {{count}} 个文件",
+      "readFiles_other": "已读取 {{count}} 个文件",
+      "searches_one": "已搜索 {{count}} 次",
+      "searches_other": "已搜索 {{count}} 次",
+      "fetchedPages_one": "已抓取 {{count}} 个网页",
+      "fetchedPages_other": "已抓取 {{count}} 个网页",
+      "ranCommands_one": "已运行 {{count}} 条命令",
+      "ranCommands_other": "已运行 {{count}} 条命令",
+      "ranReadCommands_one": "已运行 {{count}} 条读取命令",
+      "ranReadCommands_other": "已运行 {{count}} 条读取命令",
+      "ranSearchCommands_one": "已运行 {{count}} 条搜索命令",
+      "ranSearchCommands_other": "已运行 {{count}} 条搜索命令",
+      "ranEditCommands_one": "已运行 {{count}} 条变更命令",
+      "ranEditCommands_other": "已运行 {{count}} 条变更命令",
+      "ranFetchCommands_one": "已运行 {{count}} 条抓取命令",
+      "ranFetchCommands_other": "已运行 {{count}} 条抓取命令",
+      "otherCommandDetail": "构建、测试或其他终端操作",
+      "operationCount_one": "{{count}} 项操作",
+      "operationCount_other": "{{count}} 项操作",
+      "toolCallsInProgress": "工具调用中",
+      "toolCallsComplete": "工具调用完成",
+      "changedFiles_one": "已变更 {{count}} 个文件",
+      "changedFiles_other": "已变更 {{count}} 个文件",
+      "changeCount_one": "{{count}} 次变更",
+      "changeCount_other": "{{count}} 次变更",
+      "categories": {
+        "read": "读取 {{count}}",
+        "search": "搜索 {{count}}",
+        "edit": "变更 {{count}}",
+        "fetch": "抓取 {{count}}",
+        "other": "其他 {{count}}"
+      },
+      "actions": {
+        "edit": "编辑",
+        "write": "创建",
+        "delete": "删除",
+        "rename": "重命名",
+        "renameTo": "重命名 -> {{path}}",
+        "change": "变更"
+      },
+      "changeSummary": {
+        "write_one": "创建 {{count}}",
+        "write_other": "创建 {{count}}",
+        "edit_one": "编辑 {{count}}",
+        "edit_other": "编辑 {{count}}",
+        "delete_one": "删除 {{count}}",
+        "delete_other": "删除 {{count}}",
+        "rename_one": "重命名 {{count}}",
+        "rename_other": "重命名 {{count}}"
+      }
+    }
   },
   "scriptFixer": {
     "setupScriptTitle": "修复设置脚本",

@@ -68,7 +68,7 @@ export function ChatCollapsedThinking({
             <ChatDotsIcon className="size-icon-base" />
           )}
         </span>
-        <span className="truncate">{t('conversation.thinking')}</span>
+        <span className="truncate">{t('conversation.processed')}</span>
       </div>
 
       {/* Expanded content */}

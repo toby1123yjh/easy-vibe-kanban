@@ -2,7 +2,7 @@ import type {
   PatchTypeWithKey,
   DisplayEntry,
   AggregatedPatchGroup,
-  AggregatedDiffGroup,
+  AggregatedFileChangeGroup,
   AggregatedThinkingGroup,
   ToolAggregationType,
 } from '@/shared/hooks/useConversationHistory/types';
@@ -42,7 +42,7 @@ function getFileEditPath(entry: PatchTypeWithKey): string | null {
 
 /**
  * Determines if a patch entry can be aggregated and returns its aggregation type.
- * Handles file_read, search, web_fetch, and command_run (categorized by command type).
+ * Handles file_read, search, web_fetch, and command_run.
  */
 function getAggregationType(
   entry: PatchTypeWithKey
@@ -58,26 +58,20 @@ function getAggregationType(
   if (action_type.action === 'web_fetch') return 'web_fetch';
 
   if (action_type.action === 'command_run') {
-    const category = action_type.category;
-    if (
-      category === 'read' ||
-      category === 'search' ||
-      category === 'edit' ||
-      category === 'fetch'
-    ) {
-      return `command_run_${category}`;
-    }
+    return 'command_run';
   }
 
   return null;
 }
 
 /**
- * First pass: group consecutive thinking entries within each turn (between user messages)
- * for all turns except the last one.
+ * First pass: group consecutive thinking entries within each turn.
+ * Previous turns are always grouped. The latest turn is grouped once its
+ * execution process is no longer running.
  */
 function aggregateThinkingInPreviousTurns(
-  entries: PatchTypeWithKey[]
+  entries: PatchTypeWithKey[],
+  runningProcessIds: ReadonlySet<string> = new Set()
 ): PatchTypeWithKey[] {
   if (entries.length === 0) return [];
 
@@ -89,14 +83,11 @@ function aggregateThinkingInPreviousTurns(
     }
   });
 
-  // If there's 0 or 1 user message, no "previous" turns exist
-  if (userMessageIndices.length <= 1) {
-    return entries;
-  }
-
   // The last user message index marks the start of the "current" turn
   const lastUserMessageIndex =
-    userMessageIndices[userMessageIndices.length - 1];
+    userMessageIndices.length > 1
+      ? userMessageIndices[userMessageIndices.length - 1]
+      : -1;
 
   // Process entries, grouping thinking entries in previous turns
   const result: PatchTypeWithKey[] = [];
@@ -135,6 +126,9 @@ function aggregateThinkingInPreviousTurns(
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const isInPreviousTurn = i < lastUserMessageIndex;
+    const isInCompletedProcess = !runningProcessIds.has(
+      entry.executionProcessId
+    );
 
     // Track turn boundaries
     if (isUserMessage(entry)) {
@@ -144,8 +138,8 @@ function aggregateThinkingInPreviousTurns(
       continue;
     }
 
-    // Only aggregate thinking entries in previous turns
-    if (isInPreviousTurn && isThinkingEntry(entry)) {
+    // Aggregate previous-turn thinking and completed latest-turn thinking.
+    if ((isInPreviousTurn || isInCompletedProcess) && isThinkingEntry(entry)) {
       currentThinkingGroup.push(entry);
     } else {
       // Flush any pending thinking group
@@ -161,28 +155,31 @@ function aggregateThinkingInPreviousTurns(
 }
 
 /**
- * Aggregates consecutive entries of the same aggregatable type (file_read, search, web_fetch)
- * into grouped entries for accordion-style display.
+ * Aggregates consecutive tool activity into grouped entries for accordion-style
+ * display.
  *
- * Also aggregates consecutive file_edit entries for the same file path.
+ * Also aggregates consecutive file_edit entries into one file-change group.
  * Also aggregates thinking entries in previous conversation turns.
  *
  * Rules:
- * - Only group entries of the same type that follow each other consecutively
- * - For file_edit entries, also group by file path
+ * - Read/search/fetch/command entries are grouped together even when they are
+ *   different tool types
+ * - Consecutive file_edit entries are grouped even when they touch different paths
  * - Thinking entries in previous turns (before the last user message) are collapsed
  * - Preserve the original order of entries
- * - Single entries of an aggregatable type are NOT grouped (returned as-is)
- * - At least 2 consecutive entries of the same type are required to form a group
+ * - Completed tool activity is grouped even when it contains one entry
  */
 export function aggregateConsecutiveEntries(
-  entries: PatchTypeWithKey[]
+  entries: PatchTypeWithKey[],
+  runningProcessIds: ReadonlySet<string> = new Set()
 ): DisplayEntry[] {
   if (entries.length === 0) return [];
 
   // First pass: aggregate thinking entries in previous turns
-  const entriesWithThinkingAggregated =
-    aggregateThinkingInPreviousTurns(entries);
+  const entriesWithThinkingAggregated = aggregateThinkingInPreviousTurns(
+    entries,
+    runningProcessIds
+  );
 
   const result: DisplayEntry[] = [];
 
@@ -190,14 +187,16 @@ export function aggregateConsecutiveEntries(
   let currentToolGroup: PatchTypeWithKey[] = [];
   let currentAggregationType: ToolAggregationType | null = null;
 
-  // State for diff aggregation (file_edit by path)
-  let currentDiffGroup: PatchTypeWithKey[] = [];
-  let currentDiffPath: string | null = null;
+  // State for file-change aggregation (file_edit across one or more paths)
+  let currentFileChangeGroup: PatchTypeWithKey[] = [];
 
   const flushToolGroup = () => {
     if (currentToolGroup.length === 0) return;
 
-    if (currentToolGroup.length === 1) {
+    if (
+      currentToolGroup.length === 1 &&
+      currentAggregationType !== 'tool_calls'
+    ) {
       // Single entry - don't aggregate, return as-is
       result.push(currentToolGroup[0]);
     } else {
@@ -206,6 +205,9 @@ export function aggregateConsecutiveEntries(
       const aggregatedGroup: AggregatedPatchGroup = {
         type: 'AGGREGATED_GROUP',
         aggregationType: currentAggregationType!,
+        isRunning: currentToolGroup.some((entry) =>
+          runningProcessIds.has(entry.executionProcessId)
+        ),
         entries: [...currentToolGroup],
         patchKey: `agg:${firstEntry.patchKey}`,
         executionProcessId: firstEntry.executionProcessId,
@@ -217,27 +219,25 @@ export function aggregateConsecutiveEntries(
     currentAggregationType = null;
   };
 
-  const flushDiffGroup = () => {
-    if (currentDiffGroup.length === 0) return;
+  const flushFileChangeGroup = () => {
+    if (currentFileChangeGroup.length === 0) return;
 
-    if (currentDiffGroup.length === 1) {
+    if (currentFileChangeGroup.length === 1) {
       // Single entry - don't aggregate, return as-is
-      result.push(currentDiffGroup[0]);
+      result.push(currentFileChangeGroup[0]);
     } else {
-      // Multiple entries for same file - create an aggregated diff group
-      const firstEntry = currentDiffGroup[0];
-      const aggregatedDiffGroup: AggregatedDiffGroup = {
-        type: 'AGGREGATED_DIFF_GROUP',
-        filePath: currentDiffPath!,
-        entries: [...currentDiffGroup],
-        patchKey: `agg-diff:${firstEntry.patchKey}`,
+      // Multiple file edits - create an aggregated file-change group
+      const firstEntry = currentFileChangeGroup[0];
+      const aggregatedFileChangeGroup: AggregatedFileChangeGroup = {
+        type: 'AGGREGATED_FILE_CHANGE_GROUP',
+        entries: [...currentFileChangeGroup],
+        patchKey: `agg-file-change:${firstEntry.patchKey}`,
         executionProcessId: firstEntry.executionProcessId,
       };
-      result.push(aggregatedDiffGroup);
+      result.push(aggregatedFileChangeGroup);
     }
 
-    currentDiffGroup = [];
-    currentDiffPath = null;
+    currentFileChangeGroup = [];
   };
 
   for (const entry of entriesWithThinkingAggregated) {
@@ -247,64 +247,48 @@ export function aggregateConsecutiveEntries(
       'AGGREGATED_THINKING_GROUP'
     ) {
       flushToolGroup();
-      flushDiffGroup();
+      flushFileChangeGroup();
       result.push(entry as unknown as DisplayEntry);
       continue;
     }
 
     const aggregationType = getAggregationType(entry);
+    const shouldWrapToolActivity = aggregationType !== null;
     const fileEditPath = getFileEditPath(entry);
 
     // Handle file_edit entries
     if (fileEditPath !== null) {
       // Flush any pending tool group first
       flushToolGroup();
-
-      if (currentDiffPath === null) {
-        // Start a new diff group
-        currentDiffPath = fileEditPath;
-        currentDiffGroup.push(entry);
-      } else if (fileEditPath === currentDiffPath) {
-        // Same file - add to current diff group
-        currentDiffGroup.push(entry);
-      } else {
-        // Different file - flush current diff group and start new one
-        flushDiffGroup();
-        currentDiffPath = fileEditPath;
-        currentDiffGroup.push(entry);
-      }
+      currentFileChangeGroup.push(entry);
     }
-    // Handle tool aggregation (file_read, search, web_fetch)
-    else if (aggregationType !== null) {
-      // Flush any pending diff group first
-      flushDiffGroup();
+    // Handle tool aggregation (file_read, search, web_fetch, command_run)
+    else if (shouldWrapToolActivity) {
+      // Flush any pending file-change group first
+      flushFileChangeGroup();
 
-      if (currentAggregationType === null) {
-        // Start a new tool group
-        currentAggregationType = aggregationType;
-        currentToolGroup.push(entry);
-      } else if (aggregationType === currentAggregationType) {
-        // Same type - add to current group
-        currentToolGroup.push(entry);
-      } else {
-        // Different aggregatable type - flush current group and start new one
+      if (
+        currentToolGroup.length > 0 &&
+        currentAggregationType !== 'tool_calls'
+      ) {
         flushToolGroup();
-        currentAggregationType = aggregationType;
-        currentToolGroup.push(entry);
       }
+
+      currentAggregationType = 'tool_calls';
+      currentToolGroup.push(entry);
     }
     // Non-aggregatable entry
     else {
       // Flush any pending groups and add this entry
       flushToolGroup();
-      flushDiffGroup();
+      flushFileChangeGroup();
       result.push(entry);
     }
   }
 
   // Flush any remaining groups
   flushToolGroup();
-  flushDiffGroup();
+  flushFileChangeGroup();
 
   return result;
 }

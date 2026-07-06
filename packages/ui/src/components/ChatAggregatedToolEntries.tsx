@@ -1,4 +1,5 @@
-import { ListMagnifyingGlassIcon, CaretRightIcon } from '@phosphor-icons/react';
+import { CaretDownIcon, ListMagnifyingGlassIcon } from '@phosphor-icons/react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 
@@ -16,13 +17,50 @@ interface ChatAggregatedToolEntriesProps {
   isHovered: boolean;
   onToggle: () => void;
   onHoverChange: (hovered: boolean) => void;
-  /** Label to show before the count (e.g., "Read", "Search") */
-  label: string;
-  /** Unit label for counting (e.g., "file", "URL") - will be pluralized automatically */
-  unit: string;
+  summary?: string;
+  detail?: string;
+  label?: string;
+  unit?: string;
   icon?: React.ElementType;
   className?: string;
   onViewContent?: (index: number) => void;
+  forceCollapsible?: boolean;
+}
+
+const STATUS_PRIORITY: Record<string, number> = {
+  failed: 6,
+  denied: 5,
+  timed_out: 4,
+  pending_approval: 3,
+  created: 2,
+  success: 1,
+};
+
+function getWorstStatus(entries: AggregatedEntry[]) {
+  return entries.reduce<ToolStatusLike | undefined>((worst, entry) => {
+    if (!entry.status) return worst;
+    if (!worst) return entry.status;
+
+    const worstPriority = STATUS_PRIORITY[worst.status] || 0;
+    const currentPriority = STATUS_PRIORITY[entry.status.status] || 0;
+
+    return currentPriority > worstPriority ? entry.status : worst;
+  }, undefined);
+}
+
+function getFallbackSummary({
+  entries,
+  label,
+  unit,
+  fallbackSummary,
+}: {
+  entries: AggregatedEntry[];
+  label?: string;
+  unit?: string;
+  fallbackSummary: string;
+}) {
+  if (!label || !unit) return fallbackSummary;
+  return `${label} ${entries.length} ${unit}`;
 }
 
 export function ChatAggregatedToolEntries({
@@ -31,26 +69,43 @@ export function ChatAggregatedToolEntries({
   isHovered,
   onToggle,
   onHoverChange,
+  summary,
+  detail,
   label,
   unit,
   icon: Icon = ListMagnifyingGlassIcon,
   className,
   onViewContent,
+  forceCollapsible = false,
 }: ChatAggregatedToolEntriesProps) {
+  const { t } = useTranslation('tasks');
+
   if (entries.length === 0) return null;
 
-  // If only one entry, don't aggregate
-  if (entries.length === 1) {
+  const aggregateStatus = getWorstStatus(entries);
+  const headerSummary =
+    summary ??
+    getFallbackSummary({
+      entries,
+      label,
+      unit,
+      fallbackSummary: t('conversation.aggregated.operationCount', {
+        count: entries.length,
+      }),
+    });
+
+  if (entries.length === 1 && !forceCollapsible) {
     const entry = entries[0];
     return (
-      <div
+      <button
+        type="button"
         className={cn(
-          'flex items-center gap-base text-sm text-low',
-          onViewContent && 'cursor-pointer',
+          'flex min-w-0 items-center gap-base text-left text-sm text-low',
+          onViewContent && 'cursor-pointer hover:text-normal',
           className
         )}
         onClick={onViewContent ? () => onViewContent(0) : undefined}
-        role={onViewContent ? 'button' : undefined}
+        disabled={!onViewContent}
       >
         <span className="relative shrink-0 pt-0.5">
           <Icon className="size-icon-base" />
@@ -61,53 +116,33 @@ export function ChatAggregatedToolEntries({
             />
           )}
         </span>
-        <span className="truncate">{entry.summary}</span>
-      </div>
+        <span className="min-w-0 flex-1 truncate">{headerSummary}</span>
+        {detail && (
+          <span className="hidden shrink-0 text-xs text-low sm:inline">
+            {detail}
+          </span>
+        )}
+      </button>
     );
   }
 
-  // Get the worst status among all entries for the aggregate indicator
-  const aggregateStatus = entries.reduce<ToolStatusLike | undefined>(
-    (worst, entry) => {
-      if (!entry.status) return worst;
-      if (!worst) return entry.status;
-
-      // Priority: failed > denied > timed_out > pending_approval > created > success
-      const statusPriority: Record<string, number> = {
-        failed: 6,
-        denied: 5,
-        timed_out: 4,
-        pending_approval: 3,
-        created: 2,
-        success: 1,
-      };
-
-      const worstPriority = statusPriority[worst.status] || 0;
-      const currentPriority = statusPriority[entry.status.status] || 0;
-
-      return currentPriority > worstPriority ? entry.status : worst;
-    },
-    undefined
-  );
-
   return (
     <div className={cn('flex flex-col', className)}>
-      {/* Header row - clickable to expand/collapse */}
-      <div
-        className="flex items-center gap-base text-sm text-low cursor-pointer group"
+      <button
+        type="button"
+        className="group flex min-w-0 items-center gap-base rounded-sm px-1 py-0.5 text-left text-sm text-low transition-colors hover:bg-muted/30 hover:text-normal"
         onClick={onToggle}
         onMouseEnter={() => onHoverChange(true)}
         onMouseLeave={() => onHoverChange(false)}
-        role="button"
         aria-expanded={expanded}
         data-scroll-anchor-target=""
       >
         <span className="relative shrink-0 pt-0.5">
           {isHovered ? (
-            <CaretRightIcon
+            <CaretDownIcon
               className={cn(
                 'size-icon-base transition-transform duration-150',
-                expanded && 'rotate-90'
+                !expanded && '-rotate-90'
               )}
             />
           ) : (
@@ -120,23 +155,28 @@ export function ChatAggregatedToolEntries({
             />
           )}
         </span>
-        <span className="truncate">
-          {label} · {entries.length} {entries.length === 1 ? unit : `${unit}s`}
-        </span>
-      </div>
 
-      {/* Expanded content */}
+        <span className="min-w-0 flex-1 truncate">{headerSummary}</span>
+        {detail && (
+          <span className="hidden shrink-0 text-xs text-low sm:inline">
+            {detail}
+          </span>
+        )}
+      </button>
+
       {expanded && (
-        <div className="ml-6 pt-1 flex flex-col gap-0.5">
+        <div className="ml-6 flex flex-col gap-0.5 pt-1">
           {entries.map((entry, index) => (
-            <div
+            <button
               key={entry.expansionKey}
+              type="button"
               className={cn(
-                'flex items-center gap-base text-sm text-low pl-base',
-                onViewContent && 'cursor-pointer hover:text-normal'
+                'flex min-w-0 items-center gap-base rounded-sm px-base py-0.5 text-left text-sm text-low',
+                onViewContent &&
+                  'cursor-pointer hover:bg-muted/30 hover:text-normal'
               )}
               onClick={onViewContent ? () => onViewContent(index) : undefined}
-              role={onViewContent ? 'button' : undefined}
+              disabled={!onViewContent}
             >
               <span className="relative shrink-0 pt-0.5">
                 <Icon className="size-icon-base" />
@@ -148,7 +188,7 @@ export function ChatAggregatedToolEntries({
                 )}
               </span>
               <span className="truncate">{entry.summary}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}

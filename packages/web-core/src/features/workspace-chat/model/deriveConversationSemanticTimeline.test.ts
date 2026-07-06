@@ -8,6 +8,7 @@ import {
 import type {
   ConversationTimelineSource,
   ExecutionProcessState,
+  PatchTypeWithKey,
 } from '@/shared/hooks/useConversationHistory/types';
 import { deriveConversationSemanticTimeline } from './deriveConversationSemanticTimeline';
 
@@ -54,6 +55,51 @@ function makeSource(liveProcess: ExecutionProcess): ConversationTimelineSource {
   };
 }
 
+function systemEntry(content: string): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: content,
+    executionProcessId: staticProcess.id,
+    content: {
+      timestamp: null,
+      content,
+      entry_type: {
+        type: 'system_message',
+      },
+    },
+  };
+}
+
+function loadingEntry(): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: 'loading',
+    executionProcessId: staticProcess.id,
+    content: {
+      timestamp: null,
+      content: '',
+      entry_type: {
+        type: 'loading',
+      },
+    },
+  };
+}
+
+function assistantEntry(content: string): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: content,
+    executionProcessId: staticProcess.id,
+    content: {
+      timestamp: null,
+      content,
+      entry_type: {
+        type: 'assistant_message',
+      },
+    },
+  };
+}
+
 describe('deriveConversationSemanticTimeline', () => {
   it('keeps waiting runtime lifecycle active', () => {
     const timeline = deriveConversationSemanticTimeline(
@@ -81,5 +127,74 @@ describe('deriveConversationSemanticTimeline', () => {
       isRunning: false,
       failedOrKilled: true,
     });
+  });
+
+  it('hides internal agent system messages from visible entries', () => {
+    const source = makeSource({
+      ...liveProcessBase,
+      status: ExecutionProcessStatus.completed,
+      completed_at: '2026-06-22T00:01:00Z',
+    });
+    source.executionProcessState[staticProcess.id].entries = [
+      systemEntry('System: api_retry'),
+      systemEntry('System: thinking_tokens'),
+      systemEntry('System initialized with model: claude-opus-4-8'),
+      systemEntry(
+        'Unsupported Codex event: userMessage\n{"type":"userMessage"}'
+      ),
+      systemEntry('requesting'),
+      systemEntry('User-visible system message'),
+    ];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(
+      timeline.processes[0].visibleEntries.map((entry) =>
+        entry.type === 'NORMALIZED_ENTRY' ? entry.content.content : ''
+      )
+    ).toEqual(['User-visible system message']);
+  });
+
+  it('hides loading placeholders for completed processes', () => {
+    const source = makeSource({
+      ...liveProcessBase,
+      status: ExecutionProcessStatus.completed,
+      completed_at: '2026-06-22T00:01:00Z',
+    });
+    source.executionProcessState[staticProcess.id].entries = [loadingEntry()];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(timeline.processes[0].visibleEntries).toEqual([]);
+  });
+
+  it('hides loading placeholders when a running process has output', () => {
+    const source = makeSource(liveProcessBase);
+    source.executionProcessState[staticProcess.id].entries = [
+      loadingEntry(),
+      assistantEntry('Done'),
+    ];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(
+      timeline.processes[0].visibleEntries.map((entry) =>
+        entry.type === 'NORMALIZED_ENTRY' ? entry.content.content : ''
+      )
+    ).toEqual(['Done']);
+  });
+
+  it('keeps loading placeholders while a running process has no output', () => {
+    const source = makeSource(liveProcessBase);
+    source.executionProcessState[staticProcess.id].entries = [loadingEntry()];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(timeline.processes[0].visibleEntries).toHaveLength(1);
+    expect(
+      timeline.processes[0].visibleEntries[0].type === 'NORMALIZED_ENTRY'
+        ? timeline.processes[0].visibleEntries[0].content.entry_type.type
+        : null
+    ).toBe('loading');
   });
 });

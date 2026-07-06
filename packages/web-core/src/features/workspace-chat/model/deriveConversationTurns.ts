@@ -112,6 +112,23 @@ function getSetupRequiredHelp(
     : undefined;
 }
 
+function hasVisibleAgentActivity(
+  entries: ConversationSemanticProcessItem['visibleEntries']
+): boolean {
+  return entries.some((entry) => {
+    if (entry.type !== 'NORMALIZED_ENTRY') return true;
+
+    switch (entry.content.entry_type.type) {
+      case 'system_message':
+      case 'token_usage_info':
+      case 'user_message':
+        return false;
+      default:
+        return true;
+    }
+  });
+}
+
 function deriveAgentTurn(
   process: ConversationSemanticProcessItem,
   hasSetupScriptWithPrompt: boolean,
@@ -155,7 +172,7 @@ function deriveAgentTurn(
       shouldEmitUserMessage,
       visibleEntries: process.visibleEntries,
       latestTokenUsageInfo: getLatestTokenUsageInfo(process),
-      shouldEmitLoading: true,
+      shouldEmitLoading: !hasVisibleAgentActivity(process.visibleEntries),
       failedOrKilled: false,
       needsSetup: false,
     };

@@ -14,13 +14,16 @@ export type PatchTypeWithKey = PatchType & {
  * Aggregation types for tool use entries that can be grouped together.
  */
 export type ToolAggregationType =
+  | 'tool_calls'
   | 'file_read'
   | 'search'
   | 'web_fetch'
+  | 'command_run'
   | 'command_run_read'
   | 'command_run_search'
   | 'command_run_edit'
-  | 'command_run_fetch';
+  | 'command_run_fetch'
+  | 'command_run_other';
 
 /**
  * A group of consecutive entries of the same aggregatable type (e.g., file_read, search, web_fetch).
@@ -30,6 +33,8 @@ export type AggregatedPatchGroup = {
   type: 'AGGREGATED_GROUP';
   /** The aggregation category (e.g., 'file_read', 'search', 'web_fetch') */
   aggregationType: ToolAggregationType;
+  /** Whether any entry in this group belongs to an active execution process */
+  isRunning: boolean;
   /** The individual entries in this group */
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
@@ -53,6 +58,19 @@ export type AggregatedDiffGroup = {
 };
 
 /**
+ * A group of consecutive file_edit entries across one or more file paths.
+ * Used to collapse noisy multi-file edit runs into one activity row.
+ */
+export type AggregatedFileChangeGroup = {
+  type: 'AGGREGATED_FILE_CHANGE_GROUP';
+  /** The individual file_edit entries in this consecutive run */
+  entries: PatchTypeWithKey[];
+  /** Unique key for the group */
+  patchKey: string;
+  executionProcessId: string;
+};
+
+/**
  * A group of thinking entries from a previous conversation turn.
  * Used to collapse thinking steps in previous answers for cleaner display.
  */
@@ -69,6 +87,7 @@ export type DisplayEntry =
   | PatchTypeWithKey
   | AggregatedPatchGroup
   | AggregatedDiffGroup
+  | AggregatedFileChangeGroup
   | AggregatedThinkingGroup;
 
 export function isAggregatedGroup(
@@ -87,6 +106,12 @@ export function isAggregatedThinkingGroup(
   entry: DisplayEntry
 ): entry is AggregatedThinkingGroup {
   return entry.type === 'AGGREGATED_THINKING_GROUP';
+}
+
+export function isAggregatedFileChangeGroup(
+  entry: DisplayEntry
+): entry is AggregatedFileChangeGroup {
+  return entry.type === 'AGGREGATED_FILE_CHANGE_GROUP';
 }
 
 export type AddEntryType = 'initial' | 'running' | 'historic' | 'plan';

@@ -195,7 +195,59 @@
     "updatedTodos": "Updated Todos",
     "viewInChangesPanel": "View in changes panel",
     "openFilePreview": "Open file preview",
-    "unableToRenderDiff": "Unable to render diff."
+    "unableToRenderDiff": "Unable to render diff.",
+    "aggregated": {
+      "readFiles_one": "Read {{count}} file",
+      "readFiles_other": "Read {{count}} files",
+      "searches_one": "Searched {{count}} time",
+      "searches_other": "Searched {{count}} times",
+      "fetchedPages_one": "Fetched {{count}} web page",
+      "fetchedPages_other": "Fetched {{count}} web pages",
+      "ranCommands_one": "Ran {{count}} command",
+      "ranCommands_other": "Ran {{count}} commands",
+      "ranReadCommands_one": "Ran {{count}} read command",
+      "ranReadCommands_other": "Ran {{count}} read commands",
+      "ranSearchCommands_one": "Ran {{count}} search command",
+      "ranSearchCommands_other": "Ran {{count}} search commands",
+      "ranEditCommands_one": "Ran {{count}} change command",
+      "ranEditCommands_other": "Ran {{count}} change commands",
+      "ranFetchCommands_one": "Ran {{count}} fetch command",
+      "ranFetchCommands_other": "Ran {{count}} fetch commands",
+      "otherCommandDetail": "Build, test, or other terminal operation",
+      "operationCount_one": "{{count}} operation",
+      "operationCount_other": "{{count}} operations",
+      "toolCallsInProgress": "Tool calls in progress",
+      "toolCallsComplete": "Tool calls complete",
+      "changedFiles_one": "Changed {{count}} file",
+      "changedFiles_other": "Changed {{count}} files",
+      "changeCount_one": "{{count}} change",
+      "changeCount_other": "{{count}} changes",
+      "categories": {
+        "read": "Read {{count}}",
+        "search": "Search {{count}}",
+        "edit": "Change {{count}}",
+        "fetch": "Fetch {{count}}",
+        "other": "Other {{count}}"
+      },
+      "actions": {
+        "edit": "Edited",
+        "write": "Created",
+        "delete": "Deleted",
+        "rename": "Renamed",
+        "renameTo": "Renamed -> {{path}}",
+        "change": "Changed"
+      },
+      "changeSummary": {
+        "write_one": "Created {{count}}",
+        "write_other": "Created {{count}}",
+        "edit_one": "Edited {{count}}",
+        "edit_other": "Edited {{count}}",
+        "delete_one": "Deleted {{count}}",
+        "delete_other": "Deleted {{count}}",
+        "rename_one": "Renamed {{count}}",
+        "rename_other": "Renamed {{count}}"
+      }
+    }
   },
   "attempt": {
     "actions": {

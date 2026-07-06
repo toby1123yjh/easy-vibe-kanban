@@ -7,6 +7,7 @@ import {
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
+import { getFileChangeStats, parseUnifiedDiffStats } from '../lib/diffStats';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 import type { ChatFileEntryDiffInput } from './ChatFileEntry';
 
@@ -56,24 +57,6 @@ interface ChatAggregatedDiffEntriesProps {
   }) => React.ReactNode;
 }
 
-function parseUnifiedDiffStats(unifiedDiff: string) {
-  let additions = 0;
-  let deletions = 0;
-
-  for (const line of unifiedDiff.split('\n')) {
-    if (line.startsWith('+++') || line.startsWith('---')) {
-      continue;
-    }
-    if (line.startsWith('+')) {
-      additions += 1;
-    } else if (line.startsWith('-')) {
-      deletions += 1;
-    }
-  }
-
-  return { additions, deletions };
-}
-
 function buildDiffContent(
   change: ChatAggregatedDiffChange,
   filePath: string
@@ -97,18 +80,25 @@ function buildDiffContent(
   return undefined;
 }
 
-function getActionLabel(change: ChatAggregatedDiffChange) {
+function getActionLabel(
+  change: ChatAggregatedDiffChange,
+  t: ReturnType<typeof useTranslation>['t']
+) {
   switch (change.action) {
     case 'edit':
-      return 'Edit';
+      return t('conversation.aggregated.actions.edit');
     case 'write':
-      return 'Write';
+      return t('conversation.aggregated.actions.write');
     case 'delete':
-      return 'Delete';
+      return t('conversation.aggregated.actions.delete');
     case 'rename':
-      return change.new_path ? `Rename → ${change.new_path}` : 'Rename';
+      return change.new_path
+        ? t('conversation.aggregated.actions.renameTo', {
+            path: change.new_path,
+          })
+        : t('conversation.aggregated.actions.rename');
     default:
-      return 'Change';
+      return t('conversation.aggregated.actions.change');
   }
 }
 
@@ -127,6 +117,7 @@ function DiffEntry({
     diffContent?: ChatFileEntryDiffInput;
   }) => React.ReactNode;
 }) {
+  const { t } = useTranslation('tasks');
   const { additions, deletions } = useMemo(() => {
     if (change.action === 'edit' && change.unified_diff) {
       return parseUnifiedDiffStats(change.unified_diff);
@@ -154,7 +145,7 @@ function DiffEntry({
           <span className="relative shrink-0">
             {status && <ToolStatusDot status={status} className="size-2" />}
           </span>
-          <span className="text-sm text-low">{getActionLabel(change)}</span>
+          <span className="text-sm text-low">{getActionLabel(change, t)}</span>
           {hasStats && (
             <span className="text-sm shrink-0">
               {(additions ?? writeAdditions) !== undefined &&
@@ -219,14 +210,9 @@ export function ChatAggregatedDiffEntries({
     let deletions = 0;
 
     for (const entry of entries) {
-      const { change } = entry;
-      if (change.action === 'edit' && change.unified_diff) {
-        const stats = parseUnifiedDiffStats(change.unified_diff);
-        additions += stats.additions ?? 0;
-        deletions += stats.deletions ?? 0;
-      } else if (change.action === 'write' && change.content) {
-        additions += change.content.split('\n').length;
-      }
+      const stats = getFileChangeStats(entry.change);
+      additions += stats.additions;
+      deletions += stats.deletions;
     }
 
     return { additions, deletions };
@@ -298,7 +284,10 @@ export function ChatAggregatedDiffEntries({
           </span>
           <span className="text-sm text-normal truncate">{filePath}</span>
           <span className="text-xs text-low shrink-0">
-            · {entries.length} {entries.length === 1 ? 'edit' : 'edits'}
+            ·{' '}
+            {t('conversation.aggregated.changeCount', {
+              count: entries.length,
+            })}
           </span>
           {!isVSCode && onOpenFilePreview && (
             <button

@@ -35,6 +35,7 @@ import type {
 import {
   isAggregatedGroup,
   isAggregatedDiffGroup,
+  isAggregatedFileChangeGroup,
   isAggregatedThinkingGroup,
 } from '@/shared/hooks/useConversationHistory/types';
 import { useConversationHistory } from '../model/hooks/useConversationHistory';
@@ -76,6 +77,7 @@ function renderRowContent(
         expansionKey={entry.patchKey}
         aggregatedGroup={entry}
         aggregatedDiffGroup={null}
+        aggregatedFileChangeGroup={null}
         aggregatedThinkingGroup={null}
         entry={null}
         executionProcessId={entry.executionProcessId}
@@ -92,6 +94,7 @@ function renderRowContent(
         expansionKey={entry.patchKey}
         aggregatedGroup={null}
         aggregatedDiffGroup={entry}
+        aggregatedFileChangeGroup={null}
         aggregatedThinkingGroup={null}
         entry={null}
         executionProcessId={entry.executionProcessId}
@@ -108,7 +111,25 @@ function renderRowContent(
         expansionKey={entry.patchKey}
         aggregatedGroup={null}
         aggregatedDiffGroup={null}
+        aggregatedFileChangeGroup={null}
         aggregatedThinkingGroup={entry}
+        entry={null}
+        executionProcessId={entry.executionProcessId}
+        workspaceWithSession={attempt}
+        resetAction={resetAction}
+        repos={repos}
+      />
+    );
+  }
+
+  if (isAggregatedFileChangeGroup(entry)) {
+    return (
+      <DisplayConversationEntry
+        expansionKey={entry.patchKey}
+        aggregatedGroup={null}
+        aggregatedDiffGroup={null}
+        aggregatedFileChangeGroup={entry}
+        aggregatedThinkingGroup={null}
         entry={null}
         executionProcessId={entry.executionProcessId}
         workspaceWithSession={attempt}
@@ -132,6 +153,7 @@ function renderRowContent(
         entry={entry.content}
         aggregatedGroup={null}
         aggregatedDiffGroup={null}
+        aggregatedFileChangeGroup={null}
         aggregatedThinkingGroup={null}
         executionProcessId={entry.executionProcessId}
         workspaceWithSession={attempt}
@@ -348,6 +370,7 @@ export const ConversationList = forwardRef<
 
     const derivedTimeline = deriveConversationTimeline(
       derivedEntries.entries,
+      pending.source,
       prevEntriesRef.current,
       prevRowsRef.current
     );

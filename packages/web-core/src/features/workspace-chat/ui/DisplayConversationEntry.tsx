@@ -50,6 +50,7 @@ import { ChatScriptEntry } from '@vibe/ui/components/ChatScriptEntry';
 import { ChatSubagentEntry } from '@vibe/ui/components/ChatSubagentEntry';
 import { ChatAggregatedToolEntries } from '@vibe/ui/components/ChatAggregatedToolEntries';
 import { ChatAggregatedDiffEntries } from '@vibe/ui/components/ChatAggregatedDiffEntries';
+import { ChatAggregatedFileChangeEntries } from '@vibe/ui/components/ChatAggregatedFileChangeEntries';
 import { ChatCollapsedThinking } from '@vibe/ui/components/ChatCollapsedThinking';
 import { ChatMarkdown } from '@vibe/ui/components/ChatMarkdown';
 import {
@@ -61,6 +62,7 @@ import { useDiffViewMode } from '@/shared/stores/useDiffViewStore';
 import type {
   AggregatedPatchGroup,
   AggregatedDiffGroup,
+  AggregatedFileChangeGroup,
   AggregatedThinkingGroup,
 } from '@/shared/hooks/useConversationHistory/types';
 import {
@@ -69,6 +71,7 @@ import {
   ListMagnifyingGlassIcon,
   GlobeIcon,
   PencilSimpleIcon,
+  TerminalWindowIcon,
 } from '@phosphor-icons/react';
 
 type Props = {
@@ -80,6 +83,7 @@ type Props = {
   entry: NormalizedEntry | null;
   aggregatedGroup: AggregatedPatchGroup | null;
   aggregatedDiffGroup: AggregatedDiffGroup | null;
+  aggregatedFileChangeGroup: AggregatedFileChangeGroup | null;
   aggregatedThinkingGroup: AggregatedThinkingGroup | null;
 };
 
@@ -310,6 +314,7 @@ function DisplayConversationEntry(props: Props) {
     entry,
     aggregatedGroup,
     aggregatedDiffGroup,
+    aggregatedFileChangeGroup,
     aggregatedThinkingGroup,
     expansionKey,
     executionProcessId,
@@ -334,6 +339,18 @@ function DisplayConversationEntry(props: Props) {
     return (
       <AggregatedDiffGroupEntry
         group={aggregatedDiffGroup}
+        workspaceId={workspaceWithSession?.id}
+        sessionId={sessionId}
+        repos={props.repos}
+      />
+    );
+  }
+
+  // Handle aggregated file-change groups (consecutive file_edit entries)
+  if (aggregatedFileChangeGroup) {
+    return (
+      <AggregatedFileChangeGroupEntry
+        group={aggregatedFileChangeGroup}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
         repos={props.repos}
@@ -1189,6 +1206,7 @@ function ErrorMessageEntry({
  * Aggregated group entry for consecutive file_read, search, or web_fetch entries
  */
 function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
+  const { t } = useTranslation('tasks');
   const { viewToolContentInPanel } = useLogsPanelActions();
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${group.patchKey}`,
@@ -1265,30 +1283,115 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
     setIsHovered(hovered);
   }, []);
 
-  // Get the label, icon, and unit based on aggregation type
+  const getCommandDetail = () => {
+    const categoryCounts: Record<string, number> = {
+      read: 0,
+      search: 0,
+      edit: 0,
+      fetch: 0,
+      other: 0,
+    };
+
+    for (const patchEntry of group.entries) {
+      if (patchEntry.type !== 'NORMALIZED_ENTRY') continue;
+
+      const entryType = patchEntry.content.entry_type;
+      if (entryType.type !== 'tool_use') continue;
+
+      const { action_type } = entryType;
+      if (action_type.action !== 'command_run') continue;
+
+      categoryCounts[action_type.category] += 1;
+    }
+
+    const parts = [
+      categoryCounts.read > 0 &&
+        t('conversation.aggregated.categories.read', {
+          count: categoryCounts.read,
+        }),
+      categoryCounts.search > 0 &&
+        t('conversation.aggregated.categories.search', {
+          count: categoryCounts.search,
+        }),
+      categoryCounts.edit > 0 &&
+        t('conversation.aggregated.categories.edit', {
+          count: categoryCounts.edit,
+        }),
+      categoryCounts.fetch > 0 &&
+        t('conversation.aggregated.categories.fetch', {
+          count: categoryCounts.fetch,
+        }),
+      categoryCounts.other > 0 &&
+        t('conversation.aggregated.categories.other', {
+          count: categoryCounts.other,
+        }),
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join(' · ') : undefined;
+  };
+
+  // Get the summary, icon, and detail based on aggregation type.
   const getDisplayProps = () => {
+    const count = group.entries.length;
+
     switch (group.aggregationType) {
+      case 'tool_calls':
+        return {
+          summary: group.isRunning
+            ? t('conversation.aggregated.toolCallsInProgress')
+            : t('conversation.aggregated.toolCallsComplete'),
+          icon: ListMagnifyingGlassIcon,
+        };
       case 'file_read':
-        return { label: 'Read', icon: FileTextIcon, unit: 'file' };
+        return {
+          summary: t('conversation.aggregated.readFiles', { count }),
+          icon: FileTextIcon,
+        };
       case 'search':
-        return { label: 'Search', icon: ListMagnifyingGlassIcon, unit: 'file' };
+        return {
+          summary: t('conversation.aggregated.searches', { count }),
+          icon: ListMagnifyingGlassIcon,
+        };
       case 'web_fetch':
-        return { label: 'Fetched', icon: GlobeIcon, unit: 'URL' };
+        return {
+          summary: t('conversation.aggregated.fetchedPages', { count }),
+          icon: GlobeIcon,
+        };
+      case 'command_run':
+        return {
+          summary: t('conversation.aggregated.ranCommands', { count }),
+          detail: getCommandDetail(),
+          icon: TerminalWindowIcon,
+        };
       case 'command_run_read':
-        return { label: 'Read', icon: FileTextIcon, unit: 'command' };
+        return {
+          summary: t('conversation.aggregated.ranReadCommands', { count }),
+          icon: FileTextIcon,
+        };
       case 'command_run_search':
         return {
-          label: 'Search',
+          summary: t('conversation.aggregated.ranSearchCommands', { count }),
           icon: ListMagnifyingGlassIcon,
-          unit: 'command',
         };
       case 'command_run_edit':
-        return { label: 'Edit', icon: PencilSimpleIcon, unit: 'command' };
+        return {
+          summary: t('conversation.aggregated.ranEditCommands', { count }),
+          icon: PencilSimpleIcon,
+        };
       case 'command_run_fetch':
-        return { label: 'Fetch', icon: GlobeIcon, unit: 'command' };
+        return {
+          summary: t('conversation.aggregated.ranFetchCommands', { count }),
+          icon: GlobeIcon,
+        };
+      case 'command_run_other':
+        return {
+          summary: t('conversation.aggregated.ranCommands', { count }),
+          detail: t('conversation.aggregated.otherCommandDetail'),
+          icon: TerminalWindowIcon,
+        };
     }
   };
-  const { label, icon, unit } = getDisplayProps();
+  const { summary, detail, icon } = getDisplayProps();
 
   return (
     <ChatAggregatedToolEntries
@@ -1298,9 +1401,10 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
       onViewContent={handleViewContent}
-      label={label}
+      summary={summary}
+      detail={detail}
       icon={icon}
-      unit={unit}
+      forceCollapsible={group.aggregationType === 'tool_calls'}
     />
   );
 }
@@ -1358,6 +1462,112 @@ function AggregatedThinkingGroupEntry({
           maxWidth={undefined}
         />
       )}
+    />
+  );
+}
+
+function AggregatedFileChangeGroupEntry({
+  group,
+  workspaceId,
+  sessionId,
+  repos,
+}: {
+  group: AggregatedFileChangeGroup;
+  workspaceId: string | undefined;
+  sessionId: string | undefined;
+  repos: RepoWithTargetBranch[];
+}) {
+  const { theme } = useTheme();
+  const actualTheme = getActualTheme(theme);
+  const { viewFileInChanges, hasDiffPath } = useChangesViewActions();
+  const { canOpenWorkspaceFilePreview, openWorkspaceFilePreview } =
+    useWorkspaceFilePreviewActions();
+  const resolveFilePreviewTarget = useWorkspaceFilePreviewResolver(
+    workspaceId,
+    repos,
+    sessionId
+  );
+  const [expanded, toggle] = usePersistedExpanded(
+    `file-change:${group.patchKey}` as PersistKey,
+    false
+  );
+  const [isHovered, setIsHovered] = useState(false);
+  const isVSCode = inIframe();
+
+  const aggregatedFileChangeEntries = useMemo(() => {
+    return group.entries.flatMap((patchEntry, entryIdx) => {
+      if (patchEntry.type !== 'NORMALIZED_ENTRY') {
+        return [];
+      }
+
+      const entryType = patchEntry.content.entry_type;
+      if (entryType.type !== 'tool_use') {
+        return [];
+      }
+
+      const { action_type, status } = entryType;
+      if (action_type.action !== 'file_edit') {
+        return [];
+      }
+
+      return action_type.changes.map((change, changeIdx) => {
+        const filePath =
+          change.action === 'rename' && change.new_path
+            ? change.new_path
+            : action_type.path;
+        const previewResolution = resolveFilePreviewTarget({
+          path: filePath,
+          source: 'diff',
+        });
+
+        return {
+          filePath,
+          change,
+          status,
+          expansionKey: `${patchEntry.patchKey}:${entryIdx}:${changeIdx}`,
+          fileIcon: getFileIcon(filePath, actualTheme),
+          onOpenInVSCode: () =>
+            openFileInVSCode(filePath, { openAsDiff: false }),
+          onOpenInChanges: hasDiffPath(filePath)
+            ? () => viewFileInChanges(filePath)
+            : undefined,
+          onOpenFilePreview:
+            canOpenWorkspaceFilePreview &&
+            previewResolution.status === 'resolved'
+              ? () => openWorkspaceFilePreview(previewResolution.target)
+              : undefined,
+        };
+      });
+    });
+  }, [
+    actualTheme,
+    canOpenWorkspaceFilePreview,
+    group.entries,
+    hasDiffPath,
+    openWorkspaceFilePreview,
+    resolveFilePreviewTarget,
+    viewFileInChanges,
+  ]);
+
+  const handleToggle = useCallback(() => {
+    toggle();
+  }, [toggle]);
+
+  const handleHoverChange = useCallback((hovered: boolean) => {
+    setIsHovered(hovered);
+  }, []);
+
+  return (
+    <ChatAggregatedFileChangeEntries
+      entries={aggregatedFileChangeEntries}
+      expanded={expanded}
+      isHovered={isHovered}
+      onToggle={handleToggle}
+      onHoverChange={handleHoverChange}
+      isVSCode={isVSCode}
+      renderDiffBody={({ diffContent }) =>
+        diffContent ? <FileEntryDiffBody diffContent={diffContent} /> : null
+      }
     />
   );
 }

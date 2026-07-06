@@ -72,6 +72,43 @@ function toConversationSemanticProcessKind(
   return 'unknown';
 }
 
+function isInternalSystemEntry(entry: PatchTypeWithKey): boolean {
+  if (entry.type !== 'NORMALIZED_ENTRY') return false;
+  if (entry.content.entry_type.type !== 'system_message') return false;
+
+  const content = entry.content.content.trim();
+  return (
+    content === 'requesting' ||
+    content === 'System: api_retry' ||
+    content === 'System: hook_started' ||
+    content === 'System: hook_response' ||
+    content === 'System: thinking_tokens' ||
+    content.startsWith('System initialized with model:') ||
+    content.startsWith('Unsupported Codex event: userMessage')
+  );
+}
+
+function isLoadingEntry(entry: PatchTypeWithKey): boolean {
+  return (
+    entry.type === 'NORMALIZED_ENTRY' &&
+    entry.content.entry_type.type === 'loading'
+  );
+}
+
+function isAgentOutputEntry(entry: PatchTypeWithKey): boolean {
+  if (entry.type !== 'NORMALIZED_ENTRY') return true;
+
+  switch (entry.content.entry_type.type) {
+    case 'system_message':
+    case 'token_usage_info':
+    case 'user_message':
+    case 'loading':
+      return false;
+    default:
+      return true;
+  }
+}
+
 export function deriveConversationSemanticTimeline(
   source: ConversationTimelineSource
 ): ConversationSemanticTimeline {
@@ -89,6 +126,12 @@ export function deriveConversationSemanticTimeline(
       const executionProcessId = processState.executionProcess.id;
       const liveExecutionProcess =
         liveExecutionProcessesById.get(executionProcessId) ?? null;
+      const isRunning = liveExecutionProcess
+        ? isExecutionProcessActive(liveExecutionProcess)
+        : false;
+      const failedOrKilled = liveExecutionProcess
+        ? isExecutionProcessFailedLike(liveExecutionProcess)
+        : false;
       const latestTokenUsageEntry =
         processState.entries.findLast(
           (entry) =>
@@ -96,11 +139,16 @@ export function deriveConversationSemanticTimeline(
             entry.content.entry_type.type === 'token_usage_info'
         ) ?? null;
 
-      const visibleEntries = processState.entries.filter(
+      const candidateVisibleEntries = processState.entries.filter(
         (entry) =>
           entry.type !== 'NORMALIZED_ENTRY' ||
           (entry.content.entry_type.type !== 'user_message' &&
-            entry.content.entry_type.type !== 'token_usage_info')
+            entry.content.entry_type.type !== 'token_usage_info' &&
+            !isInternalSystemEntry(entry))
+      );
+      const hasAgentOutput = candidateVisibleEntries.some(isAgentOutputEntry);
+      const visibleEntries = candidateVisibleEntries.filter(
+        (entry) => !isLoadingEntry(entry) || (isRunning && !hasAgentOutput)
       );
 
       const hasPendingApprovalEntry = visibleEntries.some((entry) => {
@@ -121,12 +169,8 @@ export function deriveConversationSemanticTimeline(
         visibleEntries,
         latestTokenUsageEntry,
         hasPendingApprovalEntry,
-        isRunning: liveExecutionProcess
-          ? isExecutionProcessActive(liveExecutionProcess)
-          : false,
-        failedOrKilled: liveExecutionProcess
-          ? isExecutionProcessFailedLike(liveExecutionProcess)
-          : false,
+        isRunning,
+        failedOrKilled,
       } satisfies ConversationSemanticProcessItem;
     });
 

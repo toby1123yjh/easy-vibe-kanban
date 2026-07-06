@@ -1,4 +1,5 @@
 import { aggregateConsecutiveEntries } from '@/shared/lib/aggregateEntries';
+import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 import type {
   DisplayEntry,
   PatchTypeWithKey,
@@ -30,6 +31,7 @@ function isRenderableConversationEntry(entry: DisplayEntry): boolean {
     entry.type === 'STDERR' ||
     entry.type === 'AGGREGATED_GROUP' ||
     entry.type === 'AGGREGATED_DIFF_GROUP' ||
+    entry.type === 'AGGREGATED_FILE_CHANGE_GROUP' ||
     entry.type === 'AGGREGATED_THINKING_GROUP'
   );
 }
@@ -39,12 +41,19 @@ function isRenderableConversationEntry(entry: DisplayEntry): boolean {
 
 export function deriveConversationTimeline(
   entries: PatchTypeWithKey[],
+  source: import('@/shared/hooks/useConversationHistory/types').ConversationTimelineSource,
   previousDisplayEntries: DisplayEntry[],
   previousRows: ConversationRow[]
 ): DerivedConversationTimeline {
-  const displayEntries = aggregateConsecutiveEntries(entries).filter(
-    isRenderableConversationEntry
+  const runningProcessIds = new Set(
+    source.liveExecutionProcesses
+      .filter(isExecutionProcessActive)
+      .map((process) => process.id)
   );
+  const displayEntries = aggregateConsecutiveEntries(
+    entries,
+    runningProcessIds
+  ).filter(isRenderableConversationEntry);
 
   const rows = buildConversationRowsIncremental(
     displayEntries,
