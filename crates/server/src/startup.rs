@@ -11,7 +11,10 @@ use tower_http::validate_request::ValidateRequestHeaderLayer;
 use utils::assets::asset_dir;
 
 use crate::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl,
+    middleware::origin::validate_origin,
+    routes,
+    runtime::relay_registration,
     workflow_runtime::runner::{recover_stale_workflow_runs, spawn_workflow_completion_watcher},
 };
 
