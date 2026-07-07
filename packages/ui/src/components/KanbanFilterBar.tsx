@@ -101,6 +101,7 @@ interface KanbanFilterBarProps<
   onCreateIssue: () => void;
   shouldAnimateCreateButton: boolean;
   isMobile?: boolean;
+  className?: string;
   renderFiltersDialog?: (
     props: RenderKanbanFiltersDialogProps<TTag, TUser, TSortField>
   ) => ReactNode;
@@ -137,6 +138,7 @@ export function KanbanFilterBar<
   onCreateIssue,
   shouldAnimateCreateButton,
   isMobile,
+  className,
   renderFiltersDialog,
 }: KanbanFilterBarProps<TTag, TUser, TSortField>) {
   const { t } = useTranslation('common');
@@ -172,81 +174,94 @@ export function KanbanFilterBar<
       ) : (
         <div
           className={cn(
-            'flex min-w-0 flex-wrap items-center',
-            isMobile ? 'gap-half' : 'gap-base'
+            'flex min-w-0 items-center',
+            isMobile ? 'flex-wrap gap-half' : 'w-full flex-nowrap gap-base',
+            className
           )}
         >
-          <ButtonGroup className="flex-wrap">
-            <ButtonGroupItem
-              active={activeViewId === viewIds.TEAM}
-              onClick={() => onViewChange(viewIds.TEAM)}
-            >
-              {t('kanban.team', 'Team')}
-            </ButtonGroupItem>
-            <ButtonGroupItem
-              active={activeViewId === viewIds.PERSONAL}
-              onClick={() => onViewChange(viewIds.PERSONAL)}
-            >
-              {t('kanban.personal', 'Personal')}
-            </ButtonGroupItem>
-          </ButtonGroup>
+          <div
+            className={cn(
+              isMobile
+                ? 'contents'
+                : 'scrollbar-none flex min-w-0 flex-1 flex-nowrap items-center gap-base overflow-x-auto overflow-y-hidden'
+            )}
+          >
+            <ButtonGroup className={isMobile ? 'flex-wrap' : 'shrink-0'}>
+              <ButtonGroupItem
+                active={activeViewId === viewIds.TEAM}
+                onClick={() => onViewChange(viewIds.TEAM)}
+                className={!isMobile ? 'shrink-0 whitespace-nowrap' : undefined}
+              >
+                {t('kanban.team', 'Team')}
+              </ButtonGroupItem>
+              <ButtonGroupItem
+                active={activeViewId === viewIds.PERSONAL}
+                onClick={() => onViewChange(viewIds.PERSONAL)}
+                className={!isMobile ? 'shrink-0 whitespace-nowrap' : undefined}
+              >
+                {t('kanban.personal', 'Personal')}
+              </ButtonGroupItem>
+            </ButtonGroup>
 
-          {isMobile ? (
+            {isMobile ? (
+              <button
+                type="button"
+                onClick={() => setMobileSearchExpanded(true)}
+                className={cn(
+                  'p-half rounded-sm transition-colors',
+                  filters.searchQuery
+                    ? 'text-brand hover:text-brand'
+                    : 'text-low hover:text-normal hover:bg-secondary'
+                )}
+                aria-label={t('kanban.searchPlaceholder', 'Search issues...')}
+              >
+                <MagnifyingGlassIcon className="size-icon-sm" weight="bold" />
+              </button>
+            ) : (
+              <InputField
+                value={filters.searchQuery}
+                onChange={onSearchQueryChange}
+                placeholder={t('kanban.searchPlaceholder', 'Search issues...')}
+                variant="search"
+                actionIcon={filters.searchQuery ? XIcon : undefined}
+                onAction={handleClearSearch}
+                className="min-w-[160px] w-[220px] max-w-full shrink"
+              />
+            )}
+
             <button
               type="button"
-              onClick={() => setMobileSearchExpanded(true)}
+              onClick={() => onFiltersDialogOpenChange(true)}
               className={cn(
-                'p-half rounded-sm transition-colors',
-                filters.searchQuery
+                'flex items-center justify-center p-half rounded-sm transition-colors',
+                !isMobile && 'shrink-0',
+                hasActiveFilters
                   ? 'text-brand hover:text-brand'
                   : 'text-low hover:text-normal hover:bg-secondary'
               )}
-              aria-label={t('kanban.searchPlaceholder', 'Search issues...')}
+              aria-label={t('kanban.filters', 'Open filters')}
+              title={t('kanban.filters', 'Open filters')}
             >
-              <MagnifyingGlassIcon className="size-icon-sm" weight="bold" />
+              <FunnelIcon className="size-icon-sm" weight="bold" />
             </button>
-          ) : (
-            <InputField
-              value={filters.searchQuery}
-              onChange={onSearchQueryChange}
-              placeholder={t('kanban.searchPlaceholder', 'Search issues...')}
-              variant="search"
-              actionIcon={filters.searchQuery ? XIcon : undefined}
-              onAction={handleClearSearch}
-              className="min-w-[160px] w-[220px] max-w-full"
-            />
-          )}
 
-          <button
-            type="button"
-            onClick={() => onFiltersDialogOpenChange(true)}
-            className={cn(
-              'flex items-center justify-center p-half rounded-sm transition-colors',
-              hasActiveFilters
-                ? 'text-brand hover:text-brand'
-                : 'text-low hover:text-normal hover:bg-secondary'
+            {hasActiveFilters && (
+              <PrimaryButton
+                variant="tertiary"
+                value={t('kanban.clearFilters', 'Clear filters')}
+                actionIcon={XIcon}
+                onClick={onClearFilters}
+                className="shrink-0 whitespace-nowrap"
+              />
             )}
-            aria-label={t('kanban.filters', 'Open filters')}
-            title={t('kanban.filters', 'Open filters')}
-          >
-            <FunnelIcon className="size-icon-sm" weight="bold" />
-          </button>
-
-          {hasActiveFilters && (
-            <PrimaryButton
-              variant="tertiary"
-              value={t('kanban.clearFilters', 'Clear filters')}
-              actionIcon={XIcon}
-              onClick={onClearFilters}
-            />
-          )}
+          </div>
 
           {isMobile ? (
             <button
               type="button"
               onClick={() => onCreateIssue()}
               className={cn(
-                'rounded-sm p-half bg-brand hover:bg-brand-hover text-on-brand transition-colors',
+                'shrink-0 rounded-sm p-half bg-brand hover:bg-brand-hover text-on-brand transition-colors',
                 shouldAnimateCreateButton && 'create-issue-attention'
               )}
               aria-label={t('kanban.newIssue', 'New issue')}
@@ -260,6 +275,7 @@ export function KanbanFilterBar<
               actionIcon={PlusIcon}
               onClick={() => onCreateIssue()}
               className={cn(
+                'shrink-0 whitespace-nowrap',
                 shouldAnimateCreateButton && 'create-issue-attention'
               )}
             />

@@ -259,18 +259,24 @@ export type KanbanProviderProps = {
   children: ReactNode;
   onDragEnd: (result: DropResult) => void;
   className?: string;
+  columnClassName?: string;
 };
 
 export const KanbanProvider = ({
   children,
   onDragEnd,
   className,
+  columnClassName,
 }: KanbanProviderProps) => {
+  const autoColumnClassName =
+    columnClassName ?? 'auto-cols-[minmax(200px,400px)]';
+
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div
         className={cn(
-          'inline-grid grid-flow-col auto-cols-[minmax(200px,400px)] divide-x border-x items-stretch min-h-full',
+          'inline-grid grid-flow-col divide-x border-x items-stretch min-h-full',
+          autoColumnClassName,
           className
         )}
       >

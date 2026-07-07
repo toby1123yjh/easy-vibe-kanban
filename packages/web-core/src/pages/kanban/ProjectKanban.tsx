@@ -27,9 +27,18 @@ import {
 
 import { ProjectRightSidebarContainer } from './ProjectRightSidebarContainer';
 
-const KANBAN_BOARD_MIN_SIZE = '12%';
+const KANBAN_DEFAULT_LEFT_PANEL_SIZE = 75;
+const KANBAN_BOARD_MIN_PERCENT = 35;
+const KANBAN_BOARD_MIN_SIZE = `${KANBAN_BOARD_MIN_PERCENT}%`;
 const KANBAN_RIGHT_PANEL_MIN_SIZE = '400px';
-const KANBAN_RIGHT_PANEL_MAX_SIZE = '88%';
+
+function getClampedKanbanLeftPanelSize(size: number | string) {
+  if (typeof size !== 'number' || !Number.isFinite(size)) {
+    return KANBAN_DEFAULT_LEFT_PANEL_SIZE;
+  }
+
+  return Math.max(size, KANBAN_BOARD_MIN_PERCENT);
+}
 
 /**
  * Component that registers project mutations with ActionsContext.
@@ -115,7 +124,7 @@ function ProjectKanbanLayout({ projectName }: { projectName: string }) {
   usePageTitle(issue?.title, projectName);
   const [kanbanLeftPanelSize, setKanbanLeftPanelSize] = usePaneSize(
     PERSIST_KEYS.kanbanLeftPanel,
-    75
+    KANBAN_DEFAULT_LEFT_PANEL_SIZE
   );
 
   const isRightPanelOpen = isPanelOpen;
@@ -132,17 +141,21 @@ function ProjectKanbanLayout({ projectName }: { projectName: string }) {
     );
   }
 
-  const kanbanDefaultLayout: Layout =
-    typeof kanbanLeftPanelSize === 'number'
-      ? {
-          'kanban-left': kanbanLeftPanelSize,
-          'kanban-right': 100 - kanbanLeftPanelSize,
-        }
-      : { 'kanban-left': 75, 'kanban-right': 25 };
+  const clampedKanbanLeftPanelSize =
+    getClampedKanbanLeftPanelSize(kanbanLeftPanelSize);
+
+  const kanbanDefaultLayout: Layout = {
+    'kanban-left': clampedKanbanLeftPanelSize,
+    'kanban-right': 100 - clampedKanbanLeftPanelSize,
+  };
 
   const onKanbanLayoutChange = (layout: Layout) => {
+    const nextKanbanLeftPanelSize = layout['kanban-left'];
+
     if (isRightPanelOpen) {
-      setKanbanLeftPanelSize(layout['kanban-left']);
+      setKanbanLeftPanelSize(
+        getClampedKanbanLeftPanelSize(nextKanbanLeftPanelSize)
+      );
     }
   };
 
@@ -172,7 +185,6 @@ function ProjectKanbanLayout({ projectName }: { projectName: string }) {
         <Panel
           id="kanban-right"
           minSize={KANBAN_RIGHT_PANEL_MIN_SIZE}
-          maxSize={KANBAN_RIGHT_PANEL_MAX_SIZE}
           className="min-w-0 h-full overflow-hidden bg-secondary"
         >
           <ProjectRightSidebarContainer />

@@ -1012,8 +1012,10 @@ export function KanbanContainer() {
 
         <div
           className={cn(
-            'flex items-start gap-base',
-            isMobile ? 'flex-col' : 'flex-wrap'
+            'flex gap-base',
+            isMobile
+              ? 'flex-col items-start'
+              : 'min-w-0 flex-nowrap items-start overflow-hidden'
           )}
         >
           <ViewNavTabs
@@ -1022,8 +1024,10 @@ export function KanbanContainer() {
             hiddenStatuses={hiddenStatuses}
             selectedStatusId={listViewStatusFilter}
             onStatusSelect={setListViewStatusFilter}
+            className={isMobile ? undefined : 'shrink-0'}
           />
           <KanbanFilterBar
+            className={isMobile ? undefined : 'min-w-0 flex-1'}
             isFiltersDialogOpen={isFiltersDialogOpen}
             onFiltersDialogOpenChange={setIsFiltersDialogOpen}
             tags={tags}
@@ -1062,7 +1066,11 @@ export function KanbanContainer() {
           </div>
         ) : (
           <div className="flex-1 overflow-x-auto px-double">
-            <KanbanProvider onDragEnd={handleDragEnd}>
+            <KanbanProvider
+              onDragEnd={handleDragEnd}
+              className="min-w-full"
+              columnClassName="auto-cols-[minmax(260px,1fr)]"
+            >
               {visibleStatuses.map((status) => {
                 const issueIds = items[status.id] ?? [];
 
