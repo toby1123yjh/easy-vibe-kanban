@@ -479,7 +479,9 @@ export type RefreshRelaySigningSessionRequest = { client_id: string, timestamp: 
 
 export type RefreshRelaySigningSessionResponse = { signing_session_id: string, };
 
-export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
+export type ResumableAgentSession = { agent_session_id: string, title: string, last_used_at: string, };
+
+export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, resume_session_id?: string, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
@@ -585,7 +587,7 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_n
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type CreateAndStartWorkspaceRequest = { mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, attachment_ids: Array<string> | null, };
+export type CreateAndStartWorkspaceRequest = { mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, resume_session_id?: string, attachment_ids: Array<string> | null, };
 
 export type CreateAndStartWorkspaceResponse = { workspace: Workspace, execution_process: ExecutionProcess, };
 

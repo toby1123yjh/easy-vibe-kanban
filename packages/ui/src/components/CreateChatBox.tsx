@@ -27,6 +27,7 @@ export interface ExecutorProps<TExecutor extends string = string> {
   selected: TExecutor | null;
   options: TExecutor[];
   onChange: (executor: TExecutor) => void;
+  afterSelector?: ReactNode;
 }
 
 export interface SaveAsDefaultProps {
@@ -174,6 +175,7 @@ export function CreateChatBox<TExecutor extends string = string>({
               </DropdownMenuItem>
             ))}
           </ToolbarDropdown>
+          {executor.afterSelector}
           {saveAsDefault?.visible && (
             <label className="flex items-center gap-1.5 text-sm text-low cursor-pointer ml-2">
               <Checkbox

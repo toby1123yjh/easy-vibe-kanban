@@ -21,8 +21,9 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::workspaces::attachments::{
-        ImportedIssueAttachment, import_issue_attachments_from_remote,
+    routes::workspaces::{
+        attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
+        links::link_workspace_to_issue,
     },
 };
 
@@ -340,6 +341,7 @@ pub async fn create_and_start_workspace(
         executor_config,
         prompt,
         selected_skills,
+        resume_session_id,
         attachment_ids,
     } = payload;
 
@@ -348,6 +350,11 @@ pub async fn create_and_start_workspace(
             "A workspace prompt is required. Provide a non-empty `prompt`.".to_string(),
         )
     })?;
+    let resume_session_id = resume_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned);
 
     let managed_workspace = match mode {
         CreateWorkspaceMode::Worktree => {
@@ -431,6 +438,16 @@ pub async fn create_and_start_workspace(
     let workspace = managed_workspace.workspace.clone();
     tracing::info!("Created workspace {}", workspace.id);
 
+    if let Some(linked_issue) = &linked_issue {
+        link_workspace_to_issue(
+            &deployment,
+            &workspace,
+            linked_issue.remote_project_id,
+            linked_issue.issue_id,
+        )
+        .await?;
+    }
+
     let execution_process = deployment
         .container()
         .start_workspace_with_selected_skills(
@@ -438,6 +455,7 @@ pub async fn create_and_start_workspace(
             executor_config.clone(),
             workspace_prompt,
             selected_skills,
+            resume_session_id,
         )
         .await?;
 

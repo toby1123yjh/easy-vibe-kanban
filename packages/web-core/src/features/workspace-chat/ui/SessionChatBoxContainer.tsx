@@ -8,6 +8,7 @@ import {
   type BaseCodingAgent,
   type ExecutorConfig,
   type SelectedSkill,
+  type ResumableAgentSession,
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useHostId } from '@/shared/providers/HostIdProvider';
@@ -46,6 +47,10 @@ import {
   type SessionChatBoxEditorRenderProps,
 } from '@vibe/ui/components/SessionChatBox';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
+import {
+  AgentSessionResumeChip,
+  AgentSessionResumePicker,
+} from '@/shared/components/AgentSessionResumePicker';
 import {
   useWorkspacePanelState,
   RIGHT_MAIN_PANEL_MODES,
@@ -462,7 +467,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     executorOptions,
     variantOptions,
     presetOptions,
-    setExecutor: handleExecutorChange,
+    setExecutor: setExecutor,
     setVariant: setSelectedVariant,
     setOverrides: setExecutorOverrides,
   } = useExecutorConfig({
@@ -474,6 +479,20 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
   });
   const providerPolicy = useAgentProviderPolicy(effectiveExecutor);
+  const [stagedResumeSession, setStagedResumeSession] =
+    useState<ResumableAgentSession | null>(null);
+
+  const handleExecutorChange = useCallback(
+    (executor: BaseCodingAgent) => {
+      setStagedResumeSession(null);
+      setExecutor(executor);
+    },
+    [setExecutor]
+  );
+
+  useEffect(() => {
+    setStagedResumeSession(null);
+  }, [workspaceId, sessionId, effectiveExecutor]);
 
   const supportsContextUsage =
     !!effectiveExecutor &&
@@ -524,11 +543,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     onScrollToBottom('auto');
 
-    const success = await send(prompt, isSlashCommand ? [] : selectedSkills);
+    const success = await send(prompt, isSlashCommand ? [] : selectedSkills, {
+      resumeSessionId: stagedResumeSession?.agent_session_id,
+    });
     if (success) {
       cancelDebouncedSave();
       setLocalMessage('');
       setSelectedSkills([]);
+      setStagedResumeSession(null);
       clearUploadedAttachments();
       if (isNewSessionMode) await clearDraft();
       if (!isSlashCommand) {
@@ -546,6 +568,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     localMessage,
     reviewMarkdown,
     selectedSkills,
+    stagedResumeSession?.agent_session_id,
     cancelDebouncedSave,
     setLocalMessage,
     clearUploadedAttachments,
@@ -1004,20 +1027,42 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     [config?.send_message_shortcut, selectedSkills, sessionId, workspaceId]
   );
 
-  const modelSelectorNode = effectiveExecutor ? (
-    <ModelSelectorContainer
-      agent={effectiveExecutor}
-      workspaceId={workspaceId}
-      sessionId={sessionId}
-      onAdvancedSettings={handleCustomise}
-      presets={variantOptions}
-      selectedPreset={selectedVariant}
-      onPresetSelect={setSelectedVariant}
-      onOverrideChange={setExecutorOverrides}
-      executorConfig={executorConfig}
-      presetOptions={presetOptions}
-    />
-  ) : undefined;
+  const resumePickerNode =
+    workspaceId && effectiveExecutor ? (
+      <AgentSessionResumePicker
+        workspaceId={workspaceId}
+        executor={effectiveExecutor}
+        selectedSessionId={stagedResumeSession?.agent_session_id}
+        disabled={isSending || isStopping || isAttemptRunning}
+        onSelect={setStagedResumeSession}
+      />
+    ) : undefined;
+
+  const modelSelectorNode =
+    effectiveExecutor || stagedResumeSession ? (
+      <>
+        {effectiveExecutor && (
+          <ModelSelectorContainer
+            agent={effectiveExecutor}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            onAdvancedSettings={handleCustomise}
+            presets={variantOptions}
+            selectedPreset={selectedVariant}
+            onPresetSelect={setSelectedVariant}
+            onOverrideChange={setExecutorOverrides}
+            executorConfig={executorConfig}
+            presetOptions={presetOptions}
+          />
+        )}
+        {stagedResumeSession && (
+          <AgentSessionResumeChip
+            session={stagedResumeSession}
+            onClear={() => setStagedResumeSession(null)}
+          />
+        )}
+      </>
+    ) : undefined;
 
   // In placeholder mode, render a disabled version to maintain visual structure
   if (mode === 'placeholder') {
@@ -1140,6 +1185,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
               selected: effectiveExecutor,
               options: executorOptions,
               onChange: handleExecutorChange,
+              afterSelector: resumePickerNode,
             }
           : undefined
       }
@@ -1197,6 +1243,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       localAttachments={localAttachments}
       dropzone={{ getRootProps, getInputProps, isDragActive }}
       modelSelector={modelSelectorNode}
+      resumeSelector={needsExecutorSelection ? undefined : resumePickerNode}
     />
   );
 }

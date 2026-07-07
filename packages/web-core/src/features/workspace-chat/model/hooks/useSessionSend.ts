@@ -18,7 +18,11 @@ interface UseSessionSendOptions {
 
 interface UseSessionSendResult {
   /** Send a message. Returns true on success, false on failure. */
-  send: (message: string, selectedSkills?: SelectedSkill[]) => Promise<boolean>;
+  send: (
+    message: string,
+    selectedSkills?: SelectedSkill[],
+    options?: { resumeSessionId?: string | null }
+  ) => Promise<boolean>;
   /** Whether a send operation is in progress */
   isSending: boolean;
   /** Error message if send failed */
@@ -51,7 +55,8 @@ export function useSessionSend({
   const send = useCallback(
     async (
       message: string,
-      selectedSkills: SelectedSkill[] = []
+      selectedSkills: SelectedSkill[] = [],
+      options: { resumeSessionId?: string | null } = {}
     ): Promise<boolean> => {
       const trimmed = message.trim();
       if (!trimmed) return false;
@@ -74,6 +79,7 @@ export function useSessionSend({
             prompt: trimmed,
             selectedSkills,
             executorConfig,
+            resumeSessionId: options.resumeSessionId,
           });
           onSelectSession?.(session.id);
           return true;
@@ -93,6 +99,7 @@ export function useSessionSend({
             prompt: trimmed,
             selected_skills: selectedSkills,
             executor_config: executorConfig,
+            resume_session_id: options.resumeSessionId || undefined,
             retry_process_id: null,
             force_when_dirty: null,
             perform_git_reset: null,

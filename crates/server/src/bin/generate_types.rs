@@ -180,6 +180,7 @@ fn generate_types_content() -> String {
         relay_types::RemoveRelayPairedClientResponse::decl(),
         relay_types::RefreshRelaySigningSessionRequest::decl(),
         relay_types::RefreshRelaySigningSessionResponse::decl(),
+        db::models::coding_agent_turn::ResumableAgentSession::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
         server::routes::sessions::ResetProcessRequest::decl(),
         server::routes::workspaces::git::ChangeTargetBranchRequest::decl(),

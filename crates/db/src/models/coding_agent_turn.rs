@@ -23,6 +23,13 @@ pub struct CreateCodingAgentTurn {
     pub prompt: Option<String>,
 }
 
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+pub struct ResumableAgentSession {
+    pub agent_session_id: String,
+    pub title: String,
+    pub last_used_at: DateTime<Utc>,
+}
+
 /// Session info from a coding agent turn, used for follow-up requests
 #[derive(Debug)]
 pub struct CodingAgentResumeInfo {
@@ -31,6 +38,121 @@ pub struct CodingAgentResumeInfo {
 }
 
 impl CodingAgentTurn {
+    pub async fn find_resumable_agent_sessions(
+        pool: &SqlitePool,
+        workspace_id: Option<Uuid>,
+        executor: &str,
+        since: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<ResumableAgentSession>, sqlx::Error> {
+        if let Some(workspace_id) = workspace_id {
+            return sqlx::query_as::<_, ResumableAgentSession>(
+                r#"
+                WITH current_project AS (
+                    SELECT t.project_id
+                    FROM workspaces w
+                    JOIN tasks t ON t.id = w.task_id
+                    WHERE w.id = ?
+                ),
+                current_repos AS (
+                    SELECT repo_id
+                    FROM workspace_repos
+                    WHERE workspace_id = ?
+                ),
+                scope_workspaces AS (
+                    SELECT ? AS workspace_id
+                    UNION
+                    SELECT w.id
+                    FROM workspaces w
+                    JOIN tasks t ON t.id = w.task_id
+                    JOIN current_project cp ON cp.project_id = t.project_id
+                    UNION
+                    SELECT wr.workspace_id
+                    FROM workspace_repos wr
+                    JOIN current_repos cr ON cr.repo_id = wr.repo_id
+                ),
+                ranked AS (
+                    SELECT
+                        cat.agent_session_id AS agent_session_id,
+                        COALESCE(
+                            NULLIF(TRIM(s.name), ''),
+                            NULLIF(TRIM(cat.prompt), ''),
+                            NULLIF(TRIM(cat.summary), ''),
+                            'Untitled session'
+                        ) AS title,
+                        COALESCE(ep.completed_at, ep.created_at) AS last_used_at,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY cat.agent_session_id
+                            ORDER BY COALESCE(ep.completed_at, ep.created_at) DESC, ep.created_at DESC
+                        ) AS rn
+                    FROM coding_agent_turns cat
+                    JOIN execution_processes ep ON ep.id = cat.execution_process_id
+                    JOIN sessions s ON s.id = ep.session_id
+                    WHERE s.workspace_id IN (SELECT workspace_id FROM scope_workspaces)
+                      AND s.executor = ?
+                      AND ep.run_reason = 'codingagent'
+                      AND ep.status != 'running'
+                      AND ep.dropped = FALSE
+                      AND cat.agent_session_id IS NOT NULL
+                      AND COALESCE(ep.completed_at, ep.created_at) >= ?
+                )
+                SELECT agent_session_id, title, last_used_at
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY last_used_at DESC
+                LIMIT ?
+                "#,
+            )
+            .bind(workspace_id)
+            .bind(workspace_id)
+            .bind(workspace_id)
+            .bind(executor)
+            .bind(since)
+            .bind(limit)
+            .fetch_all(pool)
+            .await;
+        }
+
+        sqlx::query_as::<_, ResumableAgentSession>(
+            r#"
+            WITH ranked AS (
+                SELECT
+                    cat.agent_session_id AS agent_session_id,
+                    COALESCE(
+                        NULLIF(TRIM(s.name), ''),
+                        NULLIF(TRIM(cat.prompt), ''),
+                        NULLIF(TRIM(cat.summary), ''),
+                        'Untitled session'
+                    ) AS title,
+                    COALESCE(ep.completed_at, ep.created_at) AS last_used_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY cat.agent_session_id
+                        ORDER BY COALESCE(ep.completed_at, ep.created_at) DESC, ep.created_at DESC
+                    ) AS rn
+                FROM coding_agent_turns cat
+                JOIN execution_processes ep ON ep.id = cat.execution_process_id
+                JOIN sessions s ON s.id = ep.session_id
+                WHERE s.executor = ?
+                  AND ep.run_reason = 'codingagent'
+                  AND ep.status != 'running'
+                  AND ep.dropped = FALSE
+                  AND cat.agent_session_id IS NOT NULL
+                  AND COALESCE(ep.completed_at, ep.created_at) >= ?
+            )
+            SELECT agent_session_id, title, last_used_at
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY last_used_at DESC
+            LIMIT ?
+            "#,
+        )
+        .bind(executor)
+        .bind(since)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+    }
+
     /// Find session info from the latest coding agent turn for a session.
     /// Only returns turns that have an agent_session_id set.
     pub async fn find_latest_session_info(

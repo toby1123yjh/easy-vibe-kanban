@@ -21,21 +21,22 @@ pub struct LinkWorkspaceRequest {
     pub issue_id: Uuid,
 }
 
-pub async fn link_workspace(
-    Extension(workspace): Extension<Workspace>,
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<LinkWorkspaceRequest>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+pub(crate) async fn link_workspace_to_issue(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<(), ApiError> {
     if let Ok(client) = deployment.remote_client() {
         let stats =
-            diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), &workspace)
+            diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), workspace)
                 .await;
 
         client
             .create_workspace(CreateWorkspaceRequest {
-                project_id: payload.project_id,
+                project_id,
                 local_workspace_id: workspace.id,
-                issue_id: payload.issue_id,
+                issue_id,
                 name: workspace.name.clone(),
                 archived: Some(workspace.archived),
                 files_changed: stats.as_ref().map(|s| s.files_changed as i32),
@@ -96,11 +97,27 @@ pub async fn link_workspace(
             "#,
         )
         .bind(workspace.id)
-        .bind(payload.project_id)
-        .bind(payload.issue_id)
+        .bind(project_id)
+        .bind(issue_id)
         .execute(&deployment.db().pool)
         .await?;
     }
+
+    Ok(())
+}
+
+pub async fn link_workspace(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(payload): Json<LinkWorkspaceRequest>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    link_workspace_to_issue(
+        &deployment,
+        &workspace,
+        payload.project_id,
+        payload.issue_id,
+    )
+    .await?;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }

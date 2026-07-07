@@ -104,6 +104,7 @@ import {
   OpenRemoteEditorResponse,
   ProfileResponse,
   AgentGarageEntry,
+  ResumableAgentSession,
 } from 'shared/types';
 import type { Project as RemoteProject } from 'shared/remote-types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
@@ -353,6 +354,26 @@ export const sessionsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<ExecutionProcess>(response);
+  },
+
+  getResumable: async (params: {
+    workspaceId?: string;
+    scopePath?: string;
+    executor: BaseCodingAgent;
+    days?: number;
+    limit?: number;
+  }): Promise<ResumableAgentSession[]> => {
+    const query = new URLSearchParams();
+    if (params.workspaceId) query.set('workspace_id', params.workspaceId);
+    if (params.scopePath) query.set('scope_path', params.scopePath);
+    query.set('executor', params.executor);
+    if (params.days !== undefined) query.set('days', String(params.days));
+    if (params.limit !== undefined) query.set('limit', String(params.limit));
+
+    const response = await makeRequest(
+      `/api/sessions/resumable?${query.toString()}`
+    );
+    return handleApiResponse<ResumableAgentSession[]>(response);
   },
 
   startReview: async (

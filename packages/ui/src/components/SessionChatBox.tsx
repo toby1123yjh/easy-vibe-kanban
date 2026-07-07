@@ -261,6 +261,7 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   reviewComments?: ReviewCommentsProps;
   toolbarActions?: ToolbarActionsProps;
   modelSelector?: ReactNode;
+  resumeSelector?: ReactNode;
   error?: string | null;
   repoIds?: string[];
   agent?: TExecutor | null;
@@ -338,6 +339,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   reviewComments,
   toolbarActions,
   modelSelector,
+  resumeSelector,
   error,
   repoIds,
   agent,
@@ -899,6 +901,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                   </DropdownMenuItem>
                 ))}
               </ToolbarDropdown>
+              {executor.afterSelector}
             </>
           )}
           {/* Existing session mode: show in-progress todo when running, otherwise file stats */}
@@ -1007,6 +1010,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                 </TurnNavigationPopup>
               )}
               {renderAgentIcon?.(agent, 'size-icon-xl')}
+              {resumeSelector}
             </>
           )}
           {/* Todo progress popup - always rendered, disabled when no todos */}

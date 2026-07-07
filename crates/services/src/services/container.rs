@@ -30,6 +30,7 @@ use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, SelectedSkill,
+        coding_agent_follow_up::CodingAgentFollowUpRequest,
         coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
@@ -1084,7 +1085,7 @@ pub trait ContainerService {
         executor_config: ExecutorConfig,
         prompt: String,
     ) -> Result<ExecutionProcess, ContainerError> {
-        self.start_workspace_with_selected_skills(workspace, executor_config, prompt, None)
+        self.start_workspace_with_selected_skills(workspace, executor_config, prompt, None, None)
             .await
     }
 
@@ -1094,6 +1095,7 @@ pub trait ContainerService {
         executor_config: ExecutorConfig,
         prompt: String,
         selected_skills: Option<Vec<SelectedSkill>>,
+        resume_session_id: Option<String>,
     ) -> Result<ExecutionProcess, ContainerError> {
         // Create container
         self.create(workspace).await?;
@@ -1136,15 +1138,29 @@ pub trait ContainerService {
             .filter(|dir| !dir.is_empty())
             .cloned();
 
-        let coding_action = ExecutorAction::new(
+        let action_type = if let Some(session_id) = resume_session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|session_id| !session_id.is_empty())
+        {
+            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+                prompt,
+                selected_skills,
+                session_id: session_id.to_string(),
+                reset_to_message_id: None,
+                executor_config: executor_config.clone(),
+                working_dir,
+            })
+        } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,
                 selected_skills,
                 executor_config: executor_config.clone(),
                 working_dir,
-            }),
-            cleanup_action.map(Box::new),
-        );
+            })
+        };
+
+        let coding_action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
         let execution_process = if all_parallel {
             // All parallel: start each setup independently, then start coding agent

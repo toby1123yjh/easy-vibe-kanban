@@ -14,6 +14,7 @@ interface CreateSessionParams {
   prompt: string;
   selectedSkills?: SelectedSkill[];
   executorConfig: ExecutorConfig;
+  resumeSessionId?: string | null;
 }
 
 /**
@@ -30,6 +31,7 @@ export function useCreateSession() {
       prompt,
       selectedSkills = [],
       executorConfig,
+      resumeSessionId,
     }: CreateSessionParams): Promise<Session> => {
       const session = await sessionsApi.create({
         workspace_id: workspaceId,
@@ -39,6 +41,7 @@ export function useCreateSession() {
         prompt,
         selected_skills: selectedSkills,
         executor_config: executorConfig,
+        resume_session_id: resumeSessionId || undefined,
         retry_process_id: null,
         force_when_dirty: null,
         perform_git_reset: null,

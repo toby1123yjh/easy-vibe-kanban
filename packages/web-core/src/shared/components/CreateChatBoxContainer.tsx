@@ -22,12 +22,21 @@ import {
   toPrettyCase,
   splitMessageToTitleDescription,
 } from '@/shared/lib/string';
-import type { BaseCodingAgent, Repo, SelectedSkill } from 'shared/types';
+import type {
+  BaseCodingAgent,
+  Repo,
+  ResumableAgentSession,
+  SelectedSkill,
+} from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { FolderPickerDialog } from '@/shared/dialogs/shared/FolderPickerDialog';
 import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
+import {
+  AgentSessionResumeChip,
+  AgentSessionResumePicker,
+} from '@/shared/components/AgentSessionResumePicker';
 import { cn } from '@/shared/lib/utils';
 
 function getRepoDisplayName(repo: Repo) {
@@ -85,6 +94,8 @@ export function CreateChatBoxContainer({
   const [hasInitializedStep, setHasInitializedStep] = useState(false);
   const [isSelectingRepos, setIsSelectingRepos] = useState(true);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
+  const [stagedResumeSession, setStagedResumeSession] =
+    useState<ResumableAgentSession | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceCreateMode>('worktree');
   const [directFolderPath, setDirectFolderPath] = useState('');
@@ -174,6 +185,10 @@ export function CreateChatBoxContainer({
     onPersist: (cfg) => setDraftConfig(cfg),
   });
 
+  useEffect(() => {
+    setStagedResumeSession(null);
+  }, [effectiveExecutor]);
+
   const repoId = repos.length === 1 ? repos[0]?.id : undefined;
   const repoSummaryLabel = useMemo(() => {
     if (repos.length === 1) {
@@ -257,9 +272,57 @@ export function CreateChatBoxContainer({
     SettingsDialog.show({ initialSection: 'agents' });
   };
 
+  const resumeScopePath =
+    workspaceMode === 'direct_folder'
+      ? directFolderPath.trim() || undefined
+      : undefined;
+
+  useEffect(() => {
+    setStagedResumeSession(null);
+  }, [resumeScopePath, workspaceMode]);
+
+  const resumePickerNode = effectiveExecutor ? (
+    <AgentSessionResumePicker
+      scopePath={resumeScopePath}
+      executor={effectiveExecutor}
+      selectedSessionId={stagedResumeSession?.agent_session_id}
+      disabled={
+        createWorkspace.isPending ||
+        (workspaceMode === 'direct_folder' && !resumeScopePath)
+      }
+      onSelect={setStagedResumeSession}
+    />
+  ) : undefined;
+
+  const modelSelectorNode =
+    effectiveExecutor || stagedResumeSession ? (
+      <>
+        {effectiveExecutor && (
+          <ModelSelectorContainer
+            agent={effectiveExecutor}
+            workspaceId={undefined}
+            onAdvancedSettings={handleCustomise}
+            presets={variantOptions}
+            selectedPreset={selectedVariant}
+            onPresetSelect={handlePresetSelect}
+            onOverrideChange={setExecutorOverrides}
+            executorConfig={executorConfig}
+            presetOptions={presetOptions}
+          />
+        )}
+        {stagedResumeSession && (
+          <AgentSessionResumeChip
+            session={stagedResumeSession}
+            onClear={() => setStagedResumeSession(null)}
+          />
+        )}
+      </>
+    ) : undefined;
+
   // Handle executor change - use saved variant if switching to default executor
   const handleExecutorChange = useCallback(
     (executor: BaseCodingAgent) => {
+      setStagedResumeSession(null);
       const executorProfile = profiles?.[executor];
       if (!executorProfile) {
         setDraftConfig({ executor, variant: null });
@@ -323,6 +386,7 @@ export function CreateChatBoxContainer({
         !isSlashCommand && selectedSkills.length > 0
           ? selectedSkills
           : undefined,
+      resume_session_id: stagedResumeSession?.agent_session_id,
       attachment_ids: getAttachmentIds(),
     };
     const linkToIssue = linkedIssue
@@ -353,12 +417,14 @@ export function CreateChatBoxContainer({
 
     clearAttachments();
     setSelectedSkills([]);
+    setStagedResumeSession(null);
     await clearDraft();
   }, [
     canSubmit,
     executorConfig,
     message,
     selectedSkills,
+    stagedResumeSession?.agent_session_id,
     workspaceMode,
     directFolderPath,
     repos,
@@ -583,6 +649,7 @@ export function CreateChatBoxContainer({
                     selected: effectiveExecutor,
                     options: executorOptions,
                     onChange: handleExecutorChange,
+                    afterSelector: resumePickerNode,
                   }}
                   formatExecutorLabel={toPrettyCase}
                   error={displayError}
@@ -590,21 +657,7 @@ export function CreateChatBoxContainer({
                     workspaceMode === 'worktree' ? repos.map((r) => r.id) : []
                   }
                   repoId={workspaceMode === 'worktree' ? repoId : undefined}
-                  modelSelector={
-                    effectiveExecutor ? (
-                      <ModelSelectorContainer
-                        agent={effectiveExecutor}
-                        workspaceId={undefined}
-                        onAdvancedSettings={handleCustomise}
-                        presets={variantOptions}
-                        selectedPreset={selectedVariant}
-                        onPresetSelect={handlePresetSelect}
-                        onOverrideChange={setExecutorOverrides}
-                        executorConfig={executorConfig}
-                        presetOptions={presetOptions}
-                      />
-                    ) : undefined
-                  }
+                  modelSelector={modelSelectorNode}
                   onPasteFiles={uploadFiles}
                   localAttachments={localAttachments}
                   dropzone={{ getRootProps, getInputProps, isDragActive }}

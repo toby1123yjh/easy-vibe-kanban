@@ -952,6 +952,18 @@
     "selectBranch": "Select Branch",
     "selectBranchFor": "Select Branch for {{repoName}}"
   },
+  "agentSessionResume": {
+    "open": "Recent agent sessions",
+    "recentLabel": "Last 3 days",
+    "extendedLabel": "Last 30 days",
+    "sourceHint": "Loaded from the agent's native resume history",
+    "loading": "Loading sessions...",
+    "error": "Failed to load sessions",
+    "empty": "No recent sessions",
+    "more": "Show last 30 days",
+    "pending": "Will resume: {{title}} · {{time}}",
+    "clear": "Clear resume session"
+  },
   "workspacesGuide": {
     "welcome": {
       "title": "Welcome",

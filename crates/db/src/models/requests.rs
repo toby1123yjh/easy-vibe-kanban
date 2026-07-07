@@ -52,6 +52,9 @@ pub struct CreateAndStartWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub selected_skills: Option<Vec<SelectedSkill>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resume_session_id: Option<String>,
     pub attachment_ids: Option<Vec<Uuid>>,
 }
 

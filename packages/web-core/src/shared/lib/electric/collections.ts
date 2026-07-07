@@ -634,6 +634,16 @@ function maybeRefreshFallbackAfterMutation(sourceKey: string): void {
   refreshFallbackSource(sourceKey);
 }
 
+export function refreshShapeFallback<TRow extends ElectricRow>(
+  shape: ShapeDefinition<TRow>,
+  params: Record<string, string>
+): void {
+  const sourceKey = buildSourceKey(shape.table, params);
+  if (!isSourceFallbackLocked(sourceKey)) return;
+  invalidateFallbackCache(sourceKey);
+  refreshFallbackSource(sourceKey);
+}
+
 function buildMutationHandlers(
   mutation: MutationDefinition<unknown, unknown, unknown>,
   sourceKey: string

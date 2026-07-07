@@ -1,5 +1,8 @@
+mod native_history;
 pub mod queue;
 pub mod review;
+
+use std::{collections::HashSet, path::PathBuf};
 
 use axum::{
     Extension, Json, Router,
@@ -8,9 +11,10 @@ use axum::{
     response::Json as ResponseJson,
     routing::{get, post},
 };
+use chrono::{Duration, Utc};
 use db::models::{
     arena_group::{ArenaLifecycleStatus, ArenaMode},
-    coding_agent_turn::CodingAgentTurn,
+    coding_agent_turn::{CodingAgentResumeInfo, CodingAgentTurn, ResumableAgentSession},
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessView},
     requests::UpdateSession,
     scratch::{Scratch, ScratchType},
@@ -71,6 +75,15 @@ pub struct SessionQuery {
     pub workspace_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ResumableAgentSessionQuery {
+    pub workspace_id: Option<Uuid>,
+    pub scope_path: Option<String>,
+    pub executor: String,
+    pub days: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateSessionRequest {
     pub workspace_id: Uuid,
@@ -91,6 +104,123 @@ pub async fn get_session(
     Extension(session): Extension<Session>,
 ) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(session)))
+}
+
+pub async fn get_resumable_agent_sessions(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<ResumableAgentSessionQuery>,
+) -> Result<ResponseJson<ApiResponse<Vec<ResumableAgentSession>>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let days = query.days.unwrap_or(3).clamp(1, 30);
+    let limit = query.limit.unwrap_or(10).clamp(1, 50);
+    let since = Utc::now() - Duration::days(days);
+    let executor = query.executor.trim();
+    let explicit_scope_path = query
+        .scope_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let workspace_scope = workspace_scope_paths(pool, query.workspace_id).await?;
+    let native_history_scope = native_history_scope_paths(workspace_scope, explicit_scope_path);
+
+    let mut sessions = native_history::list_native_resumable_agent_sessions(
+        executor,
+        since,
+        limit as usize,
+        &native_history_scope,
+        explicit_scope_path.is_none(),
+    );
+    let mut seen_session_ids = sessions
+        .iter()
+        .map(|session| session.agent_session_id.clone())
+        .collect::<HashSet<_>>();
+
+    if query.workspace_id.is_some() || explicit_scope_path.is_none() {
+        let db_sessions = CodingAgentTurn::find_resumable_agent_sessions(
+            pool,
+            query.workspace_id,
+            executor,
+            since,
+            limit,
+        )
+        .await?;
+
+        for session in db_sessions {
+            if seen_session_ids.insert(session.agent_session_id.clone()) {
+                sessions.push(session);
+            }
+        }
+    }
+
+    sessions.sort_by(|a, b| b.last_used_at.cmp(&a.last_used_at));
+    sessions.truncate(limit as usize);
+
+    Ok(ResponseJson(ApiResponse::success(sessions)))
+}
+
+async fn workspace_scope_paths(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Option<Uuid>,
+) -> Result<Vec<PathBuf>, ApiError> {
+    let Some(workspace_id) = workspace_id else {
+        return Ok(Vec::new());
+    };
+
+    let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await? else {
+        return Ok(Vec::new());
+    };
+
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    let mut paths = Vec::new();
+
+    if let Some(container_ref) = workspace
+        .container_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|container_ref| !container_ref.is_empty())
+    {
+        let container_path = PathBuf::from(container_ref);
+        paths.push(container_path.clone());
+
+        for repo in &repos {
+            paths.push(container_path.join(&repo.name));
+        }
+    }
+
+    paths.extend(repos.into_iter().map(|repo| repo.path));
+
+    Ok(dedupe_paths(paths))
+}
+
+fn native_history_scope_paths(
+    workspace_scope: Vec<PathBuf>,
+    scope_path: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut paths = workspace_scope;
+
+    if let Some(scope_path) = scope_path.map(str::trim).filter(|path| !path.is_empty()) {
+        paths.push(PathBuf::from(scope_path));
+    }
+
+    dedupe_paths(paths)
+}
+
+fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::new();
+
+    for path in paths {
+        let key = path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase();
+        if seen.insert(key) {
+            deduped.push(path);
+        }
+    }
+
+    deduped
 }
 
 pub async fn create_session(
@@ -143,6 +273,9 @@ pub struct CreateFollowUpAttempt {
     #[ts(optional)]
     pub selected_skills: Option<Vec<SelectedSkill>>,
     pub executor_config: ExecutorConfig,
+    #[serde(default)]
+    #[ts(optional)]
+    pub resume_session_id: Option<String>,
     pub retry_process_id: Option<Uuid>,
     pub force_when_dirty: Option<bool>,
     pub perform_git_reset: Option<bool>,
@@ -166,6 +299,7 @@ pub async fn follow_up(
         payload.prompt,
         payload.selected_skills,
         payload.executor_config,
+        payload.resume_session_id,
         payload.retry_process_id,
         payload.force_when_dirty,
         payload.perform_git_reset,
@@ -184,6 +318,7 @@ pub async fn start_coding_agent_execution_for_session(
     prompt: String,
     selected_skills: Option<Vec<SelectedSkill>>,
     executor_config: ExecutorConfig,
+    resume_session_id: Option<String>,
     retry_process_id: Option<Uuid>,
     force_when_dirty: Option<bool>,
     perform_git_reset: Option<bool>,
@@ -215,6 +350,7 @@ pub async fn start_coding_agent_execution_for_session(
 
     let executor_profile_id = executor_config.profile_id();
 
+    let requested_executor = executor_profile_id.executor.to_string();
     let expected_executor: Option<String> =
         ExecutionProcess::latest_executor_profile_for_session(pool, session.id)
             .await?
@@ -222,18 +358,16 @@ pub async fn start_coding_agent_execution_for_session(
             .or_else(|| session.executor.clone());
 
     if let Some(expected) = expected_executor {
-        let actual = executor_profile_id.executor.to_string();
-        if expected != actual {
+        if expected != requested_executor {
             return Err(ApiError::Session(SessionError::ExecutorMismatch {
                 expected,
-                actual,
+                actual: requested_executor.clone(),
             }));
         }
     }
 
     if session.executor.is_none() {
-        Session::update_executor(pool, session.id, &executor_profile_id.executor.to_string())
-            .await?;
+        Session::update_executor(pool, session.id, &requested_executor).await?;
     }
 
     if let Some(proc_id) = retry_process_id {
@@ -245,7 +379,20 @@ pub async fn start_coding_agent_execution_for_session(
             .await?;
     }
 
-    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
+    let explicit_resume_session_id = resume_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .filter(|_| retry_process_id.is_none());
+
+    let latest_session_info = match explicit_resume_session_id {
+        Some(session_id) => Some(CodingAgentResumeInfo {
+            session_id,
+            message_id: None,
+        }),
+        None => CodingAgentTurn::find_latest_session_info(pool, session.id).await?,
+    };
 
     let mut prompt = prompt;
     if is_open_design_arena_workspace(pool, workspace.id).await? {
@@ -307,9 +454,11 @@ pub async fn start_coding_agent_execution_for_session(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use uuid::Uuid;
 
-    use super::should_block_direct_follow_up_while_running;
+    use super::{native_history_scope_paths, should_block_direct_follow_up_while_running};
 
     #[test]
     fn blocks_direct_follow_up_when_session_agent_is_running() {
@@ -327,6 +476,27 @@ mod tests {
     #[test]
     fn allows_direct_follow_up_when_session_agent_is_idle() {
         assert!(!should_block_direct_follow_up_while_running(None, false));
+    }
+
+    #[test]
+    fn native_history_scope_includes_explicit_scope_path() {
+        let paths =
+            native_history_scope_paths(vec![PathBuf::from("C:/repo")], Some("F:/another-repo"));
+
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("C:/repo"), PathBuf::from("F:/another-repo")]
+        );
+    }
+
+    #[test]
+    fn native_history_scope_ignores_blank_scope_path_and_dedupes() {
+        let paths = native_history_scope_paths(
+            vec![PathBuf::from("F:/repo"), PathBuf::from("f:/repo/")],
+            Some("  "),
+        );
+
+        assert_eq!(paths, vec![PathBuf::from("F:/repo")]);
     }
 }
 
@@ -424,6 +594,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
     let sessions_router = Router::new()
         .route("/", get(get_sessions).post(create_session))
+        .route("/resumable", get(get_resumable_agent_sessions))
         .nest("/{session_id}", session_id_router)
         .nest("/{session_id}/queue", queue::router(deployment));
 

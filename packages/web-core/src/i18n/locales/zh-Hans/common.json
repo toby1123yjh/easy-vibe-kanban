@@ -938,6 +938,18 @@
     "selectBranch": "选择分支",
     "selectBranchFor": "为 {{repoName}} 选择分支"
   },
+  "agentSessionResume": {
+    "open": "最近的智能体会话",
+    "recentLabel": "最近 3 天",
+    "extendedLabel": "最近 30 天",
+    "sourceHint": "来自智能体自己的恢复历史",
+    "loading": "正在加载会话...",
+    "error": "会话加载失败",
+    "empty": "没有最近会话",
+    "more": "显示最近 30 天",
+    "pending": "将恢复：{{title}} · {{time}}",
+    "clear": "清除恢复会话"
+  },
   "workspacesGuide": {
     "welcome": {
       "title": "欢迎",
