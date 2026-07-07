@@ -119,8 +119,7 @@ export function RemoteNavbarContainer({
   const [mobileActiveTab, setMobileActiveTab] = useMobileActiveTab();
 
   const remoteMobileTabs = useMemo(
-    () =>
-      MOBILE_TABS.filter((t) => t.id !== "preview" && t.id !== "workspaces"),
+    () => MOBILE_TABS.filter((t) => t.id === "chat"),
     [],
   );
 

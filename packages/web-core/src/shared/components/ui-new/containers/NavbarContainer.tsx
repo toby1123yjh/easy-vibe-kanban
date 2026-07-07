@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useUserContext } from '@/shared/hooks/useUserContext';
@@ -8,6 +8,7 @@ import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import {
   Navbar,
+  MOBILE_TABS,
   type NavbarSectionItem,
   type NavbarBreadcrumbItem,
   type MobileTabId,
@@ -139,6 +140,20 @@ export function NavbarContainer({
   const isOnProjectSubRoute =
     projectDestination !== null && projectDestination.kind !== 'project';
   const [mobileActiveTab, setMobileActiveTab] = useMobileActiveTab();
+
+  // Simplified mobile: the session view exposes only the Chat tab. The other
+  // surfaces (diff/logs/files/git/preview) stay desktop-only for now, and we
+  // pin the active tab to chat whenever a workspace/session view is shown so a
+  // previously-persisted tab can't leave the user on a hidden surface.
+  const mobileWorkspaceTabs = useMemo(
+    () => MOBILE_TABS.filter((tab) => tab.id === 'chat'),
+    []
+  );
+  useEffect(() => {
+    if (!isOnProjectPage) {
+      setMobileActiveTab('chat');
+    }
+  }, [isOnProjectPage, setMobileActiveTab]);
 
   // Find remote workspace linked to current local workspace
   const linkedRemoteWorkspace = useMemo(() => {
@@ -342,6 +357,7 @@ export function NavbarContainer({
       onOpenDrawer={onOpenDrawer}
       mobileActiveTab={mobileActiveTab as MobileTabId}
       onMobileTabChange={(tab) => setMobileActiveTab(tab)}
+      mobileTabs={mobileWorkspaceTabs}
       leftSlot={
         !breadcrumbs &&
         !isWaitingForBreadcrumbData &&

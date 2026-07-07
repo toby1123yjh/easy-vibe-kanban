@@ -11,6 +11,7 @@ import {
 } from '@phosphor-icons/react';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { useVisualViewportHeightVar } from '@/shared/hooks/useVisualViewportHeightVar';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { cn } from '@/shared/lib/utils';
 import { isTauriMac } from '@/shared/lib/platform';
@@ -58,6 +59,9 @@ export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
   const currentDestination = useCurrentAppDestination();
   const isMobile = useIsMobile();
+  // Keep the mobile shell height tracking the visual viewport so the composer
+  // and approval bar stay above the on-screen keyboard.
+  useVisualViewportHeightVar(isMobile);
   const mobileFontScale = useUiPreferencesStore((s) => s.mobileFontScale);
   const isLeftSidebarVisible = useUiPreferencesStore(
     (s) => s.isLeftSidebarVisible
@@ -298,9 +302,10 @@ export function SharedAppLayout() {
         className={cn(
           'bg-primary',
           isMobile
-            ? 'flex fixed inset-0 pb-[env(safe-area-inset-bottom)]'
+            ? 'flex fixed inset-x-0 top-0 pb-[env(safe-area-inset-bottom)]'
             : 'grid grid-cols-[auto_1fr] h-screen grid-rows-[auto_1fr]'
         )}
+        style={isMobile ? { height: 'var(--app-vh, 100dvh)' } : undefined}
       >
         {!isMobile && (
           <>

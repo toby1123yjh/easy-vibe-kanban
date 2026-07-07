@@ -13,6 +13,7 @@ import { XIcon, PlusIcon, HouseIcon, KanbanIcon } from "@phosphor-icons/react";
 import { MobileDrawer } from "@vibe/ui/components/MobileDrawer";
 import type { Project } from "shared/remote-types";
 import { useIsMobile } from "@/shared/hooks/useIsMobile";
+import { useVisualViewportHeightVar } from "@/shared/hooks/useVisualViewportHeightVar";
 import { cn } from "@/shared/lib/utils";
 import { useUserOrganizations } from "@/shared/hooks/useUserOrganizations";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
@@ -67,6 +68,9 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
     isWorkspaceContextRoute || isProjectRoute,
   );
   const isMobile = useIsMobile();
+  // Keep the mobile shell height tracking the visual viewport so the composer
+  // and approval bar stay above the on-screen keyboard.
+  useVisualViewportHeightVar(isMobile);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const { data: organizationsData } = useUserOrganizations();
@@ -246,9 +250,10 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
       className={cn(
         "flex flex-col bg-primary",
         isMobile
-          ? "fixed inset-0 pb-[env(safe-area-inset-bottom)]"
+          ? "fixed inset-x-0 top-0 pb-[env(safe-area-inset-bottom)]"
           : "h-screen",
       )}
+      style={isMobile ? { height: "var(--app-vh, 100dvh)" } : undefined}
     >
       {showCloudShutdownBanner && (
         <CloudShutdownExportBanner onClick={handleExportClick} />
