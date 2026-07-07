@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { ActionType } from 'shared/types';
+import type { ActionType, ToolStatus } from 'shared/types';
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 
 import { aggregateConsecutiveEntries } from './aggregateEntries';
 
-function toolEntry(patchKey: string, actionType: ActionType): PatchTypeWithKey {
+function toolEntry(
+  patchKey: string,
+  actionType: ActionType,
+  status: ToolStatus = { status: 'success' }
+): PatchTypeWithKey {
   return {
     type: 'NORMALIZED_ENTRY',
     patchKey,
@@ -16,7 +20,7 @@ function toolEntry(patchKey: string, actionType: ActionType): PatchTypeWithKey {
         type: 'tool_use',
         tool_name: actionType.action === 'command_run' ? 'Bash' : 'Tool',
         action_type: actionType,
-        status: { status: 'success' },
+        status,
       },
     },
   };
@@ -59,12 +63,16 @@ describe('aggregateConsecutiveEntries', () => {
   it('wraps running command runs into an in-progress tool call group', () => {
     const result = aggregateConsecutiveEntries(
       [
-        toolEntry('1', {
-          action: 'command_run',
-          command: 'pnpm test',
-          category: 'other',
-          result: null,
-        }),
+        toolEntry(
+          '1',
+          {
+            action: 'command_run',
+            command: 'pnpm test',
+            category: 'other',
+            result: null,
+          },
+          { status: 'created' }
+        ),
         toolEntry('2', {
           action: 'command_run',
           command: 'pnpm build',
@@ -81,6 +89,71 @@ describe('aggregateConsecutiveEntries', () => {
       expect(result[0].aggregationType).toBe('tool_calls');
       expect(result[0].isRunning).toBe(true);
       expect(result[0].entries).toHaveLength(2);
+    }
+  });
+
+  it('marks completed tool batches complete while the process continues', () => {
+    const result = aggregateConsecutiveEntries(
+      [
+        toolEntry('1', {
+          action: 'search',
+          query: '**/*.md',
+        }),
+        toolEntry('2', {
+          action: 'file_read',
+          path: 'README.md',
+        }),
+      ],
+      new Set(['process-1'])
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('AGGREGATED_GROUP');
+    if (result[0].type === 'AGGREGATED_GROUP') {
+      expect(result[0].aggregationType).toBe('tool_calls');
+      expect(result[0].isRunning).toBe(false);
+    }
+  });
+
+  it('starts a new running tool batch after completed tool activity', () => {
+    const result = aggregateConsecutiveEntries(
+      [
+        toolEntry('1', {
+          action: 'search',
+          query: '**/*.md',
+        }),
+        toolEntry('2', {
+          action: 'file_read',
+          path: 'README.md',
+        }),
+        toolEntry(
+          '3',
+          {
+            action: 'command_run',
+            command: 'pnpm test',
+            category: 'other',
+            result: null,
+          },
+          { status: 'created' }
+        ),
+      ],
+      new Set(['process-1'])
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].type).toBe('AGGREGATED_GROUP');
+    expect(result[1].type).toBe('AGGREGATED_GROUP');
+    if (
+      result[0].type === 'AGGREGATED_GROUP' &&
+      result[1].type === 'AGGREGATED_GROUP'
+    ) {
+      expect(result[0].isRunning).toBe(false);
+      expect(result[0].entries.map((entry) => entry.patchKey)).toEqual([
+        '1',
+        '2',
+      ]);
+      expect(result[1].isRunning).toBe(true);
+      expect(result[1].entries.map((entry) => entry.patchKey)).toEqual(['3']);
     }
   });
 

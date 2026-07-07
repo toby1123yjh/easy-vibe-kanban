@@ -4,10 +4,12 @@ import type { TFunction } from 'i18next';
 import {
   ActionType,
   BaseAgentCapability,
+  ExecutionProcessStatus,
   NormalizedEntry,
   ToolStatus,
   ToolResult,
   TodoItem,
+  type ExecutionProcess,
   type RepoWithTargetBranch,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
@@ -59,11 +61,13 @@ import {
 } from '@vibe/ui/components/PierreConversationDiff';
 import { inIframe, openFileInVSCode } from '@/integrations/vscode/bridge';
 import { useDiffViewMode } from '@/shared/stores/useDiffViewStore';
+import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
 import type {
   AggregatedPatchGroup,
   AggregatedDiffGroup,
   AggregatedFileChangeGroup,
   AggregatedThinkingGroup,
+  PatchTypeWithKey,
 } from '@/shared/hooks/useConversationHistory/types';
 import {
   CaretDownIcon,
@@ -88,6 +92,82 @@ type Props = {
 };
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
+
+function isActiveToolStatus(status: ToolStatus) {
+  return status.status === 'created' || status.status === 'pending_approval';
+}
+
+function getPatchEntryTimestamp(entry: PatchTypeWithKey) {
+  if (entry.type !== 'NORMALIZED_ENTRY') return null;
+  return entry.content.timestamp;
+}
+
+function getFirstPatchEntryTimestamp(entries: PatchTypeWithKey[]) {
+  for (const entry of entries) {
+    const timestamp = getPatchEntryTimestamp(entry);
+    if (timestamp) return timestamp;
+  }
+  return null;
+}
+
+function getLastPatchEntryTimestamp(entries: PatchTypeWithKey[]) {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const timestamp = getPatchEntryTimestamp(entries[index]);
+    if (timestamp) return timestamp;
+  }
+  return null;
+}
+
+function getProcessStartedAt(executionProcess: ExecutionProcess | null) {
+  return executionProcess?.started_at ?? executionProcess?.created_at ?? null;
+}
+
+function getProcessEndedAt(executionProcess: ExecutionProcess | null) {
+  return executionProcess?.completed_at ?? null;
+}
+
+function isProcessRunning(executionProcess: ExecutionProcess | null) {
+  return executionProcess?.status === ExecutionProcessStatus.running;
+}
+
+function getPatchEntryTiming({
+  entry,
+  isRunning,
+  executionProcess,
+}: {
+  entry: PatchTypeWithKey;
+  isRunning: boolean;
+  executionProcess: ExecutionProcess | null;
+}) {
+  const timestamp = getPatchEntryTimestamp(entry);
+
+  return {
+    startedAt: timestamp ?? getProcessStartedAt(executionProcess),
+    endedAt: isRunning
+      ? null
+      : (timestamp ?? getProcessEndedAt(executionProcess)),
+  };
+}
+
+function getPatchGroupTiming({
+  entries,
+  isRunning,
+  executionProcess,
+}: {
+  entries: PatchTypeWithKey[];
+  isRunning: boolean;
+  executionProcess: ExecutionProcess | null;
+}) {
+  return {
+    startedAt:
+      getFirstPatchEntryTimestamp(entries) ??
+      getProcessStartedAt(executionProcess),
+    endedAt: isRunning
+      ? null
+      : (getLastPatchEntryTimestamp(entries) ??
+        getProcessEndedAt(executionProcess)),
+  };
+}
 
 /**
  * Generate tool summary text from action type
@@ -173,7 +253,8 @@ function renderToolUseEntry(
   entryType: Extract<NormalizedEntry['entry_type'], { type: 'tool_use' }>,
   entry: NormalizedEntry,
   props: Props,
-  t: TFunction<'common'>
+  t: TFunction<'common'>,
+  executionProcess: ExecutionProcess | null
 ): React.ReactNode {
   const { expansionKey, executionProcessId, workspaceWithSession, repos } =
     props;
@@ -303,6 +384,12 @@ function renderToolUseEntry(
       toolName={entryType.tool_name}
       command={getToolCommand(entryType)}
       actionType={action_type.action}
+      startedAt={entry.timestamp ?? getProcessStartedAt(executionProcess)}
+      endedAt={
+        isActiveToolStatus(status)
+          ? null
+          : (entry.timestamp ?? getProcessEndedAt(executionProcess))
+      }
     />
   );
 }
@@ -310,6 +397,8 @@ function renderToolUseEntry(
 function DisplayConversationEntry(props: Props) {
   const { t } = useTranslation('common');
   const { capabilities } = useUserSystem();
+  const { executionProcessesByIdAll, executionProcessesByIdVisible } =
+    useExecutionProcessesContext();
   const {
     entry,
     aggregatedGroup,
@@ -321,6 +410,10 @@ function DisplayConversationEntry(props: Props) {
     workspaceWithSession,
     resetAction,
   } = props;
+  const executionProcess =
+    executionProcessesByIdVisible[executionProcessId] ??
+    executionProcessesByIdAll[executionProcessId] ??
+    null;
   const sessionId = workspaceWithSession?.session?.id;
   const executorCanFork = !!(
     workspaceWithSession?.session?.executor &&
@@ -331,7 +424,12 @@ function DisplayConversationEntry(props: Props) {
 
   // Handle aggregated groups (consecutive file_read or search entries)
   if (aggregatedGroup) {
-    return <AggregatedGroupEntry group={aggregatedGroup} />;
+    return (
+      <AggregatedGroupEntry
+        group={aggregatedGroup}
+        executionProcess={executionProcess}
+      />
+    );
   }
 
   // Handle aggregated diff groups (consecutive file_edit entries for same file)
@@ -363,6 +461,7 @@ function DisplayConversationEntry(props: Props) {
     return (
       <AggregatedThinkingGroupEntry
         group={aggregatedThinkingGroup}
+        executionProcess={executionProcess}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
       />
@@ -378,7 +477,7 @@ function DisplayConversationEntry(props: Props) {
 
   switch (entryType.type) {
     case 'tool_use':
-      return renderToolUseEntry(entryType, entry, props, t);
+      return renderToolUseEntry(entryType, entry, props, t, executionProcess);
 
     case 'user_message':
       return (
@@ -415,6 +514,9 @@ function DisplayConversationEntry(props: Props) {
         <ChatThinkingMessage
           content={entry.content}
           workspaceId={workspaceWithSession?.id}
+          startedAt={entry.timestamp ?? getProcessStartedAt(executionProcess)}
+          endedAt={executionProcess?.completed_at ?? null}
+          active={isProcessRunning(executionProcess)}
           renderMarkdown={({ content, workspaceId, className }) => (
             <AppChatMarkdown
               content={content}
@@ -979,6 +1081,8 @@ function ToolSummaryEntry({
   toolName,
   command,
   actionType,
+  startedAt,
+  endedAt,
 }: {
   summary: string;
   expansionKey: string;
@@ -987,6 +1091,8 @@ function ToolSummaryEntry({
   toolName: string;
   command: string | undefined;
   actionType: string;
+  startedAt: string | null;
+  endedAt: string | null;
 }) {
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${expansionKey}`,
@@ -1021,6 +1127,8 @@ function ToolSummaryEntry({
       toolName={toolName}
       isTruncated={isTruncated}
       actionType={actionType}
+      startedAt={startedAt}
+      endedAt={endedAt}
     />
   );
 }
@@ -1205,7 +1313,13 @@ function ErrorMessageEntry({
 /**
  * Aggregated group entry for consecutive file_read, search, or web_fetch entries
  */
-function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
+function AggregatedGroupEntry({
+  group,
+  executionProcess,
+}: {
+  group: AggregatedPatchGroup;
+  executionProcess: ExecutionProcess | null;
+}) {
   const { t } = useTranslation('tasks');
   const { viewToolContentInPanel } = useLogsPanelActions();
   const [expanded, toggle] = usePersistedExpanded(
@@ -1218,27 +1332,46 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
   const aggregatedEntries = useMemo(() => {
     return group.entries.map((patchEntry) => {
       if (patchEntry.type !== 'NORMALIZED_ENTRY') {
+        const timing = getPatchEntryTiming({
+          entry: patchEntry,
+          isRunning: false,
+          executionProcess,
+        });
         return {
           summary: '',
           status: undefined,
           expansionKey: patchEntry.patchKey,
           content: '',
           toolName: '',
+          command: undefined,
+          ...timing,
         };
       }
 
       const entryType = patchEntry.content.entry_type;
       if (entryType.type !== 'tool_use') {
+        const timing = getPatchEntryTiming({
+          entry: patchEntry,
+          isRunning: false,
+          executionProcess,
+        });
         return {
           summary: '',
           status: undefined,
           expansionKey: patchEntry.patchKey,
           content: '',
           toolName: '',
+          command: undefined,
+          ...timing,
         };
       }
 
       const { action_type, status, tool_name } = entryType;
+      const timing = getPatchEntryTiming({
+        entry: patchEntry,
+        isRunning: isActiveToolStatus(status),
+        executionProcess,
+      });
       let summary = '';
       let content = patchEntry.content.content;
       let command: string | undefined;
@@ -1261,9 +1394,10 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
         content,
         toolName: tool_name,
         command,
+        ...timing,
       };
     });
-  }, [group.entries]);
+  }, [executionProcess, group.entries]);
 
   const handleViewContent = useCallback(
     (index: number) => {
@@ -1392,6 +1526,11 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
     }
   };
   const { summary, detail, icon } = getDisplayProps();
+  const timing = getPatchGroupTiming({
+    entries: group.entries,
+    isRunning: group.isRunning,
+    executionProcess,
+  });
 
   return (
     <ChatAggregatedToolEntries
@@ -1405,6 +1544,8 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
       detail={detail}
       icon={icon}
       forceCollapsible={group.aggregationType === 'tool_calls'}
+      startedAt={timing.startedAt}
+      endedAt={timing.endedAt}
     />
   );
 }
@@ -1414,10 +1555,12 @@ function AggregatedGroupEntry({ group }: { group: AggregatedPatchGroup }) {
  */
 function AggregatedThinkingGroupEntry({
   group,
+  executionProcess,
   workspaceId,
   sessionId,
 }: {
   group: AggregatedThinkingGroup;
+  executionProcess: ExecutionProcess | null;
   workspaceId: string | undefined;
   sessionId: string | undefined;
 }) {
@@ -1434,8 +1577,13 @@ function AggregatedThinkingGroupEntry({
       .map((entry) => ({
         content: entry.type === 'NORMALIZED_ENTRY' ? entry.content.content : '',
         expansionKey: entry.patchKey,
+        ...getPatchEntryTiming({
+          entry,
+          isRunning: false,
+          executionProcess,
+        }),
       }));
-  }, [group.entries]);
+  }, [executionProcess, group.entries]);
 
   const handleToggle = useCallback(() => {
     toggle();
@@ -1444,6 +1592,11 @@ function AggregatedThinkingGroupEntry({
   const handleHoverChange = useCallback((hovered: boolean) => {
     setIsHovered(hovered);
   }, []);
+  const timing = getPatchGroupTiming({
+    entries: group.entries,
+    isRunning: false,
+    executionProcess,
+  });
 
   return (
     <ChatCollapsedThinking
@@ -1453,6 +1606,8 @@ function AggregatedThinkingGroupEntry({
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
       workspaceId={workspaceId}
+      startedAt={timing.startedAt}
+      endedAt={timing.endedAt}
       renderMarkdown={({ content, workspaceId, className }) => (
         <AppChatMarkdown
           content={content}

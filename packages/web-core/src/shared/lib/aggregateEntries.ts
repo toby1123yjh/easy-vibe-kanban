@@ -64,6 +64,18 @@ function getAggregationType(
   return null;
 }
 
+function isActiveToolEntry(entry: PatchTypeWithKey): boolean {
+  if (entry.type !== 'NORMALIZED_ENTRY') return false;
+
+  const entryType = entry.content.entry_type;
+  if (entryType.type !== 'tool_use') return false;
+
+  return (
+    entryType.status.status === 'created' ||
+    entryType.status.status === 'pending_approval'
+  );
+}
+
 /**
  * First pass: group consecutive thinking entries within each turn.
  * Previous turns are always grouped. The latest turn is grouped once its
@@ -205,9 +217,7 @@ export function aggregateConsecutiveEntries(
       const aggregatedGroup: AggregatedPatchGroup = {
         type: 'AGGREGATED_GROUP',
         aggregationType: currentAggregationType!,
-        isRunning: currentToolGroup.some((entry) =>
-          runningProcessIds.has(entry.executionProcessId)
-        ),
+        isRunning: currentToolGroup.some(isActiveToolEntry),
         entries: [...currentToolGroup],
         patchKey: `agg:${firstEntry.patchKey}`,
         executionProcessId: firstEntry.executionProcessId,
@@ -267,11 +277,16 @@ export function aggregateConsecutiveEntries(
       // Flush any pending file-change group first
       flushFileChangeGroup();
 
-      if (
-        currentToolGroup.length > 0 &&
-        currentAggregationType !== 'tool_calls'
-      ) {
-        flushToolGroup();
+      if (currentToolGroup.length > 0) {
+        const currentGroupIsRunning = currentToolGroup.some(isActiveToolEntry);
+        const nextEntryIsRunning = isActiveToolEntry(entry);
+
+        if (
+          currentAggregationType !== 'tool_calls' ||
+          (!currentGroupIsRunning && nextEntryIsRunning)
+        ) {
+          flushToolGroup();
+        }
       }
 
       currentAggregationType = 'tool_calls';

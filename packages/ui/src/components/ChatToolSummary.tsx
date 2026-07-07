@@ -7,6 +7,7 @@ import {
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { ActivityText } from './ActivityText';
+import { ChatElapsedTime } from './ChatElapsedTime';
 import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 
 interface ChatToolSummaryProps {
@@ -20,6 +21,8 @@ interface ChatToolSummaryProps {
   isTruncated?: boolean;
   /** The action type for determining the icon */
   actionType?: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
 }
 
 export const ChatToolSummary = forwardRef<
@@ -36,6 +39,8 @@ export const ChatToolSummary = forwardRef<
     toolName,
     isTruncated,
     actionType,
+    startedAt,
+    endedAt,
   },
   ref
 ) {
@@ -72,8 +77,8 @@ export const ChatToolSummary = forwardRef<
   return (
     <div
       className={cn(
-        'flex items-center gap-base text-sm text-low',
-        isClickable && 'cursor-pointer',
+        '-mx-half flex min-w-0 items-center gap-base rounded-sm px-half py-0.5 text-sm text-low transition-colors',
+        isClickable && 'cursor-pointer hover:bg-muted/30 hover:text-normal',
         className
       )}
       onClick={isClickable ? handleClick : undefined}
@@ -92,12 +97,18 @@ export const ChatToolSummary = forwardRef<
         active={isActive}
         ref={ref}
         className={cn(
+          'min-w-0 flex-1',
           !expanded && 'truncate',
           expanded && 'whitespace-pre-wrap break-all'
         )}
       >
         {summary}
       </ActivityText>
+      <ChatElapsedTime
+        startedAt={startedAt}
+        endedAt={endedAt}
+        active={isActive}
+      />
     </div>
   );
 });

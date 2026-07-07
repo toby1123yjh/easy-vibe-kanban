@@ -33,7 +33,7 @@ export type AggregatedPatchGroup = {
   type: 'AGGREGATED_GROUP';
   /** The aggregation category (e.g., 'file_read', 'search', 'web_fetch') */
   aggregationType: ToolAggregationType;
-  /** Whether any entry in this group belongs to an active execution process */
+  /** Whether any entry in this group is still active or awaiting approval */
   isRunning: boolean;
   /** The individual entries in this group */
   entries: PatchTypeWithKey[];
