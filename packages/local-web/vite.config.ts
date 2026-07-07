@@ -134,7 +134,9 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: `http://localhost:${process.env.BACKEND_PORT || '3001'}`,
-        changeOrigin: true,
+        // Keep the browser-facing Host header so the backend origin guard sees
+        // the proxied request as same-origin with the Vite dev server.
+        changeOrigin: false,
         ws: true,
       },
     },
