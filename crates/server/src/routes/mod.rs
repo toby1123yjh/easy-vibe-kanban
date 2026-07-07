@@ -25,6 +25,7 @@ pub mod relay_auth;
 pub mod releases;
 pub mod remote;
 pub mod repo;
+pub mod scheduled_tasks;
 pub mod scratch;
 pub mod search;
 pub mod sessions;

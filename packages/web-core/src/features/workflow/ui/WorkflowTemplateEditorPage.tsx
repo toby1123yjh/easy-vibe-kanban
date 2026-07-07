@@ -9,6 +9,7 @@ import {
   useWorkflowAttemptMutations,
 } from '@/shared/hooks/useWorkflowAttempts';
 import { useWorkflowRun } from '@/shared/hooks/useWorkflowRun';
+import { useWorkflowScheduledTask } from '@/shared/hooks/useScheduledTasks';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import {
   createWorkflowCanvasStageGroup,
@@ -59,6 +60,7 @@ import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import { WorkflowRouterConfigPanel } from './WorkflowRouterConfigPanel';
+import { ScheduledTaskDialog } from './ScheduledTaskDialog';
 import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
 import {
   getWorkflowDefaultGraphLabels,
@@ -81,6 +83,7 @@ import {
   Save,
   Copy,
   CheckCircle2,
+  CalendarClock,
   LayoutGrid,
   Play as PlayIcon,
   GitBranch,
@@ -291,6 +294,11 @@ export function WorkflowTemplateEditorPage({
   } = useWorkflowTemplate(workflowId, { enabled: !isLocalDraft });
   const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
     useWorkflowAttemptForWorkflow(workflowId, { enabled: !isLocalDraft });
+  const { data: scheduledTask } = useWorkflowScheduledTask(
+    projectId,
+    workflowId,
+    { enabled: !isLocalDraft }
+  );
   const { data: latestRun } = useWorkflowRun(workflowAttempt?.latest_run_id, {
     enabled: !!workflowAttempt?.latest_run_id,
   });
@@ -589,6 +597,15 @@ export function WorkflowTemplateEditorPage({
   const handleOpenLatestRun = () => {
     if (!workflowAttempt?.latest_run_id) return;
     navigation.goToProjectWorkflowRun(projectId, workflowAttempt.latest_run_id);
+  };
+
+  const handleOpenScheduledTask = () => {
+    void ScheduledTaskDialog.show({
+      projectId,
+      workflowId,
+      workflowName: name || t('workflow.templates.untitled'),
+      existingTask: scheduledTask ?? null,
+    });
   };
 
   const handleCopy = async () => {
@@ -1312,6 +1329,20 @@ export function WorkflowTemplateEditorPage({
           >
             <CheckCircle2 className="h-4 w-4" />
             {t('workflow.editor.validate')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={isLocalDraft}
+            onClick={handleOpenScheduledTask}
+            className="flex items-center gap-2"
+            title={
+              isLocalDraft
+                ? t('workflow.schedule.saveBeforeSchedule')
+                : undefined
+            }
+          >
+            <CalendarClock className="h-4 w-4" />
+            {t('workflow.schedule.button')}
           </Button>
           <Button
             variant="outline"

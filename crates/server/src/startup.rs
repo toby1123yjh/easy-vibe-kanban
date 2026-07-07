@@ -13,7 +13,7 @@ use utils::assets::asset_dir;
 use crate::{
     DeploymentImpl,
     middleware::origin::validate_origin,
-    routes,
+    routes::{self, scheduled_tasks::spawn_scheduled_task_loop},
     runtime::relay_registration,
     workflow_runtime::runner::{recover_stale_workflow_runs, spawn_workflow_completion_watcher},
 };
@@ -173,6 +173,7 @@ pub async fn initialize_deployment(
     // this task picks up and uses to trigger `reconcile_workflow_run_with_arena`
     // immediately.
     spawn_workflow_completion_watcher(deployment.clone());
+    spawn_scheduled_task_loop(deployment.clone());
     deployment
         .container()
         .backfill_before_head_commits()

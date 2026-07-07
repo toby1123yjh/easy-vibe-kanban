@@ -301,6 +301,26 @@ export type WorkflowNodeExecutionResponse = { id: string, run_id: string, node_i
 
 export type WorkflowActionResponse = { run_id: string, node_id: string | null, status: WorkflowRunStatus, };
 
+export type ScheduledTaskTargetType = "workflow";
+
+export type ScheduledTaskKind = "daily" | "weekly";
+
+export type ScheduledTaskConcurrencyPolicy = "skip_if_running";
+
+export type ScheduledTaskLastStatus = "idle" | "running" | "awaiting_human" | "awaiting_arena" | "succeeded" | "failed" | "skipped" | "canceled";
+
+export type ScheduledTaskResponse = { id: string, project_id: string, target_type: ScheduledTaskTargetType, target_id: string, context_issue_id: string, name: string | null, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday: number | null, timezone: string, input_text: string, concurrency_policy: ScheduledTaskConcurrencyPolicy, last_run_id: string | null, last_status: ScheduledTaskLastStatus, last_error: string | null, last_triggered_at: string | null, next_run_at: string | null, created_at: string, updated_at: string, };
+
+export type ScheduledTaskListResponse = { tasks: Array<ScheduledTaskResponse>, };
+
+export type ListScheduledTasksQuery = { target_type?: ScheduledTaskTargetType, target_id?: string, };
+
+export type UpsertScheduledTaskRequest = { target_type: ScheduledTaskTargetType, target_id: string, context_issue_id: string, name?: string, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday?: number, timezone: string, input_text: string, };
+
+export type UpdateScheduledTaskRequest = { context_issue_id?: string, name?: string, enabled?: boolean, schedule_kind?: ScheduledTaskKind, time_of_day?: string, weekday?: number, timezone?: string, input_text?: string, };
+
+export type ScheduledTaskRunNowResponse = { task: ScheduledTaskResponse, run?: WorkflowRunResponse, skipped: boolean, };
+
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 

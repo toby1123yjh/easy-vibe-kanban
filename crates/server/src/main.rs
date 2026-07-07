@@ -2,7 +2,8 @@ use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, middleware::origin::validate_origin, routes, runtime::relay_registration,
+    DeploymentImpl, middleware::origin::validate_origin, routes,
+    routes::scheduled_tasks::spawn_scheduled_task_loop, runtime::relay_registration,
     workflow_runtime::runner::recover_stale_workflow_runs,
 };
 use services::services::container::ContainerService;
@@ -80,6 +81,7 @@ async fn main() -> Result<(), VibeKanbanError> {
     recover_stale_workflow_runs(&deployment.db().pool)
         .await
         .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    spawn_scheduled_task_loop(deployment.clone());
     deployment
         .container()
         .backfill_before_head_commits()

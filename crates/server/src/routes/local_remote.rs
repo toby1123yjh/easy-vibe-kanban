@@ -45,7 +45,7 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::{workflows, workspaces::create::create_workspace_record},
+    routes::{scheduled_tasks, workflows, workspaces::create::create_workspace_record},
 };
 
 const LOCAL_PROJECT_COLOR: &str = "210 80% 52%";
@@ -263,6 +263,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             post(retry_arena_workspace),
         )
         .merge(workflows::router(deployment))
+        .merge(scheduled_tasks::router(deployment))
 }
 
 fn local_user_id() -> Uuid {
@@ -3467,6 +3468,8 @@ mod tests {
             id: workspace_id,
             task_id: None,
             container_ref: None,
+            workspace_kind: db::models::workspace::WorkspaceKind::Worktree,
+            container_ownership: db::models::workspace::ContainerOwnership::Managed,
             branch: "arena-test".to_string(),
             setup_completed_at: None,
             created_at: now,
