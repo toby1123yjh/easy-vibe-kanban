@@ -21,12 +21,52 @@ pub struct LinkWorkspaceRequest {
     pub issue_id: Uuid,
 }
 
+async fn upsert_local_workspace_link(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+    project_id: Uuid,
+    issue_id: Uuid,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"
+        INSERT INTO local_workspace_links
+            (workspace_id, project_id, issue_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(workspace_id) DO UPDATE SET
+            project_id = excluded.project_id,
+            issue_id = excluded.issue_id,
+            updated_at = datetime('now', 'subsec')
+        "#,
+    )
+    .bind(workspace_id)
+    .bind(project_id)
+    .bind(issue_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+async fn delete_local_workspace_link(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+) -> Result<(), ApiError> {
+    sqlx::query("DELETE FROM local_workspace_links WHERE workspace_id = ?")
+        .bind(workspace_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 pub(crate) async fn link_workspace_to_issue(
     deployment: &DeploymentImpl,
     workspace: &Workspace,
     project_id: Uuid,
     issue_id: Uuid,
 ) -> Result<(), ApiError> {
+    upsert_local_workspace_link(&deployment.db().pool, workspace.id, project_id, issue_id).await?;
+
     if let Ok(client) = deployment.remote_client() {
         let stats =
             diff_stream::compute_diff_stats(&deployment.db().pool, deployment.git(), workspace)
@@ -84,23 +124,6 @@ pub(crate) async fn link_workspace_to_issue(
                 }
             });
         }
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO local_workspace_links
-                (workspace_id, project_id, issue_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(workspace_id) DO UPDATE SET
-                project_id = excluded.project_id,
-                issue_id = excluded.issue_id,
-                updated_at = datetime('now', 'subsec')
-            "#,
-        )
-        .bind(workspace.id)
-        .bind(project_id)
-        .bind(issue_id)
-        .execute(&deployment.db().pool)
-        .await?;
     }
 
     Ok(())
@@ -128,20 +151,17 @@ pub async fn unlink_workspace(
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     if let Ok(client) = deployment.remote_client() {
         match client.delete_workspace(workspace_id).await {
-            Ok(()) => Ok(ResponseJson(ApiResponse::success(()))),
+            Ok(()) => {}
             Err(RemoteClientError::Http { status: 404, .. }) => {
-                Ok(ResponseJson(ApiResponse::success(())))
+                // Already absent remotely; still clear the local issue link below.
             }
-            Err(e) => Err(e.into()),
+            Err(e) => return Err(e.into()),
         }
-    } else {
-        sqlx::query("DELETE FROM local_workspace_links WHERE workspace_id = ?")
-            .bind(workspace_id)
-            .execute(&deployment.db().pool)
-            .await?;
-
-        Ok(ResponseJson(ApiResponse::success(())))
     }
+
+    delete_local_workspace_link(&deployment.db().pool, workspace_id).await?;
+
+    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
@@ -155,4 +175,89 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let delete_router = Router::new().route("/", delete(unlink_workspace));
 
     post_router.merge(delete_router)
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
+    use uuid::Uuid;
+
+    use super::{delete_local_workspace_link, upsert_local_workspace_link};
+
+    async fn setup_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE local_workspace_links (
+                workspace_id BLOB PRIMARY KEY,
+                project_id BLOB NOT NULL,
+                issue_id BLOB NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create local_workspace_links");
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn upsert_local_workspace_link_inserts_and_updates() {
+        let pool = setup_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let project_id = Uuid::new_v4();
+        let first_issue_id = Uuid::new_v4();
+        let second_issue_id = Uuid::new_v4();
+
+        upsert_local_workspace_link(&pool, workspace_id, project_id, first_issue_id)
+            .await
+            .expect("insert link");
+        upsert_local_workspace_link(&pool, workspace_id, project_id, second_issue_id)
+            .await
+            .expect("update link");
+
+        let row = sqlx::query(
+            "SELECT project_id, issue_id FROM local_workspace_links WHERE workspace_id = ?",
+        )
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch link");
+
+        let linked_project_id: Uuid = row.try_get("project_id").expect("project_id");
+        let linked_issue_id: Uuid = row.try_get("issue_id").expect("issue_id");
+
+        assert_eq!(linked_project_id, project_id);
+        assert_eq!(linked_issue_id, second_issue_id);
+    }
+
+    #[tokio::test]
+    async fn delete_local_workspace_link_removes_link() {
+        let pool = setup_pool().await;
+        let workspace_id = Uuid::new_v4();
+
+        upsert_local_workspace_link(&pool, workspace_id, Uuid::new_v4(), Uuid::new_v4())
+            .await
+            .expect("insert link");
+        delete_local_workspace_link(&pool, workspace_id)
+            .await
+            .expect("delete link");
+
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM local_workspace_links WHERE workspace_id = ?")
+                .bind(workspace_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count links");
+
+        assert_eq!(count, 0);
+    }
 }
