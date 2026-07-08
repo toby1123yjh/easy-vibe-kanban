@@ -10,11 +10,13 @@ import {
 import type { Workspace, Session, RepoWithTargetBranch } from 'shared/types';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
+import { MobileApprovalBanner } from '@vibe/ui/components/MobileApprovalBanner';
 import {
   ConversationList,
   type ConversationListHandle,
 } from '@/features/workspace-chat/ui/ConversationListContainer';
 import { SessionChatBoxContainer } from '@/features/workspace-chat/ui/SessionChatBoxContainer';
+import { useWorkspacePendingApproval } from '@/features/workspace-chat/model/hooks/useWorkspacePendingApproval';
 import { ContextBarContainer } from './ContextBarContainer';
 import { EntriesProvider } from '@/features/workspace-chat/model/contexts/EntriesContext';
 import { MessageEditProvider } from '@/features/workspace-chat/model/contexts/MessageEditContext';
@@ -22,6 +24,7 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 /**
  * Isolated component that reads diffStats from WorkspaceContext.
@@ -84,6 +87,24 @@ function ChatBoxWithDiffStats({
       getActiveTurnPatchKey={getActiveTurnPatchKey}
     />
   );
+}
+
+/**
+ * Mobile-only: surfaces the workspace's pending approval as a banner above the
+ * composer. Rendered inside the Entries/Approval providers (via WorkspacesMain),
+ * so it can read the shared pending-approval hook. Question approvals are
+ * handled by the composer's askQuestion mode and skipped here.
+ */
+function MobileApprovalBannerContainer({
+  workspaceId,
+  onView,
+}: {
+  workspaceId: string;
+  onView: () => void;
+}) {
+  const pending = useWorkspacePendingApproval(workspaceId);
+  if (!pending || pending.isQuestion) return null;
+  return <MobileApprovalBanner toolName={pending.toolName} onView={onView} />;
 }
 
 export interface WorkspacesMainContainerHandle {
@@ -239,6 +260,17 @@ export const WorkspacesMainContainer = forwardRef<
     <ContextBarContainer containerRef={containerRef} />
   ) : null;
 
+  // Mobile-only pending-approval banner between transcript and composer. Gated
+  // here so the banner (and its approvals subscription) never mounts on desktop.
+  const isMobile = useIsMobile();
+  const approvalBannerContent =
+    isMobile && workspaceWithSession ? (
+      <MobileApprovalBannerContainer
+        workspaceId={workspaceWithSession.id}
+        onView={handleScrollToBottom}
+      />
+    ) : null;
+
   useImperativeHandle(
     ref,
     () => ({
@@ -265,6 +297,7 @@ export const WorkspacesMainContainer = forwardRef<
             isAtBottom={isAtBottom}
             onAtBottomChange={handleAtBottomChange}
             onScrollToBottom={handleScrollToBottom}
+            approvalBannerContent={approvalBannerContent}
           />
         </MessageEditProvider>
       </EntriesProvider>

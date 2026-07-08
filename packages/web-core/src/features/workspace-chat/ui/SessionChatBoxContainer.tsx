@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
-  type AskUserQuestionItem,
   BaseAgentCapability,
   type Session,
   type BaseCodingAgent,
@@ -35,7 +34,8 @@ import { useAgentProviderPolicy } from '@/shared/hooks/useAgentProviderPolicy';
 import { useBranchStatus } from '@/shared/hooks/useBranchStatus';
 import { useWorkspaceBranch } from '../model/hooks/useWorkspaceBranch';
 import { useApprovalMutation } from '../model/hooks/useApprovalMutation';
-import { useApprovals } from '@/shared/hooks/useApprovals';
+import { useWorkspacePendingApproval } from '../model/hooks/useWorkspacePendingApproval';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { ResolveConflictsDialog } from '@/shared/dialogs/tasks/ResolveConflictsDialog';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 import { buildAgentPrompt } from '@/shared/lib/promptMessage';
@@ -72,7 +72,6 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { sessionsApi } from '@/shared/lib/api';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
-import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
 
 /** Compute execution status from boolean flags */
@@ -247,41 +246,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const { isAttemptRunning, stopExecution, isStopping, processes } =
     useWorkspaceExecution(workspaceId);
 
-  // Approvals state
-  const { getPendingForProcess } = useApprovals();
+  // Mobile layout — enables the enlarged approval footer + one-tap deny
+  const isMobile = useIsMobile();
 
-  // Get pending approval from running processes
-  const pendingApproval = useMemo(() => {
-    const runningProcesses = processes.filter((process) =>
-      isExecutionProcessActive(process)
-    );
-    for (const proc of runningProcesses) {
-      const info = getPendingForProcess(proc.id);
-      if (info) {
-        let questions: AskUserQuestionItem[] | undefined;
-        for (const entry of entries) {
-          if (entry.type !== 'NORMALIZED_ENTRY') continue;
-          const entryType = entry.content.entry_type;
-          if (
-            entryType.type === 'tool_use' &&
-            entryType.status.status === 'pending_approval' &&
-            entryType.status.approval_id === info.approval_id &&
-            entryType.action_type.action === 'ask_user_question'
-          ) {
-            questions = entryType.action_type.questions;
-            break;
-          }
-        }
-        return {
-          approvalId: info.approval_id,
-          timeoutAt: info.timeout_at,
-          executionProcessId: info.execution_process_id,
-          questions,
-        };
-      }
-    }
-    return null;
-  }, [processes, getPendingForProcess, entries]);
+  // Pending approval for this workspace (shared with the mobile approval banner)
+  const pendingApproval = useWorkspacePendingApproval(workspaceId);
 
   // Use approval_id as scratch key when pending approval exists to avoid
   // prefilling approval response with queued follow-up message
@@ -894,6 +863,42 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onScrollToBottom,
   ]);
 
+  // Handle one-tap deny (reason optional): sends the typed text as the reason
+  // when present, otherwise a default reason. Mirrors handleRequestChanges but
+  // does not require the composer to be non-empty — this powers the mobile
+  // approval footer's dedicated Deny button.
+  const handleDeny = useCallback(async () => {
+    if (!pendingApproval) return;
+
+    try {
+      await denyAsync({
+        approvalId: pendingApproval.approvalId,
+        executionProcessId: pendingApproval.executionProcessId,
+        reason: localMessage.trim() || 'User denied this tool use request.',
+      });
+      if (localMessage.trim()) {
+        cancelDebouncedSave();
+        setLocalMessage('');
+        await clearDraft();
+      }
+
+      // Invalidate workspace summary cache to update sidebar
+      queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
+      onScrollToBottom();
+    } catch {
+      // Error is handled by mutation
+    }
+  }, [
+    pendingApproval,
+    localMessage,
+    denyAsync,
+    cancelDebouncedSave,
+    setLocalMessage,
+    clearDraft,
+    queryClient,
+    onScrollToBottom,
+  ]);
+
   // Handle AskUserQuestion answer submission
   const handleAnswerQuestion = useCallback(
     async (answers: Array<{ question: string; answer: string[] }>) => {
@@ -1116,6 +1121,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   return (
     <SessionChatBox<BaseCodingAgent>
       status={status}
+      isMobile={isMobile}
       onViewCode={disableViewCode ? undefined : handleViewCode}
       onOpenWorkspace={
         showOpenWorkspaceButton && workspaceId ? handleOpenWorkspace : undefined
@@ -1207,6 +1213,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
               isActive: true,
               onApprove: handleApprove,
               onRequestChanges: handleRequestChanges,
+              onDeny: handleDeny,
               isSubmitting: isApproving || isDenying,
               isTimedOut: isApprovalTimedOut,
               error: denyError?.message ?? null,

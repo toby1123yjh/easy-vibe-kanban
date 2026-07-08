@@ -19,6 +19,8 @@ interface WorkspacesMainProps {
   onAtBottomChange?: (atBottom: boolean) => void;
   onScrollToBottom?: (behavior?: 'auto' | 'smooth') => void;
   isMobile?: boolean;
+  /** Mobile-only banner rendered between the transcript and the composer. */
+  approvalBannerContent?: ReactNode;
 }
 
 export function WorkspacesMain({
@@ -32,6 +34,7 @@ export function WorkspacesMain({
   isAtBottom = true,
   onScrollToBottom,
   isMobile,
+  approvalBannerContent,
 }: WorkspacesMainProps) {
   const { t } = useTranslation(['tasks', 'common']);
 
@@ -79,6 +82,9 @@ export function WorkspacesMain({
           </div>
         </div>
       )}
+      {/* Approval banner (mobile) — sits between the scrolling transcript and
+          the composer, inside the keyboard-aware shell so it stays reachable */}
+      {approvalBannerContent}
       {/* Chat box - always rendered to prevent flash during workspace switch */}
       <div
         className="flex justify-center @container pl-px"

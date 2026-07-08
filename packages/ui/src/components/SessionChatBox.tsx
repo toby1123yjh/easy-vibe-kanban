@@ -206,6 +206,8 @@ interface ApprovalModeProps {
   isActive: boolean;
   onApprove: () => void;
   onRequestChanges: () => void;
+  /** One-tap deny (reason optional). Used by the mobile approval footer. */
+  onDeny: () => void;
   isSubmitting: boolean;
   isTimedOut: boolean;
   error?: string | null;
@@ -286,6 +288,8 @@ interface SessionChatBoxProps<TExecutor extends string = string> {
   tokenUsageInfo?: ContextUsageInfo | null;
   supportsContextUsage?: boolean;
   dropzone?: DropzoneProps;
+  /** Mobile layout active — enlarges approval targets and shows a one-tap Deny. */
+  isMobile?: boolean;
 }
 
 function defaultExecutorLabel(executor: string) {
@@ -361,6 +365,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   tokenUsageInfo,
   supportsContextUsage,
   dropzone,
+  isMobile,
 }: SessionChatBoxProps<TExecutor>) {
   const { t } = useTranslation('tasks');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -455,6 +460,7 @@ export function SessionChatBox<TExecutor extends string = string>({
   const stopActionLabel = t('conversation.actions.stop');
   const approveActionLabel = t('conversation.actions.approve');
   const requestChangesActionLabel = t('conversation.actions.requestChanges');
+  const denyActionLabel = t('conversation.actions.deny');
   const blockedSendHint =
     !normalSendDecision.allowed &&
     !INLINE_BLOCKED_HINT_EXCLUDED_REASONS.has(normalSendDecision.reason ?? '')
@@ -609,6 +615,42 @@ export function SessionChatBox<TExecutor extends string = string>({
       }
 
       const hasMessage = editor.value.trim().length > 0;
+
+      // Mobile: surface Stop + Deny + Approve as >=44px targets so a one-tap
+      // deny is reachable without first typing a reason. Deny sends the typed
+      // text as the reason when present, otherwise a default reason. Desktop
+      // keeps the type-to-Request-Changes affordance below.
+      if (isMobile) {
+        return (
+          <>
+            <PrimaryButton
+              variant="secondary"
+              onClick={actions.onStop}
+              disabled={!stopDecision.allowed}
+              className="min-h-[44px]"
+              value={stopActionLabel}
+              {...getActionButtonA11yProps(stopActionLabel, stopDecision)}
+            />
+            <PrimaryButton
+              variant="tertiary"
+              onClick={approvalMode?.onDeny}
+              disabled={!approveDecision.allowed}
+              actionIcon={approvalMode?.isSubmitting ? 'spinner' : undefined}
+              className="min-h-[44px]"
+              value={denyActionLabel}
+              {...getActionButtonA11yProps(denyActionLabel, approveDecision)}
+            />
+            <PrimaryButton
+              onClick={approvalMode?.onApprove}
+              disabled={!approveDecision.allowed}
+              actionIcon={approvalMode?.isSubmitting ? 'spinner' : undefined}
+              className="min-h-[44px]"
+              value={approveActionLabel}
+              {...getActionButtonA11yProps(approveActionLabel, approveDecision)}
+            />
+          </>
+        );
+      }
 
       return (
         <>
