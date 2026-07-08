@@ -22,7 +22,9 @@ use crate::{
         opencode::types::OpencodeExecutorEvent, utils::reorder_slash_commands,
     },
     logs::utils::patch,
-    model_selector::{AgentInfo, ModelInfo, ModelProvider, PermissionPolicy, ReasoningOption},
+    model_selector::{
+        AgentInfo, ModelInfo, ModelProvider, ModelSelectorConfig, PermissionPolicy, ReasoningOption,
+    },
     profile::ExecutorConfig,
     stdout_dup::create_stdout_pipe_writer,
 };
@@ -303,6 +305,36 @@ fn map_opencode_agents(agents: &[SDKAgentInfo]) -> Vec<AgentInfo> {
             is_default: agent.name.eq_ignore_ascii_case(default_agent_name),
         })
         .collect()
+}
+
+fn last_good_model_selector(
+    options: &crate::executor_discovery::ExecutorDiscoveredOptions,
+) -> Option<ModelSelectorConfig> {
+    if options.model_selector.models.is_empty() {
+        None
+    } else {
+        Some(options.model_selector.clone())
+    }
+}
+
+fn apply_non_empty_model_selector(
+    options: &mut crate::executor_discovery::ExecutorDiscoveredOptions,
+    providers: Vec<ModelProvider>,
+    models: Vec<ModelInfo>,
+) -> bool {
+    if models.is_empty() {
+        return false;
+    }
+
+    options.model_selector.providers = providers;
+    options.model_selector.models = models;
+    true
+}
+
+fn should_cache_discovered_options(
+    options: &crate::executor_discovery::ExecutorDiscoveredOptions,
+) -> bool {
+    !options.model_selector.models.is_empty()
 }
 
 fn format_tail(captured: Vec<String>) -> String {
@@ -594,6 +626,7 @@ impl StandardCodingAgentExecutor for Opencode {
             (None, default_discovered_options().with_loading(true))
         };
 
+        let last_good_selector = last_good_model_selector(&initial_options);
         let initial_patch = patch::executor_discovered_options(initial_options);
 
         let this = self.clone();
@@ -602,6 +635,9 @@ impl StandardCodingAgentExecutor for Opencode {
         let discovery_stream = async_stream::stream! {
             let discovery_path = target_path.as_deref().unwrap_or(Path::new(".")).to_path_buf();
             let mut final_options = default_discovered_options();
+            if let Some(selector) = last_good_selector.clone() {
+                final_options.model_selector = selector;
+            }
 
             let env = ExecutionEnv::new(RepoContext::default(), false, String::new());
             let env = setup_permissions_env(this.auto_approve, &env);
@@ -661,7 +697,7 @@ impl StandardCodingAgentExecutor for Opencode {
                         models::extract_context_windows(&data),
                     );
 
-                    final_options.model_selector.providers = data
+                    let providers = data
                         .all
                         .iter()
                         .filter(|p| data.connected.contains(&p.id))
@@ -671,19 +707,26 @@ impl StandardCodingAgentExecutor for Opencode {
                         })
                         .collect();
 
-                    final_options.model_selector.models = data
+                    let models = data
                         .all
                         .iter()
                         .filter(|p| data.connected.contains(&p.id))
                         .flat_map(|p| this.transform_models(&p.models, &p.id))
                         .collect();
 
-                    yield patch::update_providers(final_options.model_selector.providers.clone());
-                    yield patch::update_models(final_options.model_selector.models.clone());
+                    if apply_non_empty_model_selector(&mut final_options, providers, models) {
+                        yield patch::update_providers(final_options.model_selector.providers.clone());
+                        yield patch::update_models(final_options.model_selector.models.clone());
+                    } else {
+                        tracing::warn!(
+                            "OpenCode provider discovery returned no models; keeping previous model selector"
+                        );
+                    }
                     yield patch::models_loaded();
                 }
                 Err(e) => {
                     tracing::warn!("Failed to fetch OpenCode providers: {}", e);
+                    yield patch::models_loaded();
                 }
             }
 
@@ -737,20 +780,22 @@ impl StandardCodingAgentExecutor for Opencode {
             }
 
             let cache = executor_options_cache();
-            if let Some(path) = &target_path {
-                let target_cache_key = ExecutorConfigCacheKey::new(
-                    Some(path),
-                    cmd_key_for_discovery.clone(),
+            if should_cache_discovered_options(&final_options) {
+                if let Some(path) = &target_path {
+                    let target_cache_key = ExecutorConfigCacheKey::new(
+                        Some(path),
+                        cmd_key_for_discovery.clone(),
+                        BaseCodingAgent::Opencode,
+                    );
+                    cache.put(target_cache_key, final_options.clone());
+                }
+                let global_cache_key = ExecutorConfigCacheKey::new(
+                    None,
+                    cmd_key_for_discovery,
                     BaseCodingAgent::Opencode,
                 );
-                cache.put(target_cache_key, final_options.clone());
+                cache.put(global_cache_key, final_options);
             }
-            let global_cache_key = ExecutorConfigCacheKey::new(
-                None,
-                cmd_key_for_discovery,
-                BaseCodingAgent::Opencode,
-            );
-            cache.put(global_cache_key, final_options);
         };
 
         Ok(Box::pin(
@@ -824,4 +869,80 @@ fn merge_compaction_config(existing_json: Option<&str>) -> String {
     config.insert("compaction".to_string(), Value::Object(compaction));
 
     serde_json::to_string(&config).unwrap_or_else(|_| r#"{"compaction":{"auto":true}}"#.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider(id: &str) -> ModelProvider {
+        ModelProvider {
+            id: id.to_string(),
+            name: id.to_string(),
+        }
+    }
+
+    fn model(id: &str, provider_id: Option<&str>) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider_id: provider_id.map(str::to_string),
+            reasoning_options: vec![],
+        }
+    }
+
+    #[test]
+    fn empty_model_discovery_does_not_replace_last_good_selector() {
+        let mut options = default_discovered_options();
+        options.model_selector.providers = vec![provider("old-provider")];
+        options.model_selector.models = vec![model("old-model", Some("old-provider"))];
+
+        let applied =
+            apply_non_empty_model_selector(&mut options, vec![provider("new-provider")], vec![]);
+
+        assert!(!applied);
+        assert_eq!(options.model_selector.providers[0].id, "old-provider");
+        assert_eq!(options.model_selector.models[0].id, "old-model");
+    }
+
+    #[test]
+    fn non_empty_model_discovery_replaces_selector() {
+        let mut options = default_discovered_options();
+        options.model_selector.providers = vec![provider("old-provider")];
+        options.model_selector.models = vec![model("old-model", Some("old-provider"))];
+
+        let applied = apply_non_empty_model_selector(
+            &mut options,
+            vec![provider("new-provider")],
+            vec![model("new-model", Some("new-provider"))],
+        );
+
+        assert!(applied);
+        assert_eq!(options.model_selector.providers[0].id, "new-provider");
+        assert_eq!(options.model_selector.models[0].id, "new-model");
+    }
+
+    #[test]
+    fn only_non_empty_model_options_are_cacheable() {
+        let empty_options = default_discovered_options();
+        assert!(!should_cache_discovered_options(&empty_options));
+
+        let mut non_empty_options = default_discovered_options();
+        non_empty_options.model_selector.models = vec![model("model", None)];
+        assert!(should_cache_discovered_options(&non_empty_options));
+    }
+
+    #[test]
+    fn last_good_selector_requires_models() {
+        let empty_options = default_discovered_options();
+        assert!(last_good_model_selector(&empty_options).is_none());
+
+        let mut options = default_discovered_options();
+        options.model_selector.providers = vec![provider("provider")];
+        options.model_selector.models = vec![model("model", Some("provider"))];
+
+        let selector = last_good_model_selector(&options).expect("selector should be available");
+        assert_eq!(selector.providers[0].id, "provider");
+        assert_eq!(selector.models[0].id, "model");
+    }
 }
