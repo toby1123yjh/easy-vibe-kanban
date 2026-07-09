@@ -82,27 +82,49 @@ pub struct ModelSelectorConfig {
 
 impl ReasoningOption {
     pub fn from_names(names: impl IntoIterator<Item = impl Into<String>>) -> Vec<ReasoningOption> {
-        Self::from_names_with_labels(names.into_iter().map(|n| (n.into(), None)))
+        Self::from_names_with_labels_and_default(names.into_iter().map(|n| (n.into(), None)), None)
+    }
+
+    pub fn from_names_with_default(
+        names: impl IntoIterator<Item = impl Into<String>>,
+        default_id: Option<&str>,
+    ) -> Vec<ReasoningOption> {
+        Self::from_names_with_labels_and_default(
+            names.into_iter().map(|n| (n.into(), None)),
+            default_id,
+        )
     }
 
     pub fn from_names_with_labels(
         pairs: impl IntoIterator<Item = (String, Option<String>)>,
     ) -> Vec<ReasoningOption> {
+        Self::from_names_with_labels_and_default(pairs, None)
+    }
+
+    pub fn from_names_with_labels_and_default(
+        pairs: impl IntoIterator<Item = (String, Option<String>)>,
+        default_id: Option<&str>,
+    ) -> Vec<ReasoningOption> {
         let rank_key = |id: &str| match id.to_lowercase().as_str() {
             "none" => Some(0),
-            "low" => Some(1),
-            "medium" => Some(2),
-            "high" => Some(3),
-            "xhigh" => Some(4),
-            "max" => Some(5),
+            "minimal" => Some(1),
+            "low" => Some(2),
+            "medium" => Some(3),
+            "high" => Some(4),
+            "xhigh" => Some(5),
+            "max" => Some(6),
             _ => None,
         };
+        let default_id = default_id.map(str::to_lowercase);
 
         let mut options: Vec<ReasoningOption> = pairs
             .into_iter()
             .map(|(id, label)| {
                 let label = label.unwrap_or_else(|| reasoning_label(&id));
-                let is_default = id.eq_ignore_ascii_case("high");
+                let is_default = default_id.as_ref().map_or_else(
+                    || id.eq_ignore_ascii_case("high"),
+                    |d| id.eq_ignore_ascii_case(d),
+                );
                 ReasoningOption {
                     id,
                     label,

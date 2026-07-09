@@ -168,30 +168,24 @@ export function resolveReasoningIdForOptions(
   options: ReasoningOption[],
   preferredReasoningId: string | null | undefined
 ): string | null {
-  if (options.length === 0) return null;
   if (isReasoningOptionAvailable(options, preferredReasoningId)) {
     return preferredReasoningId ?? null;
   }
-  return resolveDefaultReasoningId(options);
+  return null;
 }
 
 export function buildModelSelectionOverride(
-  models: ModelInfo[],
+  _models: ModelInfo[],
   modelId: string | null,
   providerId?: string
 ): {
   model_id: string | null;
-  reasoning_id: string | null;
 } {
   const model_id = modelId
     ? providerId
       ? `${providerId}/${modelId}`
       : modelId
     : null;
-  const model = findModelForSelection(models, modelId, providerId);
 
-  return {
-    model_id,
-    reasoning_id: resolveDefaultReasoningId(model?.reasoning_options ?? []),
-  };
+  return { model_id };
 }

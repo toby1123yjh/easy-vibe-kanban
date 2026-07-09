@@ -3,7 +3,7 @@ use std::{
     io,
     path::PathBuf,
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex as StdMutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -27,7 +27,10 @@ use codex_app_server_protocol::{
     ToolRequestUserInputAnswer, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
     TurnCompletedNotification, TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
 };
-use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+use codex_protocol::{
+    config_types::{CollaborationMode, ModeKind, Settings},
+    openai_models::ReasoningEffort as ProtocolReasoningEffort,
+};
 use futures::TryFutureExt;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{self, Value};
@@ -58,6 +61,7 @@ pub struct AppServerClient {
     auto_approve: bool,
     plan_mode: bool,
     resolved_model: OnceLock<String>,
+    reasoning_effort: StdMutex<Option<ProtocolReasoningEffort>>,
     pending_plan: Mutex<Option<PendingPlan>>,
     repo_context: RepoContext,
     commit_reminder: bool,
@@ -73,6 +77,7 @@ impl AppServerClient {
         approvals: Option<Arc<dyn ExecutorApprovalService>>,
         auto_approve: bool,
         plan_mode: bool,
+        reasoning_effort: Option<ProtocolReasoningEffort>,
         repo_context: RepoContext,
         commit_reminder: bool,
         commit_reminder_prompt: String,
@@ -85,6 +90,7 @@ impl AppServerClient {
             auto_approve,
             plan_mode,
             resolved_model: OnceLock::new(),
+            reasoning_effort: StdMutex::new(reasoning_effort),
             pending_plan: Mutex::new(None),
             thread_id: Mutex::new(None),
             pending_feedback: Mutex::new(VecDeque::new()),
@@ -163,21 +169,23 @@ impl AppServerClient {
         input: Vec<UserInput>,
         collaboration_mode: Option<CollaborationMode>,
     ) -> Result<TurnStartResponse, ExecutorError> {
+        let effort = self.current_reasoning_effort();
         let request = ClientRequest::TurnStart {
             request_id: self.next_request_id(),
-            params: TurnStartParams {
-                thread_id,
-                input,
-                collaboration_mode,
-                ..Default::default()
-            },
+            params: build_turn_start_params(thread_id, input, collaboration_mode, effort),
         };
         self.send_request(request, "turn/start").await
     }
 
-    fn collaboration_mode(&self, mode: ModeKind) -> Result<CollaborationMode, ExecutorError> {
+    fn collaboration_mode_with_reasoning(
+        &self,
+        mode: ModeKind,
+        reasoning_effort: Option<ProtocolReasoningEffort>,
+    ) -> Result<CollaborationMode, ExecutorError> {
         let model = self.resolved_model.get().cloned().ok_or_else(|| {
-            tracing::error!("collaboration_mode called before resolved_model was set");
+            tracing::error!(
+                "collaboration_mode_with_reasoning called before resolved_model was set"
+            );
             ExecutorError::Io(io::Error::other(
                 "resolved model not available for collaboration mode",
             ))
@@ -186,10 +194,14 @@ impl AppServerClient {
             mode,
             settings: Settings {
                 model,
-                reasoning_effort: None,
+                reasoning_effort,
                 developer_instructions: None,
             },
         })
+    }
+
+    fn collaboration_mode(&self, mode: ModeKind) -> Result<CollaborationMode, ExecutorError> {
+        self.collaboration_mode_with_reasoning(mode, self.current_reasoning_effort())
     }
 
     pub fn initial_collaboration_mode(&self) -> Result<CollaborationMode, ExecutorError> {
@@ -197,6 +209,28 @@ impl AppServerClient {
             self.collaboration_mode(ModeKind::Plan)
         } else {
             self.collaboration_mode(ModeKind::Default)
+        }
+    }
+
+    fn current_reasoning_effort(&self) -> Option<ProtocolReasoningEffort> {
+        match self.reasoning_effort.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => {
+                tracing::error!("Codex reasoning effort state was poisoned");
+                poisoned.into_inner().clone()
+            }
+        }
+    }
+
+    fn set_reasoning_effort(&self, effort: Option<ProtocolReasoningEffort>) {
+        match self.reasoning_effort.lock() {
+            Ok(mut guard) => {
+                *guard = effort;
+            }
+            Err(poisoned) => {
+                tracing::error!("Codex reasoning effort state was poisoned");
+                *poisoned.into_inner() = effort;
+            }
         }
     }
 
@@ -324,11 +358,34 @@ impl AppServerClient {
         &self,
         params: ThreadSettingsUpdateParams,
     ) -> Result<ThreadSettingsUpdateResponse, ExecutorError> {
+        let reasoning_update = reasoning_update_from_thread_settings(&params);
         let request = ClientRequest::ThreadSettingsUpdate {
             request_id: self.next_request_id(),
             params,
         };
-        self.send_request(request, "thread/settings/update").await
+        let response = self.send_request(request, "thread/settings/update").await?;
+        if let ReasoningEffortUpdate::Set(effort) = reasoning_update {
+            self.set_reasoning_effort(effort);
+        }
+        Ok(response)
+    }
+
+    pub fn build_reasoning_thread_settings_update_params(
+        &self,
+        thread_id: String,
+        effort: Option<ProtocolReasoningEffort>,
+    ) -> Result<ThreadSettingsUpdateParams, ExecutorError> {
+        let mode = if self.plan_mode {
+            ModeKind::Plan
+        } else {
+            ModeKind::Default
+        };
+        let collaboration_mode = self.collaboration_mode_with_reasoning(mode, effort.clone())?;
+        Ok(build_thread_settings_update_params(
+            thread_id,
+            effort,
+            Some(collaboration_mode),
+        ))
     }
 
     pub async fn config_batch_write(
@@ -849,17 +906,18 @@ impl AppServerClient {
     ) {
         let peer = self.rpc().clone();
         let cancel = self.cancel.clone();
+        let effort = self.current_reasoning_effort();
         let request = ClientRequest::TurnStart {
             request_id: peer.next_request_id(),
-            params: TurnStartParams {
+            params: build_turn_start_params(
                 thread_id,
-                input: vec![UserInput::Text {
+                vec![UserInput::Text {
                     text: message,
                     text_elements: vec![],
                 }],
                 collaboration_mode,
-                ..Default::default()
-            },
+                effort,
+            ),
         };
         tokio::spawn(async move {
             if let Err(err) = peer
@@ -879,6 +937,51 @@ impl AppServerClient {
     fn spawn_user_message(&self, thread_id: String, message: String) {
         self.spawn_turn_start(thread_id, message, None);
     }
+}
+
+pub(crate) fn build_turn_start_params(
+    thread_id: String,
+    input: Vec<UserInput>,
+    collaboration_mode: Option<CollaborationMode>,
+    effort: Option<ProtocolReasoningEffort>,
+) -> TurnStartParams {
+    TurnStartParams {
+        thread_id,
+        input,
+        effort,
+        collaboration_mode,
+        ..Default::default()
+    }
+}
+
+fn build_thread_settings_update_params(
+    thread_id: String,
+    effort: Option<ProtocolReasoningEffort>,
+    collaboration_mode: Option<CollaborationMode>,
+) -> ThreadSettingsUpdateParams {
+    ThreadSettingsUpdateParams {
+        thread_id,
+        effort,
+        collaboration_mode,
+        ..Default::default()
+    }
+}
+
+enum ReasoningEffortUpdate {
+    Unchanged,
+    Set(Option<ProtocolReasoningEffort>),
+}
+
+fn reasoning_update_from_thread_settings(
+    params: &ThreadSettingsUpdateParams,
+) -> ReasoningEffortUpdate {
+    if let Some(collaboration_mode) = &params.collaboration_mode {
+        return ReasoningEffortUpdate::Set(collaboration_mode.settings.reasoning_effort.clone());
+    }
+    if let Some(effort) = &params.effort {
+        return ReasoningEffortUpdate::Set(Some(effort.clone()));
+    }
+    ReasoningEffortUpdate::Unchanged
 }
 
 #[async_trait]
@@ -1126,7 +1229,17 @@ fn extract_semver(input: &str) -> Option<String> {
 
 #[cfg(test)]
 mod version_check_tests {
-    use super::{extract_semver, major_minor};
+    use codex_protocol::{
+        config_types::{CollaborationMode, ModeKind, Settings},
+        openai_models::ReasoningEffort as ProtocolReasoningEffort,
+    };
+    use tokio_util::sync::CancellationToken;
+
+    use super::{
+        AppServerClient, LogWriter, ReasoningEffortUpdate, build_thread_settings_update_params,
+        build_turn_start_params, extract_semver, major_minor,
+        reasoning_update_from_thread_settings,
+    };
 
     #[test]
     fn extracts_version_from_user_agent() {
@@ -1205,5 +1318,176 @@ mod version_check_tests {
             },
         };
         assert_eq!(super::request_id(&settings_update), RequestId::Integer(11));
+    }
+
+    #[test]
+    fn initial_collaboration_mode_includes_configured_reasoning_effort() {
+        let client = AppServerClient::new(
+            LogWriter::new(tokio::io::sink()),
+            None,
+            false,
+            false,
+            Some(ProtocolReasoningEffort::XHigh),
+            Default::default(),
+            false,
+            String::new(),
+            CancellationToken::new(),
+        );
+        client.set_resolved_model("gpt-test".to_string());
+
+        let collaboration_mode = client
+            .initial_collaboration_mode()
+            .expect("resolved model should build collaboration mode");
+
+        assert_eq!(collaboration_mode.mode, ModeKind::Default);
+        assert_eq!(collaboration_mode.settings.model, "gpt-test");
+        assert_eq!(
+            collaboration_mode.settings.reasoning_effort,
+            Some(ProtocolReasoningEffort::XHigh)
+        );
+    }
+
+    #[test]
+    fn turn_start_params_include_explicit_xhigh_effort() {
+        let collaboration_mode = CollaborationMode {
+            mode: ModeKind::Default,
+            settings: Settings {
+                model: "gpt-test".to_string(),
+                reasoning_effort: Some(ProtocolReasoningEffort::XHigh),
+                developer_instructions: None,
+            },
+        };
+
+        let params = build_turn_start_params(
+            "thread_123".to_string(),
+            vec![],
+            Some(collaboration_mode.clone()),
+            Some(ProtocolReasoningEffort::XHigh),
+        );
+
+        assert_eq!(params.effort, Some(ProtocolReasoningEffort::XHigh));
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .and_then(|mode| mode.settings.reasoning_effort.clone()),
+            Some(ProtocolReasoningEffort::XHigh)
+        );
+    }
+
+    #[test]
+    fn turn_start_params_omit_effort_when_no_override_exists() {
+        let params = build_turn_start_params("thread_123".to_string(), vec![], None, None);
+
+        assert_eq!(params.effort, None);
+        assert_eq!(params.collaboration_mode, None);
+    }
+
+    #[test]
+    fn thread_settings_update_params_include_explicit_xhigh_effort() {
+        let params = build_thread_settings_update_params(
+            "thread_123".to_string(),
+            Some(ProtocolReasoningEffort::XHigh),
+            None,
+        );
+
+        assert_eq!(params.thread_id, "thread_123");
+        assert_eq!(params.effort, Some(ProtocolReasoningEffort::XHigh));
+        assert_eq!(params.collaboration_mode, None);
+    }
+
+    #[test]
+    fn live_reasoning_settings_update_sets_effort_in_collaboration_mode() {
+        let client = AppServerClient::new(
+            LogWriter::new(tokio::io::sink()),
+            None,
+            false,
+            false,
+            Some(ProtocolReasoningEffort::High),
+            Default::default(),
+            false,
+            String::new(),
+            CancellationToken::new(),
+        );
+        client.set_resolved_model("gpt-test".to_string());
+
+        let params = client
+            .build_reasoning_thread_settings_update_params(
+                "thread_123".to_string(),
+                Some(ProtocolReasoningEffort::XHigh),
+            )
+            .expect("resolved model should build settings update");
+
+        assert_eq!(params.effort, Some(ProtocolReasoningEffort::XHigh));
+        assert_eq!(
+            params.collaboration_mode.as_ref().map(|mode| mode.mode),
+            Some(ModeKind::Default)
+        );
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .map(|mode| mode.settings.model.as_str()),
+            Some("gpt-test")
+        );
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .and_then(|mode| mode.settings.reasoning_effort.clone()),
+            Some(ProtocolReasoningEffort::XHigh)
+        );
+    }
+
+    #[test]
+    fn live_reasoning_settings_update_can_clear_effort() {
+        let client = AppServerClient::new(
+            LogWriter::new(tokio::io::sink()),
+            None,
+            false,
+            false,
+            Some(ProtocolReasoningEffort::XHigh),
+            Default::default(),
+            false,
+            String::new(),
+            CancellationToken::new(),
+        );
+        client.set_resolved_model("gpt-test".to_string());
+
+        let params = client
+            .build_reasoning_thread_settings_update_params("thread_123".to_string(), None)
+            .expect("resolved model should build settings update");
+
+        assert_eq!(params.effort, None);
+        assert_eq!(
+            params.collaboration_mode.as_ref().map(|mode| mode.mode),
+            Some(ModeKind::Default)
+        );
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .map(|mode| mode.settings.model.as_str()),
+            Some("gpt-test")
+        );
+        assert_eq!(
+            params
+                .collaboration_mode
+                .as_ref()
+                .and_then(|mode| mode.settings.reasoning_effort.clone()),
+            None
+        );
+        match reasoning_update_from_thread_settings(&params) {
+            ReasoningEffortUpdate::Set(None) => {}
+            _ => panic!("clear update should be tracked as an explicit reasoning clear"),
+        }
+    }
+
+    #[test]
+    fn thread_settings_update_params_omit_effort_when_no_override_exists() {
+        let params = build_thread_settings_update_params("thread_123".to_string(), None, None);
+
+        assert_eq!(params.effort, None);
+        assert_eq!(params.collaboration_mode, None);
     }
 }

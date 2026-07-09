@@ -689,6 +689,7 @@
     }
   },
   "modelSelector": {
+    "followCliConfig": "Follow CLI config",
     "preset": "프리셋",
     "custom": "사용자 정의",
     "permissions": "권한",

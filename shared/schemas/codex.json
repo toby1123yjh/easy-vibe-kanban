@@ -52,18 +52,12 @@
       ]
     },
     "model_reasoning_effort": {
-      "description": "Reasoning effort for the underlying model",
+      "description": "A non-empty reasoning effort value advertised by Codex model discovery or supplied by the user.",
       "type": [
         "string",
         "null"
       ],
-      "enum": [
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        null
-      ]
+      "minLength": 1
     },
     "model_reasoning_summary": {
       "description": "Model reasoning summary style",

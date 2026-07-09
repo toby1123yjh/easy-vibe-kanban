@@ -60,6 +60,10 @@ interface ModelSelectorContainerProps {
   presetOptions: ExecutorConfig | null | undefined;
 }
 
+type PendingReasoningSelection = {
+  reasoningId: string | null;
+};
+
 export function ModelSelectorContainer({
   agent,
   workspaceId,
@@ -196,20 +200,24 @@ export function ModelSelectorContainer({
 
   const recentReasoningByModel = getRecentReasoningByModel(profiles, agent);
 
-  const presetReasoningId =
-    resolvedPresetModelId && selectedModelId === resolvedPresetModelId
-      ? (presetOptions?.reasoning_id ?? null)
-      : null;
+  const hasPresetReasoning = Boolean(
+    presetOptions &&
+      Object.prototype.hasOwnProperty.call(presetOptions, 'reasoning_id')
+  );
+  const hasPresetReasoningForSelectedModel =
+    hasPresetReasoning &&
+    Boolean(resolvedPresetModelId && selectedModelId === resolvedPresetModelId);
+  const presetReasoningId = hasPresetReasoningForSelectedModel
+    ? (presetOptions?.reasoning_id ?? null)
+    : undefined;
 
   const recentReasoningId = useMemo(() => {
     if (!selectedModel || !recentReasoningByModel) return null;
-    const key = selectedModel.provider_id
-      ? `${selectedModel.provider_id}/${selectedModel.id}`
-      : selectedModel.id;
+    const key = getModelKey(selectedModel);
     const keyLower = key.toLowerCase();
     for (const [k, v] of Object.entries(recentReasoningByModel)) {
       if (k.toLowerCase() === keyLower) {
-        if (selectedModel.reasoning_options.some((o) => o.id === v)) return v;
+        return resolveReasoningIdForOptions(selectedModel.reasoning_options, v);
       }
     }
     return null;
@@ -221,9 +229,12 @@ export function ModelSelectorContainer({
       Object.prototype.hasOwnProperty.call(executorConfig, 'reasoning_id')
   );
   const configuredReasoningId = executorConfig?.reasoning_id;
+  const preferredReasoningId = hasPresetReasoningForSelectedModel
+    ? presetReasoningId
+    : recentReasoningId;
   const inferredReasoningId = resolveReasoningIdForOptions(
     selectedReasoningOptions,
-    presetReasoningId ?? recentReasoningId
+    preferredReasoningId
   );
   const selectedReasoningId =
     selectedReasoningOptions.length === 0
@@ -236,7 +247,7 @@ export function ModelSelectorContainer({
                 configuredReasoningId
               )
             ? configuredReasoningId
-            : inferredReasoningId
+            : null
         : inferredReasoningId;
 
   useEffect(() => {
@@ -294,11 +305,13 @@ export function ModelSelectorContainer({
 
   const recentModelEntries = getRecentModelEntries(profiles, agent);
   const pendingModelRef = useRef<ModelInfo | null>(null);
-  const pendingReasoningRef = useRef<string | null>(null);
+  const pendingReasoningRef = useRef<PendingReasoningSelection | null>(null);
 
   const persistPendingSelections = useCallback(() => {
     if (!profiles || !agent) return;
-    if (!pendingModelRef.current && !pendingReasoningRef.current) return;
+    if (!pendingModelRef.current && pendingReasoningRef.current === null) {
+      return;
+    }
 
     let nextProfiles = profiles;
 
@@ -315,12 +328,13 @@ export function ModelSelectorContainer({
       (selectedModelId && config
         ? getSelectedModel(config.models, selectedProviderId, selectedModelId)
         : null);
-    if (pendingReasoningRef.current && reasoningModel) {
+    const pendingReasoning = pendingReasoningRef.current;
+    if (pendingReasoning && reasoningModel) {
       nextProfiles = setRecentReasoning(
         nextProfiles,
         agent,
         reasoningModel,
-        pendingReasoningRef.current
+        pendingReasoning.reasoningId
       );
       pendingReasoningRef.current = null;
     }
@@ -353,7 +367,6 @@ export function ModelSelectorContainer({
               ? `${providerId}/${modelId}`
               : modelId
             : null,
-          reasoning_id: null,
         };
     onOverrideChange(modelOverride);
 
@@ -366,7 +379,7 @@ export function ModelSelectorContainer({
 
   const handleReasoningSelect = (reasoningId: string | null) => {
     onOverrideChange({ reasoning_id: reasoningId });
-    pendingReasoningRef.current = reasoningId;
+    pendingReasoningRef.current = { reasoningId };
   };
 
   const handleAgentSelect = (id: string | null) => {

@@ -1246,6 +1246,7 @@
     }
   },
   "modelSelector": {
+    "followCliConfig": "\u8ddf\u968f CLI \u914d\u7f6e",
     "preset": "预设",
     "custom": "自定义",
     "permissions": "权限",

@@ -1167,6 +1167,7 @@
     }
   },
   "modelSelector": {
+    "followCliConfig": "\u8ddf\u96a8 CLI \u8a2d\u5b9a",
     "preset": "預設配置",
     "custom": "自訂",
     "permissions": "權限",

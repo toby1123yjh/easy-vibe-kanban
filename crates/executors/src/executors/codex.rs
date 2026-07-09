@@ -4,10 +4,10 @@ pub mod normalize_logs;
 pub mod review;
 pub mod slash_commands;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     env,
     path::{Path, PathBuf},
-    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -57,13 +57,15 @@ use codex_app_server_protocol::{
     SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadForkParams,
     ThreadStartParams, UserInput,
 };
-use codex_protocol::config_types::ServiceTier;
+use codex_protocol::{
+    config_types::ServiceTier, openai_models::ReasoningEffort as ProtocolReasoningEffort,
+};
 use derivative::Derivative;
 use futures::StreamExt;
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use strum_macros::{AsRefStr, EnumString};
+use strum_macros::AsRefStr;
 use tokio::process::Command;
 use ts_rs::TS;
 use workspace_utils::{command_ext::GroupSpawnNoWindowExt, msg_store::MsgStore};
@@ -119,15 +121,76 @@ pub enum AskForApproval {
     Never,
 }
 
-/// Reasoning effort for the underlying model
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema, AsRefStr, EnumString)]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
-pub enum ReasoningEffort {
-    Low,
-    Medium,
-    High,
-    Xhigh,
+/// Reasoning effort for the underlying model.
+#[derive(Debug, Clone, PartialEq, Eq, TS)]
+#[ts(type = "string")]
+pub struct ReasoningEffort(String);
+
+impl ReasoningEffort {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn to_protocol(&self) -> ProtocolReasoningEffort {
+        self.as_str()
+            .parse()
+            .expect("local Codex reasoning effort is always non-empty")
+    }
+}
+
+impl std::fmt::Display for ReasoningEffort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for ReasoningEffort {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.is_empty() {
+            Err("reasoning effort must not be empty".to_string())
+        } else {
+            Ok(Self(value.to_string()))
+        }
+    }
+}
+
+impl Serialize for ReasoningEffort {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ReasoningEffort {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl JsonSchema for ReasoningEffort {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("ReasoningEffort")
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "A non-empty reasoning effort value advertised by Codex model discovery or supplied by the user.",
+            "minLength": 1,
+        })
+    }
 }
 
 /// Model reasoning summary style
@@ -209,7 +272,7 @@ impl StandardCodingAgentExecutor for Codex {
             self.model = Some(model_id.clone());
         }
         if let Some(reasoning_id) = &executor_config.reasoning_id
-            && let Ok(reasoning_effort) = ReasoningEffort::from_str(reasoning_id)
+            && let Ok(reasoning_effort) = reasoning_id.parse()
         {
             self.model_reasoning_effort = Some(reasoning_effort)
         }
@@ -346,7 +409,7 @@ impl StandardCodingAgentExecutor for Codex {
             reasoning_id: self
                 .model_reasoning_effort
                 .as_ref()
-                .map(|e| e.as_ref().to_string()),
+                .map(|e| e.as_str().to_string()),
             permission_policy: Some(permission_policy),
         }
     }
@@ -615,6 +678,7 @@ impl Codex {
             None,
             false,
             self.plan,
+            None,
             RepoContext::default(),
             false,
             String::new(),
@@ -717,7 +781,7 @@ impl Codex {
         if let Some(effort) = &self.model_reasoning_effort {
             overrides.insert(
                 "model_reasoning_effort".to_string(),
-                Value::String(effort.as_ref().to_string()),
+                Value::String(effort.as_str().to_string()),
             );
         }
 
@@ -881,6 +945,10 @@ impl Codex {
             (Some(SandboxMode::DangerFullAccess), None)
         );
         let plan_mode = self.plan;
+        let reasoning_effort = self
+            .model_reasoning_effort
+            .as_ref()
+            .map(ReasoningEffort::to_protocol);
         let approvals = self.approvals.clone();
         let repo_context = env.repo_context.clone();
         let commit_reminder = env.commit_reminder;
@@ -897,6 +965,7 @@ impl Codex {
                 approvals,
                 auto_approve,
                 plan_mode,
+                reasoning_effort,
                 repo_context,
                 commit_reminder,
                 commit_reminder_prompt,
@@ -1027,11 +1096,13 @@ fn model_list_response_to_model_infos(response: ModelListResponse) -> Vec<ModelI
         .into_iter()
         .filter(|model| !model.hidden)
         .map(|model| {
-            let reasoning_options = ReasoningOption::from_names(
+            let default_reasoning_effort = model.default_reasoning_effort.to_string();
+            let reasoning_options = ReasoningOption::from_names_with_default(
                 model
                     .supported_reasoning_efforts
                     .iter()
                     .map(|option| option.reasoning_effort.to_string()),
+                Some(&default_reasoning_effort),
             );
             ModelInfo {
                 id: model.id,
@@ -1046,15 +1117,8 @@ fn model_list_response_to_model_infos(response: ModelListResponse) -> Vec<ModelI
 /// Static model list used before/instead of a live `model/list` response
 /// (discovery failure, timeout, or empty result).
 fn fallback_models() -> Vec<ModelInfo> {
-    let xhigh_reasoning_options = ReasoningOption::from_names(
-        [
-            ReasoningEffort::Low,
-            ReasoningEffort::Medium,
-            ReasoningEffort::High,
-            ReasoningEffort::Xhigh,
-        ]
-        .map(|e| e.as_ref().to_string()),
-    );
+    let xhigh_reasoning_options =
+        ReasoningOption::from_names(["none", "minimal", "low", "medium", "high", "xhigh"]);
 
     [
         ("gpt-5.5", "GPT-5.5"),
@@ -1080,10 +1144,33 @@ fn fallback_models() -> Vec<ModelInfo> {
 mod tests {
     use std::path::PathBuf;
 
-    use codex_app_server_protocol::UserInput;
+    use codex_app_server_protocol::{Model, ModelListResponse, ReasoningEffortOption, UserInput};
+    use codex_protocol::openai_models::ReasoningEffort as ProtocolReasoningEffort;
+    use serde_json::json;
 
-    use super::{build_chat_input, resolve_model};
-    use crate::actions::SelectedSkill;
+    use super::{
+        Codex, ReasoningEffort, build_chat_input, model_list_response_to_model_infos, resolve_model,
+    };
+    use crate::{
+        actions::SelectedSkill,
+        executors::{BaseCodingAgent, StandardCodingAgentExecutor},
+        profile::ExecutorConfig,
+    };
+
+    fn test_executor() -> Codex {
+        serde_json::from_value(json!({})).expect("empty Codex config should deserialize")
+    }
+
+    fn config_with_reasoning(reasoning_id: &str) -> ExecutorConfig {
+        ExecutorConfig {
+            executor: BaseCodingAgent::Codex,
+            variant: None,
+            model_id: None,
+            agent_id: None,
+            reasoning_id: Some(reasoning_id.to_string()),
+            permission_policy: None,
+        }
+    }
 
     #[test]
     fn resolve_model_detects_fast_suffix() {
@@ -1099,6 +1186,102 @@ mod tests {
             (Some("gpt-5.4-mini"), false)
         );
         assert_eq!(resolve_model(None), (None, false));
+    }
+
+    #[test]
+    fn apply_overrides_preserves_codex_protocol_reasoning_values() {
+        let mut executor = test_executor();
+        executor.apply_overrides(&config_with_reasoning("minimal"));
+
+        let overrides = executor
+            .build_config_overrides()
+            .expect("reasoning override should produce config");
+        assert_eq!(
+            overrides.get("model_reasoning_effort"),
+            Some(&json!("minimal"))
+        );
+    }
+
+    #[test]
+    fn missing_reasoning_override_omits_model_reasoning_effort() {
+        let executor = test_executor();
+
+        let overrides = executor.build_config_overrides();
+
+        assert_eq!(overrides, None);
+    }
+
+    #[test]
+    fn apply_overrides_preserves_custom_reasoning_values() {
+        let mut executor = test_executor();
+        executor.apply_overrides(&config_with_reasoning("max"));
+
+        let overrides = executor
+            .build_config_overrides()
+            .expect("reasoning override should produce config");
+        assert_eq!(overrides.get("model_reasoning_effort"), Some(&json!("max")));
+    }
+
+    #[test]
+    fn reasoning_effort_maps_to_codex_protocol_values() {
+        let xhigh = "xhigh"
+            .parse::<ReasoningEffort>()
+            .expect("xhigh is a valid reasoning effort");
+        assert_eq!(xhigh.to_protocol(), ProtocolReasoningEffort::XHigh);
+
+        let custom = "max"
+            .parse::<ReasoningEffort>()
+            .expect("custom non-empty efforts are valid");
+        assert_eq!(
+            custom.to_protocol(),
+            ProtocolReasoningEffort::Custom("max".to_string())
+        );
+    }
+
+    #[test]
+    fn model_list_uses_codex_default_reasoning_effort() {
+        let response = ModelListResponse {
+            data: vec![Model {
+                id: "gpt-test".to_string(),
+                model: "gpt-test".to_string(),
+                upgrade: None,
+                upgrade_info: None,
+                availability_nux: None,
+                display_name: "GPT Test".to_string(),
+                description: "test model".to_string(),
+                hidden: false,
+                supported_reasoning_efforts: vec![
+                    ReasoningEffortOption {
+                        reasoning_effort: ProtocolReasoningEffort::High,
+                        description: "High".to_string(),
+                    },
+                    ReasoningEffortOption {
+                        reasoning_effort: ProtocolReasoningEffort::Minimal,
+                        description: "Minimal".to_string(),
+                    },
+                ],
+                default_reasoning_effort: ProtocolReasoningEffort::Minimal,
+                input_modalities: vec![],
+                supports_personality: false,
+                additional_speed_tiers: vec![],
+                service_tiers: vec![],
+                default_service_tier: None,
+                is_default: false,
+            }],
+            next_cursor: None,
+        };
+
+        let models = model_list_response_to_model_infos(response);
+
+        assert_eq!(models.len(), 1);
+        let reasoning_options = &models[0].reasoning_options;
+        assert_eq!(
+            reasoning_options
+                .iter()
+                .find(|option| option.is_default)
+                .map(|option| option.id.as_str()),
+            Some("minimal")
+        );
     }
 
     #[test]

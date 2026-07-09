@@ -59,7 +59,8 @@ function ReasoningDropdown({
   if (!options.length) return null;
 
   const selectedLabel =
-    getReasoningLabel(options, selectedId) ?? t('modelSelector.default');
+    getReasoningLabel(options, selectedId) ??
+    t('modelSelector.followCliConfig');
   const isDefaultSelected = selectedId === null;
 
   return (
@@ -88,7 +89,7 @@ function ReasoningDropdown({
           icon={isDefaultSelected ? CheckIcon : undefined}
           onClick={() => onSelect(null)}
         >
-          {t('modelSelector.default')}
+          {t('modelSelector.followCliConfig')}
         </DropdownMenuItem>
         {options.map((option) => (
           <DropdownMenuItem

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelInfo } from 'shared/types';
 import {
   buildModelSelectionOverride,
+  resolveDefaultReasoningId,
   resolveReasoningIdForOptions,
 } from './modelSelector';
 
@@ -33,33 +34,39 @@ const models: ModelInfo[] = [
 ];
 
 describe('model selector reasoning overrides', () => {
-  it('uses the selected model default reasoning when selecting a model', () => {
+  it('does not write discovery default reasoning when selecting a model', () => {
     expect(buildModelSelectionOverride(models, 'gpt-5.5')).toEqual({
       model_id: 'gpt-5.5',
-      reasoning_id: 'xhigh',
     });
   });
 
-  it('includes provider-scoped model ids and reasoning defaults', () => {
+  it('includes provider-scoped model ids without reasoning overrides', () => {
     expect(buildModelSelectionOverride(models, 'sonnet', 'anthropic')).toEqual({
       model_id: 'anthropic/sonnet',
-      reasoning_id: 'high',
     });
   });
 
-  it('clears reasoning when the selected model has no reasoning options', () => {
+  it('returns only the model override when the model has no reasoning options', () => {
     expect(buildModelSelectionOverride(models, 'haiku', 'anthropic')).toEqual({
       model_id: 'anthropic/haiku',
-      reasoning_id: null,
     });
   });
 
-  it('replaces invalid reasoning with the model default', () => {
+  it('keeps the discovery default available only as metadata', () => {
+    expect(resolveDefaultReasoningId(models[0].reasoning_options)).toBe(
+      'xhigh'
+    );
+  });
+
+  it('validates preferred reasoning without falling back to the model default', () => {
     expect(
       resolveReasoningIdForOptions(models[0].reasoning_options, 'medium')
     ).toBe('medium');
     expect(
       resolveReasoningIdForOptions(models[0].reasoning_options, 'low')
-    ).toBe('xhigh');
+    ).toBeNull();
+    expect(
+      resolveReasoningIdForOptions(models[0].reasoning_options, null)
+    ).toBeNull();
   });
 });
