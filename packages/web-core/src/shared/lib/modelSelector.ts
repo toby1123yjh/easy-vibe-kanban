@@ -31,6 +31,14 @@ export function getSelectedModel(
   return models.find((model) => model.id.toLowerCase() === selectedId) ?? null;
 }
 
+export function findModelForSelection(
+  models: ModelInfo[],
+  modelId: string | null,
+  providerId?: string
+): ModelInfo | null {
+  return getSelectedModel(models, providerId ?? null, modelId);
+}
+
 export function getReasoningLabel(
   options: ReasoningOption[],
   selectedId: string | null
@@ -145,4 +153,45 @@ export function resolveDefaultReasoningId(
   return (
     options.find((option) => option.is_default)?.id ?? options[0]?.id ?? null
   );
+}
+
+export function isReasoningOptionAvailable(
+  options: ReasoningOption[],
+  reasoningId: string | null | undefined
+): boolean {
+  return Boolean(
+    reasoningId && options.some((option) => option.id === reasoningId)
+  );
+}
+
+export function resolveReasoningIdForOptions(
+  options: ReasoningOption[],
+  preferredReasoningId: string | null | undefined
+): string | null {
+  if (options.length === 0) return null;
+  if (isReasoningOptionAvailable(options, preferredReasoningId)) {
+    return preferredReasoningId ?? null;
+  }
+  return resolveDefaultReasoningId(options);
+}
+
+export function buildModelSelectionOverride(
+  models: ModelInfo[],
+  modelId: string | null,
+  providerId?: string
+): {
+  model_id: string | null;
+  reasoning_id: string | null;
+} {
+  const model_id = modelId
+    ? providerId
+      ? `${providerId}/${modelId}`
+      : modelId
+    : null;
+  const model = findModelForSelection(models, modelId, providerId);
+
+  return {
+    model_id,
+    reasoning_id: resolveDefaultReasoningId(model?.reasoning_options ?? []),
+  };
 }

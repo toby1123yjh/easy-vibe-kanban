@@ -28,7 +28,10 @@ import {
   appendPresetModel,
   resolveDefaultModelId,
   isModelAvailable,
-  resolveDefaultReasoningId,
+  buildModelSelectionOverride,
+  findModelForSelection,
+  isReasoningOptionAvailable,
+  resolveReasoningIdForOptions,
 } from '@/shared/lib/modelSelector';
 import { profilesApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -212,11 +215,63 @@ export function ModelSelectorContainer({
     return null;
   }, [selectedModel, recentReasoningByModel]);
 
+  const selectedReasoningOptions = selectedModel?.reasoning_options ?? [];
+  const hasConfiguredReasoning = Boolean(
+    executorConfig &&
+      Object.prototype.hasOwnProperty.call(executorConfig, 'reasoning_id')
+  );
+  const configuredReasoningId = executorConfig?.reasoning_id;
+  const inferredReasoningId = resolveReasoningIdForOptions(
+    selectedReasoningOptions,
+    presetReasoningId ?? recentReasoningId
+  );
   const selectedReasoningId =
-    executorConfig?.reasoning_id ??
-    presetReasoningId ??
-    recentReasoningId ??
-    resolveDefaultReasoningId(selectedModel?.reasoning_options ?? []);
+    selectedReasoningOptions.length === 0
+      ? null
+      : hasConfiguredReasoning
+        ? configuredReasoningId == null
+          ? null
+          : isReasoningOptionAvailable(
+                selectedReasoningOptions,
+                configuredReasoningId
+              )
+            ? configuredReasoningId
+            : inferredReasoningId
+        : inferredReasoningId;
+
+  useEffect(() => {
+    if (loadingModels) return;
+
+    if (selectedReasoningOptions.length === 0) {
+      if (hasConfiguredReasoning && configuredReasoningId) {
+        onOverrideChange({ reasoning_id: null });
+      }
+      return;
+    }
+
+    if (!hasConfiguredReasoning) {
+      if (inferredReasoningId) {
+        onOverrideChange({ reasoning_id: inferredReasoningId });
+      }
+      return;
+    }
+
+    if (!configuredReasoningId) return;
+    const nextReasoningId = resolveReasoningIdForOptions(
+      selectedReasoningOptions,
+      configuredReasoningId
+    );
+    if (nextReasoningId !== configuredReasoningId) {
+      onOverrideChange({ reasoning_id: nextReasoningId });
+    }
+  }, [
+    configuredReasoningId,
+    hasConfiguredReasoning,
+    inferredReasoningId,
+    loadingModels,
+    onOverrideChange,
+    selectedReasoningOptions,
+  ]);
 
   const defaultAgentId =
     config?.agents.find((entry) => entry.is_default)?.id ?? null;
@@ -290,32 +345,21 @@ export function ModelSelectorContainer({
   ]);
 
   const handleModelSelect = (modelId: string | null, providerId?: string) => {
-    const modelOverride = (() => {
-      if (!modelId) return null;
-      if (providerId) return `${providerId}/${modelId}`;
-      return modelId;
-    })();
-    onOverrideChange({ model_id: modelOverride });
+    const modelOverride = config
+      ? buildModelSelectionOverride(config.models, modelId, providerId)
+      : {
+          model_id: modelId
+            ? providerId
+              ? `${providerId}/${modelId}`
+              : modelId
+            : null,
+          reasoning_id: null,
+        };
+    onOverrideChange(modelOverride);
 
     pendingModelRef.current =
       modelId && config
-        ? (() => {
-            const selectedId = modelId.toLowerCase();
-            if (!providerId) {
-              return (
-                config.models.find((m) => m.id.toLowerCase() === selectedId) ??
-                null
-              );
-            }
-            const provider = providerId.toLowerCase();
-            return (
-              config.models.find(
-                (m) =>
-                  m.id.toLowerCase() === selectedId &&
-                  m.provider_id?.toLowerCase() === provider
-              ) ?? null
-            );
-          })()
+        ? findModelForSelection(config.models, modelId, providerId)
         : null;
     pendingReasoningRef.current = null;
   };
