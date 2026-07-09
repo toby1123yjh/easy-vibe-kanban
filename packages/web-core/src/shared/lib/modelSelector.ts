@@ -150,9 +150,7 @@ export function isModelAvailable(
 export function resolveDefaultReasoningId(
   options: ReasoningOption[]
 ): string | null {
-  return (
-    options.find((option) => option.is_default)?.id ?? options[0]?.id ?? null
-  );
+  return options.find((option) => option.is_default)?.id ?? null;
 }
 
 export function isReasoningOptionAvailable(
@@ -172,6 +170,30 @@ export function resolveReasoningIdForOptions(
     return preferredReasoningId ?? null;
   }
   return null;
+}
+
+export function resolveConfiguredReasoningIdForOptions(
+  options: ReasoningOption[],
+  configuredReasoningId: string | null | undefined,
+  hasConfiguredReasoning: boolean
+): string | null {
+  if (options.length === 0 || !hasConfiguredReasoning) return null;
+  if (configuredReasoningId == null) return null;
+  return resolveReasoningIdForOptions(options, configuredReasoningId);
+}
+
+export function getReasoningOverrideRepair(
+  options: ReasoningOption[],
+  configuredReasoningId: string | null | undefined,
+  hasConfiguredReasoning: boolean
+): { reasoning_id: null } | null {
+  if (!hasConfiguredReasoning || configuredReasoningId == null) return null;
+  if (configuredReasoningId === '') return { reasoning_id: null };
+  if (options.length === 0) return { reasoning_id: null };
+  return resolveReasoningIdForOptions(options, configuredReasoningId) ===
+    configuredReasoningId
+    ? null
+    : { reasoning_id: null };
 }
 
 export function buildModelSelectionOverride(

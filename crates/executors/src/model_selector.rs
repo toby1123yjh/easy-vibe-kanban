@@ -121,10 +121,9 @@ impl ReasoningOption {
             .into_iter()
             .map(|(id, label)| {
                 let label = label.unwrap_or_else(|| reasoning_label(&id));
-                let is_default = default_id.as_ref().map_or_else(
-                    || id.eq_ignore_ascii_case("high"),
-                    |d| id.eq_ignore_ascii_case(d),
-                );
+                let is_default = default_id
+                    .as_ref()
+                    .is_some_and(|d| id.eq_ignore_ascii_case(d));
                 ReasoningOption {
                     id,
                     label,
@@ -148,5 +147,32 @@ fn reasoning_label(id: &str) -> String {
     match id {
         "xhigh" => "Extra High".to_string(),
         _ => id.to_case(Case::Title),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReasoningOption;
+
+    #[test]
+    fn reasoning_options_do_not_invent_default_without_explicit_default_id() {
+        let options = ReasoningOption::from_names(["low", "medium", "high", "xhigh"]);
+
+        assert!(options.iter().all(|option| !option.is_default));
+    }
+
+    #[test]
+    fn reasoning_options_mark_explicit_default_id() {
+        let options =
+            ReasoningOption::from_names_with_default(["low", "medium", "high"], Some("medium"));
+
+        assert_eq!(
+            options
+                .iter()
+                .filter(|option| option.is_default)
+                .map(|option| option.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["medium"]
+        );
     }
 }

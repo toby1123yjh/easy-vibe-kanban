@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ModelInfo } from 'shared/types';
 import {
   buildModelSelectionOverride,
+  getReasoningOverrideRepair,
+  resolveConfiguredReasoningIdForOptions,
   resolveDefaultReasoningId,
   resolveReasoningIdForOptions,
 } from './modelSelector';
@@ -58,6 +60,15 @@ describe('model selector reasoning overrides', () => {
     );
   });
 
+  it('does not invent a default reasoning option from list order', () => {
+    expect(
+      resolveDefaultReasoningId([
+        { id: 'medium', label: 'Medium', is_default: false },
+        { id: 'high', label: 'High', is_default: false },
+      ])
+    ).toBeNull();
+  });
+
   it('validates preferred reasoning without falling back to the model default', () => {
     expect(
       resolveReasoningIdForOptions(models[0].reasoning_options, 'medium')
@@ -67,6 +78,58 @@ describe('model selector reasoning overrides', () => {
     ).toBeNull();
     expect(
       resolveReasoningIdForOptions(models[0].reasoning_options, null)
+    ).toBeNull();
+  });
+
+  it('resolves only configured reasoning for display and send semantics', () => {
+    expect(
+      resolveConfiguredReasoningIdForOptions(
+        models[0].reasoning_options,
+        'xhigh',
+        true
+      )
+    ).toBe('xhigh');
+    expect(
+      resolveConfiguredReasoningIdForOptions(
+        models[0].reasoning_options,
+        'xhigh',
+        false
+      )
+    ).toBeNull();
+    expect(
+      resolveConfiguredReasoningIdForOptions(
+        models[0].reasoning_options,
+        'low',
+        true
+      )
+    ).toBeNull();
+    expect(
+      resolveConfiguredReasoningIdForOptions(
+        models[0].reasoning_options,
+        null,
+        true
+      )
+    ).toBeNull();
+  });
+
+  it('repairs invalid or stale configured reasoning without auto-applying defaults', () => {
+    expect(
+      getReasoningOverrideRepair(models[0].reasoning_options, 'xhigh', true)
+    ).toBeNull();
+    expect(
+      getReasoningOverrideRepair(models[0].reasoning_options, 'low', true)
+    ).toEqual({ reasoning_id: null });
+    expect(
+      getReasoningOverrideRepair(models[0].reasoning_options, '', true)
+    ).toEqual({ reasoning_id: null });
+    expect(
+      getReasoningOverrideRepair(models[2].reasoning_options, 'high', true)
+    ).toEqual({ reasoning_id: null });
+    expect(
+      getReasoningOverrideRepair(models[0].reasoning_options, undefined, false)
+    ).toBeNull();
+    expect(
+      getReasoningOverrideRepair(models[0].reasoning_options, null, true)
     ).toBeNull();
   });
 });

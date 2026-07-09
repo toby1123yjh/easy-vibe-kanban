@@ -15,7 +15,6 @@ import { toPrettyCase } from '@/shared/lib/string';
 import {
   getModelKey,
   getRecentModelEntries,
-  getRecentReasoningByModel,
   touchRecentModel,
   updateRecentModelEntries,
   setRecentReasoning,
@@ -30,8 +29,8 @@ import {
   isModelAvailable,
   buildModelSelectionOverride,
   findModelForSelection,
-  isReasoningOptionAvailable,
-  resolveReasoningIdForOptions,
+  getReasoningOverrideRepair,
+  resolveConfiguredReasoningIdForOptions,
 } from '@/shared/lib/modelSelector';
 import { profilesApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -198,87 +197,32 @@ export function ModelSelectorContainer({
     ? getSelectedModel(config.models, selectedProviderId, selectedModelId)
     : null;
 
-  const recentReasoningByModel = getRecentReasoningByModel(profiles, agent);
-
-  const hasPresetReasoning = Boolean(
-    presetOptions &&
-      Object.prototype.hasOwnProperty.call(presetOptions, 'reasoning_id')
-  );
-  const hasPresetReasoningForSelectedModel =
-    hasPresetReasoning &&
-    Boolean(resolvedPresetModelId && selectedModelId === resolvedPresetModelId);
-  const presetReasoningId = hasPresetReasoningForSelectedModel
-    ? (presetOptions?.reasoning_id ?? null)
-    : undefined;
-
-  const recentReasoningId = useMemo(() => {
-    if (!selectedModel || !recentReasoningByModel) return null;
-    const key = getModelKey(selectedModel);
-    const keyLower = key.toLowerCase();
-    for (const [k, v] of Object.entries(recentReasoningByModel)) {
-      if (k.toLowerCase() === keyLower) {
-        return resolveReasoningIdForOptions(selectedModel.reasoning_options, v);
-      }
-    }
-    return null;
-  }, [selectedModel, recentReasoningByModel]);
-
   const selectedReasoningOptions = selectedModel?.reasoning_options ?? [];
   const hasConfiguredReasoning = Boolean(
     executorConfig &&
       Object.prototype.hasOwnProperty.call(executorConfig, 'reasoning_id')
   );
   const configuredReasoningId = executorConfig?.reasoning_id;
-  const preferredReasoningId = hasPresetReasoningForSelectedModel
-    ? presetReasoningId
-    : recentReasoningId;
-  const inferredReasoningId = resolveReasoningIdForOptions(
+  const selectedReasoningId = resolveConfiguredReasoningIdForOptions(
     selectedReasoningOptions,
-    preferredReasoningId
+    configuredReasoningId,
+    hasConfiguredReasoning
   );
-  const selectedReasoningId =
-    selectedReasoningOptions.length === 0
-      ? null
-      : hasConfiguredReasoning
-        ? configuredReasoningId == null
-          ? null
-          : isReasoningOptionAvailable(
-                selectedReasoningOptions,
-                configuredReasoningId
-              )
-            ? configuredReasoningId
-            : null
-        : inferredReasoningId;
 
   useEffect(() => {
     if (loadingModels) return;
 
-    if (selectedReasoningOptions.length === 0) {
-      if (hasConfiguredReasoning && configuredReasoningId) {
-        onOverrideChange({ reasoning_id: null });
-      }
-      return;
-    }
-
-    if (!hasConfiguredReasoning) {
-      if (inferredReasoningId) {
-        onOverrideChange({ reasoning_id: inferredReasoningId });
-      }
-      return;
-    }
-
-    if (!configuredReasoningId) return;
-    const nextReasoningId = resolveReasoningIdForOptions(
+    const repair = getReasoningOverrideRepair(
       selectedReasoningOptions,
-      configuredReasoningId
+      configuredReasoningId,
+      hasConfiguredReasoning
     );
-    if (nextReasoningId !== configuredReasoningId) {
-      onOverrideChange({ reasoning_id: nextReasoningId });
+    if (repair) {
+      onOverrideChange(repair);
     }
   }, [
     configuredReasoningId,
     hasConfiguredReasoning,
-    inferredReasoningId,
     loadingModels,
     onOverrideChange,
     selectedReasoningOptions,
