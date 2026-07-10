@@ -162,6 +162,7 @@ async fn trigger_pr_description_follow_up(
             reset_to_message_id: None,
             executor_config: executors::profile::ExecutorConfig::from(executor_profile_id.clone()),
             working_dir: working_dir.clone(),
+            transcript_backfill: None,
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {

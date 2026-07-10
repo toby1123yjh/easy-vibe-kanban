@@ -481,6 +481,10 @@ export type RefreshRelaySigningSessionResponse = { signing_session_id: string, }
 
 export type ResumableAgentSession = { agent_session_id: string, title: string, last_used_at: string, };
 
+export type NativeSessionPreviewEntry = { role: string, content: string, timestamp?: string, };
+
+export type NativeAgentSessionPreview = { agent_session_id: string, title: string, last_used_at?: string, entries: Array<NativeSessionPreviewEntry>, truncated: boolean, turn_limit: number, };
+
 export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, resume_session_id?: string, retry_process_id: string | null, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };
 
 export type ResetProcessRequest = { process_id: string, force_when_dirty: boolean | null, perform_git_reset: boolean | null, };

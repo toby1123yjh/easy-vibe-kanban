@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
 import { cn } from '@/shared/lib/utils';
-import { sessionsApi } from '@/shared/lib/api';
+import { sessionsApi, type NativeAgentSessionPreview } from '@/shared/lib/api';
 
 interface AgentSessionResumePickerProps {
   workspaceId?: string;
@@ -35,6 +35,7 @@ interface AgentSessionResumeChipProps {
 const RECENT_DAYS = 3;
 const EXTENDED_DAYS = 30;
 const RECENT_LIMIT = 10;
+const PREVIEW_TURNS = 20;
 
 function formatResumeTime(value: string) {
   const date = new Date(value);
@@ -59,12 +60,16 @@ export function AgentSessionResumePicker({
   const { t } = useTranslation('common');
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState(RECENT_DAYS);
+  const [previewSessionId, setPreviewSessionId] = useState<string | null>(
+    selectedSessionId ?? null
+  );
   const normalizedScopePath = scopePath?.trim() || undefined;
   const canLoad = Boolean(executor);
 
   useEffect(() => {
     setDays(RECENT_DAYS);
-  }, [workspaceId, normalizedScopePath, executor]);
+    setPreviewSessionId(selectedSessionId ?? null);
+  }, [workspaceId, normalizedScopePath, executor, selectedSessionId]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: [
@@ -87,7 +92,42 @@ export function AgentSessionResumePicker({
     staleTime: 30_000,
   });
 
-  const sessions = data ?? [];
+  const sessions = useMemo(() => data ?? [], [data]);
+  useEffect(() => {
+    if (!open) return;
+    if (selectedSessionId) {
+      setPreviewSessionId(selectedSessionId);
+      return;
+    }
+    setPreviewSessionId((current) => {
+      if (current && sessions.some((s) => s.agent_session_id === current)) {
+        return current;
+      }
+      return sessions[0]?.agent_session_id ?? null;
+    });
+  }, [open, selectedSessionId, sessions]);
+
+  const { data: preview, isLoading: isPreviewLoading } = useQuery({
+    queryKey: [
+      'agent-session-native-preview',
+      workspaceId,
+      normalizedScopePath,
+      executor,
+      previewSessionId,
+      PREVIEW_TURNS,
+    ],
+    queryFn: () =>
+      sessionsApi.getNativePreview({
+        workspaceId,
+        scopePath: normalizedScopePath,
+        executor: executor!,
+        sessionId: previewSessionId!,
+        turns: PREVIEW_TURNS,
+      }),
+    enabled: open && canLoad && Boolean(previewSessionId),
+    staleTime: 30_000,
+  });
+
   const triggerLabel = t('agentSessionResume.open', {
     defaultValue: 'Recent agent sessions',
   });
@@ -168,11 +208,22 @@ export function AgentSessionResumePicker({
                   {formatResumeTime(session.last_used_at)}
                 </span>
               }
+              onFocus={() => setPreviewSessionId(session.agent_session_id)}
+              onPointerMove={() =>
+                setPreviewSessionId(session.agent_session_id)
+              }
               onClick={() => onSelect(session)}
             >
               {session.title}
             </DropdownMenuItem>
           ))}
+
+        {!isLoading && !isError && sessions.length > 0 && (
+          <NativeSessionPreviewPanel
+            preview={preview ?? null}
+            isLoading={isPreviewLoading}
+          />
+        )}
 
         {days === RECENT_DAYS && (
           <>
@@ -191,6 +242,63 @@ export function AgentSessionResumePicker({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function NativeSessionPreviewPanel({
+  preview,
+  isLoading,
+}: {
+  preview: NativeAgentSessionPreview | null;
+  isLoading: boolean;
+}) {
+  const { t } = useTranslation('common');
+
+  return (
+    <>
+      <DropdownMenuSeparator />
+      <div className="mx-half max-h-72 overflow-y-auto px-half py-half">
+        <div className="mb-half text-xs font-medium text-low">
+          {t('agentSessionResume.previewLabel', {
+            defaultValue: 'Recent context',
+          })}
+        </div>
+        {isLoading && (
+          <div className="px-half py-base text-xs text-low">
+            {t('agentSessionResume.previewLoading', {
+              defaultValue: 'Loading preview...',
+            })}
+          </div>
+        )}
+        {!isLoading && (!preview || preview.entries.length === 0) && (
+          <div className="px-half py-base text-xs text-low">
+            {t('agentSessionResume.previewEmpty', {
+              defaultValue: 'No preview available',
+            })}
+          </div>
+        )}
+        {!isLoading &&
+          preview?.entries.map((entry, index) => (
+            <div
+              key={`${entry.role}:${index}:${entry.timestamp ?? ''}`}
+              className="mb-half last:mb-0"
+            >
+              <div className="mb-[2px] text-[11px] uppercase text-low">
+                {entry.role === 'assistant'
+                  ? t('agentSessionResume.previewAssistant', {
+                      defaultValue: 'Assistant',
+                    })
+                  : t('agentSessionResume.previewUser', {
+                      defaultValue: 'User',
+                    })}
+              </div>
+              <div className="whitespace-pre-wrap break-words rounded-sm bg-secondary px-half py-half text-xs leading-relaxed text-normal">
+                {entry.content}
+              </div>
+            </div>
+          ))}
+      </div>
+    </>
   );
 }
 

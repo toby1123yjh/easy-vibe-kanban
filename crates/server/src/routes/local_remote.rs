@@ -2838,6 +2838,7 @@ async fn start_arena_follow_up(
             reset_to_message_id: None,
             executor_config,
             working_dir,
+            transcript_backfill: None,
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {

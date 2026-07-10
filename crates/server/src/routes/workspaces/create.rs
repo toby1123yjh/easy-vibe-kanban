@@ -21,9 +21,12 @@ use uuid::Uuid;
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::workspaces::{
-        attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
-        links::link_workspace_to_issue,
+    routes::{
+        sessions::native_resume_transcript_backfill,
+        workspaces::{
+            attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
+            links::link_workspace_to_issue,
+        },
     },
 };
 
@@ -448,14 +451,23 @@ pub async fn create_and_start_workspace(
         .await?;
     }
 
+    let native_transcript_backfill = native_resume_transcript_backfill(
+        &deployment.db().pool,
+        Some(workspace.id),
+        &executor_config.executor.to_string(),
+        resume_session_id.as_deref(),
+    )
+    .await?;
+
     let execution_process = deployment
         .container()
-        .start_workspace_with_selected_skills(
+        .start_workspace_with_selected_skills_and_transcript_backfill(
             &workspace,
             executor_config.clone(),
             workspace_prompt,
             selected_skills,
             resume_session_id,
+            native_transcript_backfill,
         )
         .await?;
 

@@ -10,6 +10,7 @@ import type {
   ExecutionProcessState,
   PatchTypeWithKey,
 } from '@/shared/hooks/useConversationHistory/types';
+import { deriveConversationEntries } from './deriveConversationEntries';
 import { deriveConversationSemanticTimeline } from './deriveConversationSemanticTimeline';
 
 const staticProcess: ExecutionProcessState['executionProcess'] = {
@@ -100,7 +101,85 @@ function assistantEntry(content: string): PatchTypeWithKey {
   };
 }
 
+function userEntry(
+  content: string,
+  metadata?: Record<string, unknown>
+): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: content,
+    executionProcessId: staticProcess.id,
+    content: {
+      timestamp: null,
+      content,
+      entry_type: {
+        type: 'user_message',
+      },
+      ...(metadata ? { metadata } : {}),
+    },
+  } as PatchTypeWithKey;
+}
+
+function nativeBackfillEntry(
+  role: 'user_message' | 'assistant_message',
+  content: string
+): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: content,
+    executionProcessId: staticProcess.id,
+    content: {
+      timestamp: null,
+      content,
+      entry_type: {
+        type: role,
+      },
+      metadata: {
+        native_history_backfill: true,
+      },
+    },
+  } as PatchTypeWithKey;
+}
+
 describe('deriveConversationSemanticTimeline', () => {
+  it('treats created tool entries as inactive once the process is completed', () => {
+    const source = makeSource({
+      ...liveProcessBase,
+      status: ExecutionProcessStatus.completed,
+      completed_at: '2026-06-22T00:01:00Z',
+    });
+    source.executionProcessState[staticProcess.id].entries = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'tool-1',
+        executionProcessId: staticProcess.id,
+        content: {
+          timestamp: null,
+          content: 'Bash',
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'Bash',
+            action_type: {
+              action: 'command_run',
+              command: 'pnpm test',
+              result: null,
+              category: 'other',
+            },
+            status: { status: 'created' },
+          },
+        },
+      },
+    ];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(timeline.processes[0]).toMatchObject({
+      isRunning: false,
+      failedOrKilled: false,
+    });
+    expect(timeline.processes[0].visibleEntries).toHaveLength(1);
+  });
+
   it('keeps waiting runtime lifecycle active', () => {
     const timeline = deriveConversationSemanticTimeline(
       makeSource({
@@ -196,5 +275,51 @@ describe('deriveConversationSemanticTimeline', () => {
         ? timeline.processes[0].visibleEntries[0].content.entry_type.type
         : null
     ).toBe('loading');
+  });
+
+  it('keeps native history user messages while hiding provider user echoes', () => {
+    const source = makeSource({
+      ...liveProcessBase,
+      status: ExecutionProcessStatus.completed,
+      completed_at: '2026-06-22T00:01:00Z',
+    });
+    source.executionProcessState[staticProcess.id].entries = [
+      userEntry('provider echo'),
+      nativeBackfillEntry('user_message', 'old question'),
+    ];
+
+    const timeline = deriveConversationSemanticTimeline(source);
+
+    expect(
+      timeline.processes[0].visibleEntries.map((entry) =>
+        entry.type === 'NORMALIZED_ENTRY' ? entry.content.content : ''
+      )
+    ).toEqual(['old question']);
+  });
+
+  it('emits native history backfill before the current prompt', () => {
+    const source = makeSource(liveProcessBase);
+    source.executionProcessState[staticProcess.id].entries = [
+      nativeBackfillEntry('user_message', 'old question'),
+      nativeBackfillEntry('assistant_message', 'old answer'),
+    ];
+
+    const derived = deriveConversationEntries({
+      source,
+      scriptOutputCache: new Map(),
+    });
+
+    expect(
+      derived.entries.map((entry) =>
+        entry.type === 'NORMALIZED_ENTRY'
+          ? [entry.content.entry_type.type, entry.content.content]
+          : [entry.type, entry.content]
+      )
+    ).toEqual([
+      ['user_message', 'old question'],
+      ['assistant_message', 'old answer'],
+      ['user_message', 'Implement feature'],
+      ['loading', ''],
+    ]);
   });
 });

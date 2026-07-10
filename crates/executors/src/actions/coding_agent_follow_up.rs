@@ -14,6 +14,21 @@ use crate::{
     profile::ExecutorConfig,
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodingAgentTranscriptBackfillRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CodingAgentTranscriptBackfillEntry {
+    pub role: CodingAgentTranscriptBackfillRole,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct CodingAgentFollowUpRequest {
     pub prompt: String,
@@ -30,6 +45,9 @@ pub struct CodingAgentFollowUpRequest {
     /// If None, uses the container_ref directory directly.
     #[serde(default)]
     pub working_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub transcript_backfill: Option<Vec<CodingAgentTranscriptBackfillEntry>>,
 }
 
 impl CodingAgentFollowUpRequest {

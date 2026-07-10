@@ -8,6 +8,7 @@ import {
 import type { ConversationSemanticProcessItem } from './deriveConversationSemanticTimeline';
 import { deriveConversationSemanticTimeline } from './deriveConversationSemanticTimeline';
 import type { ConversationTimelineSource } from '@/shared/hooks/useConversationHistory/types';
+import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
 type ScriptTurnKind =
   | 'setup_script'
@@ -124,7 +125,7 @@ function hasVisibleAgentActivity(
       case 'user_message':
         return false;
       default:
-        return true;
+        return !isNativeHistoryBackfillEntry(entry);
     }
   });
 }

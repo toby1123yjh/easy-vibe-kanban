@@ -11,6 +11,7 @@ import {
   type ConversationScriptTurn,
   type ConversationTurn,
 } from './deriveConversationTurns';
+import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
 export interface DerivedConversationEntriesResult {
   readonly entries: PatchTypeWithKey[];
@@ -41,6 +42,15 @@ function appendAgentTurnEntries(
   turn: ConversationAgentTurn,
   turnEntries: PatchTypeWithKey[]
 ) {
+  const nativeBackfillEntries = turn.visibleEntries.filter(
+    isNativeHistoryBackfillEntry
+  );
+  const currentRunEntries = turn.visibleEntries.filter(
+    (entry) => !isNativeHistoryBackfillEntry(entry)
+  );
+
+  turnEntries.push(...nativeBackfillEntries);
+
   if (turn.shouldEmitUserMessage && turn.prompt) {
     const userNormalizedEntry: NormalizedEntry = {
       entry_type: { type: 'user_message' },
@@ -57,7 +67,7 @@ function appendAgentTurnEntries(
     );
   }
 
-  turnEntries.push(...turn.visibleEntries);
+  turnEntries.push(...currentRunEntries);
 
   if (turn.shouldEmitLoading) {
     turnEntries.push(makeLoadingPatch(turn.process.executionProcess.id));

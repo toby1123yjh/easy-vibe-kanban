@@ -181,6 +181,8 @@ fn generate_types_content() -> String {
         relay_types::RefreshRelaySigningSessionRequest::decl(),
         relay_types::RefreshRelaySigningSessionResponse::decl(),
         db::models::coding_agent_turn::ResumableAgentSession::decl(),
+        server::routes::sessions::NativeSessionPreviewEntry::decl(),
+        server::routes::sessions::NativeAgentSessionPreview::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
         server::routes::sessions::ResetProcessRequest::decl(),
         server::routes::workspaces::git::ChangeTargetBranchRequest::decl(),

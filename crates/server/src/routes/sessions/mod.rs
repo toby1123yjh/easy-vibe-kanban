@@ -26,10 +26,14 @@ use deployment::Deployment;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, SelectedSkill,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        coding_agent_follow_up::{
+            CodingAgentFollowUpRequest, CodingAgentTranscriptBackfillEntry,
+            CodingAgentTranscriptBackfillRole,
+        },
     },
     profile::ExecutorConfig,
 };
+pub use native_history::{NativeAgentSessionPreview, NativeSessionPreviewEntry};
 use serde::Deserialize;
 use services::services::container::ContainerService;
 use ts_rs::TS;
@@ -84,6 +88,15 @@ pub struct ResumableAgentSessionQuery {
     pub limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct NativeAgentSessionPreviewQuery {
+    pub workspace_id: Option<Uuid>,
+    pub scope_path: Option<String>,
+    pub executor: String,
+    pub session_id: String,
+    pub turns: Option<i64>,
+}
+
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateSessionRequest {
     pub workspace_id: Uuid,
@@ -123,39 +136,101 @@ pub async fn get_resumable_agent_sessions(
     let workspace_scope = workspace_scope_paths(pool, query.workspace_id).await?;
     let native_history_scope = native_history_scope_paths(workspace_scope, explicit_scope_path);
 
-    let mut sessions = native_history::list_native_resumable_agent_sessions(
+    // The resume picker intentionally reflects the agent's native history only.
+    // It should not mix in sessions merely because Vibe Kanban has previously
+    // observed the same executor/session pair.
+    let sessions = native_history::list_native_resumable_agent_sessions(
         executor,
         since,
         limit as usize,
         &native_history_scope,
         explicit_scope_path.is_none(),
     );
-    let mut seen_session_ids = sessions
-        .iter()
-        .map(|session| session.agent_session_id.clone())
-        .collect::<HashSet<_>>();
-
-    if query.workspace_id.is_some() || explicit_scope_path.is_none() {
-        let db_sessions = CodingAgentTurn::find_resumable_agent_sessions(
-            pool,
-            query.workspace_id,
-            executor,
-            since,
-            limit,
-        )
-        .await?;
-
-        for session in db_sessions {
-            if seen_session_ids.insert(session.agent_session_id.clone()) {
-                sessions.push(session);
-            }
-        }
-    }
-
-    sessions.sort_by(|a, b| b.last_used_at.cmp(&a.last_used_at));
-    sessions.truncate(limit as usize);
 
     Ok(ResponseJson(ApiResponse::success(sessions)))
+}
+
+pub async fn get_native_agent_session_preview(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<NativeAgentSessionPreviewQuery>,
+) -> Result<ResponseJson<ApiResponse<Option<NativeAgentSessionPreview>>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let turn_limit = query
+        .turns
+        .unwrap_or(native_history::DEFAULT_NATIVE_SESSION_PREVIEW_TURNS as i64);
+    let turn_limit = turn_limit.clamp(1, native_history::MAX_NATIVE_SESSION_PREVIEW_TURNS as i64);
+    let explicit_scope_path = query
+        .scope_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let workspace_scope = workspace_scope_paths(pool, query.workspace_id).await?;
+    let native_history_scope = native_history_scope_paths(workspace_scope, explicit_scope_path);
+
+    let preview = native_history::get_native_agent_session_preview(
+        query.executor.trim(),
+        &query.session_id,
+        turn_limit as usize,
+        &native_history_scope,
+        explicit_scope_path.is_none(),
+    );
+
+    Ok(ResponseJson(ApiResponse::success(preview)))
+}
+
+pub(crate) async fn native_resume_transcript_backfill(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Option<Uuid>,
+    executor: &str,
+    resume_session_id: Option<&str>,
+) -> Result<Option<Vec<CodingAgentTranscriptBackfillEntry>>, ApiError> {
+    let Some(resume_session_id) = resume_session_id
+        .map(str::trim)
+        .filter(|session_id| !session_id.is_empty())
+    else {
+        return Ok(None);
+    };
+
+    let workspace_scope = workspace_scope_paths(pool, workspace_id).await?;
+    let native_history_scope = native_history_scope_paths(workspace_scope, None);
+    let Some(preview) = native_history::get_native_agent_session_preview(
+        executor,
+        resume_session_id,
+        native_history::DEFAULT_NATIVE_SESSION_PREVIEW_TURNS,
+        &native_history_scope,
+        true,
+    ) else {
+        return Ok(None);
+    };
+
+    let entries = preview
+        .entries
+        .into_iter()
+        .filter_map(native_preview_entry_to_transcript_backfill)
+        .collect::<Vec<_>>();
+
+    Ok((!entries.is_empty()).then_some(entries))
+}
+
+fn native_preview_entry_to_transcript_backfill(
+    entry: NativeSessionPreviewEntry,
+) -> Option<CodingAgentTranscriptBackfillEntry> {
+    let role = match entry.role.as_str() {
+        "user" => CodingAgentTranscriptBackfillRole::User,
+        "assistant" => CodingAgentTranscriptBackfillRole::Assistant,
+        _ => return None,
+    };
+
+    let content = entry.content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    Some(CodingAgentTranscriptBackfillEntry {
+        role,
+        content: content.to_string(),
+        timestamp: entry.timestamp.map(|timestamp| timestamp.to_rfc3339()),
+    })
 }
 
 async fn workspace_scope_paths(
@@ -386,6 +461,14 @@ pub async fn start_coding_agent_execution_for_session(
         .map(ToOwned::to_owned)
         .filter(|_| retry_process_id.is_none());
 
+    let native_transcript_backfill = native_resume_transcript_backfill(
+        pool,
+        Some(workspace.id),
+        &requested_executor,
+        explicit_resume_session_id.as_deref(),
+    )
+    .await?;
+
     let latest_session_info = match explicit_resume_session_id {
         Some(session_id) => Some(CodingAgentResumeInfo {
             session_id,
@@ -417,6 +500,7 @@ pub async fn start_coding_agent_execution_for_session(
             reset_to_message_id: if is_reset { info.message_id } else { None },
             executor_config: executor_config.clone(),
             working_dir: working_dir.clone(),
+            transcript_backfill: native_transcript_backfill.clone(),
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(
@@ -595,6 +679,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let sessions_router = Router::new()
         .route("/", get(get_sessions).post(create_session))
         .route("/resumable", get(get_resumable_agent_sessions))
+        .route("/native-preview", get(get_native_agent_session_preview))
         .nest("/{session_id}", session_id_router)
         .nest("/{session_id}/queue", queue::router(deployment));
 

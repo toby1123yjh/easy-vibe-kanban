@@ -1240,6 +1240,7 @@ impl LocalContainerService {
                 reset_to_message_id: None,
                 executor_config: queued_data.executor_config.clone(),
                 working_dir: working_dir.clone(),
+                transcript_backfill: None,
             })
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {

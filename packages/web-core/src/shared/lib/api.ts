@@ -181,6 +181,21 @@ const makeHostAwareRequest = async (
 export type Ok<T> = { success: true; data: T };
 export type Err<E> = { success: false; error: E | undefined; message?: string };
 
+export interface NativeSessionPreviewEntry {
+  role: string;
+  content: string;
+  timestamp?: string;
+}
+
+export interface NativeAgentSessionPreview {
+  agent_session_id: string;
+  title: string;
+  last_used_at?: string;
+  entries: NativeSessionPreviewEntry[];
+  truncated: boolean;
+  turn_limit: number;
+}
+
 // Result type for endpoints that need typed errors
 export type Result<T, E> = Ok<T> | Err<E>;
 
@@ -374,6 +389,26 @@ export const sessionsApi = {
       `/api/sessions/resumable?${query.toString()}`
     );
     return handleApiResponse<ResumableAgentSession[]>(response);
+  },
+
+  getNativePreview: async (params: {
+    workspaceId?: string;
+    scopePath?: string;
+    executor: BaseCodingAgent;
+    sessionId: string;
+    turns?: number;
+  }): Promise<NativeAgentSessionPreview | null> => {
+    const query = new URLSearchParams();
+    if (params.workspaceId) query.set('workspace_id', params.workspaceId);
+    if (params.scopePath) query.set('scope_path', params.scopePath);
+    query.set('executor', params.executor);
+    query.set('session_id', params.sessionId);
+    if (params.turns !== undefined) query.set('turns', String(params.turns));
+
+    const response = await makeRequest(
+      `/api/sessions/native-preview?${query.toString()}`
+    );
+    return handleApiResponse<NativeAgentSessionPreview | null>(response);
   },
 
   startReview: async (

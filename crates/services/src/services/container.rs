@@ -30,7 +30,10 @@ use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType, SelectedSkill,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
+        coding_agent_follow_up::{
+            CodingAgentFollowUpRequest, CodingAgentTranscriptBackfillEntry,
+            CodingAgentTranscriptBackfillRole,
+        },
         coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
@@ -38,7 +41,7 @@ use executors::{
     logs::{
         NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
         utils::{
-            ConversationPatch,
+            ConversationPatch, EntryIndexProvider,
             patch::{fix_patch_ops, is_add_or_replace, patch_entry_path},
         },
     },
@@ -47,6 +50,7 @@ use executors::{
 use futures::{StreamExt, future, stream::BoxStream};
 use git::{GitService, GitServiceError};
 use json_patch::Patch;
+use serde_json::{Map, Value};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
@@ -61,11 +65,55 @@ use worktree_manager::WorktreeError;
 use crate::services::{execution_process, notification::NotificationService};
 pub type ContainerRef = String;
 
+const NATIVE_HISTORY_BACKFILL_METADATA_KEY: &str = "native_history_backfill";
+
 fn has_container_ref(workspace: &Workspace) -> bool {
     matches!(
         workspace.container_ref.as_deref(),
         Some(container_ref) if !container_ref.is_empty()
     )
+}
+
+fn transcript_backfill_entries_for_action(
+    executor_action: &ExecutorAction,
+) -> Option<&[CodingAgentTranscriptBackfillEntry]> {
+    match executor_action.typ() {
+        ExecutorActionType::CodingAgentFollowUpRequest(request) => request
+            .transcript_backfill
+            .as_deref()
+            .filter(|entries| !entries.is_empty()),
+        _ => None,
+    }
+}
+
+fn native_history_backfill_metadata() -> Value {
+    let mut metadata = Map::new();
+    metadata.insert(
+        NATIVE_HISTORY_BACKFILL_METADATA_KEY.to_string(),
+        Value::Bool(true),
+    );
+    Value::Object(metadata)
+}
+
+fn normalized_entry_from_transcript_backfill(
+    entry: &CodingAgentTranscriptBackfillEntry,
+) -> Option<NormalizedEntry> {
+    let content = entry.content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    let entry_type = match entry.role {
+        CodingAgentTranscriptBackfillRole::User => NormalizedEntryType::UserMessage,
+        CodingAgentTranscriptBackfillRole::Assistant => NormalizedEntryType::AssistantMessage,
+    };
+
+    Some(NormalizedEntry {
+        timestamp: entry.timestamp.clone(),
+        entry_type,
+        content: content.to_string(),
+        metadata: Some(native_history_backfill_metadata()),
+    })
 }
 
 #[derive(Debug, Error)]
@@ -1097,6 +1145,26 @@ pub trait ContainerService {
         selected_skills: Option<Vec<SelectedSkill>>,
         resume_session_id: Option<String>,
     ) -> Result<ExecutionProcess, ContainerError> {
+        self.start_workspace_with_selected_skills_and_transcript_backfill(
+            workspace,
+            executor_config,
+            prompt,
+            selected_skills,
+            resume_session_id,
+            None,
+        )
+        .await
+    }
+
+    async fn start_workspace_with_selected_skills_and_transcript_backfill(
+        &self,
+        workspace: &Workspace,
+        executor_config: ExecutorConfig,
+        prompt: String,
+        selected_skills: Option<Vec<SelectedSkill>>,
+        resume_session_id: Option<String>,
+        transcript_backfill: Option<Vec<CodingAgentTranscriptBackfillEntry>>,
+    ) -> Result<ExecutionProcess, ContainerError> {
         // Create container
         self.create(workspace).await?;
 
@@ -1150,6 +1218,7 @@ pub trait ContainerService {
                 reset_to_message_id: None,
                 executor_config: executor_config.clone(),
                 working_dir,
+                transcript_backfill,
             })
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
@@ -1198,6 +1267,33 @@ pub trait ContainerService {
         };
 
         Ok(execution_process)
+    }
+
+    async fn insert_transcript_backfill(
+        &self,
+        session_id: Uuid,
+        execution_process_id: Uuid,
+        msg_store: &Arc<MsgStore>,
+        entries: &[CodingAgentTranscriptBackfillEntry],
+    ) -> Result<(), ContainerError> {
+        let index_provider = EntryIndexProvider::start_from(msg_store);
+
+        for entry in entries {
+            let Some(normalized_entry) = normalized_entry_from_transcript_backfill(entry) else {
+                continue;
+            };
+            let patch =
+                ConversationPatch::add_normalized_entry(index_provider.next(), normalized_entry);
+            execution_process::append_log_message(
+                session_id,
+                execution_process_id,
+                &LogMsg::JsonPatch(patch.clone()),
+            )
+            .await?;
+            msg_store.push_patch(patch);
+        }
+
+        Ok(())
     }
 
     async fn start_execution(
@@ -1262,10 +1358,11 @@ pub trait ContainerService {
             &repo_states,
         )
         .await?;
+        let msg_store = Arc::new(MsgStore::new());
         self.msg_stores()
             .write()
             .await
-            .insert(execution_process.id, Arc::new(MsgStore::new()));
+            .insert(execution_process.id, msg_store.clone());
         if *run_reason != ExecutionProcessRunReason::ArchiveScript
             && let Err(e) = Workspace::set_archived(&self.db().pool, workspace.id, false).await
         {
@@ -1308,6 +1405,23 @@ pub trait ContainerService {
                     .remove(&execution_process.id);
                 return Err(e.into());
             }
+        }
+
+        if let Some(transcript_backfill) = transcript_backfill_entries_for_action(executor_action)
+            && let Err(e) = self
+                .insert_transcript_backfill(
+                    session.id,
+                    execution_process.id,
+                    &msg_store,
+                    transcript_backfill,
+                )
+                .await
+        {
+            self.msg_stores()
+                .write()
+                .await
+                .remove(&execution_process.id);
+            return Err(e);
         }
 
         if let Err(start_error) = self

@@ -9,6 +9,7 @@ import type {
   ExecutionProcessState,
   PatchTypeWithKey,
 } from '@/shared/hooks/useConversationHistory/types';
+import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
 export type ConversationSemanticProcessKind = 'agent' | 'script' | 'unknown';
 
@@ -101,11 +102,12 @@ function isAgentOutputEntry(entry: PatchTypeWithKey): boolean {
   switch (entry.content.entry_type.type) {
     case 'system_message':
     case 'token_usage_info':
-    case 'user_message':
     case 'loading':
       return false;
+    case 'user_message':
+      return false;
     default:
-      return true;
+      return !isNativeHistoryBackfillEntry(entry);
   }
 }
 
@@ -142,7 +144,8 @@ export function deriveConversationSemanticTimeline(
       const candidateVisibleEntries = processState.entries.filter(
         (entry) =>
           entry.type !== 'NORMALIZED_ENTRY' ||
-          (entry.content.entry_type.type !== 'user_message' &&
+          ((entry.content.entry_type.type !== 'user_message' ||
+            isNativeHistoryBackfillEntry(entry)) &&
             entry.content.entry_type.type !== 'token_usage_info' &&
             !isInternalSystemEntry(entry))
       );

@@ -8,24 +8,66 @@ use std::{
 
 use chrono::{DateTime, TimeZone, Utc};
 use db::models::coding_agent_turn::ResumableAgentSession;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use ts_rs::TS;
 
 const MAX_NATIVE_SCAN_FILES: usize = 500;
 const SESSION_FILE_METADATA_LINES: usize = 100;
 const TITLE_MAX_CHARS: usize = 100;
+const PREVIEW_ENTRY_MAX_CHARS: usize = 1_200;
+const PREVIEW_MAX_ENTRIES_PER_TURN: usize = 4;
+pub const DEFAULT_NATIVE_SESSION_PREVIEW_TURNS: usize = 20;
+pub const MAX_NATIVE_SESSION_PREVIEW_TURNS: usize = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct NativeSessionPreviewEntry {
+    pub role: String,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct NativeAgentSessionPreview {
+    pub agent_session_id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub entries: Vec<NativeSessionPreviewEntry>,
+    pub truncated: bool,
+    pub turn_limit: usize,
+}
 
 #[derive(Debug, Default, Clone)]
 struct NativeSessionDraft {
     agent_session_id: String,
     title: Option<String>,
+    title_source: Option<NativeTitleSource>,
     last_used_at: Option<DateTime<Utc>>,
     cwd: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum NativeTitleSource {
+    SessionContent = 0,
+    Prompt = 1,
+    ExplicitTitle = 2,
+}
+
 impl NativeSessionDraft {
-    fn update_title(&mut self, title: Option<String>) {
+    fn update_title(&mut self, title: Option<String>, source: NativeTitleSource) {
         if let Some(title) = title.and_then(normalize_title) {
-            self.title = Some(title);
+            let should_replace = self
+                .title_source
+                .is_none_or(|existing_source| source > existing_source);
+
+            if should_replace {
+                self.title = Some(title);
+                self.title_source = Some(source);
+            }
         }
     }
 
@@ -67,6 +109,51 @@ pub fn list_native_resumable_agent_sessions(
     finalize_sessions(drafts, since, limit, workspace_scope, allow_unknown_cwd)
 }
 
+pub fn get_native_agent_session_preview(
+    executor: &str,
+    session_id: &str,
+    turn_limit: usize,
+    workspace_scope: &[PathBuf],
+    allow_unknown_cwd: bool,
+) -> Option<NativeAgentSessionPreview> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return None;
+    }
+
+    let turn_limit = turn_limit.clamp(1, MAX_NATIVE_SESSION_PREVIEW_TURNS);
+    let normalized_executor = executor.trim().replace('-', "_").to_ascii_uppercase();
+    let (drafts, entries) = match normalized_executor.as_str() {
+        "CODEX" => (
+            list_codex_sessions(),
+            read_codex_preview_entries(session_id),
+        ),
+        "CLAUDE_CODE" => (
+            list_claude_sessions(),
+            read_claude_preview_entries(session_id),
+        ),
+        _ => return None,
+    };
+
+    let draft = drafts.get(session_id)?;
+    if !matches_workspace_scope(draft.cwd.as_deref(), workspace_scope, allow_unknown_cwd) {
+        return None;
+    }
+
+    let (entries, truncated) = limit_preview_entries(entries, turn_limit);
+    Some(NativeAgentSessionPreview {
+        agent_session_id: draft.agent_session_id.clone(),
+        title: draft
+            .title
+            .clone()
+            .unwrap_or_else(|| "Untitled session".to_string()),
+        last_used_at: draft.last_used_at.clone(),
+        entries,
+        truncated,
+        turn_limit,
+    })
+}
+
 fn list_codex_sessions() -> HashMap<String, NativeSessionDraft> {
     let Some(codex_home) = executors::executors::codex::codex_home() else {
         return HashMap::new();
@@ -74,9 +161,9 @@ fn list_codex_sessions() -> HashMap<String, NativeSessionDraft> {
 
     let mut drafts = HashMap::new();
 
-    read_codex_history(&codex_home.join("history.jsonl"), &mut drafts);
     read_codex_session_index(&codex_home.join("session_index.jsonl"), &mut drafts);
     read_codex_session_files(&codex_home.join("sessions"), &mut drafts);
+    read_codex_history(&codex_home.join("history.jsonl"), &mut drafts);
 
     drafts
 }
@@ -89,7 +176,16 @@ fn read_codex_history(path: &Path, drafts: &mut HashMap<String, NativeSessionDra
 
         let timestamp = datetime_field(&value, "ts");
         let title = string_field(&value, "text").map(ToOwned::to_owned);
-        update_draft(drafts, session_id, timestamp, title, None);
+        // Codex history.jsonl is prompt-level history. It can enrich known
+        // sessions, but must not create one picker item per prompt.
+        update_existing_draft(
+            drafts,
+            session_id,
+            timestamp,
+            title,
+            NativeTitleSource::Prompt,
+            None,
+        );
     }
 }
 
@@ -107,7 +203,14 @@ fn read_codex_session_index(path: &Path, drafts: &mut HashMap<String, NativeSess
         let title = string_field(&value, "thread_name")
             .or_else(|| string_field(&value, "title"))
             .map(ToOwned::to_owned);
-        update_draft(drafts, session_id, timestamp, title, None);
+        update_draft(
+            drafts,
+            session_id,
+            timestamp,
+            title,
+            NativeTitleSource::ExplicitTitle,
+            None,
+        );
     }
 }
 
@@ -122,15 +225,7 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
 
         for value in read_jsonl_values(&path, Some(SESSION_FILE_METADATA_LINES)) {
             if session_id.is_none() {
-                session_id = value
-                    .pointer("/payload/session_id")
-                    .and_then(Value::as_str)
-                    .or_else(|| value.pointer("/payload/id").and_then(Value::as_str))
-                    .or_else(|| value.pointer("/payload/thread_id").and_then(Value::as_str))
-                    .or_else(|| string_field(&value, "session_id"))
-                    .or_else(|| string_field(&value, "id"))
-                    .or_else(|| string_field(&value, "thread_id"))
-                    .map(ToOwned::to_owned);
+                session_id = codex_session_id_from_value(&value).map(ToOwned::to_owned);
             }
 
             if cwd.is_none() {
@@ -142,9 +237,15 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
             }
 
             if title.is_none() {
-                title = value
-                    .pointer("/payload/message/content")
-                    .and_then(text_from_content_value);
+                let payload = value.get("payload").unwrap_or(&value);
+                let role = string_field(payload, "role")
+                    .or_else(|| payload.pointer("/message/role").and_then(Value::as_str));
+                if role.is_none() || role == Some("user") {
+                    title = payload
+                        .pointer("/message/content")
+                        .or_else(|| payload.get("content"))
+                        .and_then(text_from_content_value);
+                }
             }
 
             if session_id.is_some() && cwd.is_some() && title.is_some() {
@@ -156,8 +257,72 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
             continue;
         };
 
-        update_draft(drafts, &session_id, Some(modified_at), title, cwd);
+        update_draft(
+            drafts,
+            &session_id,
+            Some(modified_at),
+            title,
+            NativeTitleSource::SessionContent,
+            cwd,
+        );
     }
+}
+
+fn read_codex_preview_entries(session_id: &str) -> Vec<NativeSessionPreviewEntry> {
+    let Some(codex_home) = executors::executors::codex::codex_home() else {
+        return Vec::new();
+    };
+    let Some(path) = find_codex_session_file(&codex_home.join("sessions"), session_id) else {
+        return Vec::new();
+    };
+
+    read_codex_preview_entries_from_file(&path)
+}
+
+fn find_codex_session_file(root: &Path, session_id: &str) -> Option<PathBuf> {
+    collect_jsonl_files(root, 4)
+        .into_iter()
+        .take(MAX_NATIVE_SCAN_FILES)
+        .find_map(|(path, _)| codex_session_file_matches(&path, session_id).then_some(path))
+}
+
+fn codex_session_file_matches(path: &Path, session_id: &str) -> bool {
+    read_jsonl_values(path, Some(SESSION_FILE_METADATA_LINES))
+        .iter()
+        .any(|value| codex_session_id_from_value(value) == Some(session_id))
+}
+
+fn read_codex_preview_entries_from_file(path: &Path) -> Vec<NativeSessionPreviewEntry> {
+    read_jsonl_values(path, None)
+        .into_iter()
+        .filter_map(|value| codex_preview_entry_from_value(&value))
+        .collect()
+}
+
+fn codex_preview_entry_from_value(value: &Value) -> Option<NativeSessionPreviewEntry> {
+    let payload = value.get("payload").unwrap_or(value);
+    let role = string_field(payload, "role")
+        .or_else(|| payload.pointer("/message/role").and_then(Value::as_str))
+        .or_else(|| string_field(value, "role"))
+        .or_else(|| value.pointer("/message/role").and_then(Value::as_str))?;
+    let role = normalize_preview_role(role)?;
+    let content = payload
+        .get("content")
+        .or_else(|| payload.pointer("/message/content"))
+        .or_else(|| value.get("content"))
+        .or_else(|| value.pointer("/message/content"))
+        .and_then(|content| text_from_content_value_with_separator(content, "\n"))?;
+    let content = normalize_preview_content(content)?;
+    let timestamp = datetime_field(value, "timestamp")
+        .or_else(|| datetime_field(value, "ts"))
+        .or_else(|| datetime_field(payload, "timestamp"))
+        .or_else(|| datetime_field(payload, "ts"));
+
+    Some(NativeSessionPreviewEntry {
+        role,
+        content,
+        timestamp,
+    })
 }
 
 fn list_claude_sessions() -> HashMap<String, NativeSessionDraft> {
@@ -167,8 +332,8 @@ fn list_claude_sessions() -> HashMap<String, NativeSessionDraft> {
 
     let mut drafts = HashMap::new();
 
-    read_claude_history(&claude_home.join("history.jsonl"), &mut drafts);
     read_claude_project_files(&claude_home.join("projects"), &mut drafts);
+    read_claude_history(&claude_home.join("history.jsonl"), &mut drafts);
 
     drafts
 }
@@ -184,15 +349,28 @@ fn read_claude_history(path: &Path, drafts: &mut HashMap<String, NativeSessionDr
         let timestamp =
             datetime_field(&value, "timestamp").or_else(|| datetime_field(&value, "ts"));
         let title = string_field(&value, "display")
-            .or_else(|| string_field(&value, "prompt"))
-            .map(ToOwned::to_owned);
+            .map(|title| (title.to_string(), NativeTitleSource::ExplicitTitle))
+            .or_else(|| {
+                string_field(&value, "prompt")
+                    .map(|title| (title.to_string(), NativeTitleSource::Prompt))
+            });
         let cwd = string_field(&value, "cwd")
             .or_else(|| {
                 string_field(&value, "project").filter(|project| Path::new(project).is_absolute())
             })
             .map(PathBuf::from);
 
-        update_draft(drafts, session_id, timestamp, title, cwd);
+        let (title, title_source) = title.unwrap_or((String::new(), NativeTitleSource::Prompt));
+        // Claude global history is prompt-level metadata. Project JSONL files
+        // are the candidate-creating source for native resume.
+        update_existing_draft(
+            drafts,
+            session_id,
+            timestamp,
+            (!title.is_empty()).then_some(title),
+            title_source,
+            cwd,
+        );
     }
 }
 
@@ -220,9 +398,7 @@ fn read_claude_project_files(root: &Path, drafts: &mut HashMap<String, NativeSes
 
         for value in read_jsonl_values(&path, Some(SESSION_FILE_METADATA_LINES)) {
             if session_id.is_none() {
-                session_id = string_field(&value, "sessionId")
-                    .or_else(|| string_field(&value, "session_id"))
-                    .map(ToOwned::to_owned);
+                session_id = claude_session_id_from_value(&value).map(ToOwned::to_owned);
             }
 
             if cwd.is_none() {
@@ -253,8 +429,83 @@ fn read_claude_project_files(root: &Path, drafts: &mut HashMap<String, NativeSes
             continue;
         };
 
-        update_draft(drafts, &session_id, timestamp, title, cwd);
+        update_draft(
+            drafts,
+            &session_id,
+            timestamp,
+            title,
+            NativeTitleSource::SessionContent,
+            cwd,
+        );
     }
+}
+
+fn read_claude_preview_entries(session_id: &str) -> Vec<NativeSessionPreviewEntry> {
+    let Some(claude_home) = home_dir().map(|home| home.join(".claude")) else {
+        return Vec::new();
+    };
+    let Some(path) = find_claude_project_file(&claude_home.join("projects"), session_id) else {
+        return Vec::new();
+    };
+
+    read_claude_preview_entries_from_file(&path)
+}
+
+fn find_claude_project_file(root: &Path, session_id: &str) -> Option<PathBuf> {
+    collect_jsonl_files(root, 2)
+        .into_iter()
+        .take(MAX_NATIVE_SCAN_FILES)
+        .find_map(|(path, _)| {
+            let file_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if file_name.starts_with("agent-") {
+                return None;
+            }
+
+            if path.file_stem().and_then(|name| name.to_str()) == Some(session_id)
+                || claude_session_file_matches(&path, session_id)
+            {
+                Some(path)
+            } else {
+                None
+            }
+        })
+}
+
+fn claude_session_file_matches(path: &Path, session_id: &str) -> bool {
+    read_jsonl_values(path, Some(SESSION_FILE_METADATA_LINES))
+        .iter()
+        .any(|value| claude_session_id_from_value(value) == Some(session_id))
+}
+
+fn read_claude_preview_entries_from_file(path: &Path) -> Vec<NativeSessionPreviewEntry> {
+    read_jsonl_values(path, None)
+        .into_iter()
+        .filter_map(|value| claude_preview_entry_from_value(&value))
+        .collect()
+}
+
+fn claude_preview_entry_from_value(value: &Value) -> Option<NativeSessionPreviewEntry> {
+    let message = value.get("message");
+    let role = message
+        .and_then(|message| string_field(message, "role"))
+        .or_else(|| string_field(value, "type"))
+        .or_else(|| string_field(value, "role"))?;
+    let role = normalize_preview_role(role)?;
+    let content = message
+        .and_then(|message| message.get("content"))
+        .or_else(|| value.get("content"))
+        .and_then(|content| text_from_content_value_with_separator(content, "\n"))?;
+    let content = normalize_preview_content(content)?;
+    let timestamp = datetime_field(value, "timestamp").or_else(|| datetime_field(value, "ts"));
+
+    Some(NativeSessionPreviewEntry {
+        role,
+        content,
+        timestamp,
+    })
 }
 
 fn update_draft(
@@ -262,6 +513,7 @@ fn update_draft(
     session_id: &str,
     timestamp: Option<DateTime<Utc>>,
     title: Option<String>,
+    title_source: NativeTitleSource,
     cwd: Option<PathBuf>,
 ) {
     let draft = drafts
@@ -272,8 +524,88 @@ fn update_draft(
         });
 
     draft.update_time(timestamp);
-    draft.update_title(title);
+    draft.update_title(title, title_source);
     draft.update_cwd(cwd);
+}
+
+fn update_existing_draft(
+    drafts: &mut HashMap<String, NativeSessionDraft>,
+    session_id: &str,
+    timestamp: Option<DateTime<Utc>>,
+    title: Option<String>,
+    title_source: NativeTitleSource,
+    cwd: Option<PathBuf>,
+) {
+    if let Some(draft) = drafts.get_mut(session_id) {
+        draft.update_time(timestamp);
+        draft.update_title(title, title_source);
+        draft.update_cwd(cwd);
+    }
+}
+
+fn codex_session_id_from_value(value: &Value) -> Option<&str> {
+    value
+        .pointer("/payload/session_id")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/payload/id").and_then(Value::as_str))
+        .or_else(|| value.pointer("/payload/thread_id").and_then(Value::as_str))
+        .or_else(|| string_field(value, "session_id"))
+        .or_else(|| string_field(value, "id"))
+        .or_else(|| string_field(value, "thread_id"))
+}
+
+fn claude_session_id_from_value(value: &Value) -> Option<&str> {
+    string_field(value, "sessionId").or_else(|| string_field(value, "session_id"))
+}
+
+fn limit_preview_entries(
+    entries: Vec<NativeSessionPreviewEntry>,
+    turn_limit: usize,
+) -> (Vec<NativeSessionPreviewEntry>, bool) {
+    let turn_limit = turn_limit.max(1);
+    let mut entries = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let role = normalize_preview_role(&entry.role)?;
+            let content = normalize_preview_content(entry.content)?;
+            Some(NativeSessionPreviewEntry {
+                role,
+                content,
+                timestamp: entry.timestamp,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        return (entries, false);
+    }
+
+    let mut user_turns = 0;
+    let mut start_index = 0;
+    for (index, entry) in entries.iter().enumerate().rev() {
+        if entry.role == "user" {
+            user_turns += 1;
+            if user_turns == turn_limit {
+                start_index = index;
+                break;
+            }
+        }
+    }
+
+    let mut truncated = start_index > 0;
+    if start_index > 0 {
+        entries = entries.split_off(start_index);
+    }
+
+    let max_entries = turn_limit
+        .saturating_mul(PREVIEW_MAX_ENTRIES_PER_TURN)
+        .max(1);
+    if entries.len() > max_entries {
+        truncated = true;
+        entries = entries.split_off(entries.len() - max_entries);
+    }
+
+    (entries, truncated)
 }
 
 fn finalize_sessions(
@@ -424,6 +756,10 @@ fn datetime_field(value: &Value, field: &str) -> Option<DateTime<Utc>> {
 }
 
 fn text_from_content_value(content: &Value) -> Option<String> {
+    text_from_content_value_with_separator(content, " ")
+}
+
+fn text_from_content_value_with_separator(content: &Value, separator: &str) -> Option<String> {
     if let Some(text) = content.as_str() {
         return Some(text.to_string());
     }
@@ -433,7 +769,7 @@ fn text_from_content_value(content: &Value) -> Option<String> {
         .iter()
         .filter_map(|part| {
             let part_type = part.get("type").and_then(Value::as_str);
-            if part_type.is_some_and(|kind| kind != "text") {
+            if !is_text_content_part(part_type) {
                 return None;
             }
             part.get("text")
@@ -445,8 +781,15 @@ fn text_from_content_value(content: &Value) -> Option<String> {
     if texts.is_empty() {
         None
     } else {
-        Some(texts.join(" "))
+        Some(texts.join(separator))
     }
+}
+
+fn is_text_content_part(part_type: Option<&str>) -> bool {
+    matches!(
+        part_type,
+        None | Some("text" | "input_text" | "output_text")
+    )
 }
 
 fn normalize_title(title: String) -> Option<String> {
@@ -457,6 +800,40 @@ fn normalize_title(title: String) -> Option<String> {
 
     let truncated = title.chars().take(TITLE_MAX_CHARS).collect::<String>();
     if title.chars().count() > TITLE_MAX_CHARS {
+        Some(format!("{}...", truncated))
+    } else {
+        Some(truncated)
+    }
+}
+
+fn normalize_preview_role(role: &str) -> Option<String> {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "user" => Some("user".to_string()),
+        "assistant" => Some("assistant".to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_preview_content(content: String) -> Option<String> {
+    let normalized = content
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+
+    if normalized.is_empty() {
+        return None;
+    }
+
+    let truncated = normalized
+        .chars()
+        .take(PREVIEW_ENTRY_MAX_CHARS)
+        .collect::<String>();
+    if normalized.chars().count() > PREVIEW_ENTRY_MAX_CHARS {
         Some(format!("{}...", truncated))
     } else {
         Some(truncated)
@@ -576,16 +953,27 @@ mod tests {
     }
 
     #[test]
-    fn codex_history_accepts_numeric_ts() {
+    fn codex_history_updates_existing_session_only() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("history.jsonl");
         fs::write(
             &path,
-            "{\"session_id\":\"one\",\"ts\":1783340712,\"text\":\"Hello\"}\n",
+            concat!(
+                "{\"session_id\":\"one\",\"ts\":1783340712,\"text\":\"Hello\"}\n",
+                "{\"session_id\":\"prompt-only\",\"ts\":1783340713,\"text\":\"Should not create\"}\n",
+            ),
         )
         .expect("write jsonl");
 
         let mut drafts = HashMap::new();
+        update_draft(
+            &mut drafts,
+            "one",
+            None,
+            None,
+            NativeTitleSource::SessionContent,
+            None,
+        );
         read_codex_history(&path, &mut drafts);
 
         let draft = drafts.get("one").expect("draft");
@@ -594,6 +982,150 @@ mod tests {
             Utc.timestamp_opt(1_783_340_712, 0).single()
         );
         assert_eq!(draft.title.as_deref(), Some("Hello"));
+        assert!(!drafts.contains_key("prompt-only"));
+    }
+
+    #[test]
+    fn codex_many_history_prompts_keep_one_session_candidate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let index_path = dir.path().join("session_index.jsonl");
+        let history_path = dir.path().join("history.jsonl");
+        fs::write(
+            &index_path,
+            "{\"id\":\"one\",\"created_at\":\"2026-07-06T00:00:00Z\"}\n",
+        )
+        .expect("write index");
+        fs::write(
+            &history_path,
+            concat!(
+                "{\"session_id\":\"one\",\"ts\":\"2026-07-06T00:00:01Z\",\"text\":\"first prompt\"}\n",
+                "{\"session_id\":\"one\",\"ts\":\"2026-07-06T00:00:02Z\",\"text\":\"second prompt\"}\n",
+                "{\"session_id\":\"prompt-only\",\"ts\":\"2026-07-06T00:00:03Z\",\"text\":\"should not create\"}\n",
+            ),
+        )
+        .expect("write history");
+
+        let mut drafts = HashMap::new();
+        read_codex_session_index(&index_path, &mut drafts);
+        read_codex_history(&history_path, &mut drafts);
+        let sessions = finalize_sessions(
+            drafts,
+            Utc.with_ymd_and_hms(2026, 7, 1, 0, 0, 0)
+                .single()
+                .expect("timestamp"),
+            10,
+            &[],
+            true,
+        );
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].agent_session_id, "one");
+        assert_eq!(sessions[0].title, "first prompt");
+        assert_eq!(
+            sessions[0].last_used_at,
+            Utc.with_ymd_and_hms(2026, 7, 6, 0, 0, 2).single().unwrap()
+        );
+    }
+
+    #[test]
+    fn codex_index_and_session_file_merge_into_one_candidate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions_dir = dir.path().join("sessions");
+        fs::create_dir(&sessions_dir).expect("create sessions dir");
+        let index_path = dir.path().join("session_index.jsonl");
+        let session_path = sessions_dir.join("rollout.jsonl");
+        fs::write(
+            &index_path,
+            "{\"id\":\"one\",\"thread_name\":\"Explicit thread title\",\"updated_at\":\"2026-07-06T00:00:00Z\"}\n",
+        )
+        .expect("write index");
+        fs::write(
+            &session_path,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"session_id\":\"one\",\"cwd\":\"C:/repo\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Message title\"}]}}\n",
+            ),
+        )
+        .expect("write session");
+
+        let mut drafts = HashMap::new();
+        read_codex_session_index(&index_path, &mut drafts);
+        read_codex_session_files(&sessions_dir, &mut drafts);
+
+        assert_eq!(drafts.len(), 1);
+        let draft = drafts.get("one").expect("draft");
+        assert_eq!(draft.title.as_deref(), Some("Explicit thread title"));
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+    }
+
+    #[test]
+    fn claude_history_updates_existing_session_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("history.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"sessionId\":\"one\",\"timestamp\":\"2026-07-06T00:00:00Z\",\"display\":\"Display title\",\"cwd\":\"C:/repo\"}\n",
+                "{\"sessionId\":\"prompt-only\",\"timestamp\":\"2026-07-06T00:00:01Z\",\"prompt\":\"Should not create\"}\n",
+            ),
+        )
+        .expect("write jsonl");
+
+        let mut drafts = HashMap::new();
+        update_draft(
+            &mut drafts,
+            "one",
+            None,
+            Some("Project file title".to_string()),
+            NativeTitleSource::SessionContent,
+            None,
+        );
+        read_claude_history(&path, &mut drafts);
+
+        let draft = drafts.get("one").expect("draft");
+        assert_eq!(
+            draft.last_used_at,
+            Utc.with_ymd_and_hms(2026, 7, 6, 0, 0, 0).single()
+        );
+        assert_eq!(draft.title.as_deref(), Some("Display title"));
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+        assert!(!drafts.contains_key("prompt-only"));
+    }
+
+    #[test]
+    fn claude_project_file_creates_candidate_and_preview() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("native-session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"native-session\",\"cwd\":\"C:/repo\",\"timestamp\":\"2026-07-06T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"native-session\",\"timestamp\":\"2026-07-06T00:00:01Z\",\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}\n",
+            ),
+        )
+        .expect("write jsonl");
+
+        let mut drafts = HashMap::new();
+        read_claude_project_files(dir.path(), &mut drafts);
+        let draft = drafts.get("native-session").expect("draft");
+        assert_eq!(draft.title.as_deref(), Some("hello"));
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+
+        let entries = read_claude_preview_entries_from_file(&path);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].content, "hello");
+        assert_eq!(entries[1].content, "hi");
+    }
+
+    #[test]
+    fn unsupported_provider_returns_no_native_sessions_or_preview() {
+        let since = Utc
+            .with_ymd_and_hms(2026, 7, 1, 0, 0, 0)
+            .single()
+            .expect("timestamp");
+
+        assert!(list_native_resumable_agent_sessions("opencode", since, 10, &[], true).is_empty());
+        assert!(get_native_agent_session_preview("opencode", "session", 20, &[], true).is_none());
     }
 
     #[test]
@@ -629,5 +1161,148 @@ mod tests {
         ));
         assert!(matches_workspace_scope(None, &scope, true));
         assert!(!matches_workspace_scope(None, &scope, false));
+    }
+
+    #[test]
+    fn prefers_explicit_titles_over_prompt_and_message_text() {
+        let mut drafts = HashMap::new();
+
+        update_draft(
+            &mut drafts,
+            "session-1",
+            None,
+            Some("Initial prompt".to_string()),
+            NativeTitleSource::Prompt,
+            None,
+        );
+        update_draft(
+            &mut drafts,
+            "session-1",
+            None,
+            Some("Actual thread title".to_string()),
+            NativeTitleSource::ExplicitTitle,
+            None,
+        );
+        update_draft(
+            &mut drafts,
+            "session-1",
+            None,
+            Some("Later content line".to_string()),
+            NativeTitleSource::SessionContent,
+            None,
+        );
+
+        assert_eq!(
+            drafts
+                .get("session-1")
+                .and_then(|draft| draft.title.as_deref()),
+            Some("Actual thread title")
+        );
+    }
+
+    #[test]
+    fn keeps_first_title_when_sources_have_same_priority() {
+        let mut drafts = HashMap::new();
+
+        update_draft(
+            &mut drafts,
+            "session-1",
+            None,
+            Some("First prompt".to_string()),
+            NativeTitleSource::Prompt,
+            None,
+        );
+        update_draft(
+            &mut drafts,
+            "session-1",
+            None,
+            Some("Second prompt".to_string()),
+            NativeTitleSource::Prompt,
+            None,
+        );
+
+        assert_eq!(
+            drafts
+                .get("session-1")
+                .and_then(|draft| draft.title.as_deref()),
+            Some("First prompt")
+        );
+    }
+
+    #[test]
+    fn codex_preview_reads_response_item_messages() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("rollout.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"session_id\":\"native-session\",\"cwd\":\"C:/repo\"}}\n",
+                "{\"timestamp\":\"2026-07-06T00:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"first prompt\"}]}}\n",
+                "{\"timestamp\":\"2026-07-06T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"first answer\"}]}}\n",
+                "{\"timestamp\":\"2026-07-06T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"second prompt\"}]}}\n",
+                "{\"timestamp\":\"2026-07-06T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"second answer\"}]}}\n",
+            ),
+        )
+        .expect("write jsonl");
+
+        let entries = read_codex_preview_entries_from_file(&path);
+        let (limited, truncated) = limit_preview_entries(entries, 1);
+
+        assert!(truncated);
+        assert_eq!(limited.len(), 2);
+        assert_eq!(limited[0].role, "user");
+        assert_eq!(limited[0].content, "second prompt");
+        assert_eq!(limited[1].role, "assistant");
+        assert_eq!(limited[1].content, "second answer");
+    }
+
+    #[test]
+    fn claude_preview_reads_message_content() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("native-session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"native-session\",\"timestamp\":\"2026-07-06T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"native-session\",\"timestamp\":\"2026-07-06T00:00:01Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"hi there\"}]}}\n",
+            ),
+        )
+        .expect("write jsonl");
+
+        let entries = read_claude_preview_entries_from_file(&path);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].role, "user");
+        assert_eq!(entries[0].content, "hello");
+        assert_eq!(entries[1].role, "assistant");
+        assert_eq!(entries[1].content, "hi there");
+    }
+
+    #[test]
+    fn default_preview_limit_keeps_latest_twenty_user_turns() {
+        let entries = (1..=21)
+            .flat_map(|index| {
+                [
+                    NativeSessionPreviewEntry {
+                        role: "user".to_string(),
+                        content: format!("question {index}"),
+                        timestamp: None,
+                    },
+                    NativeSessionPreviewEntry {
+                        role: "assistant".to_string(),
+                        content: format!("answer {index}"),
+                        timestamp: None,
+                    },
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        let (limited, truncated) =
+            limit_preview_entries(entries, DEFAULT_NATIVE_SESSION_PREVIEW_TURNS);
+
+        assert!(truncated);
+        assert_eq!(limited.len(), 40);
+        assert_eq!(limited[0].content, "question 2");
+        assert_eq!(limited[39].content, "answer 21");
     }
 }
