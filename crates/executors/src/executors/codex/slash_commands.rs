@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, SecondsFormat, Utc};
 use codex_app_server_protocol::{
-    ConfigEdit, JSONRPCNotification, MergeStrategy, ReviewTarget, SkillScope, SkillsListResponse,
-    ThreadGoal, ThreadGoalSetParams, ThreadGoalStatus, ThreadSettingsUpdateParams,
+    ConfigEdit, JSONRPCNotification, MergeStrategy, RateLimitResetCreditStatus,
+    RateLimitResetCreditsSummary, ReviewTarget, SkillScope, SkillsListResponse, ThreadGoal,
+    ThreadGoalSetParams, ThreadGoalStatus, ThreadSettingsUpdateParams,
 };
 use codex_protocol::{
     config_types::{Personality, ServiceTier},
@@ -1039,6 +1041,10 @@ async fn fetch_status_message(
                 }
                 lines.push(format!("- **CWD**: `{}`", thread.cwd.display()));
                 lines.push(format!("- **CLI version**: `{}`", thread.cli_version));
+                lines.push(format!(
+                    "- **History mode**: `{}`",
+                    format!("{:?}", thread.history_mode).to_ascii_lowercase()
+                ));
                 let source_label = format!("{:?}", thread.source).replace("VsCode", "Vibe Kanban");
                 lines.push(format!("- **Source**: `{source_label}`"));
             }
@@ -1104,6 +1110,9 @@ async fn fetch_status_message(
                 });
                 lines.push(format!("- **Credits**: `{balance}`"));
             }
+            if let Some(reset_credits) = &resp.rate_limit_reset_credits {
+                lines.extend(format_rate_limit_reset_credits(reset_credits));
+            }
         }
         Err(err) => {
             tracing::debug!("rate limits unavailable: {err}");
@@ -1111,6 +1120,43 @@ async fn fetch_status_message(
     }
 
     Ok(lines.join("\n"))
+}
+
+fn format_rate_limit_reset_credits(summary: &RateLimitResetCreditsSummary) -> Vec<String> {
+    let mut lines = vec![format!(
+        "- **Rate-limit reset credits available**: `{}`",
+        summary.available_count
+    )];
+    let Some(credits) = &summary.credits else {
+        return lines;
+    };
+
+    for credit in credits {
+        let title = credit.title.as_deref().unwrap_or("Rate-limit reset credit");
+        let description = credit.description.as_deref().unwrap_or("Not provided");
+        let expires_at = credit
+            .expires_at
+            .map(format_unix_timestamp)
+            .unwrap_or_else(|| "never".to_string());
+        let status = match credit.status {
+            RateLimitResetCreditStatus::Available => "available",
+            RateLimitResetCreditStatus::Redeeming => "redeeming",
+            RateLimitResetCreditStatus::Redeemed => "redeemed",
+            RateLimitResetCreditStatus::Unknown => "unknown",
+        };
+        lines.push(format!("  - **{title}**"));
+        lines.push(format!("    - Description: {description}"));
+        lines.push(format!("    - Status: `{status}`"));
+        lines.push(format!("    - Expires: `{expires_at}`"));
+    }
+
+    lines
+}
+
+fn format_unix_timestamp(timestamp: i64) -> String {
+    DateTime::<Utc>::from_timestamp(timestamp, 0)
+        .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
+        .unwrap_or_else(|| timestamp.to_string())
 }
 
 #[derive(serde::Deserialize)]
@@ -1347,14 +1393,41 @@ fn format_skill_scope(scope: SkillScope) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use codex_app_server_protocol::{ThreadGoal, ThreadGoalStatus};
+    use codex_app_server_protocol::{
+        RateLimitResetCredit, RateLimitResetCreditStatus, RateLimitResetCreditsSummary,
+        RateLimitResetType, ThreadGoal, ThreadGoalStatus,
+    };
     use codex_protocol::config_types::Personality;
     use serde_json::json;
 
     use super::{
         CodexGoalCommand, CodexPersonalityCommand, CodexSlashCommand, format_goal_details,
-        format_seconds, format_skills_status, skill_slash_commands, supported_slash_commands,
+        format_rate_limit_reset_credits, format_seconds, format_skills_status,
+        skill_slash_commands, supported_slash_commands,
     };
+
+    #[test]
+    fn formats_rate_limit_reset_credit_details() {
+        let lines = format_rate_limit_reset_credits(&RateLimitResetCreditsSummary {
+            available_count: 2,
+            credits: Some(vec![RateLimitResetCredit {
+                id: "credit-1".to_string(),
+                reset_type: RateLimitResetType::CodexRateLimits,
+                status: RateLimitResetCreditStatus::Available,
+                granted_at: 1_700_000_000,
+                expires_at: Some(1_893_456_000),
+                title: Some("Launch reset".to_string()),
+                description: Some("Resets the Codex rate-limit window once.".to_string()),
+            }]),
+        });
+
+        let message = lines.join("\n");
+        assert!(message.contains("`2`"));
+        assert!(message.contains("Launch reset"));
+        assert!(message.contains("Resets the Codex rate-limit window once."));
+        assert!(message.contains("Status: `available`"));
+        assert!(message.contains("Expires: `2030-01-01T00:00:00Z`"));
+    }
 
     #[test]
     fn parses_fast_enable_and_disable() {

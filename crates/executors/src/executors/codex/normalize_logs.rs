@@ -6,15 +6,16 @@ use std::{
 };
 
 use codex_app_server_protocol::{
-    CommandExecutionOutputDeltaNotification, CommandExecutionStatus as AppCommandExecutionStatus,
+    CodexErrorInfo as AppCodexErrorInfo, CommandExecutionOutputDeltaNotification,
+    CommandExecutionStatus as AppCommandExecutionStatus,
     DynamicToolCallOutputContentItem as AppDynamicToolCallOutputContentItem,
     DynamicToolCallStatus as AppDynamicToolCallStatus, FileChangeOutputDeltaNotification,
     ItemCompletedNotification as AppItemCompletedNotification,
     ItemStartedNotification as AppItemStartedNotification, JSONRPCNotification, JSONRPCRequest,
-    JSONRPCResponse, McpToolCallProgressNotification, McpToolCallStatus as AppMcpToolCallStatus,
-    PatchApplyStatus as AppPatchApplyStatus, ServerNotification, ServerRequest, ThreadForkResponse,
-    ThreadItem as AppThreadItem, ThreadStartResponse, ThreadTokenUsageUpdatedNotification,
-    ToolRequestUserInputQuestion,
+    JSONRPCResponse, McpServerStartupFailureReason, McpToolCallProgressNotification,
+    McpToolCallStatus as AppMcpToolCallStatus, PatchApplyStatus as AppPatchApplyStatus,
+    ServerNotification, ServerRequest, ThreadForkResponse, ThreadItem as AppThreadItem,
+    ThreadStartResponse, ThreadTokenUsageUpdatedNotification, ToolRequestUserInputQuestion,
 };
 use codex_protocol::{
     dynamic_tools::DynamicToolCallOutputContentItem as CoreDynamicToolCallOutputContentItem,
@@ -23,14 +24,14 @@ use codex_protocol::{
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
         AgentMessageContentDeltaEvent, AgentMessageEvent, AgentReasoningEvent,
-        AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, ErrorEvent, EventMsg,
-        ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
-        ExecCommandOutputDeltaEvent, ExecOutputStream, ExitedReviewModeEvent,
-        FileChange as CodexProtoFileChange, ItemCompletedEvent, ItemStartedEvent, McpInvocation,
-        McpToolCallBeginEvent, McpToolCallEndEvent, ModelRerouteEvent, PatchApplyBeginEvent,
-        PatchApplyEndEvent, PlanDeltaEvent, ReasoningContentDeltaEvent, RequestUserInputEvent,
-        StreamErrorEvent, ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent,
-        WebSearchEndEvent,
+        AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent,
+        CodexErrorInfo as CoreCodexErrorInfo, ErrorEvent, EventMsg, ExecApprovalRequestEvent,
+        ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecOutputStream,
+        ExitedReviewModeEvent, FileChange as CodexProtoFileChange, ItemCompletedEvent,
+        ItemStartedEvent, McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent,
+        ModelRerouteEvent, PatchApplyBeginEvent, PatchApplyEndEvent, PlanDeltaEvent,
+        ReasoningContentDeltaEvent, RequestUserInputEvent, StreamErrorEvent,
+        ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
     },
 };
 use futures::StreamExt;
@@ -1096,12 +1097,14 @@ fn handle_direct_item_started(
                 },
             );
         }
-        AppThreadItem::WebSearch { id, .. } => {
-            if state.is_tool_completed(&id) {
+        AppThreadItem::WebSearch(item) => {
+            if state.is_tool_completed(&item.id) {
                 return;
             }
-            state.web_searches.insert(id.clone(), WebSearchState::new());
-            let web_search_state = state.web_searches.get_mut(&id).unwrap();
+            state
+                .web_searches
+                .insert(item.id.clone(), WebSearchState::new());
+            let web_search_state = state.web_searches.get_mut(&item.id).unwrap();
             let normalized_entry = web_search_state.to_normalized_entry();
             let index = add_normalized_entry(msg_store, entry_index, normalized_entry);
             web_search_state.index = Some(index);
@@ -1307,18 +1310,37 @@ fn handle_direct_item_completed(
                 },
             );
         }
-        AppThreadItem::WebSearch { id, query, .. } => {
-            state.mark_tool_completed(&id);
-            if let Some(mut entry) = state.web_searches.remove(&id) {
+        AppThreadItem::SubAgentActivity {
+            id,
+            kind,
+            agent_thread_id,
+            agent_path,
+        } => {
+            add_normalized_entry(
+                msg_store,
+                entry_index,
+                NormalizedEntry {
+                    timestamp: None,
+                    entry_type: NormalizedEntryType::SystemMessage,
+                    content: format!(
+                        "Sub-agent {kind:?}: `{agent_path}` (thread `{agent_thread_id}`)"
+                    ),
+                    metadata: Some(serde_json::json!({ "item_id": id })),
+                },
+            );
+        }
+        AppThreadItem::WebSearch(item) => {
+            state.mark_tool_completed(&item.id);
+            if let Some(mut entry) = state.web_searches.remove(&item.id) {
                 entry.status = ToolStatus::Success;
-                entry.query = Some(query);
+                entry.query = Some(item.query);
                 if let Some(index) = entry.index {
                     replace_normalized_entry(msg_store, index, entry.to_normalized_entry());
                 }
             }
         }
         AppThreadItem::ImageView { path, .. } => {
-            let relative_path = make_path_relative(&path.to_string_lossy(), worktree_path);
+            let relative_path = make_path_relative(&path.render_for_ui(), worktree_path);
             add_normalized_entry(
                 msg_store,
                 entry_index,
@@ -1549,6 +1571,36 @@ fn handle_direct_notification(
             );
             true
         }
+        ServerNotification::McpServerStatusUpdated(notification) => {
+            if matches!(
+                notification.failure_reason,
+                Some(McpServerStartupFailureReason::ReauthenticationRequired)
+            ) {
+                let details = notification
+                    .error
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|details| !details.is_empty())
+                    .map(|details| format!(" Details: {details}"))
+                    .unwrap_or_default();
+                add_normalized_entry(
+                    msg_store,
+                    entry_index,
+                    NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::ErrorMessage {
+                            error_type: NormalizedEntryError::SetupRequired,
+                        },
+                        content: format!(
+                            "MCP server `{}` requires reauthentication. Reconnect it in Codex before continuing.{details}",
+                            notification.name
+                        ),
+                        metadata: None,
+                    },
+                );
+            }
+            true
+        }
         ServerNotification::Error(notification) => {
             add_normalized_entry(
                 msg_store,
@@ -1558,7 +1610,11 @@ fn handle_direct_notification(
                     entry_type: NormalizedEntryType::ErrorMessage {
                         error_type: NormalizedEntryError::Other,
                     },
-                    content: format!("Error: {}", notification.error.message),
+                    content: format_app_server_error_message(
+                        "Error",
+                        &notification.error.message,
+                        notification.error.codex_error_info.as_ref(),
+                    ),
                     metadata: None,
                 },
             );
@@ -1578,6 +1634,45 @@ fn handle_direct_notification(
             true
         }
         _ => false,
+    }
+}
+
+const SESSION_BUDGET_EXCEEDED_MESSAGE: &str =
+    "Codex session budget has been exhausted. Start a new session to continue.";
+
+fn format_app_server_error_message(
+    prefix: &str,
+    message: &str,
+    codex_error_info: Option<&AppCodexErrorInfo>,
+) -> String {
+    if matches!(
+        codex_error_info,
+        Some(AppCodexErrorInfo::SessionBudgetExceeded)
+    ) {
+        return SESSION_BUDGET_EXCEEDED_MESSAGE.to_string();
+    }
+
+    match codex_error_info {
+        Some(info) => format!("{prefix}: {message} ({info:?})"),
+        None => format!("{prefix}: {message}"),
+    }
+}
+
+fn format_legacy_error_message(
+    prefix: &str,
+    message: &str,
+    codex_error_info: Option<&CoreCodexErrorInfo>,
+) -> String {
+    if matches!(
+        codex_error_info,
+        Some(CoreCodexErrorInfo::SessionBudgetExceeded)
+    ) {
+        return SESSION_BUDGET_EXCEEDED_MESSAGE.to_string();
+    }
+
+    match codex_error_info {
+        Some(info) => format!("{prefix}: {message} ({info:?})"),
+        None => format!("{prefix}: {message}"),
     }
 }
 
@@ -2025,7 +2120,11 @@ pub fn normalize_logs(
                             entry_type: NormalizedEntryType::ErrorMessage {
                                 error_type: NormalizedEntryError::Other,
                             },
-                            content: format!("Stream error: {message} {codex_error_info:?}"),
+                            content: format_legacy_error_message(
+                                "Stream error",
+                                &message,
+                                codex_error_info.as_ref(),
+                            ),
                             metadata: None,
                         },
                     );
@@ -2300,7 +2399,7 @@ pub fn normalize_logs(
                         continue;
                     }
                     state.mark_tool_completed(&call_id);
-                    let path_str = path.to_string_lossy().to_string();
+                    let path_str = path.inferred_native_path_string();
                     let relative_path = make_path_relative(&path_str, &worktree_path_str);
                     add_normalized_entry(
                         &msg_store,
@@ -2404,7 +2503,11 @@ pub fn normalize_logs(
                             entry_type: NormalizedEntryType::ErrorMessage {
                                 error_type: NormalizedEntryError::Other,
                             },
-                            content: format!("Error: {message} {codex_error_info:?}"),
+                            content: format_legacy_error_message(
+                                "Error",
+                                &message,
+                                codex_error_info.as_ref(),
+                            ),
                             metadata: None,
                         },
                     );
@@ -2468,6 +2571,7 @@ pub fn normalize_logs(
                     call_id,
                     turn_id: _,
                     questions: event_questions,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -2482,6 +2586,47 @@ pub fn normalize_logs(
                         &entry_index,
                         call_id,
                         &event_questions,
+                    );
+                }
+                EventMsg::SafetyBuffering(event) => {
+                    if event.show_buffering_ui {
+                        let reason = if event.reasons.is_empty() {
+                            "Codex is applying safety buffering.".to_string()
+                        } else {
+                            format!("Codex safety buffering: {}", event.reasons.join(", "))
+                        };
+                        let faster_model = event
+                            .faster_model
+                            .map(|model| format!(" Faster model: `{model}`."))
+                            .unwrap_or_default();
+                        add_normalized_entry(
+                            &msg_store,
+                            &entry_index,
+                            NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::SystemMessage,
+                                content: format!("{reason}{faster_model}"),
+                                metadata: None,
+                            },
+                        );
+                    }
+                }
+                EventMsg::SubAgentActivity(event) => {
+                    add_normalized_entry(
+                        &msg_store,
+                        &entry_index,
+                        NormalizedEntry {
+                            timestamp: None,
+                            entry_type: NormalizedEntryType::SystemMessage,
+                            content: format!(
+                                "Sub-agent {:?}: `{}` (thread `{}`)",
+                                event.kind, event.agent_path, event.agent_thread_id
+                            ),
+                            metadata: Some(serde_json::json!({
+                                "event_id": event.event_id,
+                                "occurred_at_ms": event.occurred_at_ms,
+                            })),
+                        },
                     );
                 }
                 EventMsg::PlanDelta(PlanDeltaEvent { delta, item_id, .. }) => {
@@ -2949,6 +3094,91 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    fn error_messages(entries: &[NormalizedEntry]) -> Vec<&NormalizedEntry> {
+        entries
+            .iter()
+            .filter(|entry| matches!(&entry.entry_type, NormalizedEntryType::ErrorMessage { .. }))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn direct_session_budget_error_has_actionable_message() {
+        let entries = normalize_lines(&[json!({
+            "jsonrpc": "2.0",
+            "method": "error",
+            "params": {
+                "error": {
+                    "message": "shared rollout token budget exhausted",
+                    "codexErrorInfo": "sessionBudgetExceeded",
+                    "additionalDetails": null
+                },
+                "willRetry": false,
+                "threadId": "thread-1",
+                "turnId": "turn-1"
+            }
+        })
+        .to_string()])
+        .await;
+
+        let errors = error_messages(&entries);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].content, SESSION_BUDGET_EXCEEDED_MESSAGE);
+        assert!(!errors[0].content.contains("SessionBudgetExceeded"));
+    }
+
+    #[tokio::test]
+    async fn legacy_session_budget_errors_have_actionable_message() {
+        for event_type in ["error", "stream_error"] {
+            let entries = normalize_lines(&[json!({
+                "jsonrpc": "2.0",
+                "method": "codex/event",
+                "params": {
+                    "msg": {
+                        "type": event_type,
+                        "message": "shared rollout token budget exhausted",
+                        "codex_error_info": "session_budget_exceeded"
+                    }
+                }
+            })
+            .to_string()])
+            .await;
+
+            let errors = error_messages(&entries);
+            assert_eq!(errors.len(), 1, "missing error for {event_type}");
+            assert_eq!(errors[0].content, SESSION_BUDGET_EXCEEDED_MESSAGE);
+            assert!(!errors[0].content.contains("SessionBudgetExceeded"));
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_reauthentication_notification_surfaces_setup_error() {
+        let entries = normalize_lines(&[json!({
+            "jsonrpc": "2.0",
+            "method": "mcpServer/startupStatus/updated",
+            "params": {
+                "threadId": "thread-1",
+                "name": "expired-oauth",
+                "status": "failed",
+                "error": "OAuth credentials expired",
+                "failureReason": "reauthenticationRequired"
+            }
+        })
+        .to_string()])
+        .await;
+
+        let errors = error_messages(&entries);
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0].entry_type,
+            NormalizedEntryType::ErrorMessage {
+                error_type: NormalizedEntryError::SetupRequired
+            }
+        ));
+        assert!(errors[0].content.contains("`expired-oauth`"));
+        assert!(errors[0].content.contains("requires reauthentication"));
+        assert!(errors[0].content.contains("OAuth credentials expired"));
     }
 
     #[tokio::test]

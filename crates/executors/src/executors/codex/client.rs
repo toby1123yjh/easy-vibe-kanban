@@ -6,18 +6,20 @@ use std::{
         Arc, Mutex as StdMutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use codex_app_server_protocol::{
     ClientInfo, ClientNotification, ClientRequest, CommandExecutionApprovalDecision,
     CommandExecutionRequestApprovalResponse, ConfigBatchWriteParams, ConfigEdit, ConfigReadParams,
-    ConfigReadResponse, ConfigWriteResponse, DynamicToolCallOutputContentItem,
-    DynamicToolCallResponse, FileChangeApprovalDecision, FileChangeRequestApprovalResponse,
-    GetAccountParams, GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities,
-    InitializeParams, InitializeResponse, ItemCompletedNotification, JSONRPCError,
-    JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams,
-    ListMcpServerStatusResponse, McpServerStatusDetail, ModelListParams, ModelListResponse,
+    ConfigReadResponse, ConfigWriteResponse, CurrentTimeReadResponse,
+    DynamicToolCallOutputContentItem, DynamicToolCallResponse, FileChangeApprovalDecision,
+    FileChangeRequestApprovalResponse, GetAccountParams, GetAccountRateLimitsResponse,
+    GetAccountResponse, InitializeCapabilities, InitializeParams, InitializeResponse,
+    ItemCompletedNotification, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse,
+    ListMcpServerStatusParams, ListMcpServerStatusResponse, McpServerElicitationAction,
+    McpServerElicitationRequestResponse, McpServerStatusDetail, ModelListParams, ModelListResponse,
     RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget, ServerRequest,
     SkillsListParams, SkillsListResponse, ThreadCompactStartParams, ThreadCompactStartResponse,
     ThreadForkParams, ThreadForkResponse, ThreadGoalClearParams, ThreadGoalClearResponse,
@@ -137,7 +139,7 @@ impl AppServerClient {
         let response = self
             .send_request::<InitializeResponse>(request, "initialize")
             .await?;
-        warn_on_codex_version_mismatch(&response.user_agent);
+        ensure_codex_version(&response.user_agent)?;
         self.send_message(&ClientNotification::Initialized).await
     }
 
@@ -508,7 +510,11 @@ impl AppServerClient {
                 let call_id = params.item_id.clone();
                 let question_count = params.questions.len();
                 let status = self
-                    .request_question_answer(question_count, &call_id)
+                    .request_question_answer(
+                        question_count,
+                        &call_id,
+                        params.auto_resolution_ms.map(Duration::from_millis),
+                    )
                     .await
                     .inspect_err(|err| {
                         if !matches!(
@@ -539,6 +545,32 @@ impl AppServerClient {
                 send_server_response(peer, request_id, response).await?;
                 Ok(())
             }
+            ServerRequest::CurrentTimeRead { request_id, .. } => {
+                send_server_response(
+                    peer,
+                    request_id,
+                    CurrentTimeReadResponse {
+                        current_time_at: chrono::Utc::now().timestamp(),
+                    },
+                )
+                .await
+            }
+            ServerRequest::McpServerElicitationRequest { request_id, params } => {
+                tracing::warn!(
+                    server = %params.server_name,
+                    "MCP elicitation UI is unavailable; cancelling the request"
+                );
+                send_server_response(
+                    peer,
+                    request_id,
+                    McpServerElicitationRequestResponse {
+                        action: McpServerElicitationAction::Cancel,
+                        content: None,
+                        meta: None,
+                    },
+                )
+                .await
+            }
             ServerRequest::DynamicToolCall { request_id, params } => {
                 tracing::warn!(
                     "received unsupported dynamic tool call: tool={} call_id={}",
@@ -559,7 +591,6 @@ impl AppServerClient {
             }
             ServerRequest::ChatgptAuthTokensRefresh { .. }
             | ServerRequest::AttestationGenerate { .. }
-            | ServerRequest::McpServerElicitationRequest { .. }
             | ServerRequest::PermissionsRequestApproval { .. } => {
                 tracing::warn!("received unhandled v2 server request: {:?}", request);
                 let response = JSONRPCResponse {
@@ -646,6 +677,7 @@ impl AppServerClient {
         &self,
         question_count: usize,
         tool_call_id: &str,
+        timeout: Option<Duration>,
     ) -> Result<QuestionStatus, ExecutorError> {
         let approval_service = self
             .approvals
@@ -653,7 +685,7 @@ impl AppServerClient {
             .ok_or(ExecutorApprovalError::ServiceUnavailable)?;
 
         let approval_id = approval_service
-            .create_question_approval("question", question_count)
+            .create_question_approval_with_timeout("question", question_count, timeout)
             .or_else(|err| async {
                 self.handle_question_error(tool_call_id).await;
                 Err(err)
@@ -1187,34 +1219,30 @@ impl LogWriter {
 /// The Codex version this build is tested against. Must match the
 /// `codex-app-server-protocol` tag pinned in `crates/executors/Cargo.toml`
 /// and the `@openai/codex` version pinned in `npx-cli/package.json`.
-const EXPECTED_CODEX_VERSION: &str = "0.138.0";
+const EXPECTED_CODEX_VERSION: &str = "0.144.1";
 
-/// Warn when the running app-server's version diverges from the version this
-/// build targets (e.g. the user opted into a system Codex via
-/// `VK_USE_SYSTEM_AGENTS`). Compares major.minor only.
-fn warn_on_codex_version_mismatch(user_agent: &str) {
+/// Reject a running app-server that does not exactly match the protocol this
+/// build targets. The bundled CLI follows this version by construction; users
+/// opting into a system Codex must install the same stable release.
+fn ensure_codex_version(user_agent: &str) -> Result<(), ExecutorError> {
     let expected = crate::executors::bundled::bundled_codex_version()
         .unwrap_or_else(|| EXPECTED_CODEX_VERSION.to_string());
     let Some(actual) = extract_semver(user_agent) else {
-        tracing::warn!("could not parse codex version from user_agent: {user_agent}");
-        return;
+        return Err(ExecutorError::Io(io::Error::other(format!(
+            "could not parse Codex version from app-server user agent `{user_agent}`; expected {expected}"
+        ))));
     };
-    if major_minor(&actual) != major_minor(&expected) {
-        tracing::warn!(
-            "codex version mismatch: app-server reports {actual} but this build targets \
-             {expected}; protocol drift may cause unexpected errors"
-        );
-    } else {
-        tracing::debug!("codex app-server version {actual} matches expected {expected}");
+    if actual != expected {
+        return Err(ExecutorError::Io(io::Error::other(format!(
+            "Codex app-server version mismatch: running {actual}, but this build requires {expected}"
+        ))));
     }
-}
-
-fn major_minor(version: &str) -> String {
-    version.splitn(3, '.').take(2).collect::<Vec<_>>().join(".")
+    tracing::debug!("codex app-server version {actual} matches expected {expected}");
+    Ok(())
 }
 
 /// Extracts the first `x.y.z`-shaped token from a user-agent string such as
-/// `codex/0.138.0 (Windows 10; x86_64) vibe-codex-executor`.
+/// `codex/0.144.1 (Windows 10; x86_64) vibe-codex-executor`.
 fn extract_semver(input: &str) -> Option<String> {
     input
         .split(|c: char| !(c.is_ascii_digit() || c == '.'))
@@ -1237,15 +1265,15 @@ mod version_check_tests {
 
     use super::{
         AppServerClient, LogWriter, ReasoningEffortUpdate, build_thread_settings_update_params,
-        build_turn_start_params, extract_semver, major_minor,
+        build_turn_start_params, ensure_codex_version, extract_semver,
         reasoning_update_from_thread_settings,
     };
 
     #[test]
     fn extracts_version_from_user_agent() {
         assert_eq!(
-            extract_semver("codex/0.138.0 (Windows 10; x86_64) vibe-codex-executor"),
-            Some("0.138.0".to_string())
+            extract_semver("codex/0.144.1 (Windows 10; x86_64) vibe-codex-executor"),
+            Some("0.144.1".to_string())
         );
         assert_eq!(
             extract_semver("codex/1.2.3-alpha.1"),
@@ -1255,11 +1283,11 @@ mod version_check_tests {
     }
 
     #[test]
-    fn major_minor_comparison() {
-        assert_eq!(major_minor("0.138.0"), "0.138");
-        assert_eq!(major_minor("0.139.2"), "0.139");
-        assert_ne!(major_minor("0.139.2"), major_minor("0.138.0"));
-        assert_eq!(major_minor("0.138"), "0.138");
+    fn codex_version_must_match_exactly() {
+        assert!(ensure_codex_version("codex/0.144.1").is_ok());
+        assert!(ensure_codex_version("codex/0.144.0").is_err());
+        assert!(ensure_codex_version("codex/0.145.0").is_err());
+        assert!(ensure_codex_version("unknown").is_err());
     }
 
     // Regression: request_id() must handle every ClientRequest variant the

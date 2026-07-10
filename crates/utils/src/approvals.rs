@@ -16,13 +16,24 @@ pub struct ApprovalRequest {
 
 impl ApprovalRequest {
     pub fn new(tool_name: String, execution_process_id: Uuid) -> Self {
+        Self::new_with_timeout(tool_name, execution_process_id, None)
+    }
+
+    pub fn new_with_timeout(
+        tool_name: String,
+        execution_process_id: Uuid,
+        timeout: Option<std::time::Duration>,
+    ) -> Self {
         let now = Utc::now();
+        let timeout = timeout
+            .and_then(|timeout| Duration::from_std(timeout).ok())
+            .unwrap_or_else(|| Duration::seconds(APPROVAL_TIMEOUT_SECONDS));
         Self {
             id: Uuid::new_v4().to_string(),
             tool_name,
             execution_process_id,
             created_at: now,
-            timeout_at: now + Duration::seconds(APPROVAL_TIMEOUT_SECONDS),
+            timeout_at: now + timeout,
         }
     }
 }
@@ -74,4 +85,35 @@ pub enum ApprovalOutcome {
 pub struct ApprovalResponse {
     pub execution_process_id: Uuid,
     pub status: ApprovalOutcome,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration as StdDuration;
+
+    use super::*;
+
+    #[test]
+    fn approval_request_uses_default_timeout() {
+        let request = ApprovalRequest::new("bash".to_string(), Uuid::new_v4());
+
+        assert_eq!(
+            request.timeout_at - request.created_at,
+            Duration::seconds(APPROVAL_TIMEOUT_SECONDS)
+        );
+    }
+
+    #[test]
+    fn provider_timeout_overrides_default_timeout() {
+        let request = ApprovalRequest::new_with_timeout(
+            "question".to_string(),
+            Uuid::new_v4(),
+            Some(StdDuration::from_millis(1_250)),
+        );
+
+        assert_eq!(
+            request.timeout_at - request.created_at,
+            Duration::milliseconds(1_250)
+        );
+    }
 }

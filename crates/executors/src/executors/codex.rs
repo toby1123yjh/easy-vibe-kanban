@@ -55,7 +55,7 @@ use async_trait::async_trait;
 use codex_app_server_protocol::{
     AskForApproval as V2AskForApproval, ModelListResponse, ReviewTarget,
     SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadForkParams,
-    ThreadStartParams, UserInput,
+    ThreadHistoryMode, ThreadStartParams, UserInput,
 };
 use codex_protocol::{
     config_types::ServiceTier, openai_models::ReasoningEffort as ProtocolReasoningEffort,
@@ -106,8 +106,6 @@ pub enum SandboxMode {
 ///
 /// - `UnlessTrusted`: Read-only commands are auto-approved. Everything else will
 ///   ask the user to approve.
-/// - `OnFailure`: All commands run in a restricted sandbox initially. If a
-///   command fails, the user is asked to approve execution without the sandbox.
 /// - `OnRequest`: The model decides when to ask the user for approval.
 /// - `Never`: Commands never ask for approval. Commands that fail in the
 ///   restricted sandbox are not retried.
@@ -116,7 +114,6 @@ pub enum SandboxMode {
 #[strum(serialize_all = "kebab-case")]
 pub enum AskForApproval {
     UnlessTrusted,
-    OnFailure,
     OnRequest,
     Never,
 }
@@ -720,7 +717,6 @@ impl Codex {
             }
             None => None,
             Some(AskForApproval::UnlessTrusted) => Some(V2AskForApproval::UnlessTrusted),
-            Some(AskForApproval::OnFailure) => Some(V2AskForApproval::OnFailure),
             Some(AskForApproval::OnRequest) => Some(V2AskForApproval::OnRequest),
             Some(AskForApproval::Never) => Some(V2AskForApproval::Never),
         };
@@ -742,18 +738,6 @@ impl Codex {
                 .get_or_insert_with(HashMap::new)
                 .insert("compact_prompt".to_string(), Value::String(compact.clone()));
         }
-        if !matches!(approval_policy, None | Some(V2AskForApproval::Never)) {
-            let map = config.get_or_insert_with(HashMap::new);
-            map.insert(
-                "features.default_mode_request_user_input".to_string(),
-                Value::Bool(true),
-            );
-            map.insert(
-                "suppress_unstable_features_warning".to_string(),
-                Value::Bool(true),
-            );
-        }
-
         let (model, is_fast) = resolve_model(self.model.as_deref());
         let service_tier = if is_fast {
             Some(Some(ServiceTier::Fast.request_value().to_string()))
@@ -771,6 +755,7 @@ impl Codex {
             model_provider: self.model_provider.clone(),
             developer_instructions: self.developer_instructions.clone(),
             service_tier,
+            history_mode: Some(ThreadHistoryMode::Paginated),
             ..Default::default()
         }
     }
@@ -1119,8 +1104,12 @@ fn model_list_response_to_model_infos(response: ModelListResponse) -> Vec<ModelI
 fn fallback_models() -> Vec<ModelInfo> {
     let xhigh_reasoning_options =
         ReasoningOption::from_names(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    let max_reasoning_options =
+        ReasoningOption::from_names(["low", "medium", "high", "xhigh", "max"]);
+    let ultra_reasoning_options =
+        ReasoningOption::from_names(["low", "medium", "high", "xhigh", "max", "ultra"]);
 
-    [
+    let mut models = [
         ("gpt-5.5", "GPT-5.5"),
         ("gpt-5.5-fast", "GPT-5.5 Fast"),
         ("gpt-5.4", "GPT-5.4"),
@@ -1137,19 +1126,46 @@ fn fallback_models() -> Vec<ModelInfo> {
         provider_id: None,
         reasoning_options: xhigh_reasoning_options.clone(),
     })
-    .collect()
+    .collect::<Vec<_>>();
+    models.splice(
+        0..0,
+        [
+            ModelInfo {
+                id: "gpt-5.6-sol".to_string(),
+                name: "GPT-5.6-Sol".to_string(),
+                provider_id: None,
+                reasoning_options: ultra_reasoning_options.clone(),
+            },
+            ModelInfo {
+                id: "gpt-5.6-terra".to_string(),
+                name: "GPT-5.6-Terra".to_string(),
+                provider_id: None,
+                reasoning_options: ultra_reasoning_options,
+            },
+            ModelInfo {
+                id: "gpt-5.6-luna".to_string(),
+                name: "GPT-5.6-Luna".to_string(),
+                provider_id: None,
+                reasoning_options: max_reasoning_options,
+            },
+        ],
+    );
+    models
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use codex_app_server_protocol::{Model, ModelListResponse, ReasoningEffortOption, UserInput};
+    use codex_app_server_protocol::{
+        Model, ModelListResponse, ReasoningEffortOption, ThreadHistoryMode, UserInput,
+    };
     use codex_protocol::openai_models::ReasoningEffort as ProtocolReasoningEffort;
     use serde_json::json;
 
     use super::{
-        Codex, ReasoningEffort, build_chat_input, model_list_response_to_model_infos, resolve_model,
+        AskForApproval, Codex, ReasoningEffort, build_chat_input, fallback_models,
+        model_list_response_to_model_infos, resolve_model,
     };
     use crate::{
         actions::SelectedSkill,
@@ -1229,13 +1245,36 @@ mod tests {
             .expect("xhigh is a valid reasoning effort");
         assert_eq!(xhigh.to_protocol(), ProtocolReasoningEffort::XHigh);
 
-        let custom = "max"
+        let max = "max"
+            .parse::<ReasoningEffort>()
+            .expect("max is a valid reasoning effort");
+        assert_eq!(max.to_protocol(), ProtocolReasoningEffort::Max);
+
+        let ultra = "ultra"
+            .parse::<ReasoningEffort>()
+            .expect("ultra is a valid reasoning effort");
+        assert_eq!(ultra.to_protocol(), ProtocolReasoningEffort::Ultra);
+
+        let custom = "max-plus"
             .parse::<ReasoningEffort>()
             .expect("custom non-empty efforts are valid");
         assert_eq!(
             custom.to_protocol(),
-            ProtocolReasoningEffort::Custom("max".to_string())
+            ProtocolReasoningEffort::Custom("max-plus".to_string())
         );
+    }
+
+    #[test]
+    fn removed_on_failure_approval_policy_is_rejected() {
+        assert!(serde_json::from_str::<AskForApproval>(r#""on-failure""#).is_err());
+    }
+
+    #[test]
+    fn new_threads_use_paginated_history_without_model_fallback() {
+        let params = test_executor().build_thread_start_params(Path::new("/tmp/test-worktree"));
+
+        assert_eq!(params.history_mode, Some(ThreadHistoryMode::Paginated));
+        assert!(!params.allow_provider_model_fallback);
     }
 
     #[test]
@@ -1281,6 +1320,75 @@ mod tests {
                 .find(|option| option.is_default)
                 .map(|option| option.id.as_str()),
             Some("minimal")
+        );
+    }
+
+    #[test]
+    fn model_list_preserves_gpt_5_6_max_and_ultra_reasoning_efforts() {
+        let response = ModelListResponse {
+            data: vec![Model {
+                id: "gpt-5.6-sol".to_string(),
+                model: "gpt-5.6-sol".to_string(),
+                upgrade: None,
+                upgrade_info: None,
+                availability_nux: None,
+                display_name: "GPT-5.6-Sol".to_string(),
+                description: "Latest frontier agentic coding model.".to_string(),
+                hidden: false,
+                supported_reasoning_efforts: vec![
+                    ReasoningEffortOption {
+                        reasoning_effort: ProtocolReasoningEffort::Max,
+                        description: "Maximum reasoning depth".to_string(),
+                    },
+                    ReasoningEffortOption {
+                        reasoning_effort: ProtocolReasoningEffort::Ultra,
+                        description: "Maximum reasoning with delegation".to_string(),
+                    },
+                ],
+                default_reasoning_effort: ProtocolReasoningEffort::Max,
+                input_modalities: vec![],
+                supports_personality: false,
+                additional_speed_tiers: vec![],
+                service_tiers: vec![],
+                default_service_tier: None,
+                is_default: true,
+            }],
+            next_cursor: None,
+        };
+
+        let models = model_list_response_to_model_infos(response);
+        let ids = models[0]
+            .reasoning_options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["max", "ultra"]);
+        assert!(models[0].reasoning_options[0].is_default);
+    }
+
+    #[test]
+    fn fallback_models_include_gpt_5_6_catalog() {
+        let models = fallback_models();
+
+        assert_eq!(
+            models
+                .iter()
+                .take(3)
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        );
+        let sol = &models[0];
+        assert!(
+            sol.reasoning_options
+                .iter()
+                .any(|option| option.id == "max")
+        );
+        assert!(
+            sol.reasoning_options
+                .iter()
+                .any(|option| option.id == "ultra")
         );
     }
 

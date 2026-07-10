@@ -119,11 +119,11 @@ The profiles configuration uses a JSON structure with an `executors` object cont
   </ParamField>
 
   <ParamField path="approval" type="string">
-  Approval level: `"untrusted"`, `"on-failure"`, `"on-request"`, or `"never"`
+  Approval level: `"unless-trusted"`, `"on-request"`, or `"never"`
   </ParamField>
 
   <ParamField path="model_reasoning_effort" type="string">
-  Reasoning depth: `"low"`, `"medium"`, or `"high"`
+  Provider-native reasoning depth. Codex 0.144.1 models can advertise values such as `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, or `"ultra"`.
   </ParamField>
 
   <ParamField path="model_reasoning_summary" type="string">

@@ -47,8 +47,7 @@ Controls what the agent can access:
 
 <Accordion title="Approval Levels">
 Determines when the agent pauses for your confirmation:
-- **untrusted** - Asks before every action
-- **on-failure** - Only asks when something goes wrong
+- **unless-trusted** - Asks before actions Codex has not classified as trusted
 - **on-request** - Only asks when explicitly requested
 - **never** - Fully autonomous (no confirmations)
 </Accordion>
@@ -159,11 +158,11 @@ Click the **Default** badge next to a configuration to make it the default for t
   </ParamField>
 
   <ParamField path="approval" type="string">
-  Approval level: `"untrusted"`, `"on-failure"`, `"on-request"`, or `"never"`
+  Approval level: `"unless-trusted"`, `"on-request"`, or `"never"`
   </ParamField>
 
   <ParamField path="model_reasoning_effort" type="string">
-  Reasoning depth: `"low"`, `"medium"`, or `"high"`
+  Provider-native reasoning depth. Codex 0.144.1 models can advertise values such as `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, or `"ultra"`.
   </ParamField>
 
   <ParamField path="model_reasoning_summary" type="string">

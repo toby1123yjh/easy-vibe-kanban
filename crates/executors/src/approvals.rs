@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,19 @@ pub trait ExecutorApprovalService: Send + Sync {
         tool_name: &str,
         question_count: usize,
     ) -> Result<String, ExecutorApprovalError>;
+
+    /// Creates a question request with an optional provider-supplied
+    /// auto-resolution deadline.
+    async fn create_question_approval_with_timeout(
+        &self,
+        tool_name: &str,
+        question_count: usize,
+        timeout: Option<Duration>,
+    ) -> Result<String, ExecutorApprovalError> {
+        let _ = timeout;
+        self.create_question_approval(tool_name, question_count)
+            .await
+    }
 
     /// Waits for a tool approval to be resolved. Blocks until approved/denied/timed out.
     async fn wait_tool_approval(

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use db::{self, DBService, models::execution_process::ExecutionProcess};
@@ -42,8 +42,13 @@ impl ExecutorApprovalBridge {
         tool_name: &str,
         is_question: bool,
         question_count: Option<usize>,
+        timeout: Option<Duration>,
     ) -> Result<String, ExecutorApprovalError> {
-        let request = ApprovalRequest::new(tool_name.to_string(), self.execution_process_id);
+        let request = ApprovalRequest::new_with_timeout(
+            tool_name.to_string(),
+            self.execution_process_id,
+            timeout,
+        );
 
         let (request, waiter) = self
             .approvals
@@ -130,7 +135,7 @@ impl ExecutorApprovalBridge {
 #[async_trait]
 impl ExecutorApprovalService for ExecutorApprovalBridge {
     async fn create_tool_approval(&self, tool_name: &str) -> Result<String, ExecutorApprovalError> {
-        self.create_internal(tool_name, false, None).await
+        self.create_internal(tool_name, false, None, None).await
     }
 
     async fn create_question_approval(
@@ -138,7 +143,17 @@ impl ExecutorApprovalService for ExecutorApprovalBridge {
         tool_name: &str,
         question_count: usize,
     ) -> Result<String, ExecutorApprovalError> {
-        self.create_internal(tool_name, true, Some(question_count))
+        self.create_internal(tool_name, true, Some(question_count), None)
+            .await
+    }
+
+    async fn create_question_approval_with_timeout(
+        &self,
+        tool_name: &str,
+        question_count: usize,
+        timeout: Option<Duration>,
+    ) -> Result<String, ExecutorApprovalError> {
+        self.create_internal(tool_name, true, Some(question_count), timeout)
             .await
     }
 
