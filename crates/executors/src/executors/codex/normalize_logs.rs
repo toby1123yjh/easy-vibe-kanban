@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
     time::Duration,
@@ -383,6 +383,8 @@ struct LogState {
     plans: HashMap<String, PlanState>,
     review: Option<ReviewState>,
     model_params: ModelParamsState,
+    active_thread_id: Option<String>,
+    completed_tool_calls: HashSet<String>,
 }
 
 struct ModelParamsState {
@@ -415,7 +417,34 @@ impl LogState {
                 model: None,
                 reasoning_effort: None,
             },
+            active_thread_id: None,
+            completed_tool_calls: HashSet::new(),
         }
+    }
+
+    fn observe_thread_id(&mut self, thread_id: String) {
+        if self.active_thread_id.is_none() {
+            self.active_thread_id = Some(thread_id);
+        }
+    }
+
+    fn should_process_thread_id(&self, thread_id: Option<&str>) -> bool {
+        match (self.active_thread_id.as_deref(), thread_id) {
+            (Some(active_thread_id), Some(thread_id)) => active_thread_id == thread_id,
+            _ => true,
+        }
+    }
+
+    fn is_tool_completed(&self, call_id: &str) -> bool {
+        self.completed_tool_calls.contains(call_id)
+    }
+
+    fn should_ignore_tool_update(&self, call_id: &str, status: &ToolStatus) -> bool {
+        self.is_tool_completed(call_id) && !is_terminal_tool_status(status)
+    }
+
+    fn mark_tool_completed(&mut self, call_id: &str) {
+        self.completed_tool_calls.insert(call_id.to_string());
     }
 
     fn streaming_text_update(
@@ -493,6 +522,11 @@ impl LogState {
         clear_awaiting: bool,
         msg_store: &Arc<MsgStore>,
     ) {
+        if self.should_ignore_tool_update(call_id, &status) {
+            return;
+        }
+
+        let is_terminal = is_terminal_tool_status(&status);
         if let Some(cmd) = self.commands.get_mut(call_id) {
             cmd.status = status.clone();
             if clear_awaiting {
@@ -542,6 +576,10 @@ impl LogState {
             if let Some(index) = command_state.index {
                 replace_normalized_entry(msg_store, index, command_state.to_normalized_entry());
             }
+        }
+
+        if is_terminal {
+            self.mark_tool_completed(call_id);
         }
     }
 
@@ -662,6 +700,13 @@ fn app_dynamic_tool_status_to_tool_status(status: &AppDynamicToolCallStatus) -> 
     }
 }
 
+fn is_terminal_tool_status(status: &ToolStatus) -> bool {
+    matches!(
+        status,
+        ToolStatus::Success | ToolStatus::Failed | ToolStatus::Denied { .. } | ToolStatus::TimedOut
+    )
+}
+
 fn dynamic_tool_markdown_from_app_items(items: &[AppDynamicToolCallOutputContentItem]) -> String {
     items
         .iter()
@@ -709,6 +754,12 @@ fn upsert_dynamic_tool_state(
         status,
         result,
     } = update;
+
+    if state.should_ignore_tool_update(&call_id, &status) {
+        return;
+    }
+
+    let is_terminal = is_terminal_tool_status(&status);
     let dynamic_tool_state = state
         .dynamic_tools
         .entry(call_id.clone())
@@ -736,6 +787,9 @@ fn upsert_dynamic_tool_state(
         index
     };
     replace_normalized_entry(msg_store, index, dynamic_tool_state.to_normalized_entry());
+    if is_terminal {
+        state.mark_tool_completed(&call_id);
+    }
 }
 
 fn add_thread_token_usage(
@@ -766,6 +820,24 @@ fn add_thread_token_usage(
             metadata: None,
         },
     );
+}
+
+fn jsonrpc_thread_id(params: Option<&Value>) -> Option<&str> {
+    params.and_then(|params| {
+        params
+            .get("threadId")
+            .or_else(|| params.get("thread_id"))
+            .or_else(|| params.get("thread").and_then(|thread| thread.get("id")))
+            .and_then(Value::as_str)
+    })
+}
+
+fn notification_thread_id(notification: &JSONRPCNotification) -> Option<&str> {
+    jsonrpc_thread_id(notification.params.as_ref())
+}
+
+fn request_thread_id(request: &JSONRPCRequest) -> Option<&str> {
+    jsonrpc_thread_id(request.params.as_ref())
 }
 
 trait QuestionLike {
@@ -867,6 +939,10 @@ fn upsert_question_request_state(
     call_id: String,
     questions: &[impl QuestionLike],
 ) {
+    if state.is_tool_completed(&call_id) {
+        return;
+    }
+
     let mut tool_state = question_state_from_questions(questions);
     let fallback_command = state.commands.remove(&call_id);
     if let Some(command_state) = fallback_command.as_ref()
@@ -899,6 +975,9 @@ fn handle_direct_item_started(
 
     match notification.item {
         AppThreadItem::Plan { id, .. } => {
+            if state.is_tool_completed(&id) {
+                return;
+            }
             let mut plan_state = PlanState {
                 index: None,
                 text: String::new(),
@@ -910,6 +989,9 @@ fn handle_direct_item_started(
             state.plans.insert(id, plan_state);
         }
         AppThreadItem::CommandExecution { id, command, .. } => {
+            if state.is_tool_completed(&id) {
+                return;
+            }
             let mut command_state = state.commands.remove(&id).unwrap_or_default();
             command_state.command = command;
             command_state.status = ToolStatus::Created;
@@ -923,6 +1005,9 @@ fn handle_direct_item_started(
             state.commands.insert(id, command_state);
         }
         AppThreadItem::FileChange { id, changes, .. } => {
+            if state.is_tool_completed(&id) {
+                return;
+            }
             let normalized = normalize_app_file_changes(worktree_path, &changes);
             let patch_state = state.patches.entry(id.clone()).or_default();
             let normalized_len = normalized.len();
@@ -972,6 +1057,9 @@ fn handle_direct_item_started(
             arguments,
             ..
         } => {
+            if state.is_tool_completed(&id) {
+                return;
+            }
             let tool_state = state.mcp_tools.entry(id.clone()).or_insert(McpToolState {
                 index: None,
                 invocation: McpInvocation {
@@ -1009,6 +1097,9 @@ fn handle_direct_item_started(
             );
         }
         AppThreadItem::WebSearch { id, .. } => {
+            if state.is_tool_completed(&id) {
+                return;
+            }
             state.web_searches.insert(id.clone(), WebSearchState::new());
             let web_search_state = state.web_searches.get_mut(&id).unwrap();
             let normalized_entry = web_search_state.to_normalized_entry();
@@ -1085,8 +1176,10 @@ fn handle_direct_item_completed(
             }
         }
         AppThreadItem::Plan { id, text } => {
+            state.mark_tool_completed(&id);
             if let Some(plan_state) = state.plans.get_mut(&id) {
                 plan_state.text = text;
+                plan_state.status = ToolStatus::Success;
                 if let Some(index) = plan_state.index {
                     replace_normalized_entry(msg_store, index, plan_state.to_normalized_entry());
                 }
@@ -1099,19 +1192,26 @@ fn handle_direct_item_completed(
             status,
             ..
         } => {
+            let tool_status = app_command_status_to_tool_status(&status);
+            if is_terminal_tool_status(&tool_status) {
+                state.mark_tool_completed(&id);
+            }
             if let Some(mut command_state) = state.commands.remove(&id) {
                 command_state.formatted_output = aggregated_output;
                 command_state.exit_code = exit_code;
                 command_state.awaiting_approval = false;
-                command_state.status = app_command_status_to_tool_status(&status);
+                command_state.status = tool_status;
                 if let Some(index) = command_state.index {
                     replace_normalized_entry(msg_store, index, command_state.to_normalized_entry());
                 }
             }
         }
         AppThreadItem::FileChange { id, status, .. } => {
+            let tool_status = app_patch_status_to_tool_status(&status);
+            if is_terminal_tool_status(&tool_status) {
+                state.mark_tool_completed(&id);
+            }
             if let Some(patch_state) = state.patches.remove(&id) {
-                let tool_status = app_patch_status_to_tool_status(&status);
                 for mut entry in patch_state.entries {
                     entry.status = tool_status.clone();
                     if let Some(index) = entry.index {
@@ -1127,8 +1227,12 @@ fn handle_direct_item_completed(
             error,
             ..
         } => {
+            let tool_status = app_mcp_status_to_tool_status(&status);
+            if is_terminal_tool_status(&tool_status) {
+                state.mark_tool_completed(&id);
+            }
             if let Some(mut mcp_tool_state) = state.mcp_tools.remove(&id) {
-                mcp_tool_state.status = app_mcp_status_to_tool_status(&status);
+                mcp_tool_state.status = tool_status;
                 if let Some(result) = result {
                     if result
                         .content
@@ -1204,6 +1308,7 @@ fn handle_direct_item_completed(
             );
         }
         AppThreadItem::WebSearch { id, query, .. } => {
+            state.mark_tool_completed(&id);
             if let Some(mut entry) = state.web_searches.remove(&id) {
                 entry.status = ToolStatus::Success;
                 entry.query = Some(query);
@@ -1269,6 +1374,9 @@ fn handle_direct_request(
     match request {
         ServerRequest::CommandExecutionRequestApproval { params, .. } => {
             let call_id = params.item_id;
+            if state.is_tool_completed(&call_id) {
+                return true;
+            }
             let approval_id = params.approval_id.unwrap_or_default();
             let command_state = state.command_state(call_id.clone());
             if let Some(command) = params.command.filter(|command| !command.is_empty()) {
@@ -1331,6 +1439,10 @@ fn handle_direct_notification(
 ) -> bool {
     match notification {
         ServerNotification::ThreadStarted(n) => {
+            if !state.should_process_thread_id(Some(&n.thread.id)) {
+                return true;
+            }
+            state.observe_thread_id(n.thread.id.clone());
             msg_store.push_session_id(n.thread.id);
             true
         }
@@ -1580,12 +1692,14 @@ pub fn normalize_logs(
             }
 
             if let Ok(response) = serde_json::from_str::<JSONRPCResponse>(&line) {
-                handle_jsonrpc_response(
-                    response,
-                    &msg_store,
-                    &entry_index,
-                    &mut state.model_params,
-                );
+                handle_jsonrpc_response(response, &msg_store, &entry_index, &mut state);
+                continue;
+            }
+
+            let jsonrpc_notification = serde_json::from_str::<JSONRPCNotification>(&line).ok();
+            if let Some(notification) = jsonrpc_notification.as_ref()
+                && !state.should_process_thread_id(notification_thread_id(notification))
+            {
                 continue;
             }
 
@@ -1610,15 +1724,15 @@ pub fn normalize_logs(
             }
 
             if let Ok(request) = serde_json::from_str::<JSONRPCRequest>(&line)
+                && state.should_process_thread_id(request_thread_id(&request))
                 && let Ok(server_request) = ServerRequest::try_from(request)
                 && handle_direct_request(server_request, &mut state, &msg_store, &entry_index)
             {
                 continue;
             }
 
-            let notification: JSONRPCNotification = match serde_json::from_str(&line) {
-                Ok(value) => value,
-                Err(_) => continue,
+            let Some(notification) = jsonrpc_notification else {
+                continue;
             };
 
             if !notification.method.starts_with("codex/event") {
@@ -1696,6 +1810,10 @@ pub fn normalize_logs(
                         command.join(" ")
                     };
 
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
+
                     let command_state = state.commands.entry(call_id.clone()).or_default();
 
                     if command_state.command.is_empty() {
@@ -1728,6 +1846,10 @@ pub fn normalize_logs(
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
+
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
 
                     let normalized = normalize_file_changes(&worktree_path_str, &changes);
                     let patch_state = state.patches.entry(call_id.clone()).or_default();
@@ -1802,6 +1924,9 @@ pub fn normalize_logs(
                     if command_text.is_empty() {
                         continue;
                     }
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
                     state.commands.insert(
                         call_id.clone(),
                         CommandState {
@@ -1866,6 +1991,7 @@ pub fn normalize_logs(
                     process_id: _,
                     ..
                 }) => {
+                    state.mark_tool_completed(&call_id);
                     if let Some(mut command_state) = state.commands.remove(&call_id) {
                         command_state.formatted_output = Some(formatted_output);
                         command_state.exit_code = Some(exit_code);
@@ -1911,6 +2037,9 @@ pub fn normalize_logs(
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
                     state.mcp_tools.insert(
                         call_id.clone(),
                         McpToolState {
@@ -1931,6 +2060,7 @@ pub fn normalize_logs(
                 EventMsg::McpToolCallEnd(McpToolCallEndEvent {
                     call_id, result, ..
                 }) => {
+                    state.mark_tool_completed(&call_id);
                     if let Some(mut mcp_tool_state) = state.mcp_tools.remove(&call_id) {
                         match result {
                             Ok(value) => {
@@ -2039,6 +2169,9 @@ pub fn normalize_logs(
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
                     let normalized = normalize_file_changes(&worktree_path_str, &changes);
                     if let Some(patch_state) = state.patches.get_mut(&call_id) {
                         let mut iter = normalized.into_iter();
@@ -2110,6 +2243,7 @@ pub fn normalize_logs(
                     success,
                     ..
                 }) => {
+                    state.mark_tool_completed(&call_id);
                     if let Some(patch_state) = state.patches.remove(&call_id) {
                         let status = if success {
                             ToolStatus::Success
@@ -2133,6 +2267,9 @@ pub fn normalize_logs(
                 EventMsg::WebSearchBegin(WebSearchBeginEvent { call_id }) => {
                     state.assistant = None;
                     state.thinking = None;
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
                     state
                         .web_searches
                         .insert(call_id.clone(), WebSearchState::new());
@@ -2144,6 +2281,7 @@ pub fn normalize_logs(
                 EventMsg::WebSearchEnd(WebSearchEndEvent { call_id, query, .. }) => {
                     state.assistant = None;
                     state.thinking = None;
+                    state.mark_tool_completed(&call_id);
                     if let Some(mut entry) = state.web_searches.remove(&call_id) {
                         entry.status = ToolStatus::Success;
                         entry.query = Some(query.clone());
@@ -2155,9 +2293,13 @@ pub fn normalize_logs(
                         replace_normalized_entry(&msg_store, index, normalized_entry);
                     }
                 }
-                EventMsg::ViewImageToolCall(ViewImageToolCallEvent { call_id: _, path }) => {
+                EventMsg::ViewImageToolCall(ViewImageToolCallEvent { call_id, path }) => {
                     state.assistant = None;
                     state.thinking = None;
+                    if state.is_tool_completed(&call_id) {
+                        continue;
+                    }
+                    state.mark_tool_completed(&call_id);
                     let path_str = path.to_string_lossy().to_string();
                     let relative_path = make_path_relative(&path_str, &worktree_path_str);
                     add_normalized_entry(
@@ -2394,8 +2536,10 @@ pub fn normalize_logs(
                     item: TurnItem::Plan(ref plan_item),
                     ..
                 }) => {
+                    state.mark_tool_completed(&plan_item.id);
                     if let Some(plan_state) = state.plans.get_mut(&plan_item.id) {
                         plan_state.text = plan_item.text.clone();
+                        plan_state.status = ToolStatus::Success;
                         if let Some(index) = plan_state.index {
                             replace_normalized_entry(
                                 &msg_store,
@@ -2459,28 +2603,30 @@ fn handle_jsonrpc_response(
     response: JSONRPCResponse,
     msg_store: &Arc<MsgStore>,
     entry_index: &EntryIndexProvider,
-    model_params: &mut ModelParamsState,
+    state: &mut LogState,
 ) {
     if let Ok(resp) = serde_json::from_value::<ThreadStartResponse>(response.result.clone()) {
+        state.observe_thread_id(resp.thread.id.clone());
         msg_store.push_session_id(resp.thread.id);
         handle_model_params(
             Some(resp.model),
             resp.reasoning_effort,
             msg_store,
             entry_index,
-            model_params,
+            &mut state.model_params,
         );
         return;
     }
 
     if let Ok(resp) = serde_json::from_value::<ThreadForkResponse>(response.result.clone()) {
+        state.observe_thread_id(resp.thread.id.clone());
         msg_store.push_session_id(resp.thread.id);
         handle_model_params(
             Some(resp.model),
             resp.reasoning_effort,
             msg_store,
             entry_index,
-            model_params,
+            &mut state.model_params,
         );
     }
 }
@@ -2770,6 +2916,18 @@ mod tests {
             .unwrap_or_else(|| panic!("missing tool entry for {tool_name}"))
     }
 
+    fn tool_uses<'a>(entries: &'a [NormalizedEntry], tool_name: &str) -> Vec<&'a NormalizedEntry> {
+        entries
+            .iter()
+            .filter(|entry| {
+                matches!(
+                    &entry.entry_type,
+                    NormalizedEntryType::ToolUse { tool_name: name, .. } if name == tool_name
+                )
+            })
+            .collect()
+    }
+
     fn request_user_input_line(request_id: &str, call_id: &str) -> String {
         json!({
             "jsonrpc": "2.0",
@@ -2947,6 +3105,180 @@ mod tests {
             }
             other => panic!("unexpected dynamic tool entry: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn completed_direct_dynamic_tool_ignores_late_created_update() {
+        let call_id = "call-dyn-1";
+        let tool_name = "lookup_ticket";
+        let entries = normalize_lines(&[
+            json!({
+                "jsonrpc": "2.0",
+                "id": "req-dyn-1",
+                "method": "item/tool/call",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "callId": call_id,
+                    "tool": tool_name,
+                    "arguments": {"id": "ABC-123"}
+                }
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "completedAtMs": 2,
+                    "item": {
+                        "type": "dynamicToolCall",
+                        "id": call_id,
+                        "tool": tool_name,
+                        "arguments": {"id": "ABC-123"},
+                        "status": "completed",
+                        "contentItems": [{
+                            "type": "inputText",
+                            "text": "Ticket ABC-123 is open."
+                        }],
+                        "success": true,
+                        "durationMs": 1
+                    }
+                }
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "req-dyn-late",
+                "method": "item/tool/call",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "callId": call_id,
+                    "tool": tool_name,
+                    "arguments": {"id": "ABC-123"}
+                }
+            })
+            .to_string(),
+        ])
+        .await;
+
+        let dynamic_entries = tool_uses(&entries, tool_name);
+        assert_eq!(dynamic_entries.len(), 1);
+        match &dynamic_entries[0].entry_type {
+            NormalizedEntryType::ToolUse {
+                status: ToolStatus::Success,
+                ..
+            } => {}
+            other => panic!("late created update must not revert status: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_direct_command_ignores_late_item_started() {
+        let call_id = "cmd-1";
+        let cwd = std::env::current_dir()
+            .expect("test should have cwd")
+            .to_string_lossy()
+            .to_string();
+        let entries = normalize_lines(&[
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "startedAtMs": 1,
+                    "item": {
+                        "type": "commandExecution",
+                        "id": call_id,
+                        "command": "git status",
+                        "cwd": cwd,
+                        "processId": null,
+                        "status": "inProgress",
+                        "commandActions": [],
+                        "aggregatedOutput": null,
+                        "exitCode": null,
+                        "durationMs": null
+                    }
+                }
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/completed",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "completedAtMs": 2,
+                    "item": {
+                        "type": "commandExecution",
+                        "id": call_id,
+                        "command": "git status",
+                        "cwd": cwd,
+                        "processId": null,
+                        "status": "completed",
+                        "commandActions": [],
+                        "aggregatedOutput": "clean",
+                        "exitCode": 0,
+                        "durationMs": 1
+                    }
+                }
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "startedAtMs": 3,
+                    "item": {
+                        "type": "commandExecution",
+                        "id": call_id,
+                        "command": "git status",
+                        "cwd": cwd,
+                        "processId": null,
+                        "status": "inProgress",
+                        "commandActions": [],
+                        "aggregatedOutput": null,
+                        "exitCode": null,
+                        "durationMs": null
+                    }
+                }
+            })
+            .to_string(),
+        ])
+        .await;
+
+        let command_entries = tool_uses(&entries, "bash");
+        assert_eq!(command_entries.len(), 1);
+        match &command_entries[0].entry_type {
+            NormalizedEntryType::ToolUse {
+                status: ToolStatus::Success,
+                ..
+            } => {}
+            other => panic!("late item/started must not create running command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn filters_notifications_for_non_active_thread_ids() {
+        let mut state = LogState::new(EntryIndexProvider::test_new());
+        state.observe_thread_id("thread-1".to_string());
+
+        let matching = JSONRPCNotification {
+            method: "item/completed".to_string(),
+            params: Some(json!({ "threadId": "thread-1" })),
+        };
+        let different = JSONRPCNotification {
+            method: "item/completed".to_string(),
+            params: Some(json!({ "threadId": "thread-2" })),
+        };
+
+        assert!(state.should_process_thread_id(notification_thread_id(&matching)));
+        assert!(!state.should_process_thread_id(notification_thread_id(&different)));
     }
 
     #[tokio::test]
