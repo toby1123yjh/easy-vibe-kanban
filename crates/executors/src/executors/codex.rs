@@ -55,7 +55,7 @@ use async_trait::async_trait;
 use codex_app_server_protocol::{
     AskForApproval as V2AskForApproval, ModelListResponse, ReviewTarget,
     SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadForkParams,
-    ThreadHistoryMode, ThreadStartParams, UserInput,
+    ThreadStartParams, UserInput,
 };
 use codex_protocol::{
     config_types::ServiceTier, openai_models::ReasoningEffort as ProtocolReasoningEffort,
@@ -755,7 +755,6 @@ impl Codex {
             model_provider: self.model_provider.clone(),
             developer_instructions: self.developer_instructions.clone(),
             service_tier,
-            history_mode: Some(ThreadHistoryMode::Paginated),
             ..Default::default()
         }
     }
@@ -1157,9 +1156,7 @@ fn fallback_models() -> Vec<ModelInfo> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use codex_app_server_protocol::{
-        Model, ModelListResponse, ReasoningEffortOption, ThreadHistoryMode, UserInput,
-    };
+    use codex_app_server_protocol::{Model, ModelListResponse, ReasoningEffortOption, UserInput};
     use codex_protocol::openai_models::ReasoningEffort as ProtocolReasoningEffort;
     use serde_json::json;
 
@@ -1270,10 +1267,10 @@ mod tests {
     }
 
     #[test]
-    fn new_threads_use_paginated_history_without_model_fallback() {
+    fn new_threads_use_supported_default_history_without_model_fallback() {
         let params = test_executor().build_thread_start_params(Path::new("/tmp/test-worktree"));
 
-        assert_eq!(params.history_mode, Some(ThreadHistoryMode::Paginated));
+        assert!(params.history_mode.is_none());
         assert!(!params.allow_provider_model_fallback);
     }
 
