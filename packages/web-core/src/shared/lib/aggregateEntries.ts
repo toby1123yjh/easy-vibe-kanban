@@ -64,16 +64,19 @@ function getAggregationType(
   return null;
 }
 
-function isActiveToolEntry(entry: PatchTypeWithKey): boolean {
+function isActiveToolEntry(
+  entry: PatchTypeWithKey,
+  runningProcessIds: ReadonlySet<string>
+): boolean {
   if (entry.type !== 'NORMALIZED_ENTRY') return false;
 
   const entryType = entry.content.entry_type;
   if (entryType.type !== 'tool_use') return false;
 
-  return (
-    entryType.status.status === 'created' ||
-    entryType.status.status === 'pending_approval'
-  );
+  if (entryType.status.status === 'pending_approval') return true;
+  if (entryType.status.status !== 'created') return false;
+
+  return runningProcessIds.has(entry.executionProcessId);
 }
 
 /**
@@ -217,7 +220,9 @@ export function aggregateConsecutiveEntries(
       const aggregatedGroup: AggregatedPatchGroup = {
         type: 'AGGREGATED_GROUP',
         aggregationType: currentAggregationType!,
-        isRunning: currentToolGroup.some(isActiveToolEntry),
+        isRunning: currentToolGroup.some((entry) =>
+          isActiveToolEntry(entry, runningProcessIds)
+        ),
         entries: [...currentToolGroup],
         patchKey: `agg:${firstEntry.patchKey}`,
         executionProcessId: firstEntry.executionProcessId,
@@ -278,8 +283,10 @@ export function aggregateConsecutiveEntries(
       flushFileChangeGroup();
 
       if (currentToolGroup.length > 0) {
-        const currentGroupIsRunning = currentToolGroup.some(isActiveToolEntry);
-        const nextEntryIsRunning = isActiveToolEntry(entry);
+        const currentGroupIsRunning = currentToolGroup.some((groupEntry) =>
+          isActiveToolEntry(groupEntry, runningProcessIds)
+        );
+        const nextEntryIsRunning = isActiveToolEntry(entry, runningProcessIds);
 
         if (
           currentAggregationType !== 'tool_calls' ||

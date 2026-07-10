@@ -30,6 +30,7 @@ export interface AggregatedFileChangeEntry {
   filePath: string;
   change: ChatAggregatedFileChange;
   status: ToolStatusLike | null;
+  active?: boolean;
   expansionKey: string;
   fileIcon?: ElementType;
   onOpenInChanges?: () => void;
@@ -37,6 +38,14 @@ export interface AggregatedFileChangeEntry {
   filePreviewDisabled?: boolean;
   filePreviewTitle?: string;
   onOpenInVSCode?: () => void;
+}
+
+function isEntryActive(entry: AggregatedFileChangeEntry) {
+  return (
+    entry.active ??
+    (entry.status?.status === 'created' ||
+      entry.status?.status === 'pending_approval')
+  );
 }
 
 interface ChatAggregatedFileChangeEntriesProps {
@@ -210,6 +219,7 @@ function FileChangeRow({
           {entry.status && (
             <ToolStatusDot
               status={entry.status}
+              active={entry.active}
               className="absolute -bottom-0.5 -right-0.5"
             />
           )}
@@ -287,6 +297,10 @@ export function ChatAggregatedFileChangeEntries({
 }: ChatAggregatedFileChangeEntriesProps) {
   const { t } = useTranslation('tasks');
   const aggregateStatus = useMemo(() => getWorstStatus(entries), [entries]);
+  const isAggregateActive = useMemo(
+    () => entries.some(isEntryActive),
+    [entries]
+  );
   const totals = useMemo(() => {
     const changedFileCount = new Set(entries.map((entry) => entry.filePath))
       .size;
@@ -370,6 +384,7 @@ export function ChatAggregatedFileChangeEntries({
           {aggregateStatus && (
             <ToolStatusDot
               status={aggregateStatus}
+              active={isAggregateActive}
               className="absolute -bottom-0.5 -right-0.5"
             />
           )}

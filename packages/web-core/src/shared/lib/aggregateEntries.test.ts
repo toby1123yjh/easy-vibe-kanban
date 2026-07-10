@@ -115,6 +115,28 @@ describe('aggregateConsecutiveEntries', () => {
     }
   });
 
+  it('does not treat created tool entries as running after the process completes', () => {
+    const result = aggregateConsecutiveEntries([
+      toolEntry(
+        '1',
+        {
+          action: 'command_run',
+          command: 'pnpm test',
+          category: 'other',
+          result: null,
+        },
+        { status: 'created' }
+      ),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('AGGREGATED_GROUP');
+    if (result[0].type === 'AGGREGATED_GROUP') {
+      expect(result[0].aggregationType).toBe('tool_calls');
+      expect(result[0].isRunning).toBe(false);
+    }
+  });
+
   it('starts a new running tool batch after completed tool activity', () => {
     const result = aggregateConsecutiveEntries(
       [

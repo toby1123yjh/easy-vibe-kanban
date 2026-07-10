@@ -32,6 +32,7 @@ interface ChatFileEntryProps {
   onToggle?: () => void;
   className?: string;
   status?: ToolStatusLike;
+  active?: boolean;
   /** Optional diff content for expanded view */
   diffContent?: ChatFileEntryDiffInput;
   /** Optional callback to open file in changes panel */
@@ -60,6 +61,7 @@ export function ChatFileEntry({
   onToggle,
   className,
   status,
+  active,
   diffContent,
   onOpenInChanges,
   onOpenFilePreview,
@@ -122,6 +124,7 @@ export function ChatFileEntry({
               {status && (
                 <ToolStatusDot
                   status={status}
+                  active={active}
                   className="absolute -bottom-0.5 -right-0.5"
                 />
               )}
@@ -206,6 +209,7 @@ export function ChatFileEntry({
           {status && (
             <ToolStatusDot
               status={status}
+              active={active}
               className="absolute -bottom-0.5 -right-0.5"
             />
           )}

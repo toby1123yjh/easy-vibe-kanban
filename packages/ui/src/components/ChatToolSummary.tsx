@@ -16,6 +16,7 @@ interface ChatToolSummaryProps {
   expanded?: boolean;
   onToggle?: () => void;
   status?: ToolStatusLike;
+  active?: boolean;
   onViewContent?: () => void;
   toolName?: string;
   isTruncated?: boolean;
@@ -35,6 +36,7 @@ export const ChatToolSummary = forwardRef<
     expanded,
     onToggle,
     status,
+    active,
     onViewContent,
     toolName,
     isTruncated,
@@ -48,7 +50,8 @@ export const ChatToolSummary = forwardRef<
   const canExpand = isTruncated && onToggle;
   const isClickable = Boolean(onViewContent || canExpand);
   const isActive =
-    status?.status === 'created' || status?.status === 'pending_approval';
+    active ??
+    (status?.status === 'created' || status?.status === 'pending_approval');
 
   const handleClick = () => {
     if (onViewContent) {
@@ -89,6 +92,7 @@ export const ChatToolSummary = forwardRef<
         {status && (
           <ToolStatusDot
             status={status}
+            active={isActive}
             className="absolute -bottom-0.5 -left-0.5"
           />
         )}

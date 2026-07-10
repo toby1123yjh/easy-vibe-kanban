@@ -10,6 +10,7 @@ interface ChatScriptEntryProps {
   exitCode?: number | null;
   className?: string;
   status: ToolStatusLike;
+  active?: boolean;
   onViewProcess: (processId: string) => void;
   onFix?: () => void;
 }
@@ -21,11 +22,12 @@ export function ChatScriptEntry({
   exitCode,
   className,
   status,
+  active,
   onViewProcess,
   onFix,
 }: ChatScriptEntryProps) {
   const { t } = useTranslation('tasks');
-  const isRunning = status.status === 'created';
+  const isRunning = active ?? status.status === 'created';
   const isSuccess = status.status === 'success';
   const isFailed = status.status === 'failed';
 
@@ -71,6 +73,7 @@ export function ChatScriptEntry({
         <TerminalIcon className="size-icon-base text-low" />
         <ToolStatusDot
           status={status}
+          active={isRunning}
           className="absolute -bottom-0.5 -left-0.5"
         />
       </span>

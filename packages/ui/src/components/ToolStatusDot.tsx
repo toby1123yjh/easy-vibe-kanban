@@ -7,9 +7,14 @@ export interface ToolStatusLike {
 interface ToolStatusDotProps {
   status: ToolStatusLike;
   className?: string;
+  active?: boolean;
 }
 
-export function ToolStatusDot({ status, className }: ToolStatusDotProps) {
+export function ToolStatusDot({
+  status,
+  className,
+  active = true,
+}: ToolStatusDotProps) {
   const statusType = status.status;
 
   // Map status to visual state
@@ -31,7 +36,7 @@ export function ToolStatusDot({ status, className }: ToolStatusDotProps) {
           isPending && 'bg-text-low'
         )}
       />
-      {isPending && (
+      {isPending && active && (
         <span className="absolute inset-0 size-1.5 rounded-full bg-text-low animate-ping" />
       )}
     </span>

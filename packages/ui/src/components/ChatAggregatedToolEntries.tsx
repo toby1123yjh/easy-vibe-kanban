@@ -8,6 +8,7 @@ import { ToolStatusDot, type ToolStatusLike } from './ToolStatusDot';
 export interface AggregatedEntry {
   summary: string;
   status?: ToolStatusLike;
+  active?: boolean;
   expansionKey: string;
   content?: string;
   command?: string;
@@ -54,6 +55,10 @@ function getWorstStatus(entries: AggregatedEntry[]) {
 
     return currentPriority > worstPriority ? entry.status : worst;
   }, undefined);
+}
+
+function isEntryActive(entry: AggregatedEntry) {
+  return entry.active ?? isActiveStatus(entry.status);
 }
 
 function getFallbackSummary({
@@ -108,7 +113,7 @@ export function ChatAggregatedToolEntries({
   if (entries.length === 0) return null;
 
   const aggregateStatus = getWorstStatus(entries);
-  const isRunning = entries.some((entry) => isActiveStatus(entry.status));
+  const isRunning = entries.some(isEntryActive);
   const headerSummary =
     summary ??
     getFallbackSummary({
@@ -138,6 +143,7 @@ export function ChatAggregatedToolEntries({
           {entry.status && (
             <ToolStatusDot
               status={entry.status}
+              active={isEntryActive(entry)}
               className="absolute -bottom-0.5 -left-0.5"
             />
           )}
@@ -153,7 +159,7 @@ export function ChatAggregatedToolEntries({
         <ChatElapsedTime
           startedAt={entry.startedAt ?? startedAt}
           endedAt={entry.endedAt ?? endedAt}
-          active={isRunning}
+          active={isEntryActive(entry)}
         />
       </button>
     );
@@ -228,6 +234,7 @@ export function ChatAggregatedToolEntries({
                   {entry.status && (
                     <ToolStatusDot
                       status={entry.status}
+                      active={isEntryActive(entry)}
                       className="absolute -bottom-0.5 -left-0.5"
                     />
                   )}
@@ -245,7 +252,7 @@ export function ChatAggregatedToolEntries({
                     <ChatElapsedTime
                       startedAt={entry.startedAt}
                       endedAt={entry.endedAt}
-                      active={isActiveStatus(entry.status)}
+                      active={isEntryActive(entry)}
                     />
                   </span>
                   {outputPreview && (

@@ -24,8 +24,17 @@ export interface AggregatedDiffEntry {
   change: ChatAggregatedDiffChange;
   /** Tool status for this change */
   status: ToolStatusLike | null;
+  active?: boolean;
   /** Unique key for expansion state */
   expansionKey: string;
+}
+
+function isEntryActive(entry: AggregatedDiffEntry) {
+  return (
+    entry.active ??
+    (entry.status?.status === 'created' ||
+      entry.status?.status === 'pending_approval')
+  );
 }
 
 interface ChatAggregatedDiffEntriesProps {
@@ -106,11 +115,13 @@ function DiffEntry({
   filePath,
   change,
   status,
+  active,
   renderDiffBody,
 }: {
   filePath: string;
   change: ChatAggregatedDiffChange;
   status: ToolStatusLike | null;
+  active?: boolean;
   renderDiffBody?: (args: {
     filePath: string;
     change: ChatAggregatedDiffChange;
@@ -143,7 +154,13 @@ function DiffEntry({
       <div className="flex items-center p-base bg-muted/10">
         <div className="flex-1 flex items-center gap-base min-w-0">
           <span className="relative shrink-0">
-            {status && <ToolStatusDot status={status} className="size-2" />}
+            {status && (
+              <ToolStatusDot
+                status={status}
+                active={active}
+                className="size-2"
+              />
+            )}
           </span>
           <span className="text-sm text-low">{getActionLabel(change, t)}</span>
           {hasStats && (
@@ -238,6 +255,10 @@ export function ChatAggregatedDiffEntries({
       return currentPriority > worstPriority ? entry.status : worst;
     }, null);
   }, [entries]);
+  const isAggregateActive = useMemo(
+    () => entries.some(isEntryActive),
+    [entries]
+  );
 
   const isDenied = aggregateStatus?.status === 'denied';
   const hasStats = totalStats.additions > 0 || totalStats.deletions > 0;
@@ -278,6 +299,7 @@ export function ChatAggregatedDiffEntries({
             {aggregateStatus && (
               <ToolStatusDot
                 status={aggregateStatus}
+                active={isAggregateActive}
                 className="absolute -bottom-0.5 -right-0.5"
               />
             )}
@@ -348,6 +370,7 @@ export function ChatAggregatedDiffEntries({
               filePath={filePath}
               change={entry.change}
               status={entry.status}
+              active={entry.active}
               renderDiffBody={renderDiffBody}
             />
           ))}

@@ -28,6 +28,7 @@ interface ChatSubagentEntryProps {
   onToggle?: () => void;
   className?: string;
   status?: ToolStatusLike;
+  active?: boolean;
   workspaceId?: string;
   renderMarkdown: (props: ChatSubagentEntryRenderProps) => ReactNode;
 }
@@ -45,6 +46,7 @@ export function ChatSubagentEntry({
   onToggle,
   className,
   status,
+  active,
   workspaceId,
   renderMarkdown,
 }: ChatSubagentEntryProps) {
@@ -62,7 +64,8 @@ export function ChatSubagentEntry({
       statusType === 'denied' ||
       statusType === 'timed_out';
     const isPending =
-      statusType === 'created' || statusType === 'pending_approval';
+      (statusType === 'created' || statusType === 'pending_approval') &&
+      (active ?? true);
 
     if (isSuccess) {
       return (
@@ -76,7 +79,7 @@ export function ChatSubagentEntry({
       return <CircleNotchIcon className="size-icon-xs text-low animate-spin" />;
     }
     return null;
-  }, [status]);
+  }, [active, status]);
 
   // Determine if status is an error state (for styling)
   const isErrorStatus = useMemo(() => {

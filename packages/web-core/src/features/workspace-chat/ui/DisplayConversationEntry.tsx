@@ -93,8 +93,13 @@ type Props = {
 
 type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 
-function isActiveToolStatus(status: ToolStatus) {
-  return status.status === 'created' || status.status === 'pending_approval';
+function isActiveToolStatus(
+  status: ToolStatus,
+  executionProcess: ExecutionProcess | null
+) {
+  if (status.status === 'pending_approval') return true;
+  if (status.status !== 'created') return false;
+  return isProcessRunning(executionProcess);
 }
 
 function getPatchEntryTimestamp(entry: PatchTypeWithKey) {
@@ -260,6 +265,7 @@ function renderToolUseEntry(
     props;
   const sessionId = workspaceWithSession?.session?.id;
   const { action_type, status } = entryType;
+  const active = isActiveToolStatus(status, executionProcess);
 
   // File edit - use ChatFileEntry
   if (action_type.action === 'file_edit') {
@@ -273,6 +279,7 @@ function renderToolUseEntry(
             change={change}
             expansionKey={`edit:${expansionKey}:${idx}`}
             status={status}
+            active={active}
             workspaceId={workspaceWithSession?.id}
             sessionId={sessionId}
             repos={repos}
@@ -319,6 +326,7 @@ function renderToolUseEntry(
         result={action_type.result}
         expansionKey={expansionKey}
         status={status}
+        active={active}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
       />
@@ -348,6 +356,7 @@ function renderToolUseEntry(
         processId={executionProcessId ?? ''}
         exitCode={exitCode}
         status={status}
+        active={active}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
         repos={repos}
@@ -386,10 +395,9 @@ function renderToolUseEntry(
       actionType={action_type.action}
       startedAt={entry.timestamp ?? getProcessStartedAt(executionProcess)}
       endedAt={
-        isActiveToolStatus(status)
-          ? null
-          : (entry.timestamp ?? getProcessEndedAt(executionProcess))
+        active ? null : (entry.timestamp ?? getProcessEndedAt(executionProcess))
       }
+      active={active}
     />
   );
 }
@@ -437,6 +445,7 @@ function DisplayConversationEntry(props: Props) {
     return (
       <AggregatedDiffGroupEntry
         group={aggregatedDiffGroup}
+        executionProcess={executionProcess}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
         repos={props.repos}
@@ -449,6 +458,7 @@ function DisplayConversationEntry(props: Props) {
     return (
       <AggregatedFileChangeGroupEntry
         group={aggregatedFileChangeGroup}
+        executionProcess={executionProcess}
         workspaceId={workspaceWithSession?.id}
         sessionId={sessionId}
         repos={props.repos}
@@ -644,6 +654,7 @@ function FileEditEntry({
   change,
   expansionKey,
   status,
+  active,
   workspaceId,
   sessionId,
   repos,
@@ -652,6 +663,7 @@ function FileEditEntry({
   change: FileEditAction['changes'][number];
   expansionKey: string;
   status: ToolStatus;
+  active: boolean;
   workspaceId: string | undefined;
   sessionId: string | undefined;
   repos: RepoWithTargetBranch[];
@@ -754,6 +766,7 @@ function FileEditEntry({
       expanded={expanded}
       onToggle={toggle}
       status={status}
+      active={active}
       fileIcon={FileIcon}
       isVSCode={isVSCode}
       onOpenInVSCode={handleOpenInVSCode}
@@ -1077,6 +1090,7 @@ function ToolSummaryEntry({
   summary,
   expansionKey,
   status,
+  active,
   content,
   toolName,
   command,
@@ -1087,6 +1101,7 @@ function ToolSummaryEntry({
   summary: string;
   expansionKey: string;
   status: ToolStatus;
+  active: boolean;
   content: string;
   toolName: string;
   command: string | undefined;
@@ -1123,6 +1138,7 @@ function ToolSummaryEntry({
       expanded={expanded}
       onToggle={toggle}
       status={status}
+      active={active}
       onViewContent={hasOutput ? handleViewContent : undefined}
       toolName={toolName}
       isTruncated={isTruncated}
@@ -1160,6 +1176,7 @@ function SubagentEntry({
   result,
   expansionKey,
   status,
+  active,
   workspaceId,
   sessionId,
 }: {
@@ -1168,6 +1185,7 @@ function SubagentEntry({
   result: ToolResult | null | undefined;
   expansionKey: string;
   status: ToolStatus;
+  active: boolean;
   workspaceId: string | undefined;
   sessionId: string | undefined;
 }) {
@@ -1186,6 +1204,7 @@ function SubagentEntry({
       expanded={expanded}
       onToggle={hasResult ? toggle : undefined}
       status={status}
+      active={active}
       workspaceId={workspaceId}
       renderMarkdown={({ content, workspaceId }) => (
         <AppChatMarkdown
@@ -1233,6 +1252,7 @@ function ScriptEntryWithFix({
   processId,
   exitCode,
   status,
+  active,
   workspaceId,
   sessionId,
   repos,
@@ -1242,6 +1262,7 @@ function ScriptEntryWithFix({
   processId: string;
   exitCode: number | null;
   status: ToolStatus;
+  active: boolean;
   workspaceId: string | undefined;
   sessionId: string | undefined;
   repos: RepoWithTargetBranch[];
@@ -1284,6 +1305,7 @@ function ScriptEntryWithFix({
       processId={processId}
       exitCode={exitCode}
       status={status}
+      active={active}
       onViewProcess={viewProcessInPanel}
       onFix={canFix ? handleFix : undefined}
     />
@@ -1367,9 +1389,10 @@ function AggregatedGroupEntry({
       }
 
       const { action_type, status, tool_name } = entryType;
+      const active = isActiveToolStatus(status, executionProcess);
       const timing = getPatchEntryTiming({
         entry: patchEntry,
-        isRunning: isActiveToolStatus(status),
+        isRunning: active,
         executionProcess,
       });
       let summary = '';
@@ -1390,6 +1413,7 @@ function AggregatedGroupEntry({
       return {
         summary,
         status,
+        active,
         expansionKey: patchEntry.patchKey,
         content,
         toolName: tool_name,
@@ -1623,11 +1647,13 @@ function AggregatedThinkingGroupEntry({
 
 function AggregatedFileChangeGroupEntry({
   group,
+  executionProcess,
   workspaceId,
   sessionId,
   repos,
 }: {
   group: AggregatedFileChangeGroup;
+  executionProcess: ExecutionProcess | null;
   workspaceId: string | undefined;
   sessionId: string | undefined;
   repos: RepoWithTargetBranch[];
@@ -1679,6 +1705,7 @@ function AggregatedFileChangeGroupEntry({
           filePath,
           change,
           status,
+          active: isActiveToolStatus(status, executionProcess),
           expansionKey: `${patchEntry.patchKey}:${entryIdx}:${changeIdx}`,
           fileIcon: getFileIcon(filePath, actualTheme),
           onOpenInVSCode: () =>
@@ -1697,6 +1724,7 @@ function AggregatedFileChangeGroupEntry({
   }, [
     actualTheme,
     canOpenWorkspaceFilePreview,
+    executionProcess,
     group.entries,
     hasDiffPath,
     openWorkspaceFilePreview,
@@ -1729,11 +1757,13 @@ function AggregatedFileChangeGroupEntry({
 
 function AggregatedDiffGroupEntry({
   group,
+  executionProcess,
   workspaceId,
   sessionId,
   repos,
 }: {
   group: AggregatedDiffGroup;
+  executionProcess: ExecutionProcess | null;
   workspaceId: string | undefined;
   sessionId: string | undefined;
   repos: RepoWithTargetBranch[];
@@ -1780,10 +1810,11 @@ function AggregatedDiffGroupEntry({
       return action_type.changes.map((change, changeIdx) => ({
         change,
         status,
+        active: isActiveToolStatus(status, executionProcess),
         expansionKey: `${patchEntry.patchKey}:${entryIdx}:${changeIdx}`,
       }));
     });
-  }, [group.entries]);
+  }, [executionProcess, group.entries]);
 
   const handleToggle = useCallback(() => {
     toggle();
