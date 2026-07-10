@@ -29,8 +29,7 @@ import {
   isModelAvailable,
   buildModelSelectionOverride,
   findModelForSelection,
-  getReasoningOverrideRepair,
-  resolveConfiguredReasoningIdForOptions,
+  resolveReasoningOverrideState,
 } from '@/shared/lib/modelSelector';
 import { profilesApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -58,6 +57,8 @@ interface ModelSelectorContainerProps {
   executorConfig: ExecutorConfig | null;
   presetOptions: ExecutorConfig | null | undefined;
 }
+
+const EMPTY_REASONING_OPTIONS: ModelInfo['reasoning_options'] = [];
 
 type PendingReasoningSelection = {
   reasoningId: string | null;
@@ -197,36 +198,32 @@ export function ModelSelectorContainer({
     ? getSelectedModel(config.models, selectedProviderId, selectedModelId)
     : null;
 
-  const selectedReasoningOptions = selectedModel?.reasoning_options ?? [];
+  const selectedReasoningOptions =
+    selectedModel?.reasoning_options ?? EMPTY_REASONING_OPTIONS;
   const hasConfiguredReasoning = Boolean(
     executorConfig &&
       Object.prototype.hasOwnProperty.call(executorConfig, 'reasoning_id')
   );
   const configuredReasoningId = executorConfig?.reasoning_id;
-  const selectedReasoningId = resolveConfiguredReasoningIdForOptions(
-    selectedReasoningOptions,
-    configuredReasoningId,
-    hasConfiguredReasoning
+  const reasoningOverrideState = useMemo(
+    () =>
+      resolveReasoningOverrideState(
+        selectedReasoningOptions,
+        configuredReasoningId,
+        hasConfiguredReasoning
+      ),
+    [configuredReasoningId, hasConfiguredReasoning, selectedReasoningOptions]
   );
+  const selectedReasoningId = reasoningOverrideState.selectedReasoningId;
 
   useEffect(() => {
     if (loadingModels) return;
 
-    const repair = getReasoningOverrideRepair(
-      selectedReasoningOptions,
-      configuredReasoningId,
-      hasConfiguredReasoning
-    );
+    const repair = reasoningOverrideState.repair;
     if (repair) {
       onOverrideChange(repair);
     }
-  }, [
-    configuredReasoningId,
-    hasConfiguredReasoning,
-    loadingModels,
-    onOverrideChange,
-    selectedReasoningOptions,
-  ]);
+  }, [loadingModels, onOverrideChange, reasoningOverrideState]);
 
   const defaultAgentId =
     config?.agents.find((entry) => entry.is_default)?.id ?? null;

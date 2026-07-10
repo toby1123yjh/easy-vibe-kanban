@@ -148,7 +148,10 @@ pub struct ClaudeCode {
 }
 
 impl ClaudeCode {
-    async fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
+    fn build_command_builder_with_effort_support(
+        &self,
+        supports_effort: bool,
+    ) -> Result<CommandBuilder, CommandBuildError> {
         if self.cmd.base_command_override.is_some() && self.claude_code_router.unwrap_or(false) {
             tracing::warn!(
                 "base_command_override is set, this will override the claude_code_router setting"
@@ -181,7 +184,13 @@ impl ClaudeCode {
             builder = builder.extend_params(["--model", model]);
         }
         if let Some(effort) = &self.effort {
-            builder = builder.extend_params(["--effort", effort.as_ref()]);
+            if supports_effort {
+                builder = builder.extend_params(["--effort", effort.as_ref()]);
+            } else {
+                tracing::warn!(
+                    "Claude Code binary does not advertise --effort; omitting configured effort"
+                );
+            }
         }
         if let Some(agent) = &self.agent {
             builder = builder.extend_params(["--agent", agent]);
@@ -195,6 +204,69 @@ impl ClaudeCode {
         ]);
 
         apply_overrides(builder, &self.cmd)
+    }
+
+    async fn build_command_builder(&self) -> Result<CommandBuilder, ExecutorError> {
+        let supports_effort = if self.effort.is_some() {
+            self.supports_effort_flag_or_false().await
+        } else {
+            false
+        };
+
+        Ok(self.build_command_builder_with_effort_support(supports_effort)?)
+    }
+
+    async fn supports_effort_flag(&self) -> Result<bool, ExecutorError> {
+        let mut builder =
+            CommandBuilder::new(base_command(self.claude_code_router.unwrap_or(false)))
+                .extend_params(["--help"]);
+        if let Some(base) = &self.cmd.base_command_override {
+            builder = builder.override_base(base.clone());
+        }
+
+        let command_parts = builder.build_initial()?;
+        let (program_path, args) = command_parts.into_resolved().await?;
+
+        let mut command = Command::new(program_path);
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("NPM_CONFIG_LOGLEVEL", "error")
+            .args(&args);
+
+        ExecutionEnv::new(crate::env::RepoContext::default(), false, String::new())
+            .with_profile(&self.cmd)
+            .apply_to_command(&mut command);
+
+        if self.disable_api_key.unwrap_or(false) {
+            command.env_remove("ANTHROPIC_API_KEY");
+        }
+
+        let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+            .await
+            .map_err(|_| {
+                ExecutorError::Io(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out checking Claude Code --effort support",
+                ))
+            })?
+            .map_err(ExecutorError::Io)?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        Ok(stdout.contains("--effort") || stderr.contains("--effort"))
+    }
+
+    async fn supports_effort_flag_or_false(&self) -> bool {
+        match self.supports_effort_flag().await {
+            Ok(supports_effort) => supports_effort,
+            Err(error) => {
+                tracing::warn!("Failed to detect Claude Code --effort support: {}", error);
+                false
+            }
+        }
     }
 
     pub fn permission_mode(&self) -> PermissionMode {
@@ -264,38 +336,52 @@ impl ClaudeCode {
     }
 }
 
-fn default_discovered_options() -> crate::executor_discovery::ExecutorDiscoveredOptions {
-    use crate::{
-        executor_discovery::ExecutorDiscoveredOptions,
-        model_selector::{ModelInfo, ModelSelectorConfig, ReasoningOption},
-    };
+fn claude_model_options(supports_effort: bool) -> Vec<crate::model_selector::ModelInfo> {
+    use crate::model_selector::{ModelInfo, ReasoningOption};
 
     let effort_options =
         ReasoningOption::from_names(["low", "medium", "high", "xhigh", "max"].map(String::from));
 
-    let supports_effort = |id: &str| -> bool { id.contains("opus") || id.contains("sonnet") };
+    let model_supports_effort = |id: &str| -> bool { id.contains("opus") || id.contains("sonnet") };
+
+    [
+        ("opus", "Opus"),
+        ("opus[1m]", "Opus (1M context)"),
+        ("sonnet", "Sonnet"),
+        ("haiku", "Haiku"),
+    ]
+    .into_iter()
+    .map(|(id, name)| ModelInfo {
+        id: id.to_string(),
+        name: name.to_string(),
+        provider_id: None,
+        reasoning_options: if supports_effort && model_supports_effort(id) {
+            effort_options.clone()
+        } else {
+            vec![]
+        },
+    })
+    .collect()
+}
+
+fn apply_claude_effort_support(
+    options: &mut crate::executor_discovery::ExecutorDiscoveredOptions,
+    supports_effort: bool,
+) {
+    options.model_selector.models = claude_model_options(supports_effort);
+}
+
+fn default_discovered_options(
+    supports_effort: bool,
+) -> crate::executor_discovery::ExecutorDiscoveredOptions {
+    use crate::{
+        executor_discovery::ExecutorDiscoveredOptions, model_selector::ModelSelectorConfig,
+    };
 
     ExecutorDiscoveredOptions {
         model_selector: ModelSelectorConfig {
             providers: vec![],
-            models: [
-                ("opus", "Opus"),
-                ("opus[1m]", "Opus (1M context)"),
-                ("sonnet", "Sonnet"),
-                ("haiku", "Haiku"),
-            ]
-            .into_iter()
-            .map(|(id, name)| ModelInfo {
-                id: id.to_string(),
-                name: name.to_string(),
-                provider_id: None,
-                reasoning_options: if supports_effort(id) {
-                    effort_options.clone()
-                } else {
-                    vec![]
-                },
-            })
-            .collect(),
+            models: claude_model_options(supports_effort),
             default_model: Some("opus".to_string()),
             agents: vec![],
             permissions: vec![
@@ -418,14 +504,17 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         let cache = executor_options_cache();
         let cmd_key = self.compute_cmd_key();
         let base_executor = BaseCodingAgent::ClaudeCode;
+        let supports_effort = self.supports_effort_flag_or_false().await;
 
         let (target_path, initial_options) = if let Some(wd) = workdir {
             let wd_buf = wd.to_path_buf();
             let target_key =
                 ExecutorConfigCacheKey::new(Some(&wd_buf), cmd_key.clone(), base_executor);
             if let Some(cached) = cache.get(&target_key) {
+                let mut options = cached.as_ref().clone().with_loading(false);
+                apply_claude_effort_support(&mut options, supports_effort);
                 return Ok(Box::pin(futures::stream::once(async move {
-                    patch::executor_discovered_options(cached.as_ref().clone().with_loading(false))
+                    patch::executor_discovered_options(options)
                 })));
             }
             let provisional = repo_path
@@ -445,6 +534,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                 provisional
                     .map(|p| {
                         let mut opts = p.as_ref().clone();
+                        apply_claude_effort_support(&mut opts, supports_effort);
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
@@ -452,7 +542,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts
                     })
                     .unwrap_or_else(|| {
-                        let mut opts = default_discovered_options();
+                        let mut opts = default_discovered_options(supports_effort);
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
@@ -465,8 +555,10 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             let target_key =
                 ExecutorConfigCacheKey::new(Some(&rp_buf), cmd_key.clone(), base_executor);
             if let Some(cached) = cache.get(&target_key) {
+                let mut options = cached.as_ref().clone().with_loading(false);
+                apply_claude_effort_support(&mut options, supports_effort);
                 return Ok(Box::pin(futures::stream::once(async move {
-                    patch::executor_discovered_options(cached.as_ref().clone().with_loading(false))
+                    patch::executor_discovered_options(options)
                 })));
             }
             let global_key = ExecutorConfigCacheKey::new(None, cmd_key.clone(), base_executor);
@@ -476,6 +568,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                 provisional
                     .map(|p| {
                         let mut opts = p.as_ref().clone();
+                        apply_claude_effort_support(&mut opts, supports_effort);
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
@@ -483,7 +576,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                         opts
                     })
                     .unwrap_or_else(|| {
-                        let mut opts = default_discovered_options();
+                        let mut opts = default_discovered_options(supports_effort);
                         opts.loading_models = false;
                         opts.loading_agents = true;
                         opts.loading_slash_commands = true;
@@ -494,11 +587,13 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         } else {
             let global_key = ExecutorConfigCacheKey::new(None, cmd_key.clone(), base_executor);
             if let Some(cached) = cache.get(&global_key) {
+                let mut options = cached.as_ref().clone().with_loading(false);
+                apply_claude_effort_support(&mut options, supports_effort);
                 return Ok(Box::pin(futures::stream::once(async move {
-                    patch::executor_discovered_options(cached.as_ref().clone().with_loading(false))
+                    patch::executor_discovered_options(options)
                 })));
             }
-            let mut opts = default_discovered_options();
+            let mut opts = default_discovered_options(supports_effort);
             opts.loading_models = false;
             opts.loading_agents = true;
             opts.loading_slash_commands = true;
@@ -513,7 +608,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
 
         let discovery_stream = async_stream::stream! {
             let discovery_path = target_path.as_deref().unwrap_or(Path::new(".")).to_path_buf();
-            let mut final_options = default_discovered_options();
+            let mut final_options = default_discovered_options(supports_effort);
 
             match this.discover_agents_and_slash_commands_initial(&discovery_path).await {
                 Ok((mut agent_options, slash_commands_initial, plugins, skills)) => {
@@ -600,7 +695,7 @@ impl StandardCodingAgentExecutor for ClaudeCode {
             executor: BaseCodingAgent::ClaudeCode,
             variant: None,
             model_id: self.model.clone().or_else(|| {
-                default_discovered_options()
+                default_discovered_options(false)
                     .model_selector
                     .default_model
                     .clone()
@@ -3081,6 +3176,76 @@ mod tests {
 
         assert_eq!(builder.base, "ccr code");
         assert_eq!(builder.params.as_ref().unwrap()[0], "-p");
+    }
+
+    #[test]
+    fn command_builder_omits_effort_when_cli_does_not_support_it() {
+        let mut executor = test_executor(None);
+        executor.effort = Some(ClaudeEffort::Max);
+
+        let builder = executor
+            .build_command_builder_with_effort_support(false)
+            .expect("command should build");
+        let params = builder.params.as_ref().expect("params should be present");
+
+        assert!(!params.iter().any(|param| param == "--effort"));
+    }
+
+    #[test]
+    fn command_builder_includes_effort_when_cli_supports_it() {
+        let mut executor = test_executor(None);
+        executor.effort = Some(ClaudeEffort::Max);
+
+        let builder = executor
+            .build_command_builder_with_effort_support(true)
+            .expect("command should build");
+        let params = builder.params.as_ref().expect("params should be present");
+        let effort_index = params
+            .iter()
+            .position(|param| param == "--effort")
+            .expect("effort flag should be present");
+
+        assert_eq!(
+            params.get(effort_index + 1).map(String::as_str),
+            Some("max")
+        );
+    }
+
+    #[test]
+    fn default_options_hide_effort_when_cli_does_not_support_it() {
+        let options = default_discovered_options(false);
+
+        for model in &options.model_selector.models {
+            assert!(
+                model.reasoning_options.is_empty(),
+                "{} should not expose effort options",
+                model.id
+            );
+        }
+    }
+
+    #[test]
+    fn default_options_show_effort_for_supported_models_when_cli_supports_it() {
+        let options = default_discovered_options(true);
+        let opus = options
+            .model_selector
+            .models
+            .iter()
+            .find(|model| model.id == "opus")
+            .expect("opus model should exist");
+        let haiku = options
+            .model_selector
+            .models
+            .iter()
+            .find(|model| model.id == "haiku")
+            .expect("haiku model should exist");
+
+        assert!(
+            opus.reasoning_options
+                .iter()
+                .any(|option| option.id == "max")
+        );
+        assert!(haiku.reasoning_options.is_empty());
     }
 
     #[test]

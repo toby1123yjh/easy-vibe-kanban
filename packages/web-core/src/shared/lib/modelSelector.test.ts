@@ -5,6 +5,7 @@ import {
   getReasoningOverrideRepair,
   resolveConfiguredReasoningIdForOptions,
   resolveDefaultReasoningId,
+  resolveReasoningOverrideState,
   resolveReasoningIdForOptions,
 } from './modelSelector';
 
@@ -131,5 +132,31 @@ describe('model selector reasoning overrides', () => {
     expect(
       getReasoningOverrideRepair(models[0].reasoning_options, null, true)
     ).toBeNull();
+  });
+
+  it('keeps the container state on CLI config when no override exists', () => {
+    expect(
+      resolveReasoningOverrideState(
+        models[0].reasoning_options,
+        undefined,
+        false
+      )
+    ).toEqual({
+      selectedReasoningId: null,
+      repair: null,
+    });
+  });
+
+  it('clears stale container state instead of applying discovery defaults', () => {
+    expect(
+      resolveReasoningOverrideState(
+        models[0].reasoning_options,
+        'unsupported',
+        true
+      )
+    ).toEqual({
+      selectedReasoningId: null,
+      repair: { reasoning_id: null },
+    });
   });
 });

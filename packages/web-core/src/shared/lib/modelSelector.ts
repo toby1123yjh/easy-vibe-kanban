@@ -196,6 +196,28 @@ export function getReasoningOverrideRepair(
     : { reasoning_id: null };
 }
 
+export function resolveReasoningOverrideState(
+  options: ReasoningOption[],
+  configuredReasoningId: string | null | undefined,
+  hasConfiguredReasoning: boolean
+): {
+  selectedReasoningId: string | null;
+  repair: { reasoning_id: null } | null;
+} {
+  return {
+    selectedReasoningId: resolveConfiguredReasoningIdForOptions(
+      options,
+      configuredReasoningId,
+      hasConfiguredReasoning
+    ),
+    repair: getReasoningOverrideRepair(
+      options,
+      configuredReasoningId,
+      hasConfiguredReasoning
+    ),
+  };
+}
+
 export function buildModelSelectionOverride(
   _models: ModelInfo[],
   modelId: string | null,
