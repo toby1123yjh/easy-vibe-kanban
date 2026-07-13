@@ -69,7 +69,8 @@ spake2 = { version = "0.5.0-pre.0", features = ["getrandom"] }
 sha2 = "0.10"
 ed25519-dalek = "2.2.0"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
-rfd = "0.17.2"
+# The npm release cross-compiles Linux with zig; Wayland's pkg-config probe is not cross-safe.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 
 [build-dependencies]
 dotenv = "0.15"
