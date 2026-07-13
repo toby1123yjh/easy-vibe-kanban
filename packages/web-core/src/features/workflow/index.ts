@@ -15,5 +15,4 @@ export * from './ui/WorkflowNodeInspector';
 export * from './ui/WorkflowValidationPanel';
 export * from './ui/IssueWorkflowEntryCard';
 export * from './ui/RunWorkflowDialog';
-export * from './ui/WorkflowRepositoryDialog';
 export * from './ui/useCreateIssueWorkflowAttempt';

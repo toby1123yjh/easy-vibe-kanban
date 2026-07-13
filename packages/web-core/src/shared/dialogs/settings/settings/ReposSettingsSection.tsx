@@ -40,6 +40,7 @@ import {
   SettingsSaveBar,
 } from './SettingsComponents';
 import { useSettingsMachineClient } from './SettingsHostContext';
+import { useSettingsDirty } from './SettingsDirtyContext';
 
 interface RepoScriptsFormState {
   display_name: string;
@@ -125,19 +126,28 @@ const RemoveRepoDialog = defineModal<RemoveRepoDialogProps, RemoveRepoResult>(
 // ── Main section ─────────────────────────────────────────────────────
 interface ReposSettingsSectionProps {
   initialState?: { repoId?: string };
+  variant?: 'standalone' | 'project-workspace';
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function ReposSettingsSection({
   initialState,
+  variant = 'standalone',
+  onDirtyChange,
 }: ReposSettingsSectionProps) {
-  const { t } = useTranslation('settings');
+  const { t } = useTranslation(['settings', 'common']);
   const queryClient = useQueryClient();
+  const { setDirty: setContextDirty } = useSettingsDirty();
   const machineClient = useSettingsMachineClient();
+  const isProjectWorkspace = variant === 'project-workspace';
   const repoDefaultsHostId = machineClient?.target.apiHostId;
-  const reposQueryKey = [
-    'repos',
-    ...(machineClient?.queryScopeKey ?? ['machine', 'unselected']),
-  ] as const;
+  const reposQueryKey = useMemo(
+    () => [
+      'repos',
+      ...(machineClient?.queryScopeKey ?? ['machine', 'unselected']),
+    ],
+    [machineClient]
+  );
 
   // Fetch all repos
   const {
@@ -186,12 +196,25 @@ export function ReposSettingsSection({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  useEffect(() => {
+    if (!isProjectWorkspace) return;
+
+    const nextRepoId = initialState?.repoId ?? '';
+    if (nextRepoId === selectedRepoId) return;
+
+    setSelectedRepoId(nextRepoId);
+    setSelectedRepo(null);
+    setDraft(null);
+    setSuccess(false);
+    setError(null);
+  }, [initialState?.repoId, isProjectWorkspace, selectedRepoId]);
+
   // Get OS-appropriate script placeholders
   const placeholders = useScriptPlaceholders();
 
   // Linked projects: find which remote projects reference this repo
   const { data: allProjects, isLoading: projectsLoading } =
-    useAllOrganizationProjects();
+    useAllOrganizationProjects({ enabled: !isProjectWorkspace });
   const [linkedProjectNames, setLinkedProjectNames] = useState<string[]>([]);
   const [linkedProjectsLoading, setLinkedProjectsLoading] = useState(false);
 
@@ -232,6 +255,19 @@ export function ReposSettingsSection({
     if (!draft || !selectedRepo) return false;
     return !isEqual(draft, repoToFormState(selectedRepo));
   }, [draft, selectedRepo]);
+
+  useEffect(() => {
+    const dirtySectionId = isProjectWorkspace
+      ? 'project-workspace-repository'
+      : 'repos';
+    setContextDirty(dirtySectionId, hasUnsavedChanges);
+    onDirtyChange?.(hasUnsavedChanges);
+
+    return () => {
+      setContextDirty(dirtySectionId, false);
+      onDirtyChange?.(false);
+    };
+  }, [hasUnsavedChanges, isProjectWorkspace, onDirtyChange, setContextDirty]);
 
   // Handle repo selection
   const handleRepoSelect = useCallback(
@@ -433,199 +469,243 @@ export function ReposSettingsSection({
         </div>
       )}
 
-      {/* Repo selector */}
-      <SettingsCard
-        title={t('settings.repos.title')}
-        description={t('settings.repos.description')}
-      >
-        <SettingsField
-          label={t('settings.repos.selector.label')}
-          description={t('settings.repos.selector.helper')}
+      {!isProjectWorkspace && (
+        <SettingsCard
+          title={t('settings.repos.title')}
+          description={t('settings.repos.description')}
         >
-          <div className="flex gap-2 items-center">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <DropdownMenuTriggerButton
-                  label={
-                    repoOptions.find((r) => r.value === selectedRepoId)
-                      ?.label || t('settings.repos.selector.placeholder')
-                  }
-                  className="w-full justify-between"
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                {repoOptions.length > 0 ? (
-                  repoOptions.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onClick={() => handleRepoSelect(option.value)}
-                    >
-                      {option.label}
+          <SettingsField
+            label={t('settings.repos.selector.label')}
+            description={t('settings.repos.selector.helper')}
+          >
+            <div className="flex gap-2 items-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DropdownMenuTriggerButton
+                    label={
+                      repoOptions.find((r) => r.value === selectedRepoId)
+                        ?.label || t('settings.repos.selector.placeholder')
+                    }
+                    className="w-full justify-between"
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                  {repoOptions.length > 0 ? (
+                    repoOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => handleRepoSelect(option.value)}
+                      >
+                        {option.label}
+                      </DropdownMenuItem>
+                    ))
+                  ) : (
+                    <DropdownMenuItem disabled>
+                      {t('settings.repos.selector.noRepos')}
                     </DropdownMenuItem>
-                  ))
-                ) : (
-                  <DropdownMenuItem disabled>
-                    {t('settings.repos.selector.noRepos')}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <PrimaryButton variant="default" onClick={handleAddRepo}>
-              <PlusIcon className="size-icon-sm" weight="bold" />
-              {t('common:buttons.add')}
-            </PrimaryButton>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <PrimaryButton variant="default" onClick={handleAddRepo}>
+                <PlusIcon className="size-icon-sm" weight="bold" />
+                {t('common:buttons.add')}
+              </PrimaryButton>
+            </div>
+          </SettingsField>
+        </SettingsCard>
+      )}
+
+      {isProjectWorkspace &&
+        selectedRepoId &&
+        !selectedRepo &&
+        (repos?.some((repo) => repo.id === selectedRepoId) ? (
+          <div className="flex items-center gap-half py-base text-sm text-low">
+            <SpinnerIcon className="size-icon-xs animate-spin" weight="bold" />
+            {t('settings.repos.loading')}
           </div>
-        </SettingsField>
-      </SettingsCard>
+        ) : (
+          <div className="rounded-sm border border-border bg-secondary/50 p-base text-sm text-low">
+            {t('settings.repos.projectWorkspace.unavailable')}
+          </div>
+        ))}
 
       {selectedRepo && draft && (
         <>
-          {/* General settings */}
-          <SettingsCard
-            title={t('settings.repos.general.title')}
-            description={t('settings.repos.general.description')}
-          >
-            <SettingsField
-              label={t('settings.repos.general.displayName.label')}
-              description={t('settings.repos.general.displayName.helper')}
+          {isProjectWorkspace ? (
+            <SettingsCard
+              title={t('settings.repos.projectWorkspace.title')}
+              description={t('settings.repos.projectWorkspace.description')}
             >
-              <SettingsInput
-                value={draft.display_name}
-                onChange={(value) => updateDraft({ display_name: value })}
-                placeholder={t(
-                  'settings.repos.general.displayName.placeholder'
+              <SettingsField
+                label={t('settings.repos.general.defaultWorkingDir.label')}
+                description={t(
+                  'settings.repos.general.defaultWorkingDir.helper'
                 )}
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={t('settings.repos.general.path.label')}
-              description=""
-            >
-              <div className="text-sm text-low font-mono bg-secondary px-base py-half rounded-sm">
-                {selectedRepo.path}
-              </div>
-            </SettingsField>
-
-            <SettingsField
-              label={t('settings.repos.general.defaultWorkingDir.label')}
-              description={t('settings.repos.general.defaultWorkingDir.helper')}
-            >
-              <SettingsInput
-                value={draft.default_working_dir}
-                onChange={(value) =>
-                  updateDraft({ default_working_dir: value })
-                }
-                placeholder={t(
-                  'settings.repos.general.defaultWorkingDir.placeholder'
-                )}
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={t('settings.repos.general.defaultTargetBranch.label')}
-              description={t(
-                'settings.repos.general.defaultTargetBranch.helper'
-              )}
-            >
-              <SearchableDropdownContainer
-                items={branchItems}
-                selectedValue={draft.default_target_branch || null}
-                getItemKey={(b) => b.name || '__clear__'}
-                getItemLabel={(b) =>
-                  b.name ||
-                  t('settings.repos.general.defaultTargetBranch.useCurrent')
-                }
-                filterItem={(b, query) =>
-                  b.name === '' ||
-                  b.name.toLowerCase().includes(query.toLowerCase())
-                }
-                getItemBadge={(b) => (b.is_current ? 'Current' : undefined)}
-                getItemIcon={null}
-                onSelect={(b) => updateDraft({ default_target_branch: b.name })}
-                placeholder={t(
-                  'settings.repos.general.defaultTargetBranch.search'
-                )}
-                emptyMessage={t(
-                  'settings.repos.general.defaultTargetBranch.noBranches'
-                )}
-                contentClassName="w-[var(--radix-dropdown-menu-trigger-width)]"
-                trigger={
-                  <DropdownMenuTriggerButton
-                    icon={GitBranchIcon}
-                    label={
-                      branchesLoading
-                        ? t(
-                            'settings.repos.general.defaultTargetBranch.loading'
-                          )
-                        : draft.default_target_branch ||
-                          t(
-                            'settings.repos.general.defaultTargetBranch.placeholder'
-                          )
-                    }
-                    className="w-full justify-between"
-                    disabled={branchesLoading}
-                  />
-                }
-              />
-            </SettingsField>
-
-            <div className="border-t border-primary pt-base mt-base">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-normal">
-                    {t('settings.repos.remove.title')}
-                  </p>
-                  <p className="text-sm text-low">
-                    {t('settings.repos.remove.description')}
-                  </p>
-                </div>
-                <Button
-                  variant="destructive"
-                  onClick={handleRemoveRepo}
-                  disabled={removing}
-                >
-                  {removing && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              >
+                <SettingsInput
+                  value={draft.default_working_dir}
+                  onChange={(value) =>
+                    updateDraft({ default_working_dir: value })
+                  }
+                  placeholder={t(
+                    'settings.repos.general.defaultWorkingDir.placeholder'
                   )}
-                  {t('settings.repos.remove.button')}
-                </Button>
+                />
+              </SettingsField>
+            </SettingsCard>
+          ) : (
+            <SettingsCard
+              title={t('settings.repos.general.title')}
+              description={t('settings.repos.general.description')}
+            >
+              <SettingsField
+                label={t('settings.repos.general.displayName.label')}
+                description={t('settings.repos.general.displayName.helper')}
+              >
+                <SettingsInput
+                  value={draft.display_name}
+                  onChange={(value) => updateDraft({ display_name: value })}
+                  placeholder={t(
+                    'settings.repos.general.displayName.placeholder'
+                  )}
+                />
+              </SettingsField>
+
+              <SettingsField
+                label={t('settings.repos.general.path.label')}
+                description=""
+              >
+                <div className="text-sm text-low font-mono bg-secondary px-base py-half rounded-sm">
+                  {selectedRepo.path}
+                </div>
+              </SettingsField>
+
+              <SettingsField
+                label={t('settings.repos.general.defaultWorkingDir.label')}
+                description={t(
+                  'settings.repos.general.defaultWorkingDir.helper'
+                )}
+              >
+                <SettingsInput
+                  value={draft.default_working_dir}
+                  onChange={(value) =>
+                    updateDraft({ default_working_dir: value })
+                  }
+                  placeholder={t(
+                    'settings.repos.general.defaultWorkingDir.placeholder'
+                  )}
+                />
+              </SettingsField>
+
+              <SettingsField
+                label={t('settings.repos.general.defaultTargetBranch.label')}
+                description={t(
+                  'settings.repos.general.defaultTargetBranch.helper'
+                )}
+              >
+                <SearchableDropdownContainer
+                  items={branchItems}
+                  selectedValue={draft.default_target_branch || null}
+                  getItemKey={(b) => b.name || '__clear__'}
+                  getItemLabel={(b) =>
+                    b.name ||
+                    t('settings.repos.general.defaultTargetBranch.useCurrent')
+                  }
+                  filterItem={(b, query) =>
+                    b.name === '' ||
+                    b.name.toLowerCase().includes(query.toLowerCase())
+                  }
+                  getItemBadge={(b) => (b.is_current ? 'Current' : undefined)}
+                  getItemIcon={null}
+                  onSelect={(b) =>
+                    updateDraft({ default_target_branch: b.name })
+                  }
+                  placeholder={t(
+                    'settings.repos.general.defaultTargetBranch.search'
+                  )}
+                  emptyMessage={t(
+                    'settings.repos.general.defaultTargetBranch.noBranches'
+                  )}
+                  contentClassName="w-[var(--radix-dropdown-menu-trigger-width)]"
+                  trigger={
+                    <DropdownMenuTriggerButton
+                      icon={GitBranchIcon}
+                      label={
+                        branchesLoading
+                          ? t(
+                              'settings.repos.general.defaultTargetBranch.loading'
+                            )
+                          : draft.default_target_branch ||
+                            t(
+                              'settings.repos.general.defaultTargetBranch.placeholder'
+                            )
+                      }
+                      className="w-full justify-between"
+                      disabled={branchesLoading}
+                    />
+                  }
+                />
+              </SettingsField>
+
+              <div className="border-t border-primary pt-base mt-base">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-normal">
+                      {t('settings.repos.remove.title')}
+                    </p>
+                    <p className="text-sm text-low">
+                      {t('settings.repos.remove.description')}
+                    </p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    onClick={handleRemoveRepo}
+                    disabled={removing}
+                  >
+                    {removing && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    {t('settings.repos.remove.button')}
+                  </Button>
+                </div>
               </div>
-            </div>
-          </SettingsCard>
+            </SettingsCard>
+          )}
 
           {/* Linked projects (read-only) */}
-          <SettingsCard
-            title={t('settings.repos.linkedProjects.title')}
-            description={t('settings.repos.linkedProjects.description')}
-          >
-            {linkedProjectsLoading || projectsLoading ? (
-              <div className="flex items-center gap-2 py-half">
-                <SpinnerIcon
-                  className="size-icon-xs animate-spin text-low"
-                  weight="bold"
-                />
-                <span className="text-sm text-low">
-                  {t('settings.repos.linkedProjects.loading')}
-                </span>
-              </div>
-            ) : linkedProjectNames.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {linkedProjectNames.map((name) => (
-                  <span
-                    key={name}
-                    className="inline-flex items-center rounded-sm bg-secondary px-2 py-0.5 text-sm text-normal"
-                  >
-                    {name}
+          {!isProjectWorkspace && (
+            <SettingsCard
+              title={t('settings.repos.linkedProjects.title')}
+              description={t('settings.repos.linkedProjects.description')}
+            >
+              {linkedProjectsLoading || projectsLoading ? (
+                <div className="flex items-center gap-2 py-half">
+                  <SpinnerIcon
+                    className="size-icon-xs animate-spin text-low"
+                    weight="bold"
+                  />
+                  <span className="text-sm text-low">
+                    {t('settings.repos.linkedProjects.loading')}
                   </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-low">
-                {t('settings.repos.linkedProjects.none')}
-              </p>
-            )}
-          </SettingsCard>
+                </div>
+              ) : linkedProjectNames.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {linkedProjectNames.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center rounded-sm bg-secondary px-2 py-0.5 text-sm text-normal"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-low">
+                  {t('settings.repos.linkedProjects.none')}
+                </p>
+              )}
+            </SettingsCard>
+          )}
 
           {/* Scripts settings */}
           <SettingsCard
@@ -704,12 +784,36 @@ export function ReposSettingsSection({
             </SettingsField>
           </SettingsCard>
 
-          <SettingsSaveBar
-            show={hasUnsavedChanges}
-            saving={saving}
-            onSave={handleSave}
-            onDiscard={handleDiscard}
-          />
+          {isProjectWorkspace ? (
+            hasUnsavedChanges && (
+              <div className="flex flex-wrap items-center justify-between gap-base rounded-sm border border-border bg-panel/80 p-base">
+                <span className="text-sm text-low">
+                  {t('settings.common.unsavedChanges')}
+                </span>
+                <div className="flex gap-half">
+                  <PrimaryButton
+                    variant="tertiary"
+                    value={t('common:buttons.discard')}
+                    onClick={handleDiscard}
+                    disabled={saving}
+                  />
+                  <PrimaryButton
+                    value={t('common:buttons.save')}
+                    onClick={handleSave}
+                    disabled={saving}
+                    actionIcon={saving ? 'spinner' : undefined}
+                  />
+                </div>
+              </div>
+            )
+          ) : (
+            <SettingsSaveBar
+              show={hasUnsavedChanges}
+              saving={saving}
+              onSave={handleSave}
+              onDiscard={handleDiscard}
+            />
+          )}
         </>
       )}
     </>

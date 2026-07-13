@@ -1,11 +1,7 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
-import {
-  FolderOpenIcon,
-  GitBranchIcon,
-  WarningCircleIcon,
-} from '@phosphor-icons/react';
+import { FolderOpenIcon } from '@phosphor-icons/react';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -30,14 +26,15 @@ import type {
 } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
-import { FolderPickerDialog } from '@/shared/dialogs/shared/FolderPickerDialog';
-import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
+import {
+  WorkspaceTargetDialog,
+  type WorkspaceTargetMode,
+} from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import {
   AgentSessionResumeChip,
   AgentSessionResumePicker,
 } from '@/shared/components/AgentSessionResumePicker';
-import { cn } from '@/shared/lib/utils';
 
 function getRepoDisplayName(repo: Repo) {
   return repo.display_name || repo.name;
@@ -45,11 +42,7 @@ function getRepoDisplayName(repo: Repo) {
 
 const BRANCH_LABEL_MAX_CHARS = 15;
 
-type WorkspaceCreateMode = 'worktree' | 'direct_folder';
-
-const modeButtonClassName =
-  'inline-flex items-center gap-half rounded-sm border px-base py-half text-sm ' +
-  'transition-colors';
+type WorkspaceCreateMode = WorkspaceTargetMode;
 
 function truncateBranchLabel(branch: string) {
   return branch.length > BRANCH_LABEL_MAX_CHARS
@@ -69,6 +62,9 @@ export function CreateChatBoxContainer({
   const {
     repos,
     targetBranches,
+    addRepo,
+    clearRepos,
+    setTargetBranch,
     message,
     setMessage,
     clearDraft,
@@ -89,45 +85,33 @@ export function CreateChatBoxContainer({
     () => getDestinationHostId(destination),
     [destination]
   );
-  const hasSelectedRepos = repos.length > 0;
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
-  const [hasInitializedStep, setHasInitializedStep] = useState(false);
-  const [isSelectingRepos, setIsSelectingRepos] = useState(true);
+  const workspaceDialogOpenRef = useRef(false);
+  const [hasInitializedWorkspaceTarget, setHasInitializedWorkspaceTarget] =
+    useState(false);
+  const [hasConfirmedWorkspaceTarget, setHasConfirmedWorkspaceTarget] =
+    useState(false);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const [stagedResumeSession, setStagedResumeSession] =
     useState<ResumableAgentSession | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceCreateMode>('worktree');
   const [directFolderPath, setDirectFolderPath] = useState('');
-  const [directFolderError, setDirectFolderError] = useState<string | null>(
-    null
-  );
 
-  useEffect(() => {
-    if (!hasInitialValue || hasInitializedStep) return;
-    if (!hasSelectedRepos && !hasResolvedInitialRepoDefaults) return;
-
-    setIsSelectingRepos(!hasSelectedRepos);
-    setHasInitializedStep(true);
-  }, [
-    hasInitialValue,
-    hasInitializedStep,
-    hasSelectedRepos,
-    hasResolvedInitialRepoDefaults,
-  ]);
-
+  const selectedRepo = repos[0] ?? null;
   const hasDirectFolderPath = directFolderPath.trim().length > 0;
-  const hasWorkspaceTarget =
-    workspaceMode === 'direct_folder' ? hasDirectFolderPath : hasSelectedRepos;
-  const hasSelectedBranchesForAllRepos = repos.every(
-    (repo) => !!targetBranches[repo.id]
-  );
+  const selectedTargetBranch = selectedRepo
+    ? targetBranches[selectedRepo.id]
+    : null;
+  const hasSelectedBranch = Boolean(selectedTargetBranch);
   const hasValidWorkspaceTarget =
     workspaceMode === 'direct_folder'
       ? hasDirectFolderPath
-      : hasSelectedRepos && hasSelectedBranchesForAllRepos;
-  const showTargetPickerStep = !hasWorkspaceTarget || isSelectingRepos;
-  const showChatStep = hasWorkspaceTarget && !isSelectingRepos;
+      : selectedRepo !== null && hasSelectedBranch;
+  const hasWorkspaceTarget =
+    hasConfirmedWorkspaceTarget && hasValidWorkspaceTarget;
+  const showTargetPickerStep = !hasWorkspaceTarget;
+  const showChatStep = hasWorkspaceTarget;
 
   // Attachment handling - insert markdown and track attachment IDs
   const handleInsertMarkdown = useCallback(
@@ -189,11 +173,10 @@ export function CreateChatBoxContainer({
     setStagedResumeSession(null);
   }, [effectiveExecutor]);
 
-  const repoId = repos.length === 1 ? repos[0]?.id : undefined;
+  const repoId = selectedRepo?.id;
   const repoSummaryLabel = useMemo(() => {
-    if (repos.length === 1) {
-      const repo = repos[0];
-      if (!repo) return '0 repositories selected';
+    if (selectedRepo) {
+      const repo = selectedRepo;
       const selectedBranch = targetBranches[repo.id];
       const branch = selectedBranch
         ? truncateBranchLabel(selectedBranch)
@@ -201,8 +184,8 @@ export function CreateChatBoxContainer({
       return `${getRepoDisplayName(repo)} · ${branch}`;
     }
 
-    return `${repos.length} repositories selected`;
-  }, [repos, targetBranches]);
+    return 'Choose workspace';
+  }, [selectedRepo, targetBranches]);
 
   const repoSummaryTitle = useMemo(
     () =>
@@ -221,43 +204,93 @@ export function CreateChatBoxContainer({
     message.trim().length > 0 &&
     effectiveExecutor !== null;
 
-  const selectDirectFolder = useCallback(async () => {
-    setDirectFolderError(null);
-    try {
-      const selectedPath = await FolderPickerDialog.show({
-        value: directFolderPath,
-        title: t('createMode.directFolder.dialogTitle', {
-          defaultValue: 'Select direct folder',
-        }),
-        description: t('createMode.directFolder.dialogDescription', {
-          defaultValue: 'Choose a folder the agent can read and edit directly.',
-        }),
-      });
-      if (selectedPath) {
-        setDirectFolderPath(selectedPath);
-      }
-    } catch (error) {
-      setDirectFolderError(
-        error instanceof Error
-          ? error.message
-          : t('createMode.directFolder.errors.selectFolder', {
-              defaultValue: 'Failed to select folder',
-            })
-      );
-    }
-  }, [directFolderPath, t]);
+  const openWorkspaceTargetDialog = useCallback(async () => {
+    if (workspaceDialogOpenRef.current) return;
+    workspaceDialogOpenRef.current = true;
 
-  const handleContinueToPrompt = useCallback(() => {
-    if (workspaceMode === 'direct_folder' && !hasDirectFolderPath) {
-      setDirectFolderError(
-        t('createMode.directFolder.errors.required', {
-          defaultValue: 'Select a folder before continuing',
-        })
-      );
+    try {
+      const initialPath =
+        workspaceMode === 'direct_folder'
+          ? directFolderPath
+          : selectedRepo?.path;
+      const result = await WorkspaceTargetDialog.show({
+        initialPath,
+        initialMode: workspaceMode,
+        initialBranch: selectedTargetBranch,
+        hostId,
+      });
+
+      if (result.kind !== 'confirmed') return;
+
+      clearRepos();
+      if (result.selection.mode === 'worktree') {
+        setWorkspaceMode('worktree');
+        setDirectFolderPath('');
+        addRepo(result.selection.repo);
+        setTargetBranch(
+          result.selection.repo.id,
+          result.selection.targetBranch
+        );
+      } else {
+        setWorkspaceMode('direct_folder');
+        setDirectFolderPath(result.selection.path);
+      }
+
+      setHasAttemptedSubmit(false);
+      setStagedResumeSession(null);
+      setHasConfirmedWorkspaceTarget(true);
+    } finally {
+      workspaceDialogOpenRef.current = false;
+    }
+  }, [
+    addRepo,
+    clearRepos,
+    directFolderPath,
+    hostId,
+    selectedRepo,
+    selectedTargetBranch,
+    setTargetBranch,
+    workspaceMode,
+  ]);
+
+  useEffect(() => {
+    if (!hasInitialValue || repos.length <= 1) return;
+
+    const firstRepo = repos[0];
+    if (!firstRepo) return;
+    const firstBranch = targetBranches[firstRepo.id];
+
+    clearRepos();
+    addRepo(firstRepo);
+    if (firstBranch) {
+      setTargetBranch(firstRepo.id, firstBranch);
+    }
+  }, [
+    addRepo,
+    clearRepos,
+    hasInitialValue,
+    repos,
+    setTargetBranch,
+    targetBranches,
+  ]);
+
+  useEffect(() => {
+    if (
+      !hasInitialValue ||
+      !hasResolvedInitialRepoDefaults ||
+      hasInitializedWorkspaceTarget
+    ) {
       return;
     }
-    setIsSelectingRepos(false);
-  }, [hasDirectFolderPath, t, workspaceMode]);
+
+    setHasInitializedWorkspaceTarget(true);
+    void openWorkspaceTargetDialog();
+  }, [
+    hasInitialValue,
+    hasResolvedInitialRepoDefaults,
+    hasInitializedWorkspaceTarget,
+    openWorkspaceTargetDialog,
+  ]);
 
   const handlePresetSelect = (presetId: string | null) => {
     if (!effectiveExecutor) return;
@@ -368,11 +401,13 @@ export function CreateChatBoxContainer({
       name: title,
       prompt,
       repos:
-        workspaceMode === 'worktree'
-          ? repos.map((r) => ({
-              repo_id: r.id,
-              target_branch: targetBranches[r.id]!,
-            }))
+        workspaceMode === 'worktree' && selectedRepo && selectedTargetBranch
+          ? [
+              {
+                repo_id: selectedRepo.id,
+                target_branch: selectedTargetBranch,
+              },
+            ]
           : [],
       directory_path:
         workspaceMode === 'direct_folder' ? directFolderPath.trim() : undefined,
@@ -427,8 +462,8 @@ export function CreateChatBoxContainer({
     stagedResumeSession?.agent_session_id,
     workspaceMode,
     directFolderPath,
-    repos,
-    targetBranches,
+    selectedRepo,
+    selectedTargetBranch,
     createWorkspace,
     onWorkspaceCreated,
     getAttachmentIds,
@@ -446,12 +481,12 @@ export function CreateChatBoxContainer({
       ? t('createMode.directFolder.errors.required', {
           defaultValue: 'Select a folder before continuing',
         })
-      : hasAttemptedSubmit && workspaceMode === 'worktree' && repos.length === 0
-        ? 'Add at least one repository to create a workspace'
+      : hasAttemptedSubmit && workspaceMode === 'worktree' && !selectedRepo
+        ? 'Choose a workspace before creating it'
         : hasAttemptedSubmit &&
             workspaceMode === 'worktree' &&
-            !hasSelectedBranchesForAllRepos
-          ? 'Select a branch for every repository before creating a workspace'
+            !hasSelectedBranch
+          ? 'Select a branch before creating a workspace'
           : createWorkspace.error
             ? createWorkspace.error instanceof Error
               ? createWorkspace.error.message
@@ -473,124 +508,25 @@ export function CreateChatBoxContainer({
               <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
                 {t('createMode.headings.repoStep')}
               </h2>
-              <div className="mx-auto flex w-chat max-w-full flex-col gap-base">
-                <div className="flex flex-wrap items-center justify-center gap-half">
-                  <button
-                    type="button"
-                    onClick={() => setWorkspaceMode('worktree')}
-                    className={cn(
-                      modeButtonClassName,
-                      workspaceMode === 'worktree'
-                        ? 'border-brand bg-brand/10 text-brand'
-                        : 'border-border text-normal hover:text-high'
-                    )}
-                  >
-                    <GitBranchIcon className="size-icon-xs" weight="bold" />
-                    <span>
-                      {t('createMode.targetMode.worktree', {
-                        defaultValue: 'Project repository',
-                      })}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWorkspaceMode('direct_folder')}
-                    className={cn(
-                      modeButtonClassName,
-                      workspaceMode === 'direct_folder'
-                        ? 'border-brand bg-brand/10 text-brand'
-                        : 'border-border text-normal hover:text-high'
-                    )}
-                  >
-                    <FolderOpenIcon className="size-icon-xs" weight="bold" />
-                    <span>
-                      {t('createMode.targetMode.directFolder', {
-                        defaultValue: 'Direct folder',
-                      })}
-                    </span>
-                  </button>
-                </div>
-
-                {workspaceMode === 'worktree' ? (
-                  <CreateModeRepoPickerBar
-                    onContinueToPrompt={handleContinueToPrompt}
-                  />
-                ) : (
-                  <div className="px-plusfifty py-base">
-                    <div className="rounded-sm border border-warning/30 bg-warning/10 px-base py-base text-sm text-normal">
-                      <div className="flex items-start gap-half">
-                        <WarningCircleIcon
-                          className="mt-[2px] size-icon-sm shrink-0 text-warning"
-                          weight="bold"
-                        />
-                        <p>
-                          {t('createMode.directFolder.warning', {
-                            defaultValue:
-                              'Agents edit this folder directly. No branch or worktree isolation is created.',
-                          })}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-base flex min-w-0 flex-col gap-half">
-                      <label className="text-sm font-medium text-normal">
-                        {t('createMode.directFolder.pathLabel', {
-                          defaultValue: 'Folder path',
-                        })}
-                      </label>
-                      <div className="flex min-w-0 gap-half">
-                        <input
-                          value={directFolderPath}
-                          onChange={(event) => {
-                            setDirectFolderPath(event.target.value);
-                            setDirectFolderError(null);
-                          }}
-                          placeholder={t(
-                            'createMode.directFolder.pathPlaceholder',
-                            {
-                              defaultValue: '/path/to/project',
-                            }
-                          )}
-                          className="min-w-0 flex-1 rounded-sm border border-border bg-primary px-base py-half text-sm text-normal outline-none focus:border-brand"
-                        />
-                        <button
-                          type="button"
-                          onClick={selectDirectFolder}
-                          className="inline-flex shrink-0 items-center gap-half rounded-sm border border-border px-base py-half text-sm text-normal hover:text-high"
-                        >
-                          <FolderOpenIcon
-                            className="size-icon-xs"
-                            weight="bold"
-                          />
-                          <span>
-                            {t('createMode.directFolder.browse', {
-                              defaultValue: 'Browse',
-                            })}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {directFolderError && (
-                      <div className="mt-half rounded-sm border border-error/30 bg-error/10 px-base py-half">
-                        <p className="text-xs text-error">
-                          {directFolderError}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="mt-base flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleContinueToPrompt}
-                        disabled={!hasDirectFolderPath}
-                        className="rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {t('buttons.continue')}
-                      </button>
-                    </div>
-                  </div>
-                )}
+              <div className="mx-auto flex max-w-md flex-col items-center gap-base text-center">
+                <p className="text-sm text-low">
+                  {t('createMode.workspaceDialog.launchHint', {
+                    defaultValue:
+                      'Choose one directory, then decide whether to use an isolated worktree or work in place.',
+                  })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void openWorkspaceTargetDialog()}
+                  className="inline-flex items-center gap-half rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand hover:bg-brand-hover"
+                >
+                  <FolderOpenIcon className="size-icon-xs" weight="bold" />
+                  <span>
+                    {t('createMode.workspaceDialog.open', {
+                      defaultValue: 'Choose workspace',
+                    })}
+                  </span>
+                </button>
               </div>
             </>
           )}
@@ -654,14 +590,16 @@ export function CreateChatBoxContainer({
                   formatExecutorLabel={toPrettyCase}
                   error={displayError}
                   repoIds={
-                    workspaceMode === 'worktree' ? repos.map((r) => r.id) : []
+                    workspaceMode === 'worktree' && selectedRepo
+                      ? [selectedRepo.id]
+                      : []
                   }
                   repoId={workspaceMode === 'worktree' ? repoId : undefined}
                   modelSelector={modelSelectorNode}
                   onPasteFiles={uploadFiles}
                   localAttachments={localAttachments}
                   dropzone={{ getRootProps, getInputProps, isDragActive }}
-                  onEditRepos={() => setIsSelectingRepos(true)}
+                  onEditRepos={() => void openWorkspaceTargetDialog()}
                   repoSummaryLabel={
                     workspaceMode === 'direct_folder'
                       ? t('createMode.directFolder.summaryLabel', {

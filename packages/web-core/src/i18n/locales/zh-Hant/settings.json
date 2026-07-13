@@ -591,16 +591,20 @@
           "description": "管理此專案的看板欄。"
         },
         "defaultRepos": {
-          "label": "預設儲存庫",
-          "description": "從此專案的議題建立工作區時，會自動加入這些儲存庫。",
-          "empty": "尚未設定預設儲存庫",
-          "addButton": "新增",
-          "addNew": "新增儲存庫...",
+          "label": "目前裝置工作空間",
+          "description": "專案在 {{host}} 上使用的本機程式碼目錄和基礎分支。新建執行時會預填這些資訊，啟動智慧體前仍需確認。",
+          "empty": "目前裝置尚未設定工作空間",
+          "addButton": "選擇或變更",
+          "addNew": "選擇專案工作空間",
+          "pickerDescription": "為專案選擇 {{host}} 上的 Git 儲存庫和基礎分支。一般目錄可在啟動單一智慧體時使用直接目錄模式，但不能儲存為專案工作空間。",
           "branchLabel": "分支",
           "current": "目前",
+          "remove": "移除目前工作資料夾",
+          "executionSettings": "本機執行設定",
+          "executionSettingsDescription": "工作子目錄、開發伺服器、Setup、Cleanup 和 Worktree 檔案。",
           "noBranches": "此儲存庫沒有分支",
           "fetchError": "無法載入儲存庫",
-          "saveError": "儲存預設儲存庫失敗"
+          "saveError": "儲存預設工作位置失敗"
         }
       },
       "loginRequired": {

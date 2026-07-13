@@ -316,6 +316,17 @@
       "unlinkFromIssueLabel": "Also unlink from issue"
     }
   },
+  "projectWorkspaceDefault": {
+    "label": "Project default working location",
+    "loading": "Loading project working location",
+    "loadFailed": "Unable to load",
+    "loadFailedDescription": "The saved working location could not be resolved. Open project settings to review it.",
+    "empty": "Not configured",
+    "description": "This path and branch will prefill new executions. You still confirm the actual workspace before an agent starts.",
+    "emptyDescription": "No hidden fallback will be used. Choose a path and branch when starting an execution, or configure a project default.",
+    "configure": "Configure project working location",
+    "configureShort": "Configure"
+  },
   "attempts": {
     "title": "Task Attempts",
     "loading": "Loading attempts...",

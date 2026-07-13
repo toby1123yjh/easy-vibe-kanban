@@ -105,6 +105,7 @@ import {
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import { WorkspaceContextHeader } from '@/shared/components/WorkspaceContextHeader';
 
 const NEW_NODE_OFFSET_X = 340;
 const NEW_NODE_OFFSET_Y = 0;
@@ -1276,6 +1277,13 @@ export function WorkflowTemplateEditorPage({
               className="min-w-[280px] bg-transparent text-xs text-low outline-none transition-colors focus:text-high disabled:opacity-50"
               placeholder={t('workflow.editor.descriptionPlaceholder')}
             />
+            {workflowAttempt || localDraft ? (
+              <WorkspaceContextHeader
+                workspaceId={workflowAttempt?.workspace_id}
+                draftRepo={localDraft?.repos[0]}
+                className="max-w-[620px]"
+              />
+            ) : null}
             {isSystem && (
               <span className="text-xs text-brand">
                 {t('workflow.editor.systemTemplateReadOnly')}

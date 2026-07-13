@@ -464,6 +464,11 @@
         "helper": "Select a repository to view and edit its configuration.",
         "noRepos": "No repositories available"
       },
+      "projectWorkspace": {
+        "title": "Agent working directory",
+        "description": "Configure the subdirectory where agents run after entering the code directory above. Choose the project's base branch in the workspace.",
+        "unavailable": "The local repository referenced by this workspace is unavailable. Choose the working folder again."
+      },
       "general": {
         "title": "General Settings",
         "description": "Configure basic repository information.",
@@ -568,8 +573,8 @@
       }
     },
     "remoteProjects": {
-      "title": "Remote Projects",
-      "description": "Manage cloud-synced projects across organizations.",
+      "title": "Project settings",
+      "description": "Manage project details, boards, and the workspace used on this device.",
       "loading": "Loading remote projects...",
       "loadError": "Failed to load organizations",
       "noProjects": "No projects yet. Create one to get started.",
@@ -599,16 +604,20 @@
           "description": "Manage kanban columns for this project."
         },
         "defaultRepos": {
-          "label": "Default Repositories",
-          "description": "Repositories that are automatically added when creating workspaces from this project's issues.",
-          "empty": "No default repositories configured",
-          "addButton": "Add",
-          "addNew": "Add new repository...",
+          "label": "Workspace on this device",
+          "description": "The local code directory and base branch this project uses on {{host}}. New executions are prefilled with these values and still require confirmation.",
+          "empty": "No workspace configured on this device",
+          "addButton": "Choose or change",
+          "addNew": "Choose project workspace",
+          "pickerDescription": "Choose a Git repository and base branch for this project on {{host}}. Ordinary directories can be used when starting a direct agent, but cannot be saved as the project workspace.",
           "branchLabel": "Branch",
           "current": "current",
+          "remove": "Remove the current working folder",
+          "executionSettings": "Local execution configuration",
+          "executionSettingsDescription": "Working subdirectory, dev server, setup, cleanup, and Worktree files.",
           "noBranches": "No branches found for this repository",
           "fetchError": "Could not load repositories",
-          "saveError": "Failed to save default repositories"
+          "saveError": "Failed to save the default working location"
         }
       },
       "loginRequired": {

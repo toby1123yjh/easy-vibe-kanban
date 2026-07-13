@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { repoApi } from '@/shared/lib/api';
+import { repoApi, workspacesApi } from '@/shared/lib/api';
 import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import {
   buildExplicitProjectWorkspaceDefaults,
@@ -22,6 +22,7 @@ vi.mock('@/shared/hooks/useProjectRepoDefaults', () => ({
 }));
 
 const mockRepoList = vi.mocked(repoApi.list);
+const mockGetWorkspaceRepos = vi.mocked(workspacesApi.getRepos);
 const mockGetValidProjectRepoDefaults = vi.mocked(getValidProjectRepoDefaults);
 
 describe('workspace defaults', () => {
@@ -29,25 +30,33 @@ describe('workspace defaults', () => {
     vi.resetAllMocks();
   });
 
-  it('builds explicit project workspace defaults when repos have branches', () => {
+  it('normalizes legacy project defaults to one repository', () => {
     expect(
       buildExplicitProjectWorkspaceDefaults([
         { repo_id: 'repo-1', target_branch: 'main' },
         { repo_id: 'repo-2', target_branch: 'develop' },
       ])
     ).toEqual({
-      preferredRepos: [
-        { repo_id: 'repo-1', target_branch: 'main' },
-        { repo_id: 'repo-2', target_branch: 'develop' },
-      ],
+      preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
     });
   });
 
-  it('does not build defaults when any repo is missing a branch', () => {
+  it('ignores invalid trailing legacy entries after the first repository', () => {
     expect(
       buildExplicitProjectWorkspaceDefaults([
         { repo_id: 'repo-1', target_branch: 'main' },
         { repo_id: 'repo-2', target_branch: '  ' },
+      ])
+    ).toEqual({
+      preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+    });
+  });
+
+  it('rejects a project default whose selected branch is blank', () => {
+    expect(
+      buildExplicitProjectWorkspaceDefaults([
+        { repo_id: 'repo-1', target_branch: '  ' },
+        { repo_id: 'repo-2', target_branch: 'develop' },
       ])
     ).toBeNull();
   });
@@ -96,5 +105,53 @@ describe('workspace defaults', () => {
     expect(projectId).toBe('project-1');
     expect([...availableRepoIds]).toEqual(['repo-1']);
     expect(hostId).toBe('host-1');
+  });
+
+  it('does not infer project defaults from workspace history', async () => {
+    mockRepoList.mockResolvedValue([]);
+    mockGetValidProjectRepoDefaults.mockResolvedValue([]);
+
+    await expect(
+      getWorkspaceDefaults(
+        [
+          {
+            project_id: 'current-project',
+            local_workspace_id: 'project-workspace',
+            updated_at: '2026-07-12T12:00:00.000Z',
+          } as never,
+          {
+            project_id: 'unrelated-project',
+            local_workspace_id: 'global-workspace',
+            updated_at: '2026-07-12T13:00:00.000Z',
+          } as never,
+        ],
+        new Set(['project-workspace', 'global-workspace']),
+        'current-project'
+      )
+    ).resolves.toBeNull();
+
+    expect(mockGetWorkspaceRepos).not.toHaveBeenCalled();
+  });
+
+  it('keeps the globally recent workspace prefill for standalone creation', async () => {
+    mockGetWorkspaceRepos.mockResolvedValue([
+      { id: 'repo-1', target_branch: 'main' } as never,
+    ]);
+
+    await expect(
+      getWorkspaceDefaults(
+        [
+          {
+            local_workspace_id: 'global-workspace',
+            updated_at: '2026-07-12T12:00:00.000Z',
+          } as never,
+        ],
+        new Set(['global-workspace'])
+      )
+    ).resolves.toEqual({
+      preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+    });
+
+    expect(mockGetWorkspaceRepos).toHaveBeenCalledWith('global-workspace');
   });
 });

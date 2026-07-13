@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::Path};
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
@@ -22,6 +19,7 @@ use crate::{
     DeploymentImpl,
     error::ApiError,
     routes::{
+        filesystem::validate_directory_path,
         sessions::native_resume_transcript_backfill,
         workspaces::{
             attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
@@ -91,7 +89,7 @@ fn path_to_api_string(path: &Path) -> String {
 async fn validate_direct_folder_path(
     deployment: &DeploymentImpl,
     directory_path: Option<String>,
-) -> Result<PathBuf, ApiError> {
+) -> Result<std::path::PathBuf, ApiError> {
     let raw_path = directory_path
         .as_deref()
         .map(str::trim)
@@ -102,34 +100,7 @@ async fn validate_direct_folder_path(
             )
         })?;
 
-    let normalized_path = deployment.repo().normalize_path(raw_path).map_err(|e| {
-        ApiError::BadRequest(format!("Invalid directory path '{}': {}", raw_path, e))
-    })?;
-
-    let metadata = tokio::fs::metadata(&normalized_path).await.map_err(|e| {
-        ApiError::BadRequest(format!(
-            "Directory path is not accessible: {} ({})",
-            normalized_path.display(),
-            e
-        ))
-    })?;
-
-    if !metadata.is_dir() {
-        return Err(ApiError::BadRequest(format!(
-            "Directory path is not a directory: {}",
-            normalized_path.display()
-        )));
-    }
-
-    let _ = tokio::fs::read_dir(&normalized_path).await.map_err(|e| {
-        ApiError::BadRequest(format!(
-            "Directory path is not readable: {} ({})",
-            normalized_path.display(),
-            e
-        ))
-    })?;
-
-    Ok(normalized_path)
+    validate_directory_path(deployment, raw_path).await
 }
 
 async fn create_direct_folder_workspace_record(

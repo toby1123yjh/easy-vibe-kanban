@@ -6,6 +6,7 @@ import { WorkflowRunCanvasTab } from './WorkflowRunCanvasTab';
 import { WorkflowRunDashboardTab } from './WorkflowRunDashboardTab';
 import { Activity, LayoutDashboard, Workflow } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { WorkspaceContextHeader } from '@/shared/components/WorkspaceContextHeader';
 
 export interface WorkflowRunPageProps {
   projectId: string;
@@ -56,24 +57,30 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
   return (
     <div className="flex h-full flex-col bg-primary">
       <header className="flex flex-none flex-col gap-half border-b border-secondary bg-panel px-base py-half sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-base">
-          <h1 className="max-w-[240px] truncate text-sm font-medium text-high sm:max-w-md">
-            {run.attempt_id
-              ? t('workflow.runPage.taskAttempt', {
-                  id: run.attempt_id.slice(0, 9),
-                })
-              : t('workflow.runPage.workflowRun', {
-                  id: run.id.slice(0, 8),
-                })}
-          </h1>
-          <div
-            className={cn(
-              'rounded-full bg-secondary px-2 py-0.5 text-xs font-medium',
-              statusTone
-            )}
-          >
-            {t(`workflow.runStatus.${statusKey(run.status)}`)}
+        <div className="flex min-w-0 flex-col gap-half">
+          <div className="flex min-w-0 items-center gap-base">
+            <h1 className="max-w-[240px] truncate text-sm font-medium text-high sm:max-w-md">
+              {run.attempt_id
+                ? t('workflow.runPage.taskAttempt', {
+                    id: run.attempt_id.slice(0, 9),
+                  })
+                : t('workflow.runPage.workflowRun', {
+                    id: run.id.slice(0, 8),
+                  })}
+            </h1>
+            <div
+              className={cn(
+                'rounded-full bg-secondary px-2 py-0.5 text-xs font-medium',
+                statusTone
+              )}
+            >
+              {t(`workflow.runStatus.${statusKey(run.status)}`)}
+            </div>
           </div>
+          <WorkspaceContextHeader
+            workspaceId={run.workspace_id}
+            className="max-w-[720px]"
+          />
         </div>
 
         <div className="flex w-full items-center rounded bg-secondary p-1 sm:w-auto">

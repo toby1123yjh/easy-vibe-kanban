@@ -1,20 +1,14 @@
 import { useCallback, useMemo } from 'react';
-import { useProjectContext } from '@/shared/hooks/useProjectContext';
+import { useTranslation } from 'react-i18next';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
-import {
-  getExplicitProjectWorkspaceDefaults,
-  getWorkspaceDefaults,
-} from '@/shared/lib/workspaceDefaults';
-import {
-  buildLinkedIssueCreateState,
-  buildLocalWorkspaceIdSet,
-  buildWorkspaceCreateInitialState,
-} from '@/shared/lib/workspaceCreateState';
+import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
+import { buildLocalWorkspaceIdSet } from '@/shared/lib/workspaceCreateState';
+import { repoApi } from '@/shared/lib/api';
 import type { DraftWorkspaceRepo } from 'shared/types';
-import { WorkflowRepositoryDialog } from './WorkflowRepositoryDialog';
+import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 
 interface UseWorkflowRepositorySelectionOptions {
   projectId?: string | null;
@@ -24,10 +18,8 @@ interface UseWorkflowRepositorySelectionOptions {
 
 export function useWorkflowRepositorySelection({
   projectId,
-  issueId,
-  issueTitle,
 }: UseWorkflowRepositorySelectionOptions) {
-  const { getIssue } = useProjectContext();
+  const { t } = useTranslation('common');
   const { workspaces } = useUserContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const routeState = useCurrentKanbanRouteState();
@@ -42,61 +34,51 @@ export function useWorkflowRepositorySelection({
   > => {
     if (!projectId) return null;
 
-    const explicitProjectDefaults = await getExplicitProjectWorkspaceDefaults(
-      projectId,
-      routeState.hostId
-    ).catch(() => null);
-    if (explicitProjectDefaults?.preferredRepos.length) {
-      return explicitProjectDefaults.preferredRepos.map((repo) => ({
-        repo_id: repo.repo_id,
-        target_branch: repo.target_branch ?? '',
-      }));
-    }
-
-    const issue = getIssue(issueId);
     const defaults = await getWorkspaceDefaults(
       workspaces,
       localWorkspaceIds,
       projectId,
       routeState.hostId
     );
-    const linkedIssue = issue
-      ? buildLinkedIssueCreateState(issue, projectId)
-      : {
-          issueId,
-          title: issueTitle,
-          remoteProjectId: projectId,
-        };
+    const preferredRepo = defaults?.preferredRepos[0];
+    const preferredRepoDetails = preferredRepo
+      ? await repoApi
+          .getById(preferredRepo.repo_id, routeState.hostId)
+          .catch(() => null)
+      : null;
 
-    const result = await WorkflowRepositoryDialog.show({
-      draftId: crypto.randomUUID(),
-      initialState: buildWorkspaceCreateInitialState({
-        prompt: null,
-        defaults,
-        linkedIssue,
+    const result = await WorkspaceTargetDialog.show({
+      initialPath: preferredRepoDetails?.path,
+      initialMode: 'worktree',
+      initialBranch: preferredRepo?.target_branch,
+      hostId: routeState.hostId,
+      allowedModes: ['worktree'],
+      title: t('workflow.workspaceDialog.title', {
+        defaultValue: 'Choose workflow workspace',
+      }),
+      description: t('workflow.workspaceDialog.description', {
+        defaultValue:
+          'Choose one Git repository and a base branch. The workflow will run in an isolated worktree.',
       }),
     });
 
-    if (result.kind === 'canceled') {
+    if (result.kind === 'canceled' || result.selection.mode !== 'worktree') {
       return null;
     }
 
-    await saveProjectRepoDefaults(
-      projectId,
-      result.repos,
-      routeState.hostId
-    ).catch(() => undefined);
+    const repos: DraftWorkspaceRepo[] = [
+      {
+        repo_id: result.selection.repo.id,
+        target_branch: result.selection.targetBranch,
+      },
+    ];
 
-    return result.repos;
-  }, [
-    projectId,
-    routeState.hostId,
-    getIssue,
-    issueId,
-    issueTitle,
-    workspaces,
-    localWorkspaceIds,
-  ]);
+    await saveProjectRepoDefaults(projectId, repos, routeState.hostId).catch(
+      () => undefined
+    );
+
+    return repos;
+  }, [projectId, routeState.hostId, t, workspaces, localWorkspaceIds]);
 
   return { selectWorkflowRepositories };
 }

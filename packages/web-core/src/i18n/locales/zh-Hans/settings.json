@@ -456,6 +456,11 @@
         "helper": "选择仓库以查看和编辑其配置。",
         "noRepos": "没有可用的仓库"
       },
+      "projectWorkspace": {
+        "title": "智能体工作目录",
+        "description": "配置智能体进入上方代码目录后实际运行的子目录。项目基础分支在工作空间中统一选择。",
+        "unavailable": "这个工作空间引用的本机仓库已不可用，请重新选择工作文件夹。"
+      },
       "general": {
         "title": "常规设置",
         "description": "配置仓库基本信息。",
@@ -560,8 +565,8 @@
       }
     },
     "remoteProjects": {
-      "title": "远程项目",
-      "description": "管理跨组织同步的云端项目。",
+      "title": "项目设置",
+      "description": "管理项目信息、看板，以及当前设备使用的工作空间。",
       "loading": "正在加载远程项目...",
       "loadError": "加载组织失败",
       "noProjects": "暂无项目。创建一个项目后即可开始。",
@@ -591,16 +596,20 @@
           "description": "管理此项目的看板列。"
         },
         "defaultRepos": {
-          "label": "默认仓库",
-          "description": "从此项目的问题创建工作区时，会自动添加这些仓库。",
-          "empty": "尚未配置默认仓库",
-          "addButton": "添加",
-          "addNew": "添加新仓库...",
+          "label": "当前设备工作空间",
+          "description": "项目在 {{host}} 上使用的本地代码目录和基础分支。新建执行时会预填这些信息，启动智能体前仍需确认。",
+          "empty": "当前设备尚未配置工作空间",
+          "addButton": "选择或更改",
+          "addNew": "选择项目工作空间",
+          "pickerDescription": "为项目选择 {{host}} 上的 Git 仓库和基础分支。普通目录可以在启动单智能体时使用直接目录模式，但不能保存为项目工作空间。",
           "branchLabel": "分支",
           "current": "当前",
+          "remove": "移除当前工作文件夹",
+          "executionSettings": "本机执行配置",
+          "executionSettingsDescription": "工作子目录、开发服务器、Setup、Cleanup 和 Worktree 文件。",
           "noBranches": "此仓库没有分支",
           "fetchError": "无法加载仓库",
-          "saveError": "保存默认仓库失败"
+          "saveError": "保存默认工作位置失败"
         }
       },
       "loginRequired": {

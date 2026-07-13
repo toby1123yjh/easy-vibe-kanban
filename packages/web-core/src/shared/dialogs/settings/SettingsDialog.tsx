@@ -55,10 +55,11 @@ function SettingsDialogNavigation({
     setSelectedHostId,
   } = useSettingsHost();
   const hostSections = SETTINGS_SECTION_DEFINITIONS.filter(
-    (section) => section.group === 'host'
+    (section) => section.group === 'host' && section.showInNavigation !== false
   );
   const universalSections = SETTINGS_SECTION_DEFINITIONS.filter(
-    (section) => section.group === 'universal'
+    (section) =>
+      section.group === 'universal' && section.showInNavigation !== false
   );
   const hostOptions = availableHosts.map((host) => ({
     value: host.id,

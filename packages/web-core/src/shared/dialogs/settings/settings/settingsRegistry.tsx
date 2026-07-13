@@ -43,11 +43,17 @@ export interface SettingsSectionDefinition {
   id: SettingsSectionType;
   icon: Icon;
   group: SettingsSectionGroup;
+  showInNavigation?: boolean;
 }
 
 export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'general', icon: GearIcon, group: 'host' },
-  { id: 'repos', icon: GitBranchIcon, group: 'host' },
+  {
+    id: 'repos',
+    icon: GitBranchIcon,
+    group: 'host',
+    showInNavigation: false,
+  },
   { id: 'agents', icon: CpuIcon, group: 'host' },
   { id: 'mcp', icon: PlugIcon, group: 'host' },
   { id: 'organizations', icon: BuildingsIcon, group: 'universal' },

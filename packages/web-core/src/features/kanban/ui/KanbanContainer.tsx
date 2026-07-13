@@ -79,6 +79,7 @@ import {
 } from '@vibe/ui/components/Dropdown';
 import { Workflow } from 'lucide-react';
 import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTagDropdownContainer';
+import { ProjectWorkspaceDefaultContext } from '@/shared/components/ProjectWorkspaceDefaultContext';
 import type { IssuePriority } from 'shared/remote-types';
 import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
 import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
@@ -180,6 +181,7 @@ export function KanbanContainer() {
   } = useProjectContext();
 
   const {
+    organizationId,
     projects,
     membersWithProfilesById,
     isLoading: orgLoading,
@@ -630,7 +632,10 @@ export function KanbanContainer() {
     return map;
   }, [pullRequests]);
 
-  const projectWorkflowAttempts = projectWorkflowAttemptData?.attempts ?? [];
+  const projectWorkflowAttempts = useMemo(
+    () => projectWorkflowAttemptData?.attempts ?? [],
+    [projectWorkflowAttemptData?.attempts]
+  );
 
   const workflowWorkspaceIds = useMemo(
     () => getWorkflowAttemptWorkspaceIds(projectWorkflowAttempts),
@@ -967,10 +972,18 @@ export function KanbanContainer() {
           isMobile && 'px-base pt-base'
         )}
       >
-        <div className="flex items-center gap-half">
+        <div className="flex min-w-0 flex-wrap items-center gap-half">
           <h2 className={cn('text-2xl font-medium', isMobile && 'text-lg')}>
             {projectName}
           </h2>
+
+          <ProjectWorkspaceDefaultContext
+            projectId={projectId}
+            organizationId={organizationId}
+            hostId={routeState.hostId}
+            variant="inline"
+            className="max-w-[min(560px,60vw)]"
+          />
 
           {projectHeaderActions.map((action) => (
             <button

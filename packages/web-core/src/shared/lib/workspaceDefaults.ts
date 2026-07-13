@@ -10,19 +10,22 @@ export interface WorkspaceDefaults {
 export function buildExplicitProjectWorkspaceDefaults(
   repos: DraftWorkspaceRepo[]
 ): WorkspaceDefaults | null {
-  if (repos.length === 0) {
+  const [defaultRepo] = repos;
+  if (!defaultRepo) {
     return null;
   }
 
-  if (repos.some((repo) => !repo.target_branch.trim())) {
+  if (!defaultRepo.target_branch.trim()) {
     return null;
   }
 
   return {
-    preferredRepos: repos.map((r) => ({
-      repo_id: r.repo_id,
-      target_branch: r.target_branch,
-    })),
+    preferredRepos: [
+      {
+        repo_id: defaultRepo.repo_id,
+        target_branch: defaultRepo.target_branch,
+      },
+    ],
   };
 }
 
@@ -50,8 +53,8 @@ export async function getExplicitProjectWorkspaceDefaults(
 /**
  * Fetches workspace creation defaults using a project-aware priority chain:
  * 1. Scratch project-repo defaults (if projectId provided and valid repos exist)
- * 2. Most recent workspace for the same project (if projectId provided)
- * 3. Globally most recent workspace
+ * 2. null for project-scoped creation
+ * 3. Globally most recent workspace only for standalone creation
  * 4. null (no defaults)
  */
 export async function getWorkspaceDefaults(
@@ -70,50 +73,23 @@ export async function getWorkspaceDefaults(
         availableRepoIds,
         hostId
       );
-      if (scratchDefaults.length > 0) {
-        return {
-          preferredRepos: scratchDefaults.map((r) => ({
-            repo_id: r.repo_id,
-            target_branch: r.target_branch,
-          })),
-        };
+      const explicitDefaults =
+        buildExplicitProjectWorkspaceDefaults(scratchDefaults);
+      if (explicitDefaults) {
+        return explicitDefaults;
       }
     } catch (err) {
       console.warn('Failed to fetch project scratch defaults:', err);
     }
 
-    // Priority 2: Most recent workspace for the same project
-    const projectRecent = remoteWorkspaces
-      .filter(
-        (w) =>
-          w.project_id === projectId &&
-          w.local_workspace_id !== null &&
-          localWorkspaceIds.has(w.local_workspace_id)
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      )[0];
-
-    if (projectRecent?.local_workspace_id) {
-      try {
-        const [repos] = await Promise.all([
-          workspacesApi.getRepos(projectRecent.local_workspace_id),
-          workspacesApi.get(projectRecent.local_workspace_id),
-        ]);
-        return {
-          preferredRepos: repos.map((r) => ({
-            repo_id: r.id,
-            target_branch: r.target_branch,
-          })),
-        };
-      } catch (err) {
-        console.warn('Failed to fetch project workspace defaults:', err);
-      }
-    }
+    // A project-linked issue does not own a workspace. Only the project's
+    // visible, explicit setting may prefill execution creation; workspace
+    // history would otherwise become hidden project state.
+    return null;
   }
 
-  // Priority 3: Globally most recent workspace
+  // Standalone creation may use the globally most recent workspace as a
+  // convenience prefill because there is no project boundary to preserve.
   const mostRecent = remoteWorkspaces
     .filter(
       (w) =>

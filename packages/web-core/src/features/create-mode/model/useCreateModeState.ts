@@ -13,10 +13,7 @@ import type {
   Repo,
 } from 'shared/types';
 import { ScratchType } from 'shared/types';
-import {
-  PROJECT_ISSUES_SHAPE,
-  type Workspace as RemoteWorkspace,
-} from 'shared/remote-types';
+import { PROJECT_ISSUES_SHAPE } from 'shared/remote-types';
 import { useScratch } from '@/shared/hooks/useScratch';
 import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -181,34 +178,6 @@ function draftReducer(state: DraftState, action: DraftAction): DraftState {
 
 const DRAFT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 
-function getLatestWorkspaceIdForRemoteProject({
-  remoteWorkspaces,
-  localWorkspaceIds,
-  remoteProjectId,
-}: {
-  remoteWorkspaces: RemoteWorkspace[];
-  localWorkspaceIds: Set<string>;
-  remoteProjectId: string;
-}): string | null {
-  let latestWorkspaceId: string | null = null;
-  let latestUpdatedAt = Number.NEGATIVE_INFINITY;
-
-  for (const workspace of remoteWorkspaces) {
-    if (!workspace.issue_id) continue;
-    if (workspace.project_id !== remoteProjectId) continue;
-    if (!workspace.local_workspace_id) continue;
-    if (!localWorkspaceIds.has(workspace.local_workspace_id)) continue;
-
-    const updatedAt = new Date(workspace.updated_at).getTime();
-    if (updatedAt > latestUpdatedAt) {
-      latestUpdatedAt = updatedAt;
-      latestWorkspaceId = workspace.local_workspace_id;
-    }
-  }
-
-  return latestWorkspaceId;
-}
-
 // ============================================================================
 // Hook
 // ============================================================================
@@ -218,10 +187,7 @@ interface UseCreateModeStateParams {
   draftId?: string | null;
   hostId?: string | null;
   lastWorkspaceId: string | null;
-  remoteWorkspaces: RemoteWorkspace[];
-  localWorkspaceIds: Set<string>;
   localWorkspacesLoading: boolean;
-  remoteWorkspacesLoading: boolean;
 }
 
 interface UseCreateModeStateResult {
@@ -251,10 +217,7 @@ export function useCreateModeState({
   draftId,
   hostId,
   lastWorkspaceId,
-  remoteWorkspaces,
-  localWorkspaceIds,
   localWorkspacesLoading,
-  remoteWorkspacesLoading,
 }: UseCreateModeStateParams): UseCreateModeStateResult {
   const { profiles, config, loading: systemLoading } = useUserSystem();
   const scratchId = draftId ?? DRAFT_WORKSPACE_ID;
@@ -341,22 +304,10 @@ export function useCreateModeState({
   const [projectDefaultsStatus, setProjectDefaultsStatus] = useState<
     'pending' | 'applied' | 'empty' | 'n/a'
   >('pending');
-  const sourceWorkspaceId = useMemo(() => {
-    if (state.linkedIssue) {
-      const linkedIssueWorkspaceId = getLatestWorkspaceIdForRemoteProject({
-        remoteWorkspaces,
-        localWorkspaceIds,
-        remoteProjectId: state.linkedIssue.remoteProjectId,
-      });
-      return linkedIssueWorkspaceId ?? lastWorkspaceId;
-    }
-    return lastWorkspaceId;
-  }, [state.linkedIssue, remoteWorkspaces, localWorkspaceIds, lastWorkspaceId]);
+  const sourceWorkspaceId = state.linkedIssue ? null : lastWorkspaceId;
 
   const shouldLoadWorkspaceDefaults =
-    state.phase === 'ready' &&
-    !localWorkspacesLoading &&
-    (!state.linkedIssue || !remoteWorkspacesLoading);
+    state.phase === 'ready' && !localWorkspacesLoading;
 
   const { preferredRepos, preferredExecutorConfig, hasResolvedPreferredRepos } =
     useWorkspaceCreateDefaults({
@@ -367,7 +318,8 @@ export function useCreateModeState({
   const hasResolvedInitialRepoDefaults =
     (state.phase === 'ready' &&
       !localWorkspacesLoading &&
-      (!state.linkedIssue || !remoteWorkspacesLoading) &&
+      (!state.linkedIssue?.remoteProjectId ||
+        projectDefaultsStatus !== 'pending') &&
       hasResolvedPreferredRepos &&
       (preferredRepos.length === 0 ||
         state.repos.length > 0 ||

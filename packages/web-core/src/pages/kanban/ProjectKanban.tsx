@@ -108,10 +108,8 @@ function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
 
 function ProjectKanbanBoard() {
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="min-h-0 flex-1">
-        <KanbanContainer />
-      </div>
+    <div className="h-full min-h-0 w-full">
+      <KanbanContainer />
     </div>
   );
 }

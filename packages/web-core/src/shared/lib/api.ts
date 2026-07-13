@@ -11,6 +11,9 @@ import {
   CreateTag,
   DirectoryListResponse,
   DirectoryEntry,
+  DirectoryInspection,
+  InspectDirectoryRequest,
+  PickFolderRequest,
   ExecutionProcess,
   ExecutionProcessRepoState,
   GitBranch,
@@ -921,6 +924,36 @@ export const executionProcessesApi = {
 
 // File System APIs
 export const fileSystemApi = {
+  pickFolder: async (
+    data: PickFolderRequest,
+    hostId?: string | null
+  ): Promise<string | null> => {
+    const response = await makeHostAwareRequest(
+      '/api/filesystem/pick-folder',
+      hostId,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<string | null>(response);
+  },
+
+  inspectDirectory: async (
+    data: InspectDirectoryRequest,
+    hostId?: string | null
+  ): Promise<DirectoryInspection> => {
+    const response = await makeHostAwareRequest(
+      '/api/filesystem/inspect-directory',
+      hostId,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<DirectoryInspection>(response);
+  },
+
   list: async (path?: string): Promise<DirectoryListResponse> => {
     const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
     const response = await makeRequest(

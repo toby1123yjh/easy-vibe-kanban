@@ -1,7 +1,6 @@
 import { useMemo, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
-import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useActions } from '@/shared/hooks/useActions';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
@@ -13,10 +12,6 @@ import {
   type NavbarBreadcrumbItem,
   type MobileTabId,
 } from '@vibe/ui/components/Navbar';
-import { useAllOrganizationProjects } from '@/shared/hooks/useAllOrganizationProjects';
-import { useShape } from '@/shared/integrations/electric/hooks';
-import { PROJECT_ISSUES_SHAPE } from 'shared/remote-types';
-import { RemoteIssueLink } from './RemoteIssueLink';
 import { AppBarUserPopoverContainer } from './AppBarUserPopoverContainer';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { NavbarActionGroups } from '@/shared/actions';
@@ -40,6 +35,7 @@ import { getProjectDestination } from '@/shared/lib/routes/appNavigation';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { getRemoteAuthDegradedMessage } from '@/shared/lib/auth/remoteAuthDegraded';
+import { buildWorkspaceContext } from '@/shared/lib/workspaceContext';
 
 /**
  * Check if a NavbarItem is a divider
@@ -125,8 +121,12 @@ export function NavbarContainer({
 }) {
   const { t } = useTranslation('common');
   const { executeAction } = useActions();
-  const { workspace: selectedWorkspace, isCreateMode } = useWorkspaceContext();
-  const { workspaces } = useUserContext();
+  const {
+    workspace: selectedWorkspace,
+    selectedSession,
+    repos,
+    isCreateMode,
+  } = useWorkspaceContext();
   const syncErrorContext = useSyncErrorContext();
   const { remoteAuthDegraded } = useUserSystem();
   const appNavigation = useAppNavigation();
@@ -154,15 +154,6 @@ export function NavbarContainer({
       setMobileActiveTab('chat');
     }
   }, [isOnProjectPage, setMobileActiveTab]);
-
-  // Find remote workspace linked to current local workspace
-  const linkedRemoteWorkspace = useMemo(() => {
-    if (!selectedWorkspace?.id) return null;
-    return (
-      workspaces.find((w) => w.local_workspace_id === selectedWorkspace.id) ??
-      null
-    );
-  }, [workspaces, selectedWorkspace?.id]);
 
   const { data: orgsData } = useUserOrganizations();
   const selectedOrgId = useOrganizationStore((s) => s.selectedOrgId);
@@ -204,85 +195,42 @@ export function NavbarContainer({
     [actionCtx, handleExecuteAction]
   );
 
+  const workspaceParts = useMemo(() => {
+    if (isOnProjectPage || isCreateMode || !selectedWorkspace) return undefined;
+
+    return buildWorkspaceContext({
+      containerRef: selectedWorkspace.container_ref,
+      workingDir: selectedSession?.agent_working_dir,
+      fallbackRepoName: repos.length === 1 ? repos[0].name : undefined,
+      branch: selectedWorkspace.branch,
+      workspaceKind: selectedWorkspace.workspace_kind,
+    });
+  }, [
+    isCreateMode,
+    isOnProjectPage,
+    repos,
+    selectedSession?.agent_working_dir,
+    selectedWorkspace,
+  ]);
+
+  const workspaceContext = useMemo((): NavbarBreadcrumbItem[] | undefined => {
+    return workspaceParts?.length
+      ? workspaceParts.map((part) => ({ label: part.label }))
+      : undefined;
+  }, [workspaceParts]);
+
+  const workspacePath = workspaceParts?.find(
+    (part) => part.kind === 'path'
+  )?.label;
+
   const navbarTitle = isCreateMode
     ? 'Create Workspace'
     : isOnProjectPage
       ? orgName
-      : selectedWorkspace?.branch;
-
-  // Breadcrumbs: Project / Issue / Workspace (only on workspace pages with linked project)
-  const linkedProjectId = linkedRemoteWorkspace?.project_id ?? null;
-  const linkedIssueId = linkedRemoteWorkspace?.issue_id ?? null;
-  const shouldResolveBreadcrumbData =
-    !isOnProjectPage && !isCreateMode && !!linkedProjectId;
-  const shouldResolveIssueBreadcrumb =
-    shouldResolveBreadcrumbData && !!linkedIssueId;
-
-  const { data: allProjects, isLoading: isProjectsLoading } =
-    useAllOrganizationProjects({
-      enabled: shouldResolveBreadcrumbData,
-    });
-  const { data: projectIssues, isLoading: isProjectIssuesLoading } = useShape(
-    PROJECT_ISSUES_SHAPE,
-    { project_id: linkedProjectId || '' },
-    { enabled: shouldResolveIssueBreadcrumb }
-  );
-  const linkedProject = allProjects.find((p) => p.id === linkedProjectId);
-  const isWaitingForProjectBreadcrumb =
-    shouldResolveBreadcrumbData && !linkedProject && isProjectsLoading;
-  const isWaitingForIssueBreadcrumb =
-    shouldResolveIssueBreadcrumb && isProjectIssuesLoading;
-  const isWaitingForBreadcrumbData =
-    isWaitingForProjectBreadcrumb || isWaitingForIssueBreadcrumb;
-
-  const breadcrumbs = useMemo((): NavbarBreadcrumbItem[] | undefined => {
-    if (
-      !shouldResolveBreadcrumbData ||
-      !linkedProjectId ||
-      isWaitingForBreadcrumbData
-    ) {
-      return undefined;
-    }
-
-    const project = linkedProject;
-    if (!project) return undefined;
-
-    const items: NavbarBreadcrumbItem[] = [
-      {
-        label: project.name,
-        onClick: () => appNavigation.goToProject(linkedProjectId),
-      },
-    ];
-
-    if (linkedIssueId) {
-      const issue = projectIssues.find((i) => i.id === linkedIssueId);
-      if (issue) {
-        items.push({
-          label: issue.simple_id,
-          onClick: () =>
-            appNavigation.goToProjectIssue(linkedProjectId, linkedIssueId),
-        });
-      }
-    }
-
-    const workspaceLabel =
-      selectedWorkspace?.name || selectedWorkspace?.branch || '';
-    if (workspaceLabel) {
-      items.push({ label: workspaceLabel });
-    }
-
-    return items.length > 1 ? items : undefined;
-  }, [
-    shouldResolveBreadcrumbData,
-    linkedProjectId,
-    linkedIssueId,
-    linkedProject,
-    isWaitingForBreadcrumbData,
-    projectIssues,
-    selectedWorkspace?.name,
-    selectedWorkspace?.branch,
-    appNavigation,
-  ]);
+      : workspacePath ||
+        (selectedWorkspace?.branch === 'direct-folder'
+          ? ''
+          : selectedWorkspace?.branch);
 
   // Mobile-specific callbacks
   const handleOpenCommandBar = useCallback(() => {
@@ -342,7 +290,7 @@ export function NavbarContainer({
   return (
     <Navbar
       workspaceTitle={navbarTitle}
-      breadcrumbs={breadcrumbs}
+      breadcrumbs={workspaceContext}
       leftItems={leftItems}
       rightItems={rightItems}
       syncErrors={syncErrors}
@@ -358,16 +306,6 @@ export function NavbarContainer({
       mobileActiveTab={mobileActiveTab as MobileTabId}
       onMobileTabChange={(tab) => setMobileActiveTab(tab)}
       mobileTabs={mobileWorkspaceTabs}
-      leftSlot={
-        !breadcrumbs &&
-        !isWaitingForBreadcrumbData &&
-        linkedRemoteWorkspace?.issue_id ? (
-          <RemoteIssueLink
-            projectId={linkedRemoteWorkspace.project_id}
-            issueId={linkedRemoteWorkspace.issue_id}
-          />
-        ) : null
-      }
     />
   );
 }

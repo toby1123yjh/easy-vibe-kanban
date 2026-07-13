@@ -2,7 +2,6 @@ import { useMemo, type ReactNode } from 'react';
 import type { CreateModeInitialState } from '@/shared/types/createMode';
 import { useCreateModeState } from '@/features/create-mode/model/useCreateModeState';
 import { useWorkspaces } from '@/shared/hooks/useWorkspaces';
-import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { getDestinationHostId } from '@/shared/lib/routes/appNavigation';
 import {
@@ -27,32 +26,18 @@ export function CreateModeProvider({
     archivedWorkspaces,
     isLoading: localWorkspacesLoading,
   } = useWorkspaces();
-  const { workspaces: remoteWorkspaces, isLoading: remoteWorkspacesLoading } =
-    useUserContext();
   const destination = useCurrentAppDestination();
   const hostId = useMemo(
     () => getDestinationHostId(destination),
     [destination]
   );
   const mostRecentWorkspace = activeWorkspaces[0] ?? archivedWorkspaces[0];
-  const localWorkspaceIds = useMemo(
-    () =>
-      new Set([
-        ...activeWorkspaces.map((workspace) => workspace.id),
-        ...archivedWorkspaces.map((workspace) => workspace.id),
-      ]),
-    [activeWorkspaces, archivedWorkspaces]
-  );
-
   const state = useCreateModeState({
     initialState,
     draftId,
     hostId,
     lastWorkspaceId: mostRecentWorkspace?.id ?? null,
-    remoteWorkspaces,
-    localWorkspaceIds,
     localWorkspacesLoading,
-    remoteWorkspacesLoading,
   });
 
   const value = useMemo<CreateModeContextValue>(

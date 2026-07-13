@@ -16,6 +16,7 @@ import { useOrgContext } from '@/shared/hooks/useOrgContext';
 import { useProjectWorkspaceCreateDraft } from '@/shared/hooks/useProjectWorkspaceCreateDraft';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTagDropdownContainer';
+import { ProjectWorkspaceDefaultContext } from '@/shared/components/ProjectWorkspaceDefaultContext';
 import { IssueCommentsSectionContainer } from './IssueCommentsSectionContainer';
 import { IssueSubIssuesSectionContainer } from './IssueSubIssuesSectionContainer';
 import { IssueRelationshipsSectionContainer } from './IssueRelationshipsSectionContainer';
@@ -177,7 +178,11 @@ export function KanbanIssuePanelContainer({
     resetKanbanIssueComposer(issueComposerKey);
   }, [issueComposerKey]);
 
-  const { isLoading: orgLoading, membersWithProfilesById } = useOrgContext();
+  const {
+    organizationId,
+    isLoading: orgLoading,
+    membersWithProfilesById,
+  } = useOrgContext();
 
   // Get action methods from actions context
   const { openStatusSelection, openPrioritySelection, openAssigneeSelection } =
@@ -905,7 +910,8 @@ export function KanbanIssuePanelContainer({
             displayData.description
           );
 
-          // Get defaults from most recent workspace
+          // Project-linked creation uses only the visible project working
+          // location. Recent workspace history is standalone-only.
           const defaults = await getWorkspaceDefaults(
             workspaces,
             localWorkspaceIds,
@@ -966,6 +972,7 @@ export function KanbanIssuePanelContainer({
     openWorkspaceCreateFromState,
     workspaces,
     localWorkspaceIds,
+    routeState.hostId,
     closeKanbanIssuePanel,
     issueComposerKey,
     getAttachmentIds,
@@ -1111,6 +1118,18 @@ export function KanbanIssuePanelContainer({
       renderDescriptionEditor={(props) => (
         <WYSIWYGEditor {...props} localAttachments={localAttachments} />
       )}
+      renderProjectWorkspaceContext={
+        mode === 'create'
+          ? () => (
+              <ProjectWorkspaceDefaultContext
+                projectId={projectId}
+                organizationId={organizationId}
+                hostId={routeState.hostId}
+                variant="panel"
+              />
+            )
+          : undefined
+      }
       renderWorkspacesSection={(issueId) => (
         <>
           <IssueTaskAttemptsSectionContainer
