@@ -28,6 +28,22 @@ use crate::{
     executors::{ExecutorError, ExecutorExitResult, SpawnedChild, acp::AcpEvent},
 };
 
+#[derive(Debug, Clone, Copy)]
+enum AcpPromptLoopOutcome {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+impl AcpPromptLoopOutcome {
+    fn exit_result(self) -> ExecutorExitResult {
+        match self {
+            Self::Completed => ExecutorExitResult::Success,
+            Self::Cancelled | Self::Failed => ExecutorExitResult::Failure,
+        }
+    }
+}
+
 /// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
 pub struct AcpAgentHarness {
     session_namespace: String,
@@ -458,10 +474,12 @@ impl AcpAgentHarness {
                         );
 
                         let mut current_req = Some(initial_req);
+                        let mut prompt_outcome = AcpPromptLoopOutcome::Completed;
 
                         while let Some(req) = current_req.take() {
                             if cancel.is_cancelled() {
                                 tracing::debug!("ACP executor cancelled, stopping prompt loop");
+                                prompt_outcome = AcpPromptLoopOutcome::Cancelled;
                                 break;
                             }
 
@@ -470,6 +488,7 @@ impl AcpAgentHarness {
                             let prompt_result = tokio::select! {
                                 _ = cancel.cancelled() => {
                                     tracing::debug!("ACP executor cancelled during prompt");
+                                    prompt_outcome = AcpPromptLoopOutcome::Cancelled;
                                     break;
                                 }
                                 result = conn.prompt(req) => result,
@@ -484,17 +503,15 @@ impl AcpAgentHarness {
                                 }
                                 Err(e) => {
                                     tracing::debug!("error {} {e} {:?}", e.code, e.data);
-                                    if e.code
-                                        == agent_client_protocol::ErrorCode::INTERNAL_ERROR.code
-                                        && e.data
-                                            .as_ref()
-                                            .is_some_and(|d| d == "server shut down unexpectedly")
-                                    {
-                                        tracing::debug!("ACP server killed");
+                                    if cancel.is_cancelled() {
+                                        tracing::debug!("ACP prompt stopped after cancellation");
+                                        prompt_outcome = AcpPromptLoopOutcome::Cancelled;
                                     } else {
                                         let _ = log_tx
                                             .send(AcpEvent::Error(format!("{e}")).to_string());
+                                        prompt_outcome = AcpPromptLoopOutcome::Failed;
                                     }
+                                    break;
                                 }
                             }
 
@@ -520,7 +537,7 @@ impl AcpAgentHarness {
 
                         // Notify container of completion
                         if let Some(tx) = exit_signal_tx.take() {
-                            let _ = tx.send(ExecutorExitResult::Success);
+                            let _ = tx.send(prompt_outcome.exit_result());
                         }
 
                         // Cancel session work
@@ -541,5 +558,26 @@ impl AcpAgentHarness {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AcpPromptLoopOutcome, ExecutorExitResult};
+
+    #[test]
+    fn acp_prompt_loop_only_reports_success_for_completion() {
+        assert!(matches!(
+            AcpPromptLoopOutcome::Completed.exit_result(),
+            ExecutorExitResult::Success
+        ));
+        assert!(matches!(
+            AcpPromptLoopOutcome::Cancelled.exit_result(),
+            ExecutorExitResult::Failure
+        ));
+        assert!(matches!(
+            AcpPromptLoopOutcome::Failed.exit_result(),
+            ExecutorExitResult::Failure
+        ));
     }
 }

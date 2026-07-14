@@ -43,11 +43,11 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use workspace_utils::approvals::{ApprovalStatus, QuestionStatus};
 
-use super::jsonrpc::{JsonRpcCallbacks, JsonRpcPeer};
+use super::jsonrpc::{JsonRpcCallbacks, JsonRpcControlFlow, JsonRpcPeer};
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     env::RepoContext,
-    executors::{ExecutorError, codex::normalize_logs::Approval},
+    executors::{ExecutorError, ExecutorExitResult, codex::normalize_logs::Approval},
 };
 
 struct PendingPlan {
@@ -1021,6 +1021,31 @@ fn reasoning_update_from_thread_settings(
     ReasoningEffortUpdate::Unchanged
 }
 
+fn turn_completion_control_flow(status: &TurnStatus, keep_alive: bool) -> JsonRpcControlFlow {
+    if keep_alive && matches!(status, TurnStatus::Completed | TurnStatus::Interrupted) {
+        return JsonRpcControlFlow::Continue;
+    }
+
+    match status {
+        TurnStatus::Completed => JsonRpcControlFlow::Exit(ExecutorExitResult::Success),
+        TurnStatus::Interrupted | TurnStatus::Failed | TurnStatus::InProgress => {
+            JsonRpcControlFlow::Exit(ExecutorExitResult::Failure)
+        }
+    }
+}
+
+fn parse_turn_completed_params(
+    params: Option<&Value>,
+) -> Result<TurnCompletedNotification, ExecutorError> {
+    let params = params.ok_or_else(|| {
+        ExecutorError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "turn/completed notification missing params",
+        ))
+    })?;
+    serde_json::from_value(params.clone()).map_err(ExecutorError::from)
+}
+
 #[async_trait]
 impl JsonRpcCallbacks for AppServerClient {
     async fn on_request(
@@ -1066,7 +1091,7 @@ impl JsonRpcCallbacks for AppServerClient {
         _peer: &JsonRpcPeer,
         raw: &str,
         notification: JSONRPCNotification,
-    ) -> Result<bool, ExecutorError> {
+    ) -> Result<JsonRpcControlFlow, ExecutorError> {
         self.log_writer.log_raw(raw).await?;
 
         let method = notification.method.as_str();
@@ -1084,16 +1109,33 @@ impl JsonRpcCallbacks for AppServerClient {
 
         // V2 turn completion detection
         if method == "turn/completed" {
-            let mut keep_alive = false;
+            let completed = parse_turn_completed_params(notification.params.as_ref())?;
 
-            if let Some(params) = notification.params
-                && let Ok(completed) = serde_json::from_value::<TurnCompletedNotification>(params)
-                && completed.turn.status == TurnStatus::Interrupted
-            {
-                tracing::debug!("codex turn interrupted; flushing feedback queue");
-                if self.flush_pending_feedback().await {
-                    keep_alive = true;
+            match completed.turn.status {
+                TurnStatus::Failed => {
+                    tracing::error!(
+                        turn_id = %completed.turn.id,
+                        error = ?completed.turn.error,
+                        "Codex turn failed"
+                    );
+                    return Ok(turn_completion_control_flow(&TurnStatus::Failed, false));
                 }
+                TurnStatus::InProgress => {
+                    tracing::warn!(
+                        turn_id = %completed.turn.id,
+                        "Codex sent turn/completed with an in-progress turn"
+                    );
+                    return Ok(turn_completion_control_flow(&TurnStatus::InProgress, false));
+                }
+                TurnStatus::Interrupted => {
+                    tracing::debug!("Codex turn interrupted; flushing feedback queue");
+                    let keep_alive = self.flush_pending_feedback().await;
+                    return Ok(turn_completion_control_flow(
+                        &TurnStatus::Interrupted,
+                        keep_alive,
+                    ));
+                }
+                TurnStatus::Completed => {}
             }
 
             // Handle plan approval on turn completion
@@ -1103,12 +1145,15 @@ impl JsonRpcCallbacks for AppServerClient {
                 None
             };
             if let Some(plan) = pending {
-                return self.handle_plan_completed(plan).await;
+                let finished = self.handle_plan_completed(plan).await?;
+                return Ok(turn_completion_control_flow(
+                    &TurnStatus::Completed,
+                    !finished,
+                ));
             }
 
             // Handle commit reminder on turn completion
-            if !keep_alive
-                && self.commit_reminder
+            if self.commit_reminder
                 && !self.commit_reminder_sent.swap(true, Ordering::SeqCst)
                 && let status = self.repo_context.check_uncommitted_changes().await
                 && !status.is_empty()
@@ -1116,13 +1161,13 @@ impl JsonRpcCallbacks for AppServerClient {
             {
                 let prompt = format!("{}\n{}", self.commit_reminder_prompt, status);
                 self.spawn_user_message(thread_id, prompt);
-                return Ok(false);
+                return Ok(JsonRpcControlFlow::Continue);
             }
 
-            return Ok(!keep_alive);
+            return Ok(turn_completion_control_flow(&TurnStatus::Completed, false));
         }
 
-        Ok(false)
+        Ok(JsonRpcControlFlow::Continue)
     }
 
     async fn on_non_json(&self, raw: &str) -> Result<(), ExecutorError> {
@@ -1277,13 +1322,67 @@ mod version_check_tests {
         config_types::{CollaborationMode, ModeKind, Settings},
         openai_models::ReasoningEffort as ProtocolReasoningEffort,
     };
+    use serde_json::json;
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        AppServerClient, LogWriter, ReasoningEffortUpdate, build_thread_settings_update_params,
-        build_turn_start_params, ensure_codex_version, ensure_resumed_thread_id, extract_semver,
-        reasoning_update_from_thread_settings,
+        AppServerClient, ExecutorExitResult, JsonRpcControlFlow, LogWriter, ReasoningEffortUpdate,
+        TurnStatus, build_thread_settings_update_params, build_turn_start_params,
+        ensure_codex_version, ensure_resumed_thread_id, extract_semver,
+        parse_turn_completed_params, reasoning_update_from_thread_settings,
+        turn_completion_control_flow,
     };
+
+    #[test]
+    fn turn_completion_statuses_fail_closed() {
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::Completed, false),
+            JsonRpcControlFlow::Exit(ExecutorExitResult::Success)
+        ));
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::Failed, false),
+            JsonRpcControlFlow::Exit(ExecutorExitResult::Failure)
+        ));
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::Interrupted, false),
+            JsonRpcControlFlow::Exit(ExecutorExitResult::Failure)
+        ));
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::InProgress, false),
+            JsonRpcControlFlow::Exit(ExecutorExitResult::Failure)
+        ));
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::Interrupted, true),
+            JsonRpcControlFlow::Continue
+        ));
+        assert!(matches!(
+            turn_completion_control_flow(&TurnStatus::Completed, true),
+            JsonRpcControlFlow::Continue
+        ));
+    }
+
+    #[test]
+    fn turn_completed_params_must_be_present_and_valid() {
+        let params = json!({
+            "threadId": "thread-1",
+            "turn": {
+                "id": "turn-1",
+                "items": [],
+                "status": "completed",
+                "error": null,
+                "startedAt": null,
+                "completedAt": null,
+                "durationMs": null
+            }
+        });
+
+        let completed = parse_turn_completed_params(Some(&params)).expect("valid completion");
+        assert_eq!(completed.turn.status, TurnStatus::Completed);
+        assert!(parse_turn_completed_params(None).is_err());
+
+        let malformed = json!({ "turn": { "status": "completed" } });
+        assert!(parse_turn_completed_params(Some(&malformed)).is_err());
+    }
 
     #[test]
     fn extracts_version_from_user_agent() {

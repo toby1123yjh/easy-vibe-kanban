@@ -89,6 +89,19 @@ pub(crate) fn classify_executor_exit_result(
     }
 }
 
+pub(crate) fn classify_executor_exit_channel_closed() -> AgentRuntimeSupervisorOutcome {
+    terminal(
+        AgentRunLifecycle::Crashed,
+        ExecutionProcessStatus::Failed,
+        None,
+        Some(runtime_error(
+            AgentRuntimeErrorKind::ProcessCrashed,
+            "executor exit signal channel closed before reporting an outcome",
+            None,
+        )),
+    )
+}
+
 pub(crate) fn classify_process_exit(exit_status: ExitStatus) -> AgentRuntimeSupervisorOutcome {
     let exit_code = Some(i64::from(exit_status.code().unwrap_or(-1)));
 
@@ -258,6 +271,19 @@ mod tests {
             outcome.runtime_error.as_ref().map(|error| error.kind),
             Some(AgentRuntimeErrorKind::Unknown)
         );
+    }
+
+    #[test]
+    fn classifies_closed_executor_channel_as_crashed() {
+        let outcome = classify_executor_exit_channel_closed();
+
+        assert_eq!(outcome.lifecycle, AgentRunLifecycle::Crashed);
+        assert_eq!(outcome.process_status, Some(ExecutionProcessStatus::Failed));
+        assert_eq!(outcome.exit_code, None);
+        let runtime_error = outcome.runtime_error.expect("runtime error");
+        assert_eq!(runtime_error.kind, AgentRuntimeErrorKind::ProcessCrashed);
+        assert_eq!(runtime_error.exit_code, None);
+        assert_eq!(runtime_error.launch_phase, None);
     }
 
     #[test]

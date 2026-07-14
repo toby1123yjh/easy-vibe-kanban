@@ -37,6 +37,12 @@ pub enum PendingResponse {
     Shutdown,
 }
 
+#[derive(Debug)]
+pub enum JsonRpcControlFlow {
+    Continue,
+    Exit(ExecutorExitResult),
+}
+
 #[derive(Clone)]
 pub struct ExitSignalSender {
     inner: Arc<Mutex<Option<oneshot::Sender<ExecutorExitResult>>>>,
@@ -84,16 +90,19 @@ impl JsonRpcPeer {
             let mut reader = BufReader::new(stdout);
             let mut buffer = String::new();
 
-            loop {
+            let exit_result = loop {
                 buffer.clear();
                 tokio::select! {
                     _ = cancel.cancelled() => {
                         tracing::debug!("Codex executor cancelled");
-                        break;
+                        break ExecutorExitResult::Failure;
                     }
                     read_result = reader.read_line(&mut buffer) => {
                         match read_result {
-                            Ok(0) => break,
+                            Ok(0) => {
+                                tracing::warn!("Codex app-server stdout closed before completion");
+                                break ExecutorExitResult::Failure;
+                            }
                             Ok(_) => {
                                 let line = buffer.trim_end_matches(['\n', '\r']);
                                 if line.is_empty() {
@@ -104,12 +113,12 @@ impl JsonRpcPeer {
                                     Ok(JSONRPCMessage::Response(response)) => {
                                         let request_id = response.id.clone();
                                         let result = response.result.clone();
-                                        if callbacks
+                                        if let Err(err) = callbacks
                                             .on_response(&reader_peer, line, &response)
                                             .await
-                                            .is_err()
                                         {
-                                            break;
+                                            tracing::warn!("Codex response callback failed: {err}");
+                                            break ExecutorExitResult::Failure;
                                         }
                                         reader_peer
                                             .resolve(request_id, PendingResponse::Result(result))
@@ -117,24 +126,24 @@ impl JsonRpcPeer {
                                     }
                                     Ok(JSONRPCMessage::Error(error)) => {
                                         let request_id = error.id.clone();
-                                        if callbacks
+                                        if let Err(err) = callbacks
                                             .on_error(&reader_peer, line, &error)
                                             .await
-                                            .is_err()
                                         {
-                                            break;
+                                            tracing::warn!("Codex error callback failed: {err}");
+                                            break ExecutorExitResult::Failure;
                                         }
                                         reader_peer
                                             .resolve(request_id, PendingResponse::Error(error))
                                             .await;
                                     }
                                     Ok(JSONRPCMessage::Request(request)) => {
-                                        if callbacks
+                                        if let Err(err) = callbacks
                                             .on_request(&reader_peer, line, request)
                                             .await
-                                            .is_err()
                                         {
-                                            break;
+                                            tracing::warn!("Codex request callback failed: {err}");
+                                            break ExecutorExitResult::Failure;
                                         }
                                     }
                                     Ok(JSONRPCMessage::Notification(notification)) => {
@@ -142,32 +151,33 @@ impl JsonRpcPeer {
                                             .on_notification(&reader_peer, line, notification)
                                             .await
                                         {
-                                            // finished
-                                            Ok(true) => break,
-                                            Ok(false) => {}
-                                            Err(_) => {
-                                                break;
+                                            Ok(JsonRpcControlFlow::Exit(result)) => break result,
+                                            Ok(JsonRpcControlFlow::Continue) => {}
+                                            Err(err) => {
+                                                tracing::warn!("Codex notification callback failed: {err}");
+                                                break ExecutorExitResult::Failure;
                                             }
                                         }
                                     }
                                     Err(_) => {
-                                        if callbacks.on_non_json(line).await.is_err() {
-                                            break;
+                                        if let Err(err) = callbacks.on_non_json(line).await {
+                                            tracing::warn!("Codex non-JSON callback failed: {err}");
+                                            break ExecutorExitResult::Failure;
                                         }
                                     }
                                 }
                             }
                             Err(err) => {
                                 tracing::warn!("Error reading Codex output: {err}");
-                                break;
+                                break ExecutorExitResult::Failure;
                             }
                         }
                     }
                 }
-            }
+            };
 
-            exit_tx.send_exit_signal(ExecutorExitResult::Success).await;
             let _ = reader_peer.shutdown().await;
+            exit_tx.send_exit_signal(exit_result).await;
         });
 
         peer
@@ -300,7 +310,7 @@ pub trait JsonRpcCallbacks: Send + Sync {
         peer: &JsonRpcPeer,
         raw: &str,
         notification: JSONRPCNotification,
-    ) -> Result<bool, ExecutorError>;
+    ) -> Result<JsonRpcControlFlow, ExecutorError>;
 
     async fn on_non_json(&self, _raw: &str) -> Result<(), ExecutorError>;
 }

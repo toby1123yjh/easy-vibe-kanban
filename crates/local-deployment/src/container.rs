@@ -33,7 +33,7 @@ use executors::{
     },
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
-    executors::{BaseCodingAgent, CancellationToken, ExecutorExitResult, ExecutorExitSignal},
+    executors::{BaseCodingAgent, CancellationToken, ExecutorExitSignal},
     logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
@@ -633,10 +633,9 @@ impl LocalContainerService {
                         }
                     }
 
-                    // Preserve existing behavior: a closed executor exit signal is treated as success.
                     terminal_outcome = match exit_result {
                         Ok(result) => agent_runtime_supervisor::classify_executor_exit_result(result),
-                        Err(_) => agent_runtime_supervisor::classify_executor_exit_result(ExecutorExitResult::Success),
+                        Err(_) => agent_runtime_supervisor::classify_executor_exit_channel_closed(),
                     };
                 }
                 // Process exit
