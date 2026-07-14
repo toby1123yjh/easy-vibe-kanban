@@ -14,6 +14,7 @@ import { useHostId } from '@/shared/providers/HostIdProvider';
 import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import { useWorkspaceExecution } from '@/shared/hooks/useWorkspaceExecution';
 import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
+import { useWorkspace } from '@/shared/hooks/useWorkspace';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useApprovalFeedbackOptional } from '../model/contexts/ApprovalFeedbackContext';
@@ -73,6 +74,7 @@ import { sessionsApi } from '@/shared/lib/api';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
 import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
+import { resolveWorkspaceWorkingDirectory } from '@/shared/lib/workspaceContext';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -263,7 +265,17 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Get repos for file search
   const { repos } = useWorkspaceRepo(workspaceId);
+  const workspaceQuery = useWorkspace(workspaceId);
   const repoIds = repos.map((r) => r.id);
+  const resumeScopePath = useMemo(
+    () =>
+      resolveWorkspaceWorkingDirectory({
+        containerRef: workspaceQuery.data?.container_ref,
+        workingDir: session?.agent_working_dir,
+        fallbackRepoName: repos.length === 1 ? repos[0].name : undefined,
+      }),
+    [repos, session?.agent_working_dir, workspaceQuery.data?.container_ref]
+  );
 
   // Approval feedback context
   const feedbackContext = useApprovalFeedbackOptional();
@@ -1033,9 +1045,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   );
 
   const resumePickerNode =
-    workspaceId && effectiveExecutor ? (
+    resumeScopePath && effectiveExecutor ? (
       <AgentSessionResumePicker
-        workspaceId={workspaceId}
+        scopePath={resumeScopePath}
         executor={effectiveExecutor}
         selectedSessionId={stagedResumeSession?.agent_session_id}
         disabled={isSending || isStopping || isAttemptRunning}

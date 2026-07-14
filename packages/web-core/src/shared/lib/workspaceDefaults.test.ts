@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { repoApi, workspacesApi } from '@/shared/lib/api';
-import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { getValidProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import {
   buildExplicitProjectWorkspaceDefaults,
   getExplicitProjectWorkspaceDefaults,
@@ -18,98 +18,101 @@ vi.mock('@/shared/lib/api', () => ({
 }));
 
 vi.mock('@/shared/hooks/useProjectRepoDefaults', () => ({
-  getValidProjectRepoDefaults: vi.fn(),
+  getValidProjectWorkspaceDefault: vi.fn(),
 }));
 
 const mockRepoList = vi.mocked(repoApi.list);
 const mockGetWorkspaceRepos = vi.mocked(workspacesApi.getRepos);
-const mockGetValidProjectRepoDefaults = vi.mocked(getValidProjectRepoDefaults);
+const mockGetValidProjectWorkspaceDefault = vi.mocked(
+  getValidProjectWorkspaceDefault
+);
 
 describe('workspace defaults', () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
-  it('normalizes legacy project defaults to one repository', () => {
+  it('builds a Git project prefill', () => {
     expect(
-      buildExplicitProjectWorkspaceDefaults([
-        { repo_id: 'repo-1', target_branch: 'main' },
-        { repo_id: 'repo-2', target_branch: 'develop' },
-      ])
+      buildExplicitProjectWorkspaceDefaults({
+        kind: 'git',
+        repo: { repo_id: 'repo-1', target_branch: 'main' },
+      })
     ).toEqual({
       preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+      preferredDirectoryPath: null,
     });
   });
 
-  it('ignores invalid trailing legacy entries after the first repository', () => {
+  it('builds an ordinary-directory project prefill', () => {
     expect(
-      buildExplicitProjectWorkspaceDefaults([
-        { repo_id: 'repo-1', target_branch: 'main' },
-        { repo_id: 'repo-2', target_branch: '  ' },
-      ])
+      buildExplicitProjectWorkspaceDefaults({
+        kind: 'direct_folder',
+        path: ' F:\\notes ',
+      })
     ).toEqual({
-      preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+      preferredRepos: [],
+      preferredDirectoryPath: 'F:\\notes',
     });
   });
 
-  it('rejects a project default whose selected branch is blank', () => {
+  it('rejects invalid explicit defaults', () => {
     expect(
-      buildExplicitProjectWorkspaceDefaults([
-        { repo_id: 'repo-1', target_branch: '  ' },
-        { repo_id: 'repo-2', target_branch: 'develop' },
-      ])
+      buildExplicitProjectWorkspaceDefaults({
+        kind: 'git',
+        repo: { repo_id: 'repo-1', target_branch: '  ' },
+      })
     ).toBeNull();
-  });
-
-  it('does not build defaults from an empty repo list', () => {
-    expect(buildExplicitProjectWorkspaceDefaults([])).toBeNull();
+    expect(
+      buildExplicitProjectWorkspaceDefaults({
+        kind: 'direct_folder',
+        path: '  ',
+      })
+    ).toBeNull();
+    expect(buildExplicitProjectWorkspaceDefaults(null)).toBeNull();
   });
 
   it('reads explicit project defaults from the requested host scope', async () => {
     mockRepoList.mockResolvedValue([{ id: 'repo-1' } as never]);
-    mockGetValidProjectRepoDefaults.mockResolvedValue([
-      { repo_id: 'repo-1', target_branch: 'main' },
-    ]);
+    mockGetValidProjectWorkspaceDefault.mockResolvedValue({
+      kind: 'git',
+      repo: { repo_id: 'repo-1', target_branch: 'main' },
+    });
 
     await expect(
       getExplicitProjectWorkspaceDefaults('project-1', 'host-1')
     ).resolves.toEqual({
       preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+      preferredDirectoryPath: null,
     });
 
     expect(mockRepoList).toHaveBeenCalledWith('host-1');
 
     const [projectId, availableRepoIds, hostId] =
-      mockGetValidProjectRepoDefaults.mock.calls[0];
+      mockGetValidProjectWorkspaceDefault.mock.calls[0];
     expect(projectId).toBe('project-1');
     expect([...availableRepoIds]).toEqual(['repo-1']);
     expect(hostId).toBe('host-1');
   });
 
-  it('reads workspace defaults from project scratch defaults in the requested host scope', async () => {
-    mockRepoList.mockResolvedValue([{ id: 'repo-1' } as never]);
-    mockGetValidProjectRepoDefaults.mockResolvedValue([
-      { repo_id: 'repo-1', target_branch: 'main' },
-    ]);
+  it('reads a direct project workspace default in the requested host scope', async () => {
+    mockRepoList.mockResolvedValue([]);
+    mockGetValidProjectWorkspaceDefault.mockResolvedValue({
+      kind: 'direct_folder',
+      path: 'F:\\notes',
+    });
 
     await expect(
       getWorkspaceDefaults([], new Set(), 'project-1', 'host-1')
     ).resolves.toEqual({
-      preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+      preferredRepos: [],
+      preferredDirectoryPath: 'F:\\notes',
     });
-
-    expect(mockRepoList).toHaveBeenCalledWith('host-1');
-
-    const [projectId, availableRepoIds, hostId] =
-      mockGetValidProjectRepoDefaults.mock.calls[0];
-    expect(projectId).toBe('project-1');
-    expect([...availableRepoIds]).toEqual(['repo-1']);
-    expect(hostId).toBe('host-1');
   });
 
   it('does not infer project defaults from workspace history', async () => {
     mockRepoList.mockResolvedValue([]);
-    mockGetValidProjectRepoDefaults.mockResolvedValue([]);
+    mockGetValidProjectWorkspaceDefault.mockResolvedValue(null);
 
     await expect(
       getWorkspaceDefaults(
@@ -150,6 +153,7 @@ describe('workspace defaults', () => {
       )
     ).resolves.toEqual({
       preferredRepos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+      preferredDirectoryPath: null,
     });
 
     expect(mockGetWorkspaceRepos).toHaveBeenCalledWith('global-workspace');

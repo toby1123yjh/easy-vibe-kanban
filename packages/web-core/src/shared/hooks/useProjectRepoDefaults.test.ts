@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, scratchApi } from '@/shared/lib/api';
 import {
-  getProjectRepoDefaults,
-  getProjectRepoDefaultsOrThrow,
-  getValidProjectRepoDefaults,
-  saveProjectRepoDefaults,
+  areProjectWorkspaceDefaultsEqual,
+  getProjectWorkspaceDefault,
+  getProjectWorkspaceDefaultOrThrow,
+  getValidProjectWorkspaceDefault,
+  normalizeProjectWorkspaceDefault,
+  projectWorkspaceDefaultQueryKey,
+  saveProjectWorkspaceDefault,
 } from '@/shared/hooks/useProjectRepoDefaults';
 
 vi.mock('@/shared/lib/api', () => {
@@ -29,24 +32,28 @@ vi.mock('@/shared/lib/api', () => {
 const mockScratchGet = vi.mocked(scratchApi.get);
 const mockScratchUpdate = vi.mocked(scratchApi.update);
 
-describe('project repo defaults', () => {
+describe('project workspace defaults', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns the configured repository and branch', async () => {
+  it('reads an existing Git repository default', async () => {
     mockScratchGet.mockResolvedValue({
       payload: {
         type: 'PROJECT_REPO_DEFAULTS',
         data: {
           repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+          directory_path: null,
         },
       },
     } as never);
 
     await expect(
-      getProjectRepoDefaultsOrThrow('project-1', 'host-1')
-    ).resolves.toEqual([{ repo_id: 'repo-1', target_branch: 'main' }]);
+      getProjectWorkspaceDefaultOrThrow('project-1', 'host-1')
+    ).resolves.toEqual({
+      kind: 'git',
+      repo: { repo_id: 'repo-1', target_branch: 'main' },
+    });
     expect(mockScratchGet).toHaveBeenCalledWith(
       'PROJECT_REPO_DEFAULTS',
       'project-1',
@@ -54,11 +61,62 @@ describe('project repo defaults', () => {
     );
   });
 
+  it('normalizes an ordinary directory and gives it precedence', () => {
+    expect(
+      normalizeProjectWorkspaceDefault({
+        repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+        directory_path: '  F:\\notes  ',
+      })
+    ).toEqual({ kind: 'direct_folder', path: 'F:\\notes' });
+  });
+
+  it('scopes the display cache by host and project', () => {
+    expect(projectWorkspaceDefaultQueryKey('project-1')).toEqual([
+      'project-workspace-default',
+      'local',
+      'project-1',
+    ]);
+    expect(projectWorkspaceDefaultQueryKey('project-1', 'host-1')).toEqual([
+      'project-workspace-default',
+      'host-1',
+      'project-1',
+    ]);
+  });
+
+  it('detects changes across both workspace shapes', () => {
+    const gitDefault = {
+      kind: 'git' as const,
+      repo: { repo_id: 'repo-1', target_branch: 'main' },
+    };
+    const directDefault = {
+      kind: 'direct_folder' as const,
+      path: 'F:\\notes',
+    };
+
+    expect(areProjectWorkspaceDefaultsEqual(gitDefault, gitDefault)).toBe(true);
+    expect(
+      areProjectWorkspaceDefaultsEqual(gitDefault, {
+        ...gitDefault,
+        repo: { ...gitDefault.repo, target_branch: 'develop' },
+      })
+    ).toBe(false);
+    expect(
+      areProjectWorkspaceDefaultsEqual(directDefault, {
+        ...directDefault,
+        path: 'F:\\other',
+      })
+    ).toBe(false);
+    expect(areProjectWorkspaceDefaultsEqual(gitDefault, directDefault)).toBe(
+      false
+    );
+    expect(areProjectWorkspaceDefaultsEqual(null, null)).toBe(true);
+  });
+
   it('treats a missing project setting as unconfigured', async () => {
     mockScratchGet.mockRejectedValue(new ApiError('Not found', 404));
 
     await expect(
-      getProjectRepoDefaultsOrThrow('project-1')
+      getProjectWorkspaceDefaultOrThrow('project-1')
     ).resolves.toBeNull();
   });
 
@@ -66,7 +124,7 @@ describe('project repo defaults', () => {
     const failure = new ApiError('Unavailable', 503);
     mockScratchGet.mockRejectedValue(failure);
 
-    await expect(getProjectRepoDefaultsOrThrow('project-1')).rejects.toBe(
+    await expect(getProjectWorkspaceDefaultOrThrow('project-1')).rejects.toBe(
       failure
     );
 
@@ -74,42 +132,54 @@ describe('project repo defaults', () => {
       .spyOn(console, 'error')
       .mockImplementation(() => {});
     mockScratchGet.mockRejectedValue(failure);
-    await expect(getProjectRepoDefaults('project-1')).resolves.toBeNull();
+    await expect(getProjectWorkspaceDefault('project-1')).resolves.toBeNull();
     expect(consoleError).toHaveBeenCalledOnce();
     consoleError.mockRestore();
   });
 
-  it('normalizes legacy defaults and new writes to one repository', async () => {
-    mockScratchGet.mockResolvedValue({
-      payload: {
-        type: 'PROJECT_REPO_DEFAULTS',
-        data: {
-          repos: [
-            { repo_id: 'repo-1', target_branch: 'main' },
-            { repo_id: 'repo-2', target_branch: 'develop' },
-          ],
+  it('filters stale Git repos but keeps ordinary directories', async () => {
+    mockScratchGet
+      .mockResolvedValueOnce({
+        payload: {
+          type: 'PROJECT_REPO_DEFAULTS',
+          data: {
+            repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+            directory_path: null,
+          },
         },
-      },
-    } as never);
+      } as never)
+      .mockResolvedValueOnce({
+        payload: {
+          type: 'PROJECT_REPO_DEFAULTS',
+          data: { repos: [], directory_path: 'F:\\notes' },
+        },
+      } as never);
 
     await expect(
-      getValidProjectRepoDefaults(
-        'project-1',
-        new Set(['repo-1', 'repo-2']),
-        'host-1'
-      )
-    ).resolves.toEqual([{ repo_id: 'repo-1', target_branch: 'main' }]);
+      getValidProjectWorkspaceDefault('project-1', new Set(), 'host-1')
+    ).resolves.toBeNull();
+    await expect(
+      getValidProjectWorkspaceDefault('project-1', new Set(), 'host-1')
+    ).resolves.toEqual({ kind: 'direct_folder', path: 'F:\\notes' });
+  });
 
-    await saveProjectRepoDefaults(
+  it('writes mutually exclusive Git and direct-folder payloads', async () => {
+    await saveProjectWorkspaceDefault(
       'project-1',
-      [
-        { repo_id: 'repo-1', target_branch: 'main' },
-        { repo_id: 'repo-2', target_branch: 'develop' },
-      ],
+      {
+        kind: 'git',
+        repo: { repo_id: 'repo-1', target_branch: 'main' },
+      },
+      'host-1'
+    );
+    await saveProjectWorkspaceDefault(
+      'project-1',
+      { kind: 'direct_folder', path: '  F:\\notes  ' },
       'host-1'
     );
 
-    expect(mockScratchUpdate).toHaveBeenCalledWith(
+    expect(mockScratchUpdate).toHaveBeenNthCalledWith(
+      1,
       'PROJECT_REPO_DEFAULTS',
       'project-1',
       {
@@ -117,7 +187,20 @@ describe('project repo defaults', () => {
           type: 'PROJECT_REPO_DEFAULTS',
           data: {
             repos: [{ repo_id: 'repo-1', target_branch: 'main' }],
+            directory_path: null,
           },
+        },
+      },
+      'host-1'
+    );
+    expect(mockScratchUpdate).toHaveBeenNthCalledWith(
+      2,
+      'PROJECT_REPO_DEFAULTS',
+      'project-1',
+      {
+        payload: {
+          type: 'PROJECT_REPO_DEFAULTS',
+          data: { repos: [], directory_path: 'F:\\notes' },
         },
       },
       'host-1'

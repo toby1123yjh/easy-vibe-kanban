@@ -448,6 +448,103 @@ impl LogState {
         self.completed_tool_calls.insert(call_id.to_string());
     }
 
+    /// Settle tools that Codex left active after the turn has already moved on.
+    ///
+    /// App-server can omit `item/completed` for sibling calls in a parallel batch. Explicit
+    /// failures still arrive as terminal tool events, so once assistant output begins (or the
+    /// turn completes), a remaining `Created` entry represents a missing completion event rather
+    /// than evidence that the tool failed.
+    fn settle_incomplete_tools(&mut self, msg_store: &Arc<MsgStore>) {
+        let mut completed_call_ids = Vec::new();
+
+        for (call_id, command) in &mut self.commands {
+            if !matches!(command.status, ToolStatus::Created) {
+                continue;
+            }
+            command.status = ToolStatus::Success;
+            command.awaiting_approval = false;
+            if let Some(index) = command.index {
+                replace_normalized_entry(msg_store, index, command.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        for (call_id, tool) in &mut self.mcp_tools {
+            if !matches!(tool.status, ToolStatus::Created) {
+                continue;
+            }
+            tool.status = ToolStatus::Success;
+            if let Some(index) = tool.index {
+                replace_normalized_entry(msg_store, index, tool.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        for (call_id, tool) in &mut self.dynamic_tools {
+            if !matches!(tool.status, ToolStatus::Created) {
+                continue;
+            }
+            tool.status = ToolStatus::Success;
+            if let Some(index) = tool.index {
+                replace_normalized_entry(msg_store, index, tool.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        for (call_id, patch_state) in &mut self.patches {
+            let mut updated = false;
+            for entry in &mut patch_state.entries {
+                if !matches!(entry.status, ToolStatus::Created) {
+                    continue;
+                }
+                entry.status = ToolStatus::Success;
+                entry.awaiting_approval = false;
+                if let Some(index) = entry.index {
+                    replace_normalized_entry(msg_store, index, entry.to_normalized_entry());
+                }
+                updated = true;
+            }
+            if updated {
+                completed_call_ids.push(call_id.clone());
+            }
+        }
+
+        for (call_id, search) in &mut self.web_searches {
+            if !matches!(search.status, ToolStatus::Created) {
+                continue;
+            }
+            search.status = ToolStatus::Success;
+            if let Some(index) = search.index {
+                replace_normalized_entry(msg_store, index, search.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        for (call_id, request) in &mut self.user_input_requests {
+            if !matches!(request.status, ToolStatus::Created) {
+                continue;
+            }
+            request.status = ToolStatus::Success;
+            if let Some(index) = request.index {
+                replace_normalized_entry(msg_store, index, request.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        for (call_id, plan) in &mut self.plans {
+            if !matches!(plan.status, ToolStatus::Created) {
+                continue;
+            }
+            plan.status = ToolStatus::Success;
+            if let Some(index) = plan.index {
+                replace_normalized_entry(msg_store, index, plan.to_normalized_entry());
+            }
+            completed_call_ids.push(call_id.clone());
+        }
+
+        self.completed_tool_calls.extend(completed_call_ids);
+    }
+
     fn streaming_text_update(
         &mut self,
         content: String,
@@ -1165,6 +1262,7 @@ fn handle_direct_item_completed(
 ) {
     match notification.item {
         AppThreadItem::AgentMessage { text, .. } => {
+            state.settle_incomplete_tools(msg_store);
             state.thinking = None;
             let (entry, index, is_new) = state.assistant_message(text);
             upsert_normalized_entry(msg_store, index, entry, is_new);
@@ -1473,6 +1571,7 @@ fn handle_direct_notification(
             true
         }
         ServerNotification::AgentMessageDelta(notification) => {
+            state.settle_incomplete_tools(msg_store);
             state.thinking = None;
             let (entry, index, is_new) = state.assistant_message_append(notification.delta);
             upsert_normalized_entry(msg_store, index, entry, is_new);
@@ -1517,8 +1616,11 @@ fn handle_direct_notification(
         | ServerNotification::McpToolCallProgress(McpToolCallProgressNotification { .. })
         | ServerNotification::ReasoningTextDelta(..)
         | ServerNotification::ThreadStatusChanged(..)
-        | ServerNotification::TurnCompleted(..)
         | ServerNotification::TurnStarted(..) => true,
+        ServerNotification::TurnCompleted(..) => {
+            state.settle_incomplete_tools(msg_store);
+            true
+        }
         ServerNotification::ItemStarted(notification) => {
             handle_direct_item_started(notification, state, msg_store, entry_index, worktree_path);
             true
@@ -1691,7 +1793,67 @@ const SUPPRESSED_STDERR_PATTERNS: &[&str] = &[
     // exists on disk but isn't indexed in the state DB — even when the Sqlite feature flag is
     // disabled (which is the default). See: https://github.com/openai/codex/commit/c38a5958
     "state db missing rollout path for",
+    // A failed shell command is already represented by its failed tool entry. Codex writes the
+    // same command output to tracing stderr as one multiline record, which must not be promoted
+    // to a conversation-level error as well.
+    "codex_core::tools::router: error=Exit code:",
+    // rmcp logs this when its streamable HTTP worker observes a normal channel shutdown. The
+    // provider turn may still have completed successfully, so this transport teardown is not a
+    // conversation-level error.
+    "rmcp::transport::worker: worker quit with fatal: Transport channel closed",
 ];
+
+static CODEX_STDERR_RECORD_START: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\d{4}-\d{2}-\d{2}T\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+")
+        .expect("valid Codex stderr record regex")
+});
+
+#[derive(Default)]
+struct CodexStderrFilter {
+    partial_line: String,
+    suppressing_record: bool,
+}
+
+impl CodexStderrFilter {
+    fn process(&mut self, chunk: &str) -> String {
+        self.partial_line.push_str(chunk);
+        let mut output = String::new();
+
+        while let Some(newline_index) = self.partial_line.find('\n') {
+            let line: String = self.partial_line.drain(..=newline_index).collect();
+            self.append_filtered_line(&line, &mut output);
+        }
+
+        output
+    }
+
+    fn finish(mut self) -> String {
+        let mut output = String::new();
+        if !self.partial_line.is_empty() {
+            let line = std::mem::take(&mut self.partial_line);
+            self.append_filtered_line(&line, &mut output);
+        }
+        output
+    }
+
+    fn append_filtered_line(&mut self, line: &str, output: &mut String) {
+        let plain_line = strip_ansi_escapes::strip_str(line);
+        let starts_record = CODEX_STDERR_RECORD_START.is_match(&plain_line);
+        let matches_suppressed_pattern = SUPPRESSED_STDERR_PATTERNS
+            .iter()
+            .any(|pattern| plain_line.contains(pattern));
+
+        if starts_record {
+            self.suppressing_record = matches_suppressed_pattern;
+        } else if matches_suppressed_pattern {
+            self.suppressing_record = true;
+        }
+
+        if !self.suppressing_record {
+            output.push_str(line);
+        }
+    }
+}
 
 /// Codex-specific stderr normalizer that filters noisy internal messages.
 fn normalize_codex_stderr_logs(
@@ -1700,6 +1862,7 @@ fn normalize_codex_stderr_logs(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut stderr = msg_store.stderr_chunked_stream();
+        let mut filter = CodexStderrFilter::default();
         let mut processor = PlainTextLogProcessor::builder()
             .normalized_entry_producer(|content: String| NormalizedEntry {
                 timestamp: None,
@@ -1711,19 +1874,17 @@ fn normalize_codex_stderr_logs(
             })
             .time_gap(Duration::from_secs(2))
             .index_provider(entry_index_provider)
-            .transform_lines(Box::new(|lines: &mut Vec<String>| {
-                lines.retain(|line| {
-                    !SUPPRESSED_STDERR_PATTERNS
-                        .iter()
-                        .any(|pattern| line.contains(pattern))
-                });
-            }))
             .build();
 
         while let Some(Ok(chunk)) = stderr.next().await {
-            for patch in processor.process(chunk) {
+            let filtered = filter.process(&chunk);
+            for patch in processor.process(filtered) {
                 msg_store.push_patch(patch);
             }
+        }
+
+        for patch in processor.process(filter.finish()) {
+            msg_store.push_patch(patch);
         }
     })
 }
@@ -1856,6 +2017,7 @@ pub fn normalize_logs(
                 EventMsg::AgentMessageContentDelta(AgentMessageContentDeltaEvent {
                     delta, ..
                 }) => {
+                    state.settle_incomplete_tools(&msg_store);
                     state.thinking = None;
                     let (entry, index, is_new) = state.assistant_message_append(delta);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
@@ -1866,6 +2028,7 @@ pub fn normalize_logs(
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
                 }
                 EventMsg::AgentMessage(AgentMessageEvent { message, .. }) => {
+                    state.settle_incomplete_tools(&msg_store);
                     state.thinking = None;
                     let (entry, index, is_new) = state.assistant_message(message);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
@@ -3049,6 +3212,20 @@ mod tests {
         latest_normalized_entries(&msg_store)
     }
 
+    async fn normalize_stderr_chunks(chunks: &[&str]) -> Vec<NormalizedEntry> {
+        let msg_store = Arc::new(MsgStore::new());
+        for chunk in chunks {
+            msg_store.push(LogMsg::Stderr((*chunk).to_string()));
+        }
+        msg_store.push_finished();
+
+        for handle in normalize_logs(msg_store.clone(), Path::new("/tmp/test-worktree")) {
+            handle.await.unwrap();
+        }
+
+        latest_normalized_entries(&msg_store)
+    }
+
     fn tool_use<'a>(entries: &'a [NormalizedEntry], tool_name: &str) -> &'a NormalizedEntry {
         entries
             .iter()
@@ -3101,6 +3278,45 @@ mod tests {
             .iter()
             .filter(|entry| matches!(&entry.entry_type, NormalizedEntryType::ErrorMessage { .. }))
             .collect()
+    }
+
+    #[tokio::test]
+    async fn tool_router_exit_error_stays_local_to_the_tool_entry() {
+        let entries = normalize_stderr_chunks(&[
+            "2026-07-10T15:01:09.582534Z ERROR codex_core::tools::rout",
+            "er: error=Exit code: 1\nWall time: 0.2 seconds\nOutput:\ncommand failed\n",
+            "2026-07-10T15:01:10.000000Z ERROR codex_core::session: session failed\n",
+        ])
+        .await;
+
+        let errors = error_messages(&entries);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].content.contains("codex_core::session"));
+        assert!(!errors[0].content.contains("command failed"));
+    }
+
+    #[tokio::test]
+    async fn closed_rmcp_transport_is_not_a_conversation_error() {
+        let entries = normalize_stderr_chunks(&[
+            "2026-07-11T01:10:54.738567Z ERROR rmcp::transport::wor",
+            "ker: worker quit with fatal: Transport channel closed, when receive message\n",
+            "2026-07-11T01:10:55.000000Z ERROR codex_core::session: session failed\n",
+        ])
+        .await;
+
+        let errors = error_messages(&entries);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].content.contains("codex_core::session"));
+        assert!(!errors[0].content.contains("rmcp::transport::worker"));
+    }
+
+    #[tokio::test]
+    async fn ordinary_stderr_without_a_trailing_newline_is_preserved() {
+        let entries = normalize_stderr_chunks(&["fatal session transport error"]).await;
+
+        let errors = error_messages(&entries);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].content, "fatal session transport error");
     }
 
     #[tokio::test]
@@ -3491,6 +3707,65 @@ mod tests {
             } => {}
             other => panic!("late item/started must not create running command: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn assistant_output_settles_command_missing_its_completed_event() {
+        let call_id = "cmd-orphaned";
+        let cwd = std::env::current_dir()
+            .expect("test should have cwd")
+            .to_string_lossy()
+            .to_string();
+        let entries = normalize_lines(&[
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/started",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "startedAtMs": 1,
+                    "item": {
+                        "type": "commandExecution",
+                        "id": call_id,
+                        "command": "git status",
+                        "cwd": cwd,
+                        "processId": null,
+                        "status": "inProgress",
+                        "commandActions": [],
+                        "aggregatedOutput": null,
+                        "exitCode": null,
+                        "durationMs": null
+                    }
+                }
+            })
+            .to_string(),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "item/agentMessage/delta",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "message-1",
+                    "delta": "Continuing after the tool batch."
+                }
+            })
+            .to_string(),
+        ])
+        .await;
+
+        let command = tool_use(&entries, "bash");
+        assert!(matches!(
+            &command.entry_type,
+            NormalizedEntryType::ToolUse {
+                status: ToolStatus::Success,
+                ..
+            }
+        ));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| matches!(&entry.entry_type, NormalizedEntryType::AssistantMessage))
+        );
     }
 
     #[test]

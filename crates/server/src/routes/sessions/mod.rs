@@ -2,7 +2,7 @@ mod native_history;
 pub mod queue;
 pub mod review;
 
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 
 use axum::{
     Extension, Json, Router,
@@ -81,7 +81,6 @@ pub struct SessionQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ResumableAgentSessionQuery {
-    pub workspace_id: Option<Uuid>,
     pub scope_path: Option<String>,
     pub executor: String,
     pub days: Option<i64>,
@@ -90,7 +89,6 @@ pub struct ResumableAgentSessionQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct NativeAgentSessionPreviewQuery {
-    pub workspace_id: Option<Uuid>,
     pub scope_path: Option<String>,
     pub executor: String,
     pub session_id: String,
@@ -120,88 +118,67 @@ pub async fn get_session(
 }
 
 pub async fn get_resumable_agent_sessions(
-    State(deployment): State<DeploymentImpl>,
     Query(query): Query<ResumableAgentSessionQuery>,
 ) -> Result<ResponseJson<ApiResponse<Vec<ResumableAgentSession>>>, ApiError> {
-    let pool = &deployment.db().pool;
     let days = query.days.unwrap_or(3).clamp(1, 30);
     let limit = query.limit.unwrap_or(10).clamp(1, 50);
     let since = Utc::now() - Duration::days(days);
     let executor = query.executor.trim();
-    let explicit_scope_path = query
-        .scope_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
-    let workspace_scope = workspace_scope_paths(pool, query.workspace_id).await?;
-    let native_history_scope = native_history_scope_paths(workspace_scope, explicit_scope_path);
+    let Some(scope_path) = native_history_scope_path(query.scope_path.as_deref()) else {
+        return Ok(ResponseJson(ApiResponse::success(Vec::new())));
+    };
 
     // The resume picker intentionally reflects the agent's native history only.
-    // It should not mix in sessions merely because Vibe Kanban has previously
-    // observed the same executor/session pair.
+    // The selected agent and its exact working directory are the complete
+    // lookup context; Vibe workspace/session state must not affect the result.
     let sessions = native_history::list_native_resumable_agent_sessions(
         executor,
         since,
         limit as usize,
-        &native_history_scope,
-        explicit_scope_path.is_none(),
+        &[scope_path],
+        false,
     );
 
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
 pub async fn get_native_agent_session_preview(
-    State(deployment): State<DeploymentImpl>,
     Query(query): Query<NativeAgentSessionPreviewQuery>,
 ) -> Result<ResponseJson<ApiResponse<Option<NativeAgentSessionPreview>>>, ApiError> {
-    let pool = &deployment.db().pool;
     let turn_limit = query
         .turns
         .unwrap_or(native_history::DEFAULT_NATIVE_SESSION_PREVIEW_TURNS as i64);
     let turn_limit = turn_limit.clamp(1, native_history::MAX_NATIVE_SESSION_PREVIEW_TURNS as i64);
-    let explicit_scope_path = query
-        .scope_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
-    let workspace_scope = workspace_scope_paths(pool, query.workspace_id).await?;
-    let native_history_scope = native_history_scope_paths(workspace_scope, explicit_scope_path);
+    let Some(scope_path) = native_history_scope_path(query.scope_path.as_deref()) else {
+        return Ok(ResponseJson(ApiResponse::success(None)));
+    };
 
     let preview = native_history::get_native_agent_session_preview(
         query.executor.trim(),
         &query.session_id,
         turn_limit as usize,
-        &native_history_scope,
-        explicit_scope_path.is_none(),
+        &[scope_path],
+        false,
     );
 
     Ok(ResponseJson(ApiResponse::success(preview)))
 }
 
-pub(crate) async fn native_resume_transcript_backfill(
-    pool: &sqlx::SqlitePool,
-    workspace_id: Option<Uuid>,
+pub(crate) fn native_resume_transcript_backfill(
     executor: &str,
     resume_session_id: Option<&str>,
-) -> Result<Option<Vec<CodingAgentTranscriptBackfillEntry>>, ApiError> {
-    let Some(resume_session_id) = resume_session_id
+) -> Option<Vec<CodingAgentTranscriptBackfillEntry>> {
+    let resume_session_id = resume_session_id
         .map(str::trim)
-        .filter(|session_id| !session_id.is_empty())
-    else {
-        return Ok(None);
-    };
+        .filter(|session_id| !session_id.is_empty())?;
 
-    let workspace_scope = workspace_scope_paths(pool, workspace_id).await?;
-    let native_history_scope = native_history_scope_paths(workspace_scope, None);
-    let Some(preview) = native_history::get_native_agent_session_preview(
+    let preview = native_history::get_native_agent_session_preview(
         executor,
         resume_session_id,
         native_history::DEFAULT_NATIVE_SESSION_PREVIEW_TURNS,
-        &native_history_scope,
+        &[],
         true,
-    ) else {
-        return Ok(None);
-    };
+    )?;
 
     let entries = preview
         .entries
@@ -209,7 +186,7 @@ pub(crate) async fn native_resume_transcript_backfill(
         .filter_map(native_preview_entry_to_transcript_backfill)
         .collect::<Vec<_>>();
 
-    Ok((!entries.is_empty()).then_some(entries))
+    (!entries.is_empty()).then_some(entries)
 }
 
 fn native_preview_entry_to_transcript_backfill(
@@ -233,69 +210,11 @@ fn native_preview_entry_to_transcript_backfill(
     })
 }
 
-async fn workspace_scope_paths(
-    pool: &sqlx::SqlitePool,
-    workspace_id: Option<Uuid>,
-) -> Result<Vec<PathBuf>, ApiError> {
-    let Some(workspace_id) = workspace_id else {
-        return Ok(Vec::new());
-    };
-
-    let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await? else {
-        return Ok(Vec::new());
-    };
-
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let mut paths = Vec::new();
-
-    if let Some(container_ref) = workspace
-        .container_ref
-        .as_deref()
+fn native_history_scope_path(scope_path: Option<&str>) -> Option<PathBuf> {
+    scope_path
         .map(str::trim)
-        .filter(|container_ref| !container_ref.is_empty())
-    {
-        let container_path = PathBuf::from(container_ref);
-        paths.push(container_path.clone());
-
-        for repo in &repos {
-            paths.push(container_path.join(&repo.name));
-        }
-    }
-
-    paths.extend(repos.into_iter().map(|repo| repo.path));
-
-    Ok(dedupe_paths(paths))
-}
-
-fn native_history_scope_paths(
-    workspace_scope: Vec<PathBuf>,
-    scope_path: Option<&str>,
-) -> Vec<PathBuf> {
-    let mut paths = workspace_scope;
-
-    if let Some(scope_path) = scope_path.map(str::trim).filter(|path| !path.is_empty()) {
-        paths.push(PathBuf::from(scope_path));
-    }
-
-    dedupe_paths(paths)
-}
-
-fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    let mut seen = HashSet::new();
-    let mut deduped = Vec::new();
-
-    for path in paths {
-        let key = path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .trim_end_matches('/')
-            .to_ascii_lowercase();
-        if seen.insert(key) {
-            deduped.push(path);
-        }
-    }
-
-    deduped
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
 pub async fn create_session(
@@ -462,12 +381,9 @@ pub async fn start_coding_agent_execution_for_session(
         .filter(|_| retry_process_id.is_none());
 
     let native_transcript_backfill = native_resume_transcript_backfill(
-        pool,
-        Some(workspace.id),
         &requested_executor,
         explicit_resume_session_id.as_deref(),
-    )
-    .await?;
+    );
 
     let latest_session_info = match explicit_resume_session_id {
         Some(session_id) => Some(CodingAgentResumeInfo {
@@ -538,11 +454,9 @@ pub async fn start_coding_agent_execution_for_session(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use uuid::Uuid;
 
-    use super::{native_history_scope_paths, should_block_direct_follow_up_while_running};
+    use super::{native_history_scope_path, should_block_direct_follow_up_while_running};
 
     #[test]
     fn blocks_direct_follow_up_when_session_agent_is_running() {
@@ -563,24 +477,16 @@ mod tests {
     }
 
     #[test]
-    fn native_history_scope_includes_explicit_scope_path() {
-        let paths =
-            native_history_scope_paths(vec![PathBuf::from("C:/repo")], Some("F:/another-repo"));
+    fn native_history_scope_uses_only_the_explicit_working_directory() {
+        let path = native_history_scope_path(Some("  F:/repo  ")).expect("scope path");
 
-        assert_eq!(
-            paths,
-            vec![PathBuf::from("C:/repo"), PathBuf::from("F:/another-repo")]
-        );
+        assert_eq!(path.to_string_lossy(), "F:/repo");
     }
 
     #[test]
-    fn native_history_scope_ignores_blank_scope_path_and_dedupes() {
-        let paths = native_history_scope_paths(
-            vec![PathBuf::from("F:/repo"), PathBuf::from("f:/repo/")],
-            Some("  "),
-        );
-
-        assert_eq!(paths, vec![PathBuf::from("F:/repo")]);
+    fn native_history_scope_rejects_missing_or_blank_working_directory() {
+        assert!(native_history_scope_path(None).is_none());
+        assert!(native_history_scope_path(Some("  ")).is_none());
     }
 }
 

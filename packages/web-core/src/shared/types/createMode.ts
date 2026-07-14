@@ -13,6 +13,7 @@ export interface CreateModeInitialState {
     repo_id: string;
     target_branch: string | null;
   }> | null;
+  preferredDirectoryPath?: string | null;
   project_id?: string | null;
   linkedIssue?: LinkedIssue | null;
   executorConfig?: ExecutorConfig | null;

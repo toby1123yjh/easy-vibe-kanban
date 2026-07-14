@@ -9,11 +9,12 @@ import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useCreateWorkspace } from '@/shared/hooks/useCreateWorkspace';
 import { useCreateAttachments } from '@/shared/hooks/useCreateAttachments';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
-import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { saveProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { getSortedExecutorVariantKeys } from '@/shared/lib/executor';
 import { getDestinationHostId } from '@/shared/lib/routes/appNavigation';
 import { buildAgentPrompt } from '@/shared/lib/promptMessage';
+import { resolveWorkspaceWorkingDirectory } from '@/shared/lib/workspaceContext';
 import {
   toPrettyCase,
   splitMessageToTitleDescription,
@@ -65,11 +66,13 @@ export function CreateChatBoxContainer({
     addRepo,
     clearRepos,
     setTargetBranch,
+    directFolderPath,
+    setDirectFolderPath,
     message,
     setMessage,
     clearDraft,
     hasInitialValue,
-    hasResolvedInitialRepoDefaults,
+    hasResolvedInitialWorkspaceDefaults,
     linkedIssue,
     clearLinkedIssue,
     preferredExecutorConfig,
@@ -96,7 +99,6 @@ export function CreateChatBoxContainer({
     useState<ResumableAgentSession | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceCreateMode>('worktree');
-  const [directFolderPath, setDirectFolderPath] = useState('');
 
   const selectedRepo = repos[0] ?? null;
   const hasDirectFolderPath = directFolderPath.trim().length > 0;
@@ -209,13 +211,16 @@ export function CreateChatBoxContainer({
     workspaceDialogOpenRef.current = true;
 
     try {
-      const initialPath =
-        workspaceMode === 'direct_folder'
-          ? directFolderPath
-          : selectedRepo?.path;
+      const hasPreferredDirectFolder = directFolderPath.trim().length > 0;
+      const initialPath = hasPreferredDirectFolder
+        ? directFolderPath
+        : selectedRepo?.path;
+      const initialMode = hasPreferredDirectFolder
+        ? 'direct_folder'
+        : workspaceMode;
       const result = await WorkspaceTargetDialog.show({
         initialPath,
-        initialMode: workspaceMode,
+        initialMode,
         initialBranch: selectedTargetBranch,
         hostId,
       });
@@ -249,6 +254,7 @@ export function CreateChatBoxContainer({
     hostId,
     selectedRepo,
     selectedTargetBranch,
+    setDirectFolderPath,
     setTargetBranch,
     workspaceMode,
   ]);
@@ -277,7 +283,7 @@ export function CreateChatBoxContainer({
   useEffect(() => {
     if (
       !hasInitialValue ||
-      !hasResolvedInitialRepoDefaults ||
+      !hasResolvedInitialWorkspaceDefaults ||
       hasInitializedWorkspaceTarget
     ) {
       return;
@@ -287,7 +293,7 @@ export function CreateChatBoxContainer({
     void openWorkspaceTargetDialog();
   }, [
     hasInitialValue,
-    hasResolvedInitialRepoDefaults,
+    hasResolvedInitialWorkspaceDefaults,
     hasInitializedWorkspaceTarget,
     openWorkspaceTargetDialog,
   ]);
@@ -305,10 +311,10 @@ export function CreateChatBoxContainer({
     SettingsDialog.show({ initialSection: 'agents' });
   };
 
-  const resumeScopePath =
-    workspaceMode === 'direct_folder'
-      ? directFolderPath.trim() || undefined
-      : undefined;
+  const resumeScopePath = resolveWorkspaceWorkingDirectory({
+    containerRef:
+      workspaceMode === 'direct_folder' ? directFolderPath : selectedRepo?.path,
+  });
 
   useEffect(() => {
     setStagedResumeSession(null);
@@ -319,10 +325,7 @@ export function CreateChatBoxContainer({
       scopePath={resumeScopePath}
       executor={effectiveExecutor}
       selectedSessionId={stagedResumeSession?.agent_session_id}
-      disabled={
-        createWorkspace.isPending ||
-        (workspaceMode === 'direct_folder' && !resumeScopePath)
-      }
+      disabled={createWorkspace.isPending || !resumeScopePath}
       onSelect={setStagedResumeSession}
     />
   ) : undefined;
@@ -440,13 +443,23 @@ export function CreateChatBoxContainer({
       onWorkspaceCreated(result.workspace.id);
     }
 
-    if (workspaceMode === 'worktree' && linkedIssue?.remoteProjectId) {
-      saveProjectRepoDefaults(
+    if (linkedIssue?.remoteProjectId) {
+      const projectWorkspaceDefault =
+        workspaceMode === 'worktree' && data.repos[0]
+          ? { kind: 'git' as const, repo: data.repos[0] }
+          : workspaceMode === 'direct_folder' && data.directory_path
+            ? {
+                kind: 'direct_folder' as const,
+                path: data.directory_path,
+              }
+            : null;
+
+      saveProjectWorkspaceDefault(
         linkedIssue.remoteProjectId,
-        data.repos,
+        projectWorkspaceDefault,
         hostId
       ).catch((err) =>
-        console.warn('Failed to save project repo defaults:', err)
+        console.warn('Failed to save project workspace default:', err)
       );
     }
 

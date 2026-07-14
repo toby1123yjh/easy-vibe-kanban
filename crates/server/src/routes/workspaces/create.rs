@@ -423,12 +423,9 @@ pub async fn create_and_start_workspace(
     }
 
     let native_transcript_backfill = native_resume_transcript_backfill(
-        &deployment.db().pool,
-        Some(workspace.id),
         &executor_config.executor.to_string(),
         resume_session_id.as_deref(),
-    )
-    .await?;
+    );
 
     let execution_process = deployment
         .container()

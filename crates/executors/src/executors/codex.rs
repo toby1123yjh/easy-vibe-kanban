@@ -32,18 +32,25 @@ pub(crate) fn resolve_model(model: Option<&str>) -> (Option<&str>, bool) {
     }
 }
 
-pub(crate) fn fork_params_from(thread_id: String, params: ThreadStartParams) -> ThreadForkParams {
-    ThreadForkParams {
+pub(crate) fn resume_params_from(
+    thread_id: String,
+    params: ThreadStartParams,
+) -> ThreadResumeParams {
+    ThreadResumeParams {
         thread_id,
         model: params.model,
         model_provider: params.model_provider,
+        service_tier: params.service_tier,
         cwd: params.cwd,
+        runtime_workspace_roots: params.runtime_workspace_roots,
         approval_policy: params.approval_policy,
+        approvals_reviewer: params.approvals_reviewer,
         sandbox: params.sandbox,
+        permissions: params.permissions,
         config: params.config,
         base_instructions: params.base_instructions,
         developer_instructions: params.developer_instructions,
-        service_tier: params.service_tier,
+        personality: params.personality,
         ..Default::default()
     }
 }
@@ -54,7 +61,7 @@ const MODELS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 use async_trait::async_trait;
 use codex_app_server_protocol::{
     AskForApproval as V2AskForApproval, ModelListResponse, ReviewTarget,
-    SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadForkParams,
+    SandboxMode as V2SandboxMode, SkillScope, SkillsListResponse, ThreadResumeParams,
     ThreadStartParams, UserInput,
 };
 use codex_protocol::{
@@ -852,9 +859,9 @@ impl Codex {
             }
             Some(session_id) => {
                 let response = client
-                    .thread_fork(fork_params_from(session_id, thread_start_params))
+                    .thread_resume(resume_params_from(session_id, thread_start_params))
                     .await?;
-                tracing::debug!("forked thread, new thread_id={}", response.thread.id);
+                tracing::debug!("resumed thread, thread_id={}", response.thread.id);
                 (response.thread.id, response.model)
             }
         };
@@ -1162,7 +1169,7 @@ mod tests {
 
     use super::{
         AskForApproval, Codex, ReasoningEffort, build_chat_input, fallback_models,
-        model_list_response_to_model_infos, resolve_model,
+        model_list_response_to_model_infos, resolve_model, resume_params_from,
     };
     use crate::{
         actions::SelectedSkill,
@@ -1272,6 +1279,23 @@ mod tests {
 
         assert!(params.history_mode.is_none());
         assert!(!params.allow_provider_model_fallback);
+    }
+
+    #[test]
+    fn resumed_threads_keep_the_same_id_and_start_overrides() {
+        let start = test_executor().build_thread_start_params(Path::new("/tmp/test-worktree"));
+        let expected_model = start.model.clone();
+        let expected_cwd = start.cwd.clone();
+        let expected_service_tier = start.service_tier.clone();
+
+        let resume = resume_params_from("thread-1".to_string(), start);
+
+        assert_eq!(resume.thread_id, "thread-1");
+        assert_eq!(resume.model, expected_model);
+        assert_eq!(resume.cwd, expected_cwd);
+        assert_eq!(resume.service_tier, expected_service_tier);
+        assert!(resume.path.is_none());
+        assert!(resume.history.is_none());
     }
 
     #[test]

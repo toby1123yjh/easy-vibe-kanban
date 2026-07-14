@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   DragDropContext,
   Droppable,
@@ -77,11 +78,14 @@ import {
 import { useSettingsDirty } from './SettingsDirtyContext';
 import { ReposSettingsSection } from './ReposSettingsSection';
 import { SettingsMachineUserSystemProvider } from './SettingsMachineUserSystemProvider';
-import type { DraftWorkspaceRepo, GitBranch, Repo } from 'shared/types';
+import type { GitBranch, Repo } from 'shared/types';
 import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import {
-  getProjectRepoDefaultsOrThrow,
-  saveProjectRepoDefaults,
+  areProjectWorkspaceDefaultsEqual,
+  getProjectWorkspaceDefaultOrThrow,
+  projectWorkspaceDefaultQueryKey,
+  saveProjectWorkspaceDefault,
+  type ProjectWorkspaceDefault,
 } from '@/shared/hooks/useProjectRepoDefaults';
 import {
   useSettingsHost,
@@ -344,6 +348,7 @@ export function RemoteProjectsSettingsSection({
   const { setDirty: setContextDirty } = useSettingsDirty();
   const { selectedHost } = useSettingsHost();
   const { isSignedIn, isLoaded } = useAuth();
+  const queryClient = useQueryClient();
   const machineClient = useSettingsMachineClient();
   const machineScopeKey = machineClient?.queryScopeKey.join(':') ?? 'none';
   const repoDefaultsHostId = machineClient?.target.apiHostId;
@@ -364,8 +369,11 @@ export function RemoteProjectsSettingsSection({
   const [success, setSuccess] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Default repos state
-  const [defaultRepos, setDefaultRepos] = useState<DraftWorkspaceRepo[]>([]);
+  // Workspace default state for the selected project on this host.
+  const [workspaceDefault, setWorkspaceDefault] =
+    useState<ProjectWorkspaceDefault | null>(null);
+  const [savedWorkspaceDefault, setSavedWorkspaceDefault] =
+    useState<ProjectWorkspaceDefault | null>(null);
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(false);
   const [allRepos, setAllRepos] = useState<Repo[]>([]);
   const [defaultReposError, setDefaultReposError] = useState<string | null>(
@@ -508,7 +516,8 @@ export function RemoteProjectsSettingsSection({
   // Load default repos and registered repos when project changes
   useEffect(() => {
     if (!selectedProjectId) {
-      setDefaultRepos([]);
+      setWorkspaceDefault(null);
+      setSavedWorkspaceDefault(null);
       setAllRepos([]);
       setDefaultReposError(null);
       return;
@@ -519,7 +528,7 @@ export function RemoteProjectsSettingsSection({
     setLoadingBranches(new Set());
 
     Promise.all([
-      getProjectRepoDefaultsOrThrow(selectedProjectId, repoDefaultsHostId),
+      getProjectWorkspaceDefaultOrThrow(selectedProjectId, repoDefaultsHostId),
       machineClient?.listRepos().catch(() => {
         setDefaultReposError(
           t('settings:settings.remoteProjects.form.defaultRepos.fetchError')
@@ -527,14 +536,14 @@ export function RemoteProjectsSettingsSection({
         return [] as Repo[];
       }) ?? Promise.resolve([] as Repo[]),
     ])
-      .then(([repos, registeredRepos]) => {
-        // Project creation is single-repository. Normalize older array-shaped
-        // settings to the one visible project working location.
-        setDefaultRepos(repos?.slice(0, 1) ?? []);
+      .then(([projectWorkspaceDefault, registeredRepos]) => {
+        setWorkspaceDefault(projectWorkspaceDefault);
+        setSavedWorkspaceDefault(projectWorkspaceDefault);
         setAllRepos(registeredRepos);
       })
       .catch(() => {
-        setDefaultRepos([]);
+        setWorkspaceDefault(null);
+        setSavedWorkspaceDefault(null);
         setDefaultReposError(
           t('settings:settings.remoteProjects.form.defaultRepos.fetchError')
         );
@@ -551,19 +560,28 @@ export function RemoteProjectsSettingsSection({
   const handleChooseProjectWorkspace = useCallback(async () => {
     if (!selectedProjectId) return;
 
-    const currentDefault = defaultRepos[0];
-    const currentRepo = allRepos.find(
-      (repo) => repo.id === currentDefault?.repo_id
-    );
+    const currentRepo =
+      workspaceDefault?.kind === 'git'
+        ? allRepos.find((repo) => repo.id === workspaceDefault.repo.repo_id)
+        : undefined;
     setDefaultReposError(null);
 
     try {
       const result = await WorkspaceTargetDialog.show({
-        initialPath: currentRepo?.path,
-        initialMode: 'worktree',
-        initialBranch: currentDefault?.target_branch ?? null,
+        initialPath:
+          workspaceDefault?.kind === 'direct_folder'
+            ? workspaceDefault.path
+            : currentRepo?.path,
+        initialMode:
+          workspaceDefault?.kind === 'direct_folder'
+            ? 'direct_folder'
+            : 'worktree',
+        initialBranch:
+          workspaceDefault?.kind === 'git'
+            ? workspaceDefault.repo.target_branch
+            : null,
         hostId: repoDefaultsHostId,
-        allowedModes: ['worktree'],
+        purpose: 'project_default',
         title: t('settings:settings.remoteProjects.form.defaultRepos.addNew'),
         description: t(
           'settings:settings.remoteProjects.form.defaultRepos.pickerDescription',
@@ -572,14 +590,30 @@ export function RemoteProjectsSettingsSection({
           }
         ),
       });
-      if (result.kind !== 'confirmed' || result.selection.mode !== 'worktree') {
-        return;
-      }
+      if (result.kind !== 'confirmed') return;
 
-      const nextRepo = result.selection.repo;
+      const nextWorkspaceDefault: ProjectWorkspaceDefault =
+        result.selection.mode === 'worktree'
+          ? {
+              kind: 'git',
+              repo: {
+                repo_id: result.selection.repo.id,
+                target_branch: result.selection.targetBranch,
+              },
+            }
+          : {
+              kind: 'direct_folder',
+              path: result.selection.path,
+            };
+      const nextRepoId =
+        nextWorkspaceDefault.kind === 'git'
+          ? nextWorkspaceDefault.repo.repo_id
+          : null;
+      const currentRepoId =
+        workspaceDefault?.kind === 'git' ? workspaceDefault.repo.repo_id : null;
       if (
         repoConfigDirty &&
-        currentDefault?.repo_id !== nextRepo.id &&
+        currentRepoId !== nextRepoId &&
         !window.confirm(
           t('settings.common.discardChangesConfirm', 'Discard unsaved changes?')
         )
@@ -587,24 +621,18 @@ export function RemoteProjectsSettingsSection({
         return;
       }
 
-      const updated = [
-        {
-          repo_id: nextRepo.id,
-          target_branch: result.selection.targetBranch,
-        },
-      ];
-      await saveProjectRepoDefaults(
-        selectedProjectId,
-        updated,
-        repoDefaultsHostId
-      );
-      setAllRepos((previous) => {
-        const exists = previous.some((repo) => repo.id === nextRepo.id);
-        return exists
-          ? previous.map((repo) => (repo.id === nextRepo.id ? nextRepo : repo))
-          : [...previous, nextRepo];
-      });
-      setDefaultRepos(updated);
+      if (result.selection.mode === 'worktree') {
+        const nextRepo = result.selection.repo;
+        setAllRepos((previous) => {
+          const exists = previous.some((repo) => repo.id === nextRepo.id);
+          return exists
+            ? previous.map((repo) =>
+                repo.id === nextRepo.id ? nextRepo : repo
+              )
+            : [...previous, nextRepo];
+        });
+      }
+      setWorkspaceDefault(nextWorkspaceDefault);
     } catch {
       setDefaultReposError(
         t('settings:settings.remoteProjects.form.defaultRepos.saveError')
@@ -612,7 +640,7 @@ export function RemoteProjectsSettingsSection({
     }
   }, [
     allRepos,
-    defaultRepos,
+    workspaceDefault,
     t,
     repoConfigDirty,
     repoDefaultsHostId,
@@ -620,36 +648,19 @@ export function RemoteProjectsSettingsSection({
     selectedProjectId,
   ]);
 
-  const handleRemoveDefaultRepo = useCallback(
-    async (repoId: string) => {
-      if (!selectedProjectId) return;
-      if (
-        repoConfigDirty &&
-        !window.confirm(
-          t('settings.common.discardChangesConfirm', 'Discard unsaved changes?')
-        )
-      ) {
-        return;
-      }
-      setDefaultReposError(null);
-      const updated = defaultRepos.filter((r) => r.repo_id !== repoId);
-      setDefaultRepos(updated);
-      try {
-        await saveProjectRepoDefaults(
-          selectedProjectId,
-          updated,
-          repoDefaultsHostId
-        );
-      } catch (error) {
-        setDefaultReposError(
-          error instanceof Error
-            ? error.message
-            : t('settings:settings.remoteProjects.form.defaultRepos.saveError')
-        );
-      }
-    },
-    [selectedProjectId, repoConfigDirty, defaultRepos, repoDefaultsHostId, t]
-  );
+  const handleRemoveProjectWorkspace = useCallback(() => {
+    if (!selectedProjectId) return;
+    if (
+      repoConfigDirty &&
+      !window.confirm(
+        t('settings.common.discardChangesConfirm', 'Discard unsaved changes?')
+      )
+    ) {
+      return;
+    }
+    setDefaultReposError(null);
+    setWorkspaceDefault(null);
+  }, [selectedProjectId, repoConfigDirty, t]);
 
   const fetchBranchesForRepo = useCallback(
     async (repoId: string) => {
@@ -675,27 +686,21 @@ export function RemoteProjectsSettingsSection({
   );
 
   const handleChangeBranch = useCallback(
-    async (repoId: string, newBranch: string) => {
+    (repoId: string, newBranch: string) => {
       if (!selectedProjectId) return;
-      const updated = defaultRepos.map((r) =>
-        r.repo_id === repoId ? { ...r, target_branch: newBranch } : r
-      );
-      setDefaultRepos(updated);
-      try {
-        await saveProjectRepoDefaults(
-          selectedProjectId,
-          updated,
-          repoDefaultsHostId
-        );
-      } catch (error) {
-        setDefaultReposError(
-          error instanceof Error
-            ? error.message
-            : t('settings:settings.remoteProjects.form.defaultRepos.saveError')
-        );
+      if (
+        workspaceDefault?.kind !== 'git' ||
+        workspaceDefault.repo.repo_id !== repoId
+      ) {
+        return;
       }
+      setDefaultReposError(null);
+      setWorkspaceDefault({
+        kind: 'git',
+        repo: { ...workspaceDefault.repo, target_branch: newBranch },
+      });
     },
-    [selectedProjectId, defaultRepos, repoDefaultsHostId, t]
+    [selectedProjectId, workspaceDefault]
   );
 
   const visibleStatusCount = useMemo(
@@ -711,7 +716,21 @@ export function RemoteProjectsSettingsSection({
     );
   }, [selectedProject, formState]);
 
-  const isDirty = isProjectDirty || hasStatusChanges;
+  const hasDefaultRepoChanges = useMemo(
+    () =>
+      !areProjectWorkspaceDefaultsEqual(
+        workspaceDefault,
+        savedWorkspaceDefault
+      ),
+    [savedWorkspaceDefault, workspaceDefault]
+  );
+  const gitWorkspaceDefault =
+    workspaceDefault?.kind === 'git' ? workspaceDefault.repo : null;
+  const workspaceDefaultRepo = gitWorkspaceDefault
+    ? allRepos.find((repo) => repo.id === gitWorkspaceDefault.repo_id)
+    : undefined;
+
+  const isDirty = isProjectDirty || hasStatusChanges || hasDefaultRepoChanges;
 
   // Sync dirty state to context for unsaved changes confirmation
   useEffect(() => {
@@ -966,6 +985,7 @@ export function RemoteProjectsSettingsSection({
     }
 
     setError(null);
+    setDefaultReposError(null);
     setIsSaving(true);
 
     try {
@@ -983,6 +1003,29 @@ export function RemoteProjectsSettingsSection({
           prev.map((status) => ({ ...status, isNew: false }))
         );
         setHasStatusChanges(false);
+      }
+
+      if (hasDefaultRepoChanges) {
+        try {
+          await saveProjectWorkspaceDefault(
+            selectedProjectId,
+            workspaceDefault,
+            repoDefaultsHostId
+          );
+        } catch {
+          setDefaultReposError(
+            t('settings:settings.remoteProjects.form.defaultRepos.saveError')
+          );
+          return;
+        }
+
+        setSavedWorkspaceDefault(workspaceDefault);
+        await queryClient.invalidateQueries({
+          queryKey: projectWorkspaceDefaultQueryKey(
+            selectedProjectId,
+            repoDefaultsHostId
+          ),
+        });
       }
 
       setSuccess(
@@ -1018,6 +1061,8 @@ export function RemoteProjectsSettingsSection({
       }))
     );
     setHasStatusChanges(false);
+    setWorkspaceDefault(savedWorkspaceDefault);
+    setDefaultReposError(null);
     setEditingStatusId(null);
     setEditingStatusColorId(null);
   };
@@ -1258,11 +1303,7 @@ export function RemoteProjectsSettingsSection({
               </p>
             </div>
 
-            {isLoadingDefaults ? (
-              <div className="flex items-center gap-half py-half">
-                <SpinnerIcon className="size-icon-xs animate-spin" />
-              </div>
-            ) : defaultReposError ? (
+            {!isLoadingDefaults && defaultReposError && (
               <div
                 className="flex items-start gap-half rounded-sm border border-error/30 bg-error/10 px-base py-half"
                 role="alert"
@@ -1273,176 +1314,202 @@ export function RemoteProjectsSettingsSection({
                 />
                 <p className="text-sm text-normal">{defaultReposError}</p>
               </div>
-            ) : defaultRepos.length === 0 ? (
+            )}
+
+            {isLoadingDefaults ? (
+              <div className="flex items-center gap-half py-half">
+                <SpinnerIcon className="size-icon-xs animate-spin" />
+              </div>
+            ) : !workspaceDefault ? (
               <p className="text-sm text-low">
                 {t('settings:settings.remoteProjects.form.defaultRepos.empty')}
               </p>
+            ) : workspaceDefault.kind === 'direct_folder' ? (
+              <div className="flex items-center gap-base rounded-sm bg-secondary px-base py-half">
+                <p
+                  className="min-w-0 flex-1 truncate font-mono text-sm text-high"
+                  title={workspaceDefault.path}
+                >
+                  {workspaceDefault.path}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRemoveProjectWorkspace}
+                  className="flex size-icon-sm items-center justify-center text-low hover:text-normal"
+                  aria-label={t(
+                    'settings:settings.remoteProjects.form.defaultRepos.remove'
+                  )}
+                  title={t(
+                    'settings:settings.remoteProjects.form.defaultRepos.remove'
+                  )}
+                >
+                  <XIcon className="size-icon-xs" weight="bold" />
+                </button>
+              </div>
             ) : (
-              <div className="space-y-half">
-                {defaultRepos.map((dr) => {
-                  const repo = allRepos.find((r) => r.id === dr.repo_id);
-                  return (
-                    <div
-                      key={dr.repo_id}
-                      className="flex items-center gap-base px-base py-half rounded-sm bg-secondary"
+              <div className="flex items-center gap-base rounded-sm bg-secondary px-base py-half">
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="truncate font-mono text-sm text-high"
+                    title={workspaceDefaultRepo?.path}
+                  >
+                    {workspaceDefaultRepo?.path ||
+                      workspaceDefaultRepo?.display_name ||
+                      workspaceDefaultRepo?.name ||
+                      workspaceDefault.repo.repo_id}
+                  </p>
+                </div>
+                <DropdownMenu
+                  onOpenChange={(open) => {
+                    if (open) {
+                      void fetchBranchesForRepo(workspaceDefault.repo.repo_id);
+                    }
+                  }}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex cursor-pointer items-center gap-1 rounded-sm border border-border bg-panel px-1.5 py-0.5 text-xs text-low transition-colors hover:bg-secondary"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className="truncate font-mono text-sm text-high"
-                          title={repo?.path}
-                        >
-                          {repo?.path ||
-                            repo?.display_name ||
-                            repo?.name ||
-                            dr.repo_id}
-                        </p>
+                      {loadingBranches.has(workspaceDefault.repo.repo_id) ? (
+                        <SpinnerIcon className="size-icon-2xs animate-spin" />
+                      ) : (
+                        <>
+                          {workspaceDefault.repo.target_branch}
+                          <CaretDownIcon
+                            className="size-icon-2xs opacity-50"
+                            weight="bold"
+                          />
+                        </>
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="max-h-60 overflow-y-auto"
+                  >
+                    {loadingBranches.has(workspaceDefault.repo.repo_id) ? (
+                      <div className="flex items-center justify-center px-3 py-2">
+                        <SpinnerIcon className="size-icon-xs animate-spin" />
                       </div>
-                      <DropdownMenu
-                        onOpenChange={(open) => {
-                          if (open) void fetchBranchesForRepo(dr.repo_id);
-                        }}
-                      >
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-xs text-low bg-panel border border-border rounded-sm px-1.5 py-0.5 hover:bg-secondary cursor-pointer transition-colors"
-                          >
-                            {loadingBranches.has(dr.repo_id) ? (
-                              <SpinnerIcon className="size-icon-2xs animate-spin" />
-                            ) : (
-                              <>
-                                {dr.target_branch}
-                                <CaretDownIcon
-                                  className="size-icon-2xs opacity-50"
+                    ) : (branchCache.get(workspaceDefault.repo.repo_id) ?? [])
+                        .length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-low">
+                        {t(
+                          'settings:settings.remoteProjects.form.defaultRepos.noBranches'
+                        )}
+                      </div>
+                    ) : (
+                      (
+                        branchCache.get(workspaceDefault.repo.repo_id) ?? []
+                      ).map((branch) => (
+                        <DropdownMenuItem
+                          key={branch.name}
+                          onClick={() =>
+                            handleChangeBranch(
+                              workspaceDefault.repo.repo_id,
+                              branch.name
+                            )
+                          }
+                        >
+                          <div className="flex w-full items-center justify-between gap-2">
+                            <span
+                              className={cn(
+                                'truncate',
+                                branch.name ===
+                                  workspaceDefault.repo.target_branch &&
+                                  'font-medium text-high'
+                              )}
+                            >
+                              {branch.name}
+                            </span>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {branch.is_current && (
+                                <span className="rounded-sm border border-border bg-secondary px-1 text-[10px] text-low">
+                                  {t(
+                                    'settings:settings.remoteProjects.form.defaultRepos.current',
+                                    { defaultValue: 'current' }
+                                  )}
+                                </span>
+                              )}
+                              {branch.name ===
+                                workspaceDefault.repo.target_branch && (
+                                <CheckIcon
+                                  className="size-icon-2xs text-brand"
                                   weight="bold"
                                 />
-                              </>
-                            )}
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="max-h-60 overflow-y-auto"
-                        >
-                          {loadingBranches.has(dr.repo_id) ? (
-                            <div className="flex items-center justify-center py-2 px-3">
-                              <SpinnerIcon className="size-icon-xs animate-spin" />
-                            </div>
-                          ) : (branchCache.get(dr.repo_id) ?? []).length ===
-                            0 ? (
-                            <div className="py-2 px-3 text-xs text-low">
-                              {t(
-                                'settings:settings.remoteProjects.form.defaultRepos.noBranches'
                               )}
                             </div>
-                          ) : (
-                            (branchCache.get(dr.repo_id) ?? []).map(
-                              (branch) => (
-                                <DropdownMenuItem
-                                  key={branch.name}
-                                  onClick={() =>
-                                    handleChangeBranch(dr.repo_id, branch.name)
-                                  }
-                                >
-                                  <div className="flex items-center justify-between w-full gap-2">
-                                    <span
-                                      className={cn(
-                                        'truncate',
-                                        branch.name === dr.target_branch &&
-                                          'font-medium text-high'
-                                      )}
-                                    >
-                                      {branch.name}
-                                    </span>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      {branch.is_current && (
-                                        <span className="text-[10px] text-low bg-secondary border border-border rounded-sm px-1">
-                                          {t(
-                                            'settings:settings.remoteProjects.form.defaultRepos.current',
-                                            { defaultValue: 'current' }
-                                          )}
-                                        </span>
-                                      )}
-                                      {branch.name === dr.target_branch && (
-                                        <CheckIcon
-                                          className="size-icon-2xs text-brand"
-                                          weight="bold"
-                                        />
-                                      )}
-                                    </div>
-                                  </div>
-                                </DropdownMenuItem>
-                              )
-                            )
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDefaultRepo(dr.repo_id)}
-                        className="flex items-center justify-center size-icon-sm text-low hover:text-normal"
-                        aria-label={t(
-                          'settings:settings.remoteProjects.form.defaultRepos.remove'
-                        )}
-                        title={t(
-                          'settings:settings.remoteProjects.form.defaultRepos.remove'
-                        )}
-                      >
-                        <XIcon className="size-icon-xs" weight="bold" />
-                      </button>
-                    </div>
-                  );
-                })}
+                          </div>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <button
+                  type="button"
+                  onClick={handleRemoveProjectWorkspace}
+                  className="flex size-icon-sm items-center justify-center text-low hover:text-normal"
+                  aria-label={t(
+                    'settings:settings.remoteProjects.form.defaultRepos.remove'
+                  )}
+                  title={t(
+                    'settings:settings.remoteProjects.form.defaultRepos.remove'
+                  )}
+                >
+                  <XIcon className="size-icon-xs" weight="bold" />
+                </button>
               </div>
             )}
 
-            {defaultRepos[0] &&
-              allRepos.some((repo) => repo.id === defaultRepos[0].repo_id) && (
-                <Accordion type="single" collapsible>
-                  <AccordionItem
-                    value="repository-execution-settings"
-                    className="overflow-hidden rounded-sm border border-border bg-panel/40"
+            {gitWorkspaceDefault && workspaceDefaultRepo && (
+              <Accordion type="single" collapsible>
+                <AccordionItem
+                  value="repository-execution-settings"
+                  className="overflow-hidden rounded-sm border border-border bg-panel/40"
+                >
+                  <AccordionTrigger className="group gap-base px-base py-base text-left transition-colors hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand">
+                    <SlidersHorizontalIcon
+                      className="size-icon-sm shrink-0 text-low"
+                      weight="bold"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-normal">
+                        {t(
+                          'settings:settings.remoteProjects.form.defaultRepos.executionSettings'
+                        )}
+                      </p>
+                      <p className="mt-quarter text-xs text-low">
+                        {t(
+                          'settings:settings.remoteProjects.form.defaultRepos.executionSettingsDescription'
+                        )}
+                      </p>
+                    </div>
+                    <CaretDownIcon
+                      className="size-icon-xs shrink-0 text-low transition-transform group-data-[state=open]:rotate-180"
+                      weight="bold"
+                    />
+                  </AccordionTrigger>
+                  <AccordionContent
+                    forceMount
+                    className="data-[state=closed]:hidden"
                   >
-                    <AccordionTrigger className="group gap-base px-base py-base text-left transition-colors hover:bg-secondary/60 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand">
-                      <SlidersHorizontalIcon
-                        className="size-icon-sm shrink-0 text-low"
-                        weight="bold"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-normal">
-                          {t(
-                            'settings:settings.remoteProjects.form.defaultRepos.executionSettings'
-                          )}
-                        </p>
-                        <p className="mt-quarter text-xs text-low">
-                          {t(
-                            'settings:settings.remoteProjects.form.defaultRepos.executionSettingsDescription'
-                          )}
-                        </p>
-                      </div>
-                      <CaretDownIcon
-                        className="size-icon-xs shrink-0 text-low transition-transform group-data-[state=open]:rotate-180"
-                        weight="bold"
-                      />
-                    </AccordionTrigger>
-                    <AccordionContent
-                      forceMount
-                      className="data-[state=closed]:hidden"
-                    >
-                      <div className="space-y-base border-t border-border p-base">
-                        <SettingsMachineUserSystemProvider>
-                          <ReposSettingsSection
-                            key={`${machineScopeKey}:${defaultRepos[0].repo_id}`}
-                            initialState={{ repoId: defaultRepos[0].repo_id }}
-                            variant="project-workspace"
-                            onDirtyChange={setRepoConfigDirty}
-                          />
-                        </SettingsMachineUserSystemProvider>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              )}
+                    <div className="space-y-base border-t border-border p-base">
+                      <SettingsMachineUserSystemProvider>
+                        <ReposSettingsSection
+                          key={`${machineScopeKey}:${gitWorkspaceDefault.repo_id}`}
+                          initialState={{
+                            repoId: gitWorkspaceDefault.repo_id,
+                          }}
+                          variant="project-workspace"
+                          onDirtyChange={setRepoConfigDirty}
+                        />
+                      </SettingsMachineUserSystemProvider>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
 
             <button
               type="button"

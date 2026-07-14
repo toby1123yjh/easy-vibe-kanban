@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, File},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -44,6 +44,7 @@ pub struct NativeAgentSessionPreview {
 #[derive(Debug, Default, Clone)]
 struct NativeSessionDraft {
     agent_session_id: String,
+    forked_from_id: Option<String>,
     title: Option<String>,
     title_source: Option<NativeTitleSource>,
     last_used_at: Option<DateTime<Utc>>,
@@ -165,7 +166,7 @@ fn list_codex_sessions() -> HashMap<String, NativeSessionDraft> {
     read_codex_session_files(&codex_home.join("sessions"), &mut drafts);
     read_codex_history(&codex_home.join("history.jsonl"), &mut drafts);
 
-    drafts
+    collapse_codex_fork_chains(drafts)
 }
 
 fn read_codex_history(path: &Path, drafts: &mut HashMap<String, NativeSessionDraft>) {
@@ -220,12 +221,16 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
         .take(MAX_NATIVE_SCAN_FILES)
     {
         let mut session_id = None;
+        let mut forked_from_id = None;
         let mut cwd = None;
         let mut title = None;
 
         for value in read_jsonl_values(&path, Some(SESSION_FILE_METADATA_LINES)) {
             if session_id.is_none() {
-                session_id = codex_session_id_from_value(&value).map(ToOwned::to_owned);
+                if let Some(id) = codex_session_id_from_value(&value) {
+                    session_id = Some(id.to_owned());
+                    forked_from_id = codex_forked_from_id_from_value(&value).map(ToOwned::to_owned);
+                }
             }
 
             if cwd.is_none() {
@@ -241,10 +246,17 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
                 let role = string_field(payload, "role")
                     .or_else(|| payload.pointer("/message/role").and_then(Value::as_str));
                 if role.is_none() || role == Some("user") {
-                    title = payload
+                    let candidate = payload
                         .pointer("/message/content")
                         .or_else(|| payload.get("content"))
                         .and_then(text_from_content_value);
+                    if candidate
+                        .as_deref()
+                        .is_some_and(is_codex_synthetic_user_content)
+                    {
+                        continue;
+                    }
+                    title = candidate;
                 }
             }
 
@@ -265,7 +277,127 @@ fn read_codex_session_files(root: &Path, drafts: &mut HashMap<String, NativeSess
             NativeTitleSource::SessionContent,
             cwd,
         );
+        if let Some(draft) = drafts.get_mut(&session_id) {
+            draft.forked_from_id = forked_from_id;
+        }
     }
+}
+
+fn collapse_codex_fork_chains(
+    drafts: HashMap<String, NativeSessionDraft>,
+) -> HashMap<String, NativeSessionDraft> {
+    let parents = drafts
+        .iter()
+        .filter_map(|(thread_id, draft)| {
+            draft
+                .forked_from_id
+                .as_ref()
+                .map(|parent_id| (thread_id.clone(), parent_id.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut groups = HashMap::<String, Vec<(String, NativeSessionDraft)>>::new();
+
+    for (thread_id, draft) in drafts {
+        let root_id = codex_root_thread_id(&thread_id, &parents);
+        groups.entry(root_id).or_default().push((thread_id, draft));
+    }
+
+    groups
+        .into_values()
+        .filter_map(|mut members| {
+            let parent_ids = members
+                .iter()
+                .filter_map(|(_, draft)| draft.forked_from_id.clone())
+                .collect::<HashSet<_>>();
+            let latest_thread_id = members
+                .iter()
+                .filter(|(thread_id, _)| !parent_ids.contains(thread_id))
+                .max_by(|(left_id, left), (right_id, right)| {
+                    left.last_used_at
+                        .cmp(&right.last_used_at)
+                        .then_with(|| left_id.cmp(right_id))
+                })
+                .or_else(|| {
+                    members.iter().max_by(|(left_id, left), (right_id, right)| {
+                        left.last_used_at
+                            .cmp(&right.last_used_at)
+                            .then_with(|| left_id.cmp(right_id))
+                    })
+                })?
+                .0
+                .clone();
+            let last_used_at = members
+                .iter()
+                .filter_map(|(_, draft)| draft.last_used_at)
+                .max();
+            let cwd = members
+                .iter()
+                .filter_map(|(thread_id, draft)| {
+                    draft
+                        .cwd
+                        .as_ref()
+                        .map(|cwd| (draft.last_used_at, thread_id, cwd))
+                })
+                .max_by(|(left_time, left_id, _), (right_time, right_id, _)| {
+                    left_time
+                        .cmp(right_time)
+                        .then_with(|| left_id.cmp(right_id))
+                })
+                .map(|(_, _, cwd)| cwd.clone());
+
+            members.sort_by(|(left_id, left), (right_id, right)| {
+                codex_thread_depth(left_id, &parents)
+                    .cmp(&codex_thread_depth(right_id, &parents))
+                    .then_with(|| left.last_used_at.cmp(&right.last_used_at))
+                    .then_with(|| left_id.cmp(right_id))
+            });
+
+            let mut merged = NativeSessionDraft {
+                agent_session_id: latest_thread_id.clone(),
+                last_used_at,
+                cwd,
+                ..NativeSessionDraft::default()
+            };
+            for (_, draft) in members {
+                if let Some(source) = draft.title_source {
+                    merged.update_title(draft.title, source);
+                }
+            }
+
+            Some((latest_thread_id, merged))
+        })
+        .collect()
+}
+
+fn codex_root_thread_id(thread_id: &str, parents: &HashMap<String, String>) -> String {
+    let mut current = thread_id.to_string();
+    let mut visited = HashSet::new();
+
+    loop {
+        if !visited.insert(current.clone()) {
+            return visited.into_iter().min().unwrap_or(current);
+        }
+        let Some(parent_id) = parents.get(&current) else {
+            return current;
+        };
+        current = parent_id.clone();
+    }
+}
+
+fn codex_thread_depth(thread_id: &str, parents: &HashMap<String, String>) -> usize {
+    let mut current = thread_id;
+    let mut visited = HashSet::new();
+    let mut depth = 0;
+
+    while visited.insert(current.to_string()) {
+        let Some(parent_id) = parents.get(current) else {
+            break;
+        };
+        current = parent_id;
+        depth += 1;
+    }
+
+    depth
 }
 
 fn read_codex_preview_entries(session_id: &str) -> Vec<NativeSessionPreviewEntry> {
@@ -313,6 +445,9 @@ fn codex_preview_entry_from_value(value: &Value) -> Option<NativeSessionPreviewE
         .or_else(|| value.pointer("/message/content"))
         .and_then(|content| text_from_content_value_with_separator(content, "\n"))?;
     let content = normalize_preview_content(content)?;
+    if role == "user" && is_codex_synthetic_user_content(&content) {
+        return None;
+    }
     let timestamp = datetime_field(value, "timestamp")
         .or_else(|| datetime_field(value, "ts"))
         .or_else(|| datetime_field(payload, "timestamp"))
@@ -552,6 +687,21 @@ fn codex_session_id_from_value(value: &Value) -> Option<&str> {
         .or_else(|| string_field(value, "session_id"))
         .or_else(|| string_field(value, "id"))
         .or_else(|| string_field(value, "thread_id"))
+}
+
+fn codex_forked_from_id_from_value(value: &Value) -> Option<&str> {
+    value
+        .pointer("/payload/forked_from_id")
+        .and_then(Value::as_str)
+        .or_else(|| string_field(value, "forked_from_id"))
+}
+
+fn is_codex_synthetic_user_content(content: &str) -> bool {
+    let content = content.trim_start();
+    content.starts_with("<environment_context>")
+        || content.starts_with("<permissions instructions>")
+        || content.starts_with("<collaboration_mode>")
+        || content.starts_with("<skills_instructions>")
 }
 
 fn claude_session_id_from_value(value: &Value) -> Option<&str> {
@@ -1056,6 +1206,76 @@ mod tests {
         let draft = drafts.get("one").expect("draft");
         assert_eq!(draft.title.as_deref(), Some("Explicit thread title"));
         assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+    }
+
+    #[test]
+    fn codex_fork_chain_collapses_to_latest_leaf() {
+        let root_time = Utc.with_ymd_and_hms(2026, 7, 6, 0, 0, 0).single().unwrap();
+        let child_time = Utc.with_ymd_and_hms(2026, 7, 6, 0, 1, 0).single().unwrap();
+        let leaf_time = Utc.with_ymd_and_hms(2026, 7, 6, 0, 2, 0).single().unwrap();
+        let mut drafts = HashMap::new();
+
+        update_draft(
+            &mut drafts,
+            "root",
+            Some(root_time),
+            Some("First prompt".to_string()),
+            NativeTitleSource::SessionContent,
+            Some(PathBuf::from("C:/repo/root")),
+        );
+        update_draft(
+            &mut drafts,
+            "child",
+            Some(child_time),
+            Some("Second prompt".to_string()),
+            NativeTitleSource::SessionContent,
+            Some(PathBuf::from("C:/repo/child")),
+        );
+        drafts.get_mut("child").unwrap().forked_from_id = Some("root".to_string());
+        update_draft(
+            &mut drafts,
+            "leaf",
+            Some(leaf_time),
+            Some("Third prompt".to_string()),
+            NativeTitleSource::SessionContent,
+            Some(PathBuf::from("C:/repo/leaf")),
+        );
+        drafts.get_mut("leaf").unwrap().forked_from_id = Some("child".to_string());
+
+        let collapsed = collapse_codex_fork_chains(drafts);
+
+        assert_eq!(collapsed.len(), 1);
+        let draft = collapsed.get("leaf").expect("latest leaf draft");
+        assert_eq!(draft.agent_session_id, "leaf");
+        assert_eq!(draft.title.as_deref(), Some("First prompt"));
+        assert_eq!(draft.last_used_at, Some(leaf_time));
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo/leaf")));
+    }
+
+    #[test]
+    fn codex_ignores_synthetic_user_context_in_title_and_preview() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("rollout.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{\"session_id\":\"native-session\",\"cwd\":\"C:/repo\"}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"<environment_context>injected</environment_context>\"}]}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Real prompt\"}]}}\n",
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Real answer\"}]}}\n",
+            ),
+        )
+        .expect("write session");
+
+        let mut drafts = HashMap::new();
+        read_codex_session_files(dir.path(), &mut drafts);
+        let draft = drafts.get("native-session").expect("draft");
+        assert_eq!(draft.title.as_deref(), Some("Real prompt"));
+
+        let entries = read_codex_preview_entries_from_file(&path);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].content, "Real prompt");
+        assert_eq!(entries[1].content, "Real answer");
     }
 
     #[test]

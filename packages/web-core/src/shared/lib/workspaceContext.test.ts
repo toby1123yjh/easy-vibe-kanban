@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildWorkspaceContext, joinWorkspacePath } from './workspaceContext';
+import {
+  buildWorkspaceContext,
+  joinWorkspacePath,
+  resolveWorkspaceWorkingDirectory,
+} from './workspaceContext';
 
 describe('workspace context projection', () => {
   it('joins Windows and Unix workspace paths', () => {
@@ -9,6 +13,28 @@ describe('workspace context projection', () => {
     expect(joinWorkspacePath('/tmp/workspaces/', '/repo')).toBe(
       '/tmp/workspaces/repo'
     );
+  });
+
+  it('resolves the exact agent working directory without Vibe history state', () => {
+    expect(
+      resolveWorkspaceWorkingDirectory({
+        containerRef: 'F:\\workspaces',
+        workingDir: 'repo',
+        fallbackRepoName: 'ignored',
+      })
+    ).toBe('F:\\workspaces\\repo');
+
+    expect(
+      resolveWorkspaceWorkingDirectory({
+        containerRef: 'F:\\source-repo',
+      })
+    ).toBe('F:\\source-repo');
+
+    expect(
+      resolveWorkspaceWorkingDirectory({
+        containerRef: '   ',
+      })
+    ).toBeUndefined();
   });
 
   it('shows a Git direct folder without a mode label', () => {

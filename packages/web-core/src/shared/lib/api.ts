@@ -375,14 +375,12 @@ export const sessionsApi = {
   },
 
   getResumable: async (params: {
-    workspaceId?: string;
     scopePath?: string;
     executor: BaseCodingAgent;
     days?: number;
     limit?: number;
   }): Promise<ResumableAgentSession[]> => {
     const query = new URLSearchParams();
-    if (params.workspaceId) query.set('workspace_id', params.workspaceId);
     if (params.scopePath) query.set('scope_path', params.scopePath);
     query.set('executor', params.executor);
     if (params.days !== undefined) query.set('days', String(params.days));
@@ -395,14 +393,12 @@ export const sessionsApi = {
   },
 
   getNativePreview: async (params: {
-    workspaceId?: string;
     scopePath?: string;
     executor: BaseCodingAgent;
     sessionId: string;
     turns?: number;
   }): Promise<NativeAgentSessionPreview | null> => {
     const query = new URLSearchParams();
-    if (params.workspaceId) query.set('workspace_id', params.workspaceId);
     if (params.scopePath) query.set('scope_path', params.scopePath);
     query.set('executor', params.executor);
     query.set('session_id', params.sessionId);

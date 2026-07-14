@@ -20,7 +20,9 @@ export interface CreateModeContextValue {
   clearRepos: () => void;
   targetBranches: Record<string, string | null>;
   setTargetBranch: (repoId: string, branch: string) => void;
-  hasResolvedInitialRepoDefaults: boolean;
+  directFolderPath: string;
+  setDirectFolderPath: (path: string) => void;
+  hasResolvedInitialWorkspaceDefaults: boolean;
   preferredExecutorConfig: ExecutorConfig | null;
   message: string;
   setMessage: (message: string) => void;

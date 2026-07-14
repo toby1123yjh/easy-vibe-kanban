@@ -21,7 +21,7 @@ import { useShape } from '@/shared/integrations/electric/hooks';
 import { repoApi } from '@/shared/lib/api';
 import { resolveCreateModeBootstrap } from '@/features/create-mode/model/createModeBootstrap';
 import { useWorkspaceCreateDefaults } from '@/shared/hooks/useWorkspaceCreateDefaults';
-import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { getValidProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import type {
   CreateModeInitialState,
   LinkedIssue,
@@ -43,6 +43,7 @@ interface DraftState {
   phase: Phase;
   error: string | null;
   repos: SelectedRepo[];
+  directFolderPath: string;
   message: string;
   linkedIssue: LinkedIssue | null;
   executorConfig: ExecutorConfig | null;
@@ -60,6 +61,7 @@ type DraftAction =
   | { type: 'SET_REPOS_IF_EMPTY'; repos: SelectedRepo[] }
   | { type: 'REMOVE_REPO'; repoId: string }
   | { type: 'SET_TARGET_BRANCH'; repoId: string; branch: string }
+  | { type: 'SET_DIRECT_FOLDER_PATH'; path: string }
   | { type: 'SET_MESSAGE'; message: string }
   | { type: 'CLEAR_REPOS' }
   | { type: 'CLEAR' }
@@ -79,6 +81,7 @@ const draftInitialState: DraftState = {
   phase: 'loading',
   error: null,
   repos: [],
+  directFolderPath: '',
   message: '',
   linkedIssue: null,
   executorConfig: null,
@@ -109,6 +112,7 @@ function draftReducer(state: DraftState, action: DraftAction): DraftState {
       }
       return {
         ...state,
+        directFolderPath: '',
         repos: [
           ...state.repos,
           { repo: action.repo, targetBranch: action.targetBranch },
@@ -117,7 +121,7 @@ function draftReducer(state: DraftState, action: DraftAction): DraftState {
     }
 
     case 'SET_REPOS_IF_EMPTY':
-      if (state.repos.length > 0) {
+      if (state.repos.length > 0 || state.directFolderPath) {
         return state;
       }
       return { ...state, repos: action.repos };
@@ -136,6 +140,13 @@ function draftReducer(state: DraftState, action: DraftAction): DraftState {
             ? { ...r, targetBranch: action.branch }
             : r
         ),
+      };
+
+    case 'SET_DIRECT_FOLDER_PATH':
+      return {
+        ...state,
+        repos: [],
+        directFolderPath: action.path,
       };
 
     case 'SET_MESSAGE':
@@ -193,7 +204,8 @@ interface UseCreateModeStateParams {
 interface UseCreateModeStateResult {
   repos: Repo[];
   targetBranches: Record<string, string | null>;
-  hasResolvedInitialRepoDefaults: boolean;
+  directFolderPath: string;
+  hasResolvedInitialWorkspaceDefaults: boolean;
   preferredExecutorConfig: ExecutorConfig | null;
   message: string;
   isLoading: boolean;
@@ -205,6 +217,7 @@ interface UseCreateModeStateResult {
   removeRepo: (repoId: string) => void;
   clearRepos: () => void;
   setTargetBranch: (repoId: string, branch: string) => void;
+  setDirectFolderPath: (path: string) => void;
   clearDraft: () => Promise<void>;
   clearLinkedIssue: () => void;
   setExecutorConfig: (config: ExecutorConfig | null) => void;
@@ -315,7 +328,7 @@ export function useCreateModeState({
       enabled: shouldLoadWorkspaceDefaults,
     });
 
-  const hasResolvedInitialRepoDefaults =
+  const hasResolvedInitialWorkspaceDefaults =
     (state.phase === 'ready' &&
       !localWorkspacesLoading &&
       (!state.linkedIssue?.remoteProjectId ||
@@ -323,8 +336,10 @@ export function useCreateModeState({
       hasResolvedPreferredRepos &&
       (preferredRepos.length === 0 ||
         state.repos.length > 0 ||
+        Boolean(state.directFolderPath) ||
         hasAppliedRepoDefaultsRef.current)) ||
-    state.repos.length > 0;
+    state.repos.length > 0 ||
+    Boolean(state.directFolderPath);
 
   useEffect(() => {
     if (state.phase !== 'ready') return;
@@ -338,8 +353,15 @@ export function useCreateModeState({
     if (state.phase !== 'ready') return;
     if (!state.linkedIssue?.remoteProjectId) {
       setProjectDefaultsStatus('n/a');
+    } else if (state.repos.length > 0 || state.directFolderPath) {
+      setProjectDefaultsStatus('applied');
     }
-  }, [state.phase, state.linkedIssue?.remoteProjectId]);
+  }, [
+    state.phase,
+    state.linkedIssue?.remoteProjectId,
+    state.repos.length,
+    state.directFolderPath,
+  ]);
 
   // ============================================================================
   // Auto-apply repos/branches defaults for fresh drafts
@@ -369,7 +391,7 @@ export function useCreateModeState({
     if (hasAppliedRepoDefaultsRef.current) return;
 
     hasAppliedRepoDefaultsRef.current = true;
-    if (state.repos.length > 0) return;
+    if (state.repos.length > 0 || state.directFolderPath) return;
     if (preferredRepos.length === 0) return;
 
     dispatch({
@@ -383,20 +405,21 @@ export function useCreateModeState({
     shouldLoadWorkspaceDefaults,
     hasResolvedPreferredRepos,
     state.repos.length,
+    state.directFolderPath,
     preferredRepos,
     projectDefaultsStatus,
     state.linkedIssue?.remoteProjectId,
   ]);
 
   // ============================================================================
-  // Scratch project-repo defaults (async, non-blocking)
+  // Scratch project workspace default (async, non-blocking)
   // ============================================================================
   const scratchDefaultsProjectRef = useRef<string | null>(null);
 
   useEffect(() => {
     const remoteProjectId = state.linkedIssue?.remoteProjectId;
     if (!remoteProjectId) return;
-    if (state.repos.length > 0) return;
+    if (state.repos.length > 0 || state.directFolderPath) return;
     const lookupKey = `${hostId ?? 'local'}:${remoteProjectId}`;
     if (scratchDefaultsProjectRef.current === lookupKey) return;
 
@@ -409,27 +432,40 @@ export function useCreateModeState({
         if (cancelled) return;
 
         const availableRepoIds = new Set(allRepos.map((r) => r.id));
-        const scratchDefaults = await getValidProjectRepoDefaults(
+        const scratchDefault = await getValidProjectWorkspaceDefault(
           remoteProjectId,
           availableRepoIds,
           hostId
         );
         if (cancelled) return;
 
-        if (scratchDefaults.length === 0) {
+        if (!scratchDefault) {
           setProjectDefaultsStatus('empty');
           return;
         }
 
-        const reposById = new Map(allRepos.map((r) => [r.id, r]));
-        const selectedRepos = scratchDefaults.flatMap((d) => {
-          const repo = reposById.get(d.repo_id);
-          if (!repo) return [];
-          return [{ repo, targetBranch: d.target_branch || null }];
-        });
+        if (scratchDefault.kind === 'direct_folder') {
+          dispatch({
+            type: 'SET_DIRECT_FOLDER_PATH',
+            path: scratchDefault.path,
+          });
+          setProjectDefaultsStatus('applied');
+          return;
+        }
 
-        if (selectedRepos.length > 0) {
-          dispatch({ type: 'SET_REPOS_IF_EMPTY', repos: selectedRepos });
+        const repo = allRepos.find(
+          (candidate) => candidate.id === scratchDefault.repo.repo_id
+        );
+        if (repo) {
+          dispatch({
+            type: 'SET_REPOS_IF_EMPTY',
+            repos: [
+              {
+                repo,
+                targetBranch: scratchDefault.repo.target_branch || null,
+              },
+            ],
+          });
           setProjectDefaultsStatus('applied');
         } else {
           setProjectDefaultsStatus('empty');
@@ -446,7 +482,12 @@ export function useCreateModeState({
     return () => {
       cancelled = true;
     };
-  }, [hostId, state.linkedIssue?.remoteProjectId, state.repos.length]);
+  }, [
+    hostId,
+    state.linkedIssue?.remoteProjectId,
+    state.repos.length,
+    state.directFolderPath,
+  ]);
 
   // ============================================================================
   // Persistence to scratch (debounced)
@@ -456,6 +497,7 @@ export function useCreateModeState({
       const isEmpty =
         !data.message.trim() &&
         data.repos.length === 0 &&
+        !data.directory_path &&
         !data.executor_config &&
         data.attachments.length === 0;
 
@@ -481,6 +523,7 @@ export function useCreateModeState({
         repo_id: r.repo.id,
         target_branch: r.targetBranch ?? '',
       })),
+      directory_path: state.directFolderPath.trim() || null,
       executor_config: state.executorConfig ?? null,
       linked_issue: state.linkedIssue
         ? {
@@ -496,6 +539,7 @@ export function useCreateModeState({
     state.phase,
     state.message,
     state.repos,
+    state.directFolderPath,
     state.linkedIssue,
     state.executorConfig,
     state.attachments,
@@ -570,6 +614,10 @@ export function useCreateModeState({
     dispatch({ type: 'SET_TARGET_BRANCH', repoId, branch });
   }, []);
 
+  const setDirectFolderPath = useCallback((path: string) => {
+    dispatch({ type: 'SET_DIRECT_FOLDER_PATH', path });
+  }, []);
+
   const clearDraft = useCallback(async () => {
     try {
       await deleteScratch();
@@ -597,7 +645,8 @@ export function useCreateModeState({
   return {
     repos,
     targetBranches,
-    hasResolvedInitialRepoDefaults,
+    directFolderPath: state.directFolderPath,
+    hasResolvedInitialWorkspaceDefaults,
     preferredExecutorConfig,
     message: state.message,
     isLoading: scratchLoading,
@@ -609,6 +658,7 @@ export function useCreateModeState({
     removeRepo,
     clearRepos,
     setTargetBranch,
+    setDirectFolderPath,
     clearDraft,
     clearLinkedIssue,
     setExecutorConfig,

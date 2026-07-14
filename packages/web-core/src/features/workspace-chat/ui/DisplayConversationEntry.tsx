@@ -1343,7 +1343,6 @@ function AggregatedGroupEntry({
   executionProcess: ExecutionProcess | null;
 }) {
   const { t } = useTranslation('tasks');
-  const { viewToolContentInPanel } = useLogsPanelActions();
   const [expanded, toggle] = usePersistedExpanded(
     `tool:${group.patchKey}`,
     false
@@ -1422,16 +1421,6 @@ function AggregatedGroupEntry({
       };
     });
   }, [executionProcess, group.entries]);
-
-  const handleViewContent = useCallback(
-    (index: number) => {
-      const entry = aggregatedEntries[index];
-      if (entry && entry.content) {
-        viewToolContentInPanel(entry.toolName, entry.content, entry.command);
-      }
-    },
-    [aggregatedEntries, viewToolContentInPanel]
-  );
 
   const handleToggle = useCallback(() => {
     toggle();
@@ -1563,7 +1552,6 @@ function AggregatedGroupEntry({
       isHovered={isHovered}
       onToggle={handleToggle}
       onHoverChange={handleHoverChange}
-      onViewContent={handleViewContent}
       summary={summary}
       detail={detail}
       icon={icon}

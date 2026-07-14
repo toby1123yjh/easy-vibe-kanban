@@ -8,7 +8,7 @@ import { create, useModal } from '@ebay/nice-modal-react';
 import { useMachineRepoBranches } from '@/shared/hooks/useRepoBranches';
 import { useScriptPlaceholders } from '@/shared/hooks/useScriptPlaceholders';
 import { useAllOrganizationProjects } from '@/shared/hooks/useAllOrganizationProjects';
-import { getProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { getProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import { ApiError } from '@/shared/lib/api';
 import { defineModal } from '@/shared/lib/modals';
 import type { Repo, UpdateRepo } from 'shared/types';
@@ -230,12 +230,15 @@ export function ReposSettingsSection({
     (async () => {
       const names: string[] = [];
       for (const project of allProjects) {
-        const defaults = await getProjectRepoDefaults(
+        const workspaceDefault = await getProjectWorkspaceDefault(
           project.id,
           repoDefaultsHostId
         );
         if (cancelled) return;
-        if (defaults?.some((r) => r.repo_id === selectedRepoId)) {
+        if (
+          workspaceDefault?.kind === 'git' &&
+          workspaceDefault.repo.repo_id === selectedRepoId
+        ) {
           names.push(project.name);
         }
       }

@@ -97,18 +97,26 @@ MindFS and Happy.
 Observed architecture:
 
 - Local Go service serves the web UI, REST API, and WebSocket API.
-- Mobile largely reuses the same web/PWA surface.
+- Mobile largely reuses the same web/PWA surface. Android/Harmony builds set
+  `VITE_APP_SHELL=1` and package the same web assets; Capacitor mainly adds a
+  shell, safe-area/native bridge handling, and background reply polling.
 - Remote access is exposed through a relay tunnel. The local service dials out
   to the relay, wraps the WebSocket as a connection, multiplexes streams with
   yamux, and proxies traffic back to the local HTTP/WS server.
+- The relay client can also expose configured local services, but the source
+  only allows `http`/`https` URLs whose host is `localhost`, `127.0.0.1`, or
+  `::1`.
 - Public relay server source was not found during review.
-- Optional E2EE exists, but the default config observed in review did not force
-  it on.
+- Optional E2EE exists. When enabled, HTTP/WS requests need a proof and WS
+  payloads are decrypted before request handling.
 
 Useful lesson:
 
 - Reusing the web UI is the right default.
 - A reverse tunnel can make "phone opens my home workstation UI" simple.
+- Native shells should be treated as product polish for notifications,
+  background polling, safe areas, and installability, not as a replacement for
+  the web product.
 
 Risk to avoid:
 
@@ -117,6 +125,8 @@ Risk to avoid:
 - Depending on an opaque relay server creates trust and operability concerns.
 - Tunnel-level forwarding is simple, but product-level actions are harder to
   audit than explicit signed API/RPC calls.
+- If a tunnel exposes more than the product API, every exposed service needs a
+  narrow allowlist and explicit user intent.
 
 ### 4.2 Happy
 
@@ -370,6 +380,10 @@ The MVP is acceptable when:
 - `docs/remote-access.mdx`
 - `docs/future/ai-mobile/spec-draft.md`
 - `docs/future/ai-mobile/research-2026-05-21-mobile-solutions-landscape.md`
+- `docs/daily-radar/.cache/a9gent__mindfs/server/internal/relay`
+- `docs/daily-radar/.cache/a9gent__mindfs/web/src/services/base.ts`
+- `docs/daily-radar/.cache/a9gent__mindfs/web/src/layout/AppShell.tsx`
+- `docs/daily-radar/.cache/a9gent__mindfs/android/capacitor.config.ts`
 - `packages/local-web`
 - `packages/remote-web`
 - `packages/web-core`

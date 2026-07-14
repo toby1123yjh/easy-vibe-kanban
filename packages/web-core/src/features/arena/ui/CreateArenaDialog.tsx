@@ -25,7 +25,7 @@ import {
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
 import { useRepoBranches } from '@/shared/hooks/useRepoBranches';
 import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
-import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { getValidProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import BranchSelector from '@/shared/components/tasks/BranchSelector';
 import { defineModal } from '@/shared/lib/modals';
 
@@ -174,7 +174,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       () => repos?.map((repo) => repo.id).join('|') ?? '',
       [repos]
     );
-    const { data: projectRepoDefaults = [], isLoading: defaultsLoading } =
+    const { data: projectWorkspaceDefault = null, isLoading: defaultsLoading } =
       useQuery({
         queryKey: [
           'projectRepoDefaults',
@@ -183,7 +183,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           repoIdsKey,
         ],
         queryFn: () =>
-          getValidProjectRepoDefaults(
+          getValidProjectWorkspaceDefault(
             projectId,
             new Set((repos ?? []).map((repo) => repo.id)),
             hostId
@@ -198,12 +198,12 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     );
     const selectedProjectDefault = useMemo(
       () =>
-        selectedRepo
-          ? projectRepoDefaults.find(
-              (defaultRepo) => defaultRepo.repo_id === selectedRepo.id
-            )
+        selectedRepo &&
+        projectWorkspaceDefault?.kind === 'git' &&
+        projectWorkspaceDefault.repo.repo_id === selectedRepo.id
+          ? projectWorkspaceDefault.repo
           : undefined,
-      [projectRepoDefaults, selectedRepo]
+      [projectWorkspaceDefault, selectedRepo]
     );
 
     const {
@@ -219,19 +219,23 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
         return;
       }
 
-      const preferredRepoId = projectRepoDefaults[0]?.repo_id;
+      const preferredRepoId =
+        projectWorkspaceDefault?.kind === 'git'
+          ? projectWorkspaceDefault.repo.repo_id
+          : undefined;
       const nextRepo =
         repos.find((repo) => repo.id === preferredRepoId) ?? repos[0];
       const preferredBranch =
-        projectRepoDefaults.find(
-          (defaultRepo) => defaultRepo.repo_id === nextRepo.id
-        )?.target_branch || nextRepo.default_target_branch;
+        (projectWorkspaceDefault?.kind === 'git' &&
+        projectWorkspaceDefault.repo.repo_id === nextRepo.id
+          ? projectWorkspaceDefault.repo.target_branch
+          : null) || nextRepo.default_target_branch;
 
       setRepoId(nextRepo.id);
       if (preferredBranch) {
         setBaseBranch(preferredBranch);
       }
-    }, [repos, repoId, defaultsLoading, projectRepoDefaults]);
+    }, [repos, repoId, defaultsLoading, projectWorkspaceDefault]);
 
     useEffect(() => {
       if (!selectedRepo) return;
@@ -299,9 +303,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
     const handleRepoChange = (nextRepoId: string) => {
       const nextRepo = repos?.find((repo) => repo.id === nextRepoId);
       const preferredBranch =
-        projectRepoDefaults.find(
-          (defaultRepo) => defaultRepo.repo_id === nextRepoId
-        )?.target_branch || nextRepo?.default_target_branch;
+        (projectWorkspaceDefault?.kind === 'git' &&
+        projectWorkspaceDefault.repo.repo_id === nextRepoId
+          ? projectWorkspaceDefault.repo.target_branch
+          : null) || nextRepo?.default_target_branch;
 
       setRepoId(nextRepoId || null);
       setBaseBranch(preferredBranch ?? '');

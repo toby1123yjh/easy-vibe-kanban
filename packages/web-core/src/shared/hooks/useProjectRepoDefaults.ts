@@ -2,21 +2,63 @@ import { scratchApi, ApiError } from '@/shared/lib/api';
 import {
   ScratchType,
   type DraftWorkspaceRepo,
+  type ProjectRepoDefaultsData,
   type ScratchPayload,
 } from 'shared/types';
 
 const SCRATCH_TYPE = ScratchType.PROJECT_REPO_DEFAULTS;
 
-async function readProjectRepoDefaults(
+export type ProjectWorkspaceDefault =
+  | { kind: 'git'; repo: DraftWorkspaceRepo }
+  | { kind: 'direct_folder'; path: string };
+
+export const projectWorkspaceDefaultQueryKey = (
   projectId: string,
   hostId?: string | null
-): Promise<DraftWorkspaceRepo[] | null> {
+) => ['project-workspace-default', hostId ?? 'local', projectId] as const;
+
+export function normalizeProjectWorkspaceDefault(
+  data: Pick<ProjectRepoDefaultsData, 'repos' | 'directory_path'>
+): ProjectWorkspaceDefault | null {
+  const directoryPath = data.directory_path?.trim();
+  if (directoryPath) {
+    return { kind: 'direct_folder', path: directoryPath };
+  }
+
+  const [repo] = data.repos ?? [];
+  return repo ? { kind: 'git', repo } : null;
+}
+
+export function areProjectWorkspaceDefaultsEqual(
+  left: ProjectWorkspaceDefault | null,
+  right: ProjectWorkspaceDefault | null
+): boolean {
+  if (left?.kind !== right?.kind) return false;
+  if (!left || !right) return true;
+
+  if (left.kind === 'direct_folder' && right.kind === 'direct_folder') {
+    return left.path === right.path;
+  }
+
+  if (left.kind === 'git' && right.kind === 'git') {
+    return (
+      left.repo.repo_id === right.repo.repo_id &&
+      left.repo.target_branch === right.repo.target_branch
+    );
+  }
+
+  return false;
+}
+
+async function readProjectWorkspaceDefault(
+  projectId: string,
+  hostId?: string | null
+): Promise<ProjectWorkspaceDefault | null> {
   const scratch = await scratchApi.get(SCRATCH_TYPE, projectId, hostId);
   const payload = scratch.payload as ScratchPayload;
-  if (payload?.type === 'PROJECT_REPO_DEFAULTS') {
-    return payload.data.repos;
-  }
-  return null;
+  if (payload?.type !== 'PROJECT_REPO_DEFAULTS') return null;
+
+  return normalizeProjectWorkspaceDefault(payload.data);
 }
 
 function isScratchNotFound(error: unknown): boolean {
@@ -24,17 +66,16 @@ function isScratchNotFound(error: unknown): boolean {
 }
 
 /**
- * Read project repo defaults from scratch storage.
- * Returns null if no defaults have been saved for this project.
+ * Read a project's workspace default from scratch storage.
+ * Returns null if no default has been saved for this project.
  */
-export async function getProjectRepoDefaults(
+export async function getProjectWorkspaceDefault(
   projectId: string,
   hostId?: string | null
-): Promise<DraftWorkspaceRepo[] | null> {
+): Promise<ProjectWorkspaceDefault | null> {
   try {
-    return await readProjectRepoDefaults(projectId, hostId);
+    return await readProjectWorkspaceDefault(projectId, hostId);
   } catch (error) {
-    // 404 means no defaults saved yet — not an error
     if (isScratchNotFound(error)) {
       return null;
     }
@@ -44,15 +85,15 @@ export async function getProjectRepoDefaults(
 }
 
 /**
- * Read project repo defaults while preserving non-404 failures for visible UI.
- * Use this when "not configured" must not mask an unavailable saved setting.
+ * Read a project workspace default while preserving non-404 failures for
+ * visible UI.
  */
-export async function getProjectRepoDefaultsOrThrow(
+export async function getProjectWorkspaceDefaultOrThrow(
   projectId: string,
   hostId?: string | null
-): Promise<DraftWorkspaceRepo[] | null> {
+): Promise<ProjectWorkspaceDefault | null> {
   try {
-    return await readProjectRepoDefaults(projectId, hostId);
+    return await readProjectWorkspaceDefault(projectId, hostId);
   } catch (error) {
     if (isScratchNotFound(error)) {
       return null;
@@ -61,22 +102,30 @@ export async function getProjectRepoDefaultsOrThrow(
   }
 }
 
-/**
- * Save project repo defaults to scratch storage (upsert).
- */
-export async function saveProjectRepoDefaults(
+/** Save exactly one Git or ordinary-directory project workspace default. */
+export async function saveProjectWorkspaceDefault(
   projectId: string,
-  repos: DraftWorkspaceRepo[],
+  workspaceDefault: ProjectWorkspaceDefault | null,
   hostId?: string | null
 ): Promise<void> {
-  const [defaultRepo] = repos;
+  const data: ProjectRepoDefaultsData =
+    workspaceDefault?.kind === 'git'
+      ? { repos: [workspaceDefault.repo], directory_path: null }
+      : {
+          repos: [],
+          directory_path:
+            workspaceDefault?.kind === 'direct_folder'
+              ? workspaceDefault.path.trim()
+              : null,
+        };
+
   await scratchApi.update(
     SCRATCH_TYPE,
     projectId,
     {
       payload: {
         type: 'PROJECT_REPO_DEFAULTS',
-        data: { repos: defaultRepo ? [defaultRepo] : [] },
+        data,
       },
     },
     hostId
@@ -84,20 +133,20 @@ export async function saveProjectRepoDefaults(
 }
 
 /**
- * Read the single project repo default and filter out a stale repository.
- * Returns an empty array if no defaults are saved or all saved repos are stale.
+ * Read the project default and filter out a stale registered Git repository.
+ * Direct-folder defaults do not depend on repository registration.
  */
-export async function getValidProjectRepoDefaults(
+export async function getValidProjectWorkspaceDefault(
   projectId: string,
   availableRepoIds: Set<string>,
   hostId?: string | null
-): Promise<DraftWorkspaceRepo[]> {
-  const defaults = await getProjectRepoDefaults(projectId, hostId);
-  if (!defaults) {
-    return [];
+): Promise<ProjectWorkspaceDefault | null> {
+  const workspaceDefault = await getProjectWorkspaceDefault(projectId, hostId);
+  if (workspaceDefault?.kind !== 'git') {
+    return workspaceDefault;
   }
-  const [defaultRepo] = defaults;
-  return defaultRepo && availableRepoIds.has(defaultRepo.repo_id)
-    ? [defaultRepo]
-    : [];
+
+  return availableRepoIds.has(workspaceDefault.repo.repo_id)
+    ? workspaceDefault
+    : null;
 }

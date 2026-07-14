@@ -19,6 +19,7 @@ export interface CreateModeBootstrapData {
   message?: string;
   linkedIssue?: LinkedIssue | null;
   repos?: BootstrapSelectedRepo[];
+  directFolderPath?: string;
   executorConfig?: ExecutorConfig | null;
   attachments?: DraftWorkspaceAttachment[];
 }
@@ -88,12 +89,15 @@ export async function resolveCreateModeBootstrap({
 }: ResolveCreateModeBootstrapParams): Promise<ResolveCreateModeBootstrapResult> {
   const hasInitialPrompt = !!seedState?.initialPrompt;
   const hasLinkedIssue = !!seedState?.linkedIssue;
+  const preferredDirectoryPath = seedState?.preferredDirectoryPath?.trim();
+  const hasPreferredDirectory = Boolean(preferredDirectoryPath);
   const hasPreferredRepos = (seedState?.preferredRepos?.length ?? 0) > 0;
   const hasExecutorConfig = !!seedState?.executorConfig;
 
   if (
     hasInitialPrompt ||
     hasLinkedIssue ||
+    hasPreferredDirectory ||
     hasPreferredRepos ||
     hasExecutorConfig
   ) {
@@ -110,7 +114,13 @@ export async function resolveCreateModeBootstrap({
       appliedSeedState = true;
     }
 
-    if (seedState?.preferredRepos && seedState.preferredRepos.length > 0) {
+    if (preferredDirectoryPath) {
+      data.directFolderPath = preferredDirectoryPath;
+      appliedSeedState = true;
+    } else if (
+      seedState?.preferredRepos &&
+      seedState.preferredRepos.length > 0
+    ) {
       const resolvedRepos = await resolveBootstrapRepos(
         seedState.preferredRepos
       );
@@ -135,6 +145,7 @@ export async function resolveCreateModeBootstrap({
 
   if (scratchData) {
     const data: CreateModeBootstrapData = {};
+    const directFolderPath = scratchData.directory_path?.trim();
 
     if (scratchData.message) {
       data.message = scratchData.message;
@@ -160,7 +171,9 @@ export async function resolveCreateModeBootstrap({
       data.attachments = scratchData.attachments;
     }
 
-    if (scratchData.repos?.length > 0) {
+    if (directFolderPath) {
+      data.directFolderPath = directFolderPath;
+    } else if (scratchData.repos?.length > 0) {
       const restoredRepos = await resolveBootstrapRepos(
         scratchData.repos.map((repo) => ({
           repo_id: repo.repo_id,

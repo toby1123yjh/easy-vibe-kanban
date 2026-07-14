@@ -605,11 +605,11 @@
         },
         "defaultRepos": {
           "label": "Workspace on this device",
-          "description": "The local code directory and base branch this project uses on {{host}}. New executions are prefilled with these values and still require confirmation.",
+          "description": "The local working directory this project uses on {{host}}. Git repositories also store a base branch. New executions are prefilled and still require confirmation.",
           "empty": "No workspace configured on this device",
           "addButton": "Choose or change",
           "addNew": "Choose project workspace",
-          "pickerDescription": "Choose a Git repository and base branch for this project on {{host}}. Ordinary directories can be used when starting a direct agent, but cannot be saved as the project workspace.",
+          "pickerDescription": "Choose a local directory for this project on {{host}}. Git repositories require a base branch; ordinary directories are saved as direct working folders.",
           "branchLabel": "Branch",
           "current": "current",
           "remove": "Remove the current working folder",

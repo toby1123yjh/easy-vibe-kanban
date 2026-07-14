@@ -1,31 +1,38 @@
 import { workspacesApi, repoApi } from '@/shared/lib/api';
 import type { Workspace } from 'shared/remote-types';
-import type { DraftWorkspaceRepo } from 'shared/types';
-import { getValidProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import {
+  getValidProjectWorkspaceDefault,
+  type ProjectWorkspaceDefault,
+} from '@/shared/hooks/useProjectRepoDefaults';
 
 export interface WorkspaceDefaults {
   preferredRepos: Array<{ repo_id: string; target_branch: string | null }>;
+  preferredDirectoryPath: string | null;
 }
 
 export function buildExplicitProjectWorkspaceDefaults(
-  repos: DraftWorkspaceRepo[]
+  workspaceDefault: ProjectWorkspaceDefault | null
 ): WorkspaceDefaults | null {
-  const [defaultRepo] = repos;
-  if (!defaultRepo) {
-    return null;
+  if (workspaceDefault?.kind === 'direct_folder') {
+    const path = workspaceDefault.path.trim();
+    return path ? { preferredRepos: [], preferredDirectoryPath: path } : null;
   }
 
-  if (!defaultRepo.target_branch.trim()) {
+  if (
+    workspaceDefault?.kind !== 'git' ||
+    !workspaceDefault.repo.target_branch.trim()
+  ) {
     return null;
   }
 
   return {
     preferredRepos: [
       {
-        repo_id: defaultRepo.repo_id,
-        target_branch: defaultRepo.target_branch,
+        repo_id: workspaceDefault.repo.repo_id,
+        target_branch: workspaceDefault.repo.target_branch,
       },
     ],
+    preferredDirectoryPath: null,
   };
 }
 
@@ -41,13 +48,13 @@ export async function getExplicitProjectWorkspaceDefaults(
 ): Promise<WorkspaceDefaults | null> {
   const allRepos = await repoApi.list(hostId);
   const availableRepoIds = new Set(allRepos.map((r) => r.id));
-  const scratchDefaults = await getValidProjectRepoDefaults(
+  const scratchDefault = await getValidProjectWorkspaceDefault(
     projectId,
     availableRepoIds,
     hostId
   );
 
-  return buildExplicitProjectWorkspaceDefaults(scratchDefaults);
+  return buildExplicitProjectWorkspaceDefaults(scratchDefault);
 }
 
 /**
@@ -68,13 +75,13 @@ export async function getWorkspaceDefaults(
     try {
       const allRepos = await repoApi.list(hostId);
       const availableRepoIds = new Set(allRepos.map((r) => r.id));
-      const scratchDefaults = await getValidProjectRepoDefaults(
+      const scratchDefault = await getValidProjectWorkspaceDefault(
         projectId,
         availableRepoIds,
         hostId
       );
       const explicitDefaults =
-        buildExplicitProjectWorkspaceDefaults(scratchDefaults);
+        buildExplicitProjectWorkspaceDefaults(scratchDefault);
       if (explicitDefaults) {
         return explicitDefaults;
       }
@@ -116,6 +123,7 @@ export async function getWorkspaceDefaults(
         repo_id: r.id,
         target_branch: r.target_branch,
       })),
+      preferredDirectoryPath: null,
     };
   } catch (err) {
     console.warn('Failed to fetch workspace defaults:', err);

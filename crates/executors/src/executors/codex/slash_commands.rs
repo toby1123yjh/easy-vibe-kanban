@@ -15,7 +15,7 @@ use serde_json::json;
 use super::{
     Codex,
     client::{AppServerClient, LogWriter},
-    codex_home, fork_params_from, resolve_model,
+    codex_home, resolve_model, resume_params_from,
 };
 use crate::{
     actions::SelectedSkill,
@@ -597,11 +597,11 @@ impl Codex {
                         let old_thread_id = session_id.ok_or_else(|| {
                             ExecutorError::Io(std::io::Error::other("No active session to compact"))
                         })?;
-                        let fork_response = client
-                            .thread_fork(fork_params_from(old_thread_id, thread_start_params))
+                        let resume_response = client
+                            .thread_resume(resume_params_from(old_thread_id, thread_start_params))
                             .await?;
-                        let thread_id = fork_response.thread.id;
-                        tracing::debug!("forked thread for compact, new thread_id={thread_id}");
+                        let thread_id = resume_response.thread.id;
+                        tracing::debug!("resumed thread for compact, thread_id={thread_id}");
                         client.thread_compact_start(thread_id).await?;
                     }
                     CodexSlashCommand::Review { .. } => {
@@ -671,17 +671,17 @@ impl Codex {
                                 merge_strategy: MergeStrategy::Replace,
                             }])
                             .await;
-                        // Fork current session with new tier if one is active
+                        // Apply the tier to the active session immediately.
                         if let Some(old_thread_id) = session_id {
                             let service_tier = if want_fast {
                                 Some(Some(ServiceTier::Fast.request_value().to_string()))
                             } else {
                                 Some(None)
                             };
-                            let mut fork_params =
-                                fork_params_from(old_thread_id, thread_start_params);
-                            fork_params.service_tier = service_tier;
-                            let _ = client.thread_fork(fork_params).await;
+                            let mut resume_params =
+                                resume_params_from(old_thread_id, thread_start_params);
+                            resume_params.service_tier = service_tier;
+                            let _ = client.thread_resume(resume_params).await;
                         }
                         let message = if want_fast {
                             "**Fast mode enabled.** Inference runs at higher speed (2× plan usage)."

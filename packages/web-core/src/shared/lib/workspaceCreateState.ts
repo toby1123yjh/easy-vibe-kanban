@@ -7,6 +7,7 @@ import { localStorageScratchUpdate } from '@/shared/hooks/useLocalStorageScratch
 
 interface WorkspaceDefaultsLike {
   preferredRepos?: CreateModeInitialState['preferredRepos'];
+  preferredDirectoryPath?: string | null;
   project_id?: string | null;
 }
 
@@ -58,6 +59,7 @@ export function buildWorkspaceCreateInitialState(args: {
   return {
     initialPrompt: args.prompt,
     preferredRepos: args.defaults?.preferredRepos ?? null,
+    preferredDirectoryPath: args.defaults?.preferredDirectoryPath ?? null,
     project_id: args.defaults?.project_id ?? null,
     linkedIssue: args.linkedIssue ?? null,
     executorConfig: args.executorConfig ?? null,
@@ -84,6 +86,7 @@ export function toDraftWorkspaceData(
         repo_id: repo.repo_id,
         target_branch: repo.target_branch ?? '',
       })) ?? [],
+    directory_path: initialState.preferredDirectoryPath?.trim() || null,
     executor_config: initialState.executorConfig ?? null,
     linked_issue: initialState.linkedIssue
       ? {

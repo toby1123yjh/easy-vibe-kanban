@@ -1,12 +1,16 @@
 import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderGit2, Settings2 } from 'lucide-react';
+import { Folder, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { getProjectRepoDefaultsOrThrow } from '@/shared/hooks/useProjectRepoDefaults';
+import {
+  getProjectWorkspaceDefaultOrThrow,
+  projectWorkspaceDefaultQueryKey,
+} from '@/shared/hooks/useProjectRepoDefaults';
 import { repoApi } from '@/shared/lib/api';
 import { buildWorkspaceContext } from '@/shared/lib/workspaceContext';
 import { cn } from '@/shared/lib/utils';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { Tooltip } from '@vibe/ui/components/Tooltip';
 
 interface ProjectWorkspaceDefaultContextProps {
   projectId: string;
@@ -15,11 +19,6 @@ interface ProjectWorkspaceDefaultContextProps {
   variant?: 'bar' | 'inline' | 'panel';
   className?: string;
 }
-
-const projectWorkspaceDefaultQueryKey = (
-  projectId: string,
-  hostId?: string | null
-) => ['project-workspace-default', hostId ?? 'local', projectId] as const;
 
 export function ProjectWorkspaceDefaultContext({
   projectId,
@@ -33,17 +32,22 @@ export function ProjectWorkspaceDefaultContext({
   const defaultContextQuery = useQuery({
     queryKey: projectWorkspaceDefaultQueryKey(projectId, hostId),
     queryFn: async () => {
-      const defaults = await getProjectRepoDefaultsOrThrow(projectId, hostId);
-      const selected = defaults?.[0];
-      if (!selected) return null;
-      if (!selected.target_branch.trim()) {
+      const workspaceDefault = await getProjectWorkspaceDefaultOrThrow(
+        projectId,
+        hostId
+      );
+      if (!workspaceDefault) return null;
+      if (workspaceDefault.kind === 'direct_folder') {
+        return { path: workspaceDefault.path, branch: undefined };
+      }
+      if (!workspaceDefault.repo.target_branch.trim()) {
         throw new Error('Project default branch is empty');
       }
 
-      const repo = await repoApi.getById(selected.repo_id, hostId);
+      const repo = await repoApi.getById(workspaceDefault.repo.repo_id, hostId);
       return {
         path: repo.path,
-        branch: selected.target_branch,
+        branch: workspaceDefault.repo.target_branch,
       };
     },
     refetchOnMount: 'always',
@@ -58,6 +62,10 @@ export function ProjectWorkspaceDefaultContext({
           })
         : [],
     [defaultContextQuery.data]
+  );
+  const workspaceContextLabel = useMemo(
+    () => parts.map((part) => part.label).join(' / '),
+    [parts]
   );
 
   const openConfiguration = async () => {
@@ -90,7 +98,7 @@ export function ProjectWorkspaceDefaultContext({
         defaultValue: 'Project default working location',
       })}
     >
-      <FolderGit2
+      <Folder
         className={cn(
           'size-icon-sm shrink-0',
           isConfigured ? 'text-brand' : 'text-low'
@@ -121,28 +129,36 @@ export function ProjectWorkspaceDefaultContext({
               })}
             </span>
           ) : isConfigured ? (
-            <div className="flex min-w-0 items-center gap-half font-ibm-plex-mono text-xs text-low">
-              {parts.map((part, index) => (
-                <div key={`${part.kind}-${part.label}`} className="contents">
-                  {index > 0 ? <span className="shrink-0">/</span> : null}
-                  <span
-                    className={cn(
-                      'min-w-0 truncate',
-                      part.kind === 'path'
-                        ? isInline
-                          ? 'max-w-[280px]'
-                          : 'max-w-[420px]'
-                        : isInline
-                          ? 'max-w-[120px]'
-                          : 'max-w-[180px]'
-                    )}
-                    title={part.label}
-                  >
-                    {part.label}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <Tooltip
+              content={workspaceContextLabel}
+              side="bottom"
+              className="max-w-[min(48rem,calc(100vw-2rem))] break-all font-ibm-plex-mono"
+            >
+              <div
+                className="flex min-w-0 flex-1 items-center gap-half font-ibm-plex-mono text-xs text-low"
+                aria-label={workspaceContextLabel}
+              >
+                {parts.map((part, index) => (
+                  <div key={`${part.kind}-${part.label}`} className="contents">
+                    {index > 0 ? <span className="shrink-0">/</span> : null}
+                    <span
+                      className={cn(
+                        'min-w-0 truncate',
+                        part.kind === 'path'
+                          ? isInline
+                            ? 'min-w-24 flex-1'
+                            : 'max-w-[420px]'
+                          : isInline
+                            ? 'max-w-[120px]'
+                            : 'max-w-[180px]'
+                      )}
+                    >
+                      {part.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Tooltip>
           ) : (
             <span className="truncate text-xs text-low">
               {t('projectWorkspaceDefault.empty', {

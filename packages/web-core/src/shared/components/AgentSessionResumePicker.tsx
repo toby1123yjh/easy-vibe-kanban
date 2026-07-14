@@ -19,7 +19,6 @@ import { cn } from '@/shared/lib/utils';
 import { sessionsApi, type NativeAgentSessionPreview } from '@/shared/lib/api';
 
 interface AgentSessionResumePickerProps {
-  workspaceId?: string;
   scopePath?: string;
   executor: BaseCodingAgent | null;
   selectedSessionId?: string | null;
@@ -50,7 +49,6 @@ function formatResumeTime(value: string) {
 }
 
 export function AgentSessionResumePicker({
-  workspaceId,
   scopePath,
   executor,
   selectedSessionId,
@@ -64,17 +62,16 @@ export function AgentSessionResumePicker({
     selectedSessionId ?? null
   );
   const normalizedScopePath = scopePath?.trim() || undefined;
-  const canLoad = Boolean(executor);
+  const canLoad = Boolean(executor && normalizedScopePath);
 
   useEffect(() => {
     setDays(RECENT_DAYS);
     setPreviewSessionId(selectedSessionId ?? null);
-  }, [workspaceId, normalizedScopePath, executor, selectedSessionId]);
+  }, [normalizedScopePath, executor, selectedSessionId]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: [
       'agent-session-resume',
-      workspaceId,
       normalizedScopePath,
       executor,
       days,
@@ -82,7 +79,6 @@ export function AgentSessionResumePicker({
     ],
     queryFn: () =>
       sessionsApi.getResumable({
-        workspaceId,
         scopePath: normalizedScopePath,
         executor: executor!,
         days,
@@ -110,7 +106,6 @@ export function AgentSessionResumePicker({
   const { data: preview, isLoading: isPreviewLoading } = useQuery({
     queryKey: [
       'agent-session-native-preview',
-      workspaceId,
       normalizedScopePath,
       executor,
       previewSessionId,
@@ -118,7 +113,6 @@ export function AgentSessionResumePicker({
     ],
     queryFn: () =>
       sessionsApi.getNativePreview({
-        workspaceId,
         scopePath: normalizedScopePath,
         executor: executor!,
         sessionId: previewSessionId!,

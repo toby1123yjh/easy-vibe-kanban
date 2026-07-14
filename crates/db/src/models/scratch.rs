@@ -178,6 +178,8 @@ pub struct DraftWorkspaceData {
     pub message: String,
     #[serde(default)]
     pub repos: Vec<DraftWorkspaceRepo>,
+    #[serde(default)]
+    pub directory_path: Option<String>,
     #[serde(default, alias = "selected_profile", alias = "config")]
     pub executor_config: Option<ExecutorConfig>,
     #[serde(default)]
@@ -196,7 +198,10 @@ pub struct DraftWorkspaceRepo {
 /// Data for project repo defaults scratch (default repos/branches per project)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ProjectRepoDefaultsData {
+    #[serde(default)]
     pub repos: Vec<DraftWorkspaceRepo>,
+    #[serde(default)]
+    pub directory_path: Option<String>,
 }
 
 /// Data for a draft issue scratch (issue creation on kanban board)
@@ -283,6 +288,47 @@ impl Scratch {
     /// Returns the scratch type derived from the payload
     pub fn scratch_type(&self) -> ScratchType {
         self.payload.scratch_type()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProjectRepoDefaultsData, ScratchPayload};
+
+    #[test]
+    fn project_workspace_defaults_read_legacy_git_payloads() {
+        let payload: ScratchPayload = serde_json::from_str(
+            r#"{
+                "type": "PROJECT_REPO_DEFAULTS",
+                "data": {
+                    "repos": [{
+                        "repo_id": "00000000-0000-0000-0000-000000000001",
+                        "target_branch": "main"
+                    }]
+                }
+            }"#,
+        )
+        .expect("legacy project repository defaults should deserialize");
+
+        let ScratchPayload::ProjectRepoDefaults(data) = payload else {
+            panic!("expected project repository defaults payload");
+        };
+        assert_eq!(data.repos.len(), 1);
+        assert_eq!(data.repos[0].target_branch, "main");
+        assert_eq!(data.directory_path, None);
+    }
+
+    #[test]
+    fn project_workspace_defaults_allow_directory_only_payloads() {
+        let data: ProjectRepoDefaultsData = serde_json::from_str(
+            r#"{
+                "directory_path": "F:\\notes"
+            }"#,
+        )
+        .expect("directory-only project defaults should deserialize");
+
+        assert!(data.repos.is_empty());
+        assert_eq!(data.directory_path.as_deref(), Some(r"F:\notes"));
     }
 }
 

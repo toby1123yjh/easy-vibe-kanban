@@ -32,7 +32,7 @@ export type UpdateTag = { tag_name: string | null, content: string | null, };
 
 export type DraftFollowUpData = { message: string, executor_config: ExecutorConfig, };
 
-export type DraftWorkspaceData = { message: string, repos: Array<DraftWorkspaceRepo>, executor_config: ExecutorConfig | null, linked_issue: DraftWorkspaceLinkedIssue | null, attachments: Array<DraftWorkspaceAttachment>, };
+export type DraftWorkspaceData = { message: string, repos: Array<DraftWorkspaceRepo>, directory_path: string | null, executor_config: ExecutorConfig | null, linked_issue: DraftWorkspaceLinkedIssue | null, attachments: Array<DraftWorkspaceAttachment>, };
 
 export type DraftWorkspaceAttachment = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, };
 
@@ -140,7 +140,7 @@ kanban_project_view_selections: { [key in string]?: JsonValue },
  */
 kanban_project_view_preferences: { [key in string]?: JsonValue }, };
 
-export type ProjectRepoDefaultsData = { repos: Array<DraftWorkspaceRepo>, };
+export type ProjectRepoDefaultsData = { repos: Array<DraftWorkspaceRepo>, directory_path: string | null, };
 
 export type ScratchPayload = { "type": "DRAFT_TASK", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_WORKSPACE", "data": DraftWorkspaceData } | { "type": "DRAFT_ISSUE", "data": DraftIssueData } | { "type": "PREVIEW_SETTINGS", "data": PreviewSettingsData } | { "type": "WORKSPACE_NOTES", "data": WorkspaceNotesData } | { "type": "UI_PREFERENCES", "data": UiPreferencesData } | { "type": "PROJECT_REPO_DEFAULTS", "data": ProjectRepoDefaultsData };
 

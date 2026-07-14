@@ -29,7 +29,6 @@ import {
   useKanbanFilters,
   PRIORITY_ORDER,
 } from '../model/hooks/useKanbanFilters';
-import { getKanbanProjectHeaderActions } from '../model/kanbanProjectActions';
 import {
   bulkUpdateIssues,
   type BulkUpdateIssueItem,
@@ -77,7 +76,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
-import { Workflow } from 'lucide-react';
 import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTagDropdownContainer';
 import { ProjectWorkspaceDefaultContext } from '@/shared/components/ProjectWorkspaceDefaultContext';
 import type { IssuePriority } from 'shared/remote-types';
@@ -191,10 +189,6 @@ export function KanbanContainer() {
 
   // Get project name by finding the project matching current projectId
   const projectName = projects.find((p) => p.id === projectId)?.name ?? '';
-  const projectHeaderActions = useMemo(
-    () => getKanbanProjectHeaderActions(projectId),
-    [projectId]
-  );
 
   const selectedKanbanIssueId = routeState.issueId;
   const issueComposerKey = useMemo(
@@ -972,8 +966,19 @@ export function KanbanContainer() {
           isMobile && 'px-base pt-base'
         )}
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-half">
-          <h2 className={cn('text-2xl font-medium', isMobile && 'text-lg')}>
+        <div
+          className={cn(
+            'min-w-0 items-center gap-half',
+            isMobile ? 'grid grid-cols-[minmax(0,1fr)_auto]' : 'flex flex-wrap'
+          )}
+        >
+          <h2
+            className={cn(
+              'text-2xl font-medium',
+              isMobile && 'min-w-0 truncate text-lg'
+            )}
+            title={projectName}
+          >
             {projectName}
           </h2>
 
@@ -982,35 +987,32 @@ export function KanbanContainer() {
             organizationId={organizationId}
             hostId={routeState.hostId}
             variant="inline"
-            className="max-w-[min(560px,60vw)]"
+            className={cn(
+              isMobile
+                ? 'col-span-2 row-start-2 w-full min-w-0 max-w-full'
+                : 'min-w-[12rem] max-w-full flex-1 basis-[20rem] sm:max-w-[min(560px,60vw)]'
+            )}
           />
-
-          {projectHeaderActions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              onClick={() =>
-                appNavigation.goToProjectWorkflows(action.destination.projectId)
-              }
-              className="inline-flex min-h-8 items-center gap-1.5 rounded-sm border border-secondary bg-primary px-2 text-xs font-medium text-normal transition-colors hover:border-brand hover:text-high"
-              aria-label={t('workflow.templates.title')}
-            >
-              <Workflow className="h-3.5 w-3.5" />
-              <span>{t('workflow.templates.title')}</span>
-            </button>
-          ))}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="p-half rounded-sm text-low hover:text-normal hover:bg-secondary transition-colors"
+                className={cn(
+                  'p-half rounded-sm text-low hover:text-normal hover:bg-secondary transition-colors',
+                  isMobile && 'col-start-2 row-start-1'
+                )}
                 aria-label="Project menu"
               >
                 <DotsThreeIcon className="size-icon-sm" weight="bold" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => appNavigation.goToProjectWorkflows(projectId)}
+              >
+                {t('workflow.templates.title')}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={openProjectsGuide}>
                 {t('kanban.openProjectsGuide', 'Projects guide')}
               </DropdownMenuItem>

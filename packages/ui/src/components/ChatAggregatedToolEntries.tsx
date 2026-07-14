@@ -1,4 +1,5 @@
 import { CaretDownIcon, ListMagnifyingGlassIcon } from '@phosphor-icons/react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { ActivityText } from './ActivityText';
@@ -28,37 +29,46 @@ interface ChatAggregatedToolEntriesProps {
   unit?: string;
   icon?: React.ElementType;
   className?: string;
-  onViewContent?: (index: number) => void;
   forceCollapsible?: boolean;
   startedAt?: string | null;
   endedAt?: string | null;
 }
 
-const STATUS_PRIORITY: Record<string, number> = {
-  failed: 6,
-  denied: 5,
-  timed_out: 4,
-  pending_approval: 3,
-  created: 2,
-  success: 1,
-};
-
-const OUTPUT_PREVIEW_LIMIT = 1600;
-
-function getWorstStatus(entries: AggregatedEntry[]) {
-  return entries.reduce<ToolStatusLike | undefined>((worst, entry) => {
-    if (!entry.status) return worst;
-    if (!worst) return entry.status;
-
-    const worstPriority = STATUS_PRIORITY[worst.status] || 0;
-    const currentPriority = STATUS_PRIORITY[entry.status.status] || 0;
-
-    return currentPriority > worstPriority ? entry.status : worst;
-  }, undefined);
-}
-
 function isEntryActive(entry: AggregatedEntry) {
   return entry.active ?? isActiveStatus(entry.status);
+}
+
+function getAggregateLifecycleStatus(entries: AggregatedEntry[]) {
+  const activeEntry = entries.find(isEntryActive);
+  return activeEntry?.status ?? { status: 'success' };
+}
+
+function getEntryDetails(entry: AggregatedEntry) {
+  const content = entry.content?.trim();
+  if (!content) return null;
+
+  return {
+    command: entry.command?.trim() || null,
+    content,
+  };
+}
+
+function ToolEntryDetails({ entry }: { entry: AggregatedEntry }) {
+  const details = getEntryDetails(entry);
+  if (!details) return null;
+
+  return (
+    <div className="mx-base mb-half overflow-hidden rounded-sm border border-border/70 bg-panel/70">
+      {details.command && (
+        <pre className="overflow-x-auto border-b border-border/70 px-base py-half font-mono text-xs leading-relaxed text-normal whitespace-pre-wrap break-words">
+          {details.command}
+        </pre>
+      )}
+      <pre className="max-h-56 overflow-auto px-base py-half font-mono text-xs leading-relaxed text-low whitespace-pre-wrap break-words">
+        {details.content}
+      </pre>
+    </div>
+  );
 }
 
 function getFallbackSummary({
@@ -80,17 +90,6 @@ function isActiveStatus(status?: ToolStatusLike) {
   return status?.status === 'created' || status?.status === 'pending_approval';
 }
 
-function getOutputPreview(content?: string) {
-  const trimmed = content?.trim();
-  if (!trimmed) return null;
-
-  if (trimmed.length <= OUTPUT_PREVIEW_LIMIT) {
-    return trimmed;
-  }
-
-  return `${trimmed.slice(0, OUTPUT_PREVIEW_LIMIT).trimEnd()}\n...`;
-}
-
 export function ChatAggregatedToolEntries({
   entries,
   expanded,
@@ -103,17 +102,17 @@ export function ChatAggregatedToolEntries({
   unit,
   icon: Icon = ListMagnifyingGlassIcon,
   className,
-  onViewContent,
   forceCollapsible = false,
   startedAt,
   endedAt,
 }: ChatAggregatedToolEntriesProps) {
   const { t } = useTranslation('tasks');
+  const [expandedEntryKey, setExpandedEntryKey] = useState<string | null>(null);
 
   if (entries.length === 0) return null;
 
-  const aggregateStatus = getWorstStatus(entries);
   const isRunning = entries.some(isEntryActive);
+  const aggregateStatus = getAggregateLifecycleStatus(entries);
   const headerSummary =
     summary ??
     getFallbackSummary({
@@ -127,41 +126,56 @@ export function ChatAggregatedToolEntries({
 
   if (entries.length === 1 && !forceCollapsible) {
     const entry = entries[0];
+    const hasDetails = Boolean(getEntryDetails(entry));
+    const entryExpanded = expandedEntryKey === entry.expansionKey;
     return (
-      <button
-        type="button"
-        className={cn(
-          'flex min-w-0 items-center gap-base text-left text-sm text-low',
-          onViewContent && 'cursor-pointer hover:text-normal',
-          className
-        )}
-        onClick={onViewContent ? () => onViewContent(0) : undefined}
-        disabled={!onViewContent}
-      >
-        <span className="relative shrink-0 pt-0.5">
-          <Icon className="size-icon-base" />
-          {entry.status && (
-            <ToolStatusDot
-              status={entry.status}
-              active={isEntryActive(entry)}
-              className="absolute -bottom-0.5 -left-0.5"
+      <div className={cn('flex flex-col', className)}>
+        <button
+          type="button"
+          className={cn(
+            'flex min-w-0 items-center gap-base text-left text-sm text-low transition-colors',
+            hasDetails && 'cursor-pointer hover:text-normal'
+          )}
+          onClick={() =>
+            setExpandedEntryKey(entryExpanded ? null : entry.expansionKey)
+          }
+          disabled={!hasDetails}
+          aria-expanded={hasDetails ? entryExpanded : undefined}
+        >
+          <span className="relative shrink-0 pt-0.5">
+            <Icon className="size-icon-base" />
+            {entry.status && (
+              <ToolStatusDot
+                status={entry.status}
+                active={isEntryActive(entry)}
+                className="absolute -bottom-0.5 -left-0.5"
+              />
+            )}
+          </span>
+          <ActivityText active={isRunning} className="min-w-0 flex-1 truncate">
+            {headerSummary}
+          </ActivityText>
+          {detail && (
+            <span className="hidden shrink-0 text-xs text-low sm:inline">
+              {detail}
+            </span>
+          )}
+          <ChatElapsedTime
+            startedAt={entry.startedAt ?? startedAt}
+            endedAt={entry.endedAt ?? endedAt}
+            active={isEntryActive(entry)}
+          />
+          {hasDetails && (
+            <CaretDownIcon
+              className={cn(
+                'size-icon-sm shrink-0 transition-transform duration-150',
+                !entryExpanded && '-rotate-90'
+              )}
             />
           )}
-        </span>
-        <ActivityText active={isRunning} className="min-w-0 flex-1 truncate">
-          {headerSummary}
-        </ActivityText>
-        {detail && (
-          <span className="hidden shrink-0 text-xs text-low sm:inline">
-            {detail}
-          </span>
-        )}
-        <ChatElapsedTime
-          startedAt={entry.startedAt ?? startedAt}
-          endedAt={entry.endedAt ?? endedAt}
-          active={isEntryActive(entry)}
-        />
-      </button>
+        </button>
+        {entryExpanded && <ToolEntryDetails entry={entry} />}
+      </div>
     );
   }
 
@@ -212,35 +226,38 @@ export function ChatAggregatedToolEntries({
 
       {expanded && (
         <div className="ml-6 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-muted/10 p-half">
-          {entries.map((entry, index) => {
-            const outputPreview = entry.command
-              ? getOutputPreview(entry.content)
-              : null;
+          {entries.map((entry) => {
+            const hasDetails = Boolean(getEntryDetails(entry));
+            const entryExpanded = expandedEntryKey === entry.expansionKey;
 
             return (
-              <button
-                key={entry.expansionKey}
-                type="button"
-                className={cn(
-                  'group/item flex w-full min-w-0 items-start gap-base rounded-sm px-base py-half text-left text-sm text-low transition-colors',
-                  onViewContent &&
-                    'cursor-pointer hover:bg-muted/30 hover:text-normal'
-                )}
-                onClick={onViewContent ? () => onViewContent(index) : undefined}
-                disabled={!onViewContent}
-              >
-                <span className="relative shrink-0 pt-0.5">
-                  <Icon className="size-icon-base" />
-                  {entry.status && (
-                    <ToolStatusDot
-                      status={entry.status}
-                      active={isEntryActive(entry)}
-                      className="absolute -bottom-0.5 -left-0.5"
-                    />
+              <div key={entry.expansionKey}>
+                <button
+                  type="button"
+                  className={cn(
+                    'group/item flex w-full min-w-0 items-center gap-base rounded-sm px-base py-half text-left text-sm text-low transition-colors',
+                    hasDetails &&
+                      'cursor-pointer hover:bg-muted/30 hover:text-normal'
                   )}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-quarter">
-                  <span className="flex min-w-0 items-center gap-base">
+                  onClick={() =>
+                    setExpandedEntryKey(
+                      entryExpanded ? null : entry.expansionKey
+                    )
+                  }
+                  disabled={!hasDetails}
+                  aria-expanded={hasDetails ? entryExpanded : undefined}
+                >
+                  <span className="relative shrink-0 pt-0.5">
+                    <Icon className="size-icon-base" />
+                    {entry.status && (
+                      <ToolStatusDot
+                        status={entry.status}
+                        active={isEntryActive(entry)}
+                        className="absolute -bottom-0.5 -left-0.5"
+                      />
+                    )}
+                  </span>
+                  <span className="flex min-w-0 flex-1 items-center gap-base">
                     <span
                       className={cn(
                         'min-w-0 flex-1 truncate',
@@ -254,14 +271,18 @@ export function ChatAggregatedToolEntries({
                       endedAt={entry.endedAt}
                       active={isEntryActive(entry)}
                     />
+                    {hasDetails && (
+                      <CaretDownIcon
+                        className={cn(
+                          'size-icon-sm shrink-0 transition-transform duration-150',
+                          !entryExpanded && '-rotate-90'
+                        )}
+                      />
+                    )}
                   </span>
-                  {outputPreview && (
-                    <span className="block max-h-28 overflow-auto rounded-sm bg-panel/80 px-base py-half font-mono text-xs leading-relaxed text-low whitespace-pre-wrap break-words">
-                      {outputPreview}
-                    </span>
-                  )}
-                </span>
-              </button>
+                </button>
+                {entryExpanded && <ToolEntryDetails entry={entry} />}
+              </div>
             );
           })}
         </div>

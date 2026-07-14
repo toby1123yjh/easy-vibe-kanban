@@ -28,6 +28,7 @@ import { cn } from '@/shared/lib/utils';
 import { defineModal } from '@/shared/lib/modals';
 
 export type WorkspaceTargetMode = 'worktree' | 'direct_folder';
+export type WorkspaceTargetDialogPurpose = 'execution' | 'project_default';
 
 export type WorkspaceTargetSelection =
   | {
@@ -51,6 +52,7 @@ export interface WorkspaceTargetDialogProps {
   initialBranch?: string | null;
   hostId?: string | null;
   allowedModes?: WorkspaceTargetMode[];
+  purpose?: WorkspaceTargetDialogPurpose;
   title?: string;
   description?: string;
 }
@@ -78,6 +80,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
     initialBranch = null,
     hostId,
     allowedModes = DEFAULT_ALLOWED_MODES,
+    purpose = 'execution',
     title,
     description,
   }) => {
@@ -99,6 +102,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
     const [error, setError] = useState<DialogError | null>(null);
     const allowedModeSet = useMemo(() => new Set(allowedModes), [allowedModes]);
     const onlyAllowedMode = allowedModes.length === 1 ? allowedModes[0] : null;
+    const isProjectDefault = purpose === 'project_default';
 
     const resetDerivedState = useCallback(() => {
       requestIdRef.current += 1;
@@ -187,17 +191,19 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
 
           if (!nextInspection.is_git_repo || !nextInspection.repo) {
             const nextMode =
-              allowedModeSet.has('direct_folder') &&
-              (preferredMode === 'direct_folder' ||
-                onlyAllowedMode === 'direct_folder')
+              isProjectDefault ||
+              (allowedModeSet.has('direct_folder') &&
+                (preferredMode === 'direct_folder' ||
+                  onlyAllowedMode === 'direct_folder'))
                 ? 'direct_folder'
                 : null;
             setMode(nextMode);
             return;
           }
 
-          const nextMode =
-            preferredMode && allowedModeSet.has(preferredMode)
+          const nextMode = isProjectDefault
+            ? 'worktree'
+            : preferredMode && allowedModeSet.has(preferredMode)
               ? preferredMode
               : onlyAllowedMode;
           setMode(nextMode);
@@ -224,6 +230,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
       [
         allowedModeSet,
         hostId,
+        isProjectDefault,
         loadBranches,
         onlyAllowedMode,
         resetDerivedState,
@@ -368,14 +375,18 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
 
     const confirmLabel = useMemo(
       () =>
-        mode === 'direct_folder'
-          ? t('createMode.workspaceDialog.useDirectory', {
-              defaultValue: 'Use this directory',
+        isProjectDefault
+          ? t('createMode.workspaceDialog.useProjectLocation', {
+              defaultValue: 'Use this location',
             })
-          : t('createMode.workspaceDialog.useWorkspace', {
-              defaultValue: 'Use this workspace',
-            }),
-      [mode, t]
+          : mode === 'direct_folder'
+            ? t('createMode.workspaceDialog.useDirectory', {
+                defaultValue: 'Use this directory',
+              })
+            : t('createMode.workspaceDialog.useWorkspace', {
+                defaultValue: 'Use this workspace',
+              }),
+      [isProjectDefault, mode, t]
     );
 
     return (
@@ -471,7 +482,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
               ) : null}
             </div>
 
-            {inspection ? (
+            {inspection && !isProjectDefault ? (
               <div
                 className={cn(
                   'rounded-sm border px-base py-half',
@@ -525,7 +536,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
               </div>
             ) : null}
 
-            {inspection ? (
+            {inspection && !isProjectDefault ? (
               <fieldset className="flex flex-col gap-half">
                 <legend className="mb-half text-sm font-medium text-normal">
                   {t('createMode.workspaceDialog.modeLabel', {
@@ -647,7 +658,7 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
               </div>
             ) : null}
 
-            {inspection && mode === 'direct_folder' ? (
+            {inspection && mode === 'direct_folder' && !isProjectDefault ? (
               <div className="flex items-start gap-half rounded-sm border border-warning/30 bg-warning/10 px-base py-half text-xs text-normal">
                 <AlertTriangle className="mt-[1px] size-icon-sm shrink-0 text-warning" />
                 <span>

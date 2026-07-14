@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
-import { saveProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
+import { saveProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
 import { buildLocalWorkspaceIdSet } from '@/shared/lib/workspaceCreateState';
 import { repoApi } from '@/shared/lib/api';
@@ -73,9 +73,11 @@ export function useWorkflowRepositorySelection({
       },
     ];
 
-    await saveProjectRepoDefaults(projectId, repos, routeState.hostId).catch(
-      () => undefined
-    );
+    await saveProjectWorkspaceDefault(
+      projectId,
+      { kind: 'git', repo: repos[0]! },
+      routeState.hostId
+    ).catch(() => undefined);
 
     return repos;
   }, [projectId, routeState.hostId, t, workspaces, localWorkspaceIds]);

@@ -30,6 +30,23 @@ export function joinWorkspacePath(
   return `${basePath}${separator}${relativePath}`;
 }
 
+export function resolveWorkspaceWorkingDirectory({
+  containerRef,
+  workingDir,
+  fallbackRepoName,
+}: Pick<
+  BuildWorkspaceContextOptions,
+  'containerRef' | 'workingDir' | 'fallbackRepoName'
+>): string | undefined {
+  const normalizedContainerRef = containerRef?.trim();
+  if (!normalizedContainerRef) return undefined;
+
+  return joinWorkspacePath(
+    normalizedContainerRef,
+    workingDir?.trim() || fallbackRepoName?.trim()
+  );
+}
+
 export function buildWorkspaceContext({
   containerRef,
   workingDir,
@@ -39,15 +56,16 @@ export function buildWorkspaceContext({
   worktreeLabel = 'Worktree',
 }: BuildWorkspaceContextOptions): WorkspaceContextPart[] {
   const parts: WorkspaceContextPart[] = [];
-  const normalizedContainerRef = containerRef?.trim();
+  const workspacePath = resolveWorkspaceWorkingDirectory({
+    containerRef,
+    workingDir,
+    fallbackRepoName,
+  });
 
-  if (normalizedContainerRef) {
+  if (workspacePath) {
     parts.push({
       kind: 'path',
-      label: joinWorkspacePath(
-        normalizedContainerRef,
-        workingDir?.trim() || fallbackRepoName?.trim()
-      ),
+      label: workspacePath,
     });
   }
 

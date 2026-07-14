@@ -22,9 +22,9 @@ use codex_app_server_protocol::{
     McpServerElicitationRequestResponse, McpServerStatusDetail, ModelListParams, ModelListResponse,
     RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget, ServerRequest,
     SkillsListParams, SkillsListResponse, ThreadCompactStartParams, ThreadCompactStartResponse,
-    ThreadForkParams, ThreadForkResponse, ThreadGoalClearParams, ThreadGoalClearResponse,
-    ThreadGoalGetParams, ThreadGoalGetResponse, ThreadGoalSetParams, ThreadGoalSetResponse,
-    ThreadItem, ThreadReadParams, ThreadReadResponse, ThreadSettingsUpdateParams,
+    ThreadGoalClearParams, ThreadGoalClearResponse, ThreadGoalGetParams, ThreadGoalGetResponse,
+    ThreadGoalSetParams, ThreadGoalSetResponse, ThreadItem, ThreadReadParams, ThreadReadResponse,
+    ThreadResumeParams, ThreadResumeResponse, ThreadSettingsUpdateParams,
     ThreadSettingsUpdateResponse, ThreadStartParams, ThreadStartResponse,
     ToolRequestUserInputAnswer, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
     TurnCompletedNotification, TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
@@ -154,15 +154,20 @@ impl AppServerClient {
         self.send_request(request, "thread/start").await
     }
 
-    pub async fn thread_fork(
+    pub async fn thread_resume(
         &self,
-        params: ThreadForkParams,
-    ) -> Result<ThreadForkResponse, ExecutorError> {
-        let request = ClientRequest::ThreadFork {
+        params: ThreadResumeParams,
+    ) -> Result<ThreadResumeResponse, ExecutorError> {
+        // A Vibe follow-up continues the same native Codex conversation.
+        // `thread/fork` would create another CLI-visible thread on every turn.
+        let requested_thread_id = params.thread_id.clone();
+        let request = ClientRequest::ThreadResume {
             request_id: self.next_request_id(),
             params,
         };
-        self.send_request(request, "thread/fork").await
+        let response: ThreadResumeResponse = self.send_request(request, "thread/resume").await?;
+        ensure_resumed_thread_id(&requested_thread_id, &response.thread.id)?;
+        Ok(response)
     }
 
     pub async fn turn_start_with_mode(
@@ -1172,6 +1177,7 @@ fn request_id(request: &ClientRequest) -> RequestId {
     match request {
         ClientRequest::Initialize { request_id, .. }
         | ClientRequest::ThreadStart { request_id, .. }
+        | ClientRequest::ThreadResume { request_id, .. }
         | ClientRequest::ThreadFork { request_id, .. }
         | ClientRequest::TurnStart { request_id, .. }
         | ClientRequest::GetAccount { request_id, .. }
@@ -1190,6 +1196,16 @@ fn request_id(request: &ClientRequest) -> RequestId {
         | ClientRequest::GetAccountRateLimits { request_id, .. } => request_id.clone(),
         _ => unreachable!("request_id called for unsupported request variant"),
     }
+}
+
+fn ensure_resumed_thread_id(requested: &str, actual: &str) -> Result<(), ExecutorError> {
+    if requested == actual {
+        return Ok(());
+    }
+
+    Err(ExecutorError::Io(io::Error::other(format!(
+        "Codex thread/resume returned a different thread id: requested {requested}, got {actual}"
+    ))))
 }
 
 #[derive(Clone)]
@@ -1265,7 +1281,7 @@ mod version_check_tests {
 
     use super::{
         AppServerClient, LogWriter, ReasoningEffortUpdate, build_thread_settings_update_params,
-        build_turn_start_params, ensure_codex_version, extract_semver,
+        build_turn_start_params, ensure_codex_version, ensure_resumed_thread_id, extract_semver,
         reasoning_update_from_thread_settings,
     };
 
@@ -1288,6 +1304,19 @@ mod version_check_tests {
         assert!(ensure_codex_version("codex/0.144.0").is_err());
         assert!(ensure_codex_version("codex/0.145.0").is_err());
         assert!(ensure_codex_version("unknown").is_err());
+    }
+
+    #[test]
+    fn resumed_thread_must_keep_the_requested_id() {
+        assert!(ensure_resumed_thread_id("thread-1", "thread-1").is_ok());
+
+        let error = ensure_resumed_thread_id("thread-1", "thread-2")
+            .expect_err("a resume response must not silently become a fork");
+        assert!(
+            error
+                .to_string()
+                .contains("requested thread-1, got thread-2")
+        );
     }
 
     // Regression: request_id() must handle every ClientRequest variant the
