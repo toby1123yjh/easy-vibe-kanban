@@ -549,6 +549,14 @@ impl Codex {
 
 impl Codex {
     pub const DEFAULT_BASE_COMMAND: &'static str = "codex";
+    const DISABLE_NATIVE_MEMORY_ARGS: [&'static str; 6] = [
+        "-c",
+        "features.memories=false",
+        "-c",
+        "memories.generate_memories=false",
+        "-c",
+        "memories.use_memories=false",
+    ];
 
     /// Prefers the Codex pinned by the npx wrapper so the binary version
     /// matches the `codex-app-server-protocol` crate this build links against.
@@ -602,11 +610,15 @@ impl Codex {
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
         let mut builder = CommandBuilder::new(Self::base_command());
-        builder = builder.extend_params(["app-server"]);
+        builder = builder
+            .extend_params(["app-server"])
+            .extend_params(Self::DISABLE_NATIVE_MEMORY_ARGS);
         if self.oss.unwrap_or(false) {
             builder = builder.extend_params(["--oss"]);
         }
 
+        // Profile parameters are applied last so an advanced user can
+        // explicitly opt back into native memory for this executor profile.
         apply_overrides(builder, &self.cmd)
     }
 
@@ -1190,6 +1202,63 @@ mod tests {
             reasoning_id: Some(reasoning_id.to_string()),
             permission_policy: None,
         }
+    }
+
+    fn expected_memory_policy_args() -> Vec<String> {
+        [
+            "app-server",
+            "-c",
+            "features.memories=false",
+            "-c",
+            "memories.generate_memories=false",
+            "-c",
+            "memories.use_memories=false",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    }
+
+    #[test]
+    fn app_server_disables_native_memory_for_discovery_and_runtime() {
+        let builder = test_executor()
+            .build_command_builder()
+            .expect("Codex app-server command should build");
+
+        assert_eq!(builder.params, Some(expected_memory_policy_args()));
+    }
+
+    #[test]
+    fn additional_params_can_explicitly_override_native_memory_policy() {
+        let mut executor = test_executor();
+        executor.cmd.additional_params = Some(vec![
+            "-c".to_string(),
+            "features.memories=true".to_string(),
+            "-c".to_string(),
+            "memories.generate_memories=true".to_string(),
+            "-c".to_string(),
+            "memories.use_memories=true".to_string(),
+        ]);
+
+        let params = executor
+            .build_command_builder()
+            .expect("Codex app-server command should build")
+            .params
+            .expect("Codex app-server command should have parameters");
+
+        let expected_prefix = expected_memory_policy_args();
+        assert_eq!(&params[..expected_prefix.len()], expected_prefix.as_slice());
+        assert_eq!(
+            &params[expected_prefix.len()..],
+            [
+                "-c",
+                "features.memories=true",
+                "-c",
+                "memories.generate_memories=true",
+                "-c",
+                "memories.use_memories=true",
+            ]
+        );
     }
 
     #[test]
