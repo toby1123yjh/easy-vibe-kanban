@@ -3,6 +3,7 @@ import type { ModelInfo } from 'shared/types';
 import {
   buildModelSelectionOverride,
   getReasoningOverrideRepair,
+  parseModelId,
   resolveConfiguredReasoningIdForOptions,
   resolveDefaultReasoningId,
   resolveReasoningOverrideState,
@@ -35,6 +36,48 @@ const models: ModelInfo[] = [
     reasoning_options: [],
   },
 ];
+
+describe('model selector model ID semantics', () => {
+  it('preserves colons inside model IDs', () => {
+    expect(parseModelId('custom:lfm2.5:8b', true)).toEqual({
+      providerId: null,
+      modelId: 'custom:lfm2.5:8b',
+    });
+  });
+
+  it('splits only the first slash when providers exist', () => {
+    expect(parseModelId('custom/model/family:latest', true)).toEqual({
+      providerId: 'custom',
+      modelId: 'model/family:latest',
+    });
+  });
+
+  it.each(['custom:lfm2.5:8b', 'model/family:latest'])(
+    'round-trips provider-scoped model ID %s without rewriting it',
+    (modelId) => {
+      const { model_id: value } = buildModelSelectionOverride(
+        models,
+        modelId,
+        'custom'
+      );
+
+      expect(value).toBe(`custom/${modelId}`);
+      expect(parseModelId(value, true)).toEqual({
+        providerId: 'custom',
+        modelId,
+      });
+    }
+  );
+
+  it('treats the entire value as a model ID when providers are absent', () => {
+    const value = 'custom/model/family:latest';
+
+    expect(parseModelId(value, false)).toEqual({
+      providerId: null,
+      modelId: value,
+    });
+  });
+});
 
 describe('model selector reasoning overrides', () => {
   it('does not write discovery default reasoning when selecting a model', () => {

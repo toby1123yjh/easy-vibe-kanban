@@ -278,7 +278,33 @@ fn adapt_cursor(servers: ServerMap, meta: Option<Value>) -> Value {
 }
 
 fn adapt_codex(mut servers: ServerMap, mut meta: Option<Value>) -> Value {
-    servers.retain(|_, v| v.as_object().map(is_stdio).unwrap_or(false));
+    servers.retain(|_, value| {
+        let Some(server) = value.as_object_mut() else {
+            return false;
+        };
+
+        if is_stdio(server) {
+            return true;
+        }
+
+        let has_remote_url = server
+            .get("url")
+            .and_then(Value::as_str)
+            .is_some_and(|url| !url.trim().is_empty());
+        if !has_remote_url {
+            return false;
+        }
+
+        server.remove("type");
+        let headers = server.remove("headers");
+        if !server.contains_key("http_headers")
+            && let Some(headers) = headers
+        {
+            server.insert("http_headers".to_string(), headers);
+        }
+
+        true
+    });
 
     if let Some(Value::Object(ref mut m)) = meta {
         m.retain(|k, _| servers.contains_key(k));
@@ -345,6 +371,9 @@ fn adapt_opencode(servers: ServerMap, meta: Option<Value>) -> Value {
             let mut new_map = Map::new();
             new_map.insert("type".to_string(), Value::String("local".to_string()));
             new_map.insert("command".to_string(), Value::Array(cmd_vec));
+            if let Some(environment) = s.remove("env").or_else(|| s.remove("environment")) {
+                new_map.insert("environment".to_string(), environment);
+            }
             new_map.insert("enabled".to_string(), Value::Bool(true));
             *s = new_map;
         }
@@ -409,5 +438,166 @@ impl CodingAgent {
 
         let canonical = PRECONFIGURED_MCP_SERVERS.clone();
         apply_adapter(adapter, canonical)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{Adapter, apply_adapter};
+
+    #[test]
+    fn codex_preserves_stdio_and_remote_servers_and_filters_metadata() {
+        let adapted = apply_adapter(
+            Adapter::Codex,
+            json!({
+                "stdio": {
+                    "command": "npx",
+                    "args": ["server"]
+                },
+                "typed_remote": {
+                    "type": "http",
+                    "url": "https://typed.example/mcp",
+                    "headers": {"Authorization": "Bearer token"}
+                },
+                "url_only_remote": {
+                    "url": "https://url-only.example/mcp"
+                },
+                "unsupported": {
+                    "type": "custom"
+                },
+                "missing_url": {
+                    "type": "http"
+                },
+                "meta": {
+                    "stdio": {"name": "stdio"},
+                    "typed_remote": {"name": "typed remote"},
+                    "url_only_remote": {"name": "url-only remote"},
+                    "unsupported": {"name": "unsupported"},
+                    "missing_url": {"name": "missing url"}
+                }
+            }),
+        );
+
+        assert_eq!(
+            adapted["stdio"],
+            json!({"command": "npx", "args": ["server"]})
+        );
+        assert_eq!(
+            adapted["typed_remote"],
+            json!({
+                "url": "https://typed.example/mcp",
+                "http_headers": {"Authorization": "Bearer token"}
+            })
+        );
+        assert_eq!(
+            adapted["url_only_remote"],
+            json!({"url": "https://url-only.example/mcp"})
+        );
+        assert!(adapted.get("unsupported").is_none());
+        assert!(adapted.get("missing_url").is_none());
+        assert_eq!(
+            adapted["meta"],
+            json!({
+                "stdio": {"name": "stdio"},
+                "typed_remote": {"name": "typed remote"},
+                "url_only_remote": {"name": "url-only remote"}
+            })
+        );
+    }
+
+    #[test]
+    fn codex_preserves_native_http_headers() {
+        let adapted = apply_adapter(
+            Adapter::Codex,
+            json!({
+                "remote": {
+                    "type": "http",
+                    "url": "https://example.com/mcp",
+                    "headers": {"source": "canonical"},
+                    "http_headers": {"source": "native"}
+                }
+            }),
+        );
+
+        assert_eq!(
+            adapted["remote"],
+            json!({
+                "url": "https://example.com/mcp",
+                "http_headers": {"source": "native"}
+            })
+        );
+    }
+
+    #[test]
+    fn opencode_adapts_stdio_command_and_environment() {
+        let adapted = apply_adapter(
+            Adapter::Opencode,
+            json!({
+                "canonical_env": {
+                    "command": "npx",
+                    "args": ["-y", "server"],
+                    "env": {"API_KEY": "canonical"},
+                    "environment": {"API_KEY": "native"}
+                },
+                "native_environment": {
+                    "command": "server",
+                    "environment": {"API_KEY": "native"}
+                }
+            }),
+        );
+
+        assert_eq!(
+            adapted["canonical_env"],
+            json!({
+                "type": "local",
+                "command": ["npx", "-y", "server"],
+                "environment": {"API_KEY": "canonical"},
+                "enabled": true
+            })
+        );
+        assert_eq!(
+            adapted["native_environment"],
+            json!({
+                "type": "local",
+                "command": ["server"],
+                "environment": {"API_KEY": "native"},
+                "enabled": true
+            })
+        );
+    }
+
+    #[test]
+    fn opencode_adapts_remote_headers_without_leaking_metadata() {
+        let adapted = apply_adapter(
+            Adapter::Opencode,
+            json!({
+                "remote": {
+                    "type": "http",
+                    "url": "https://example.com/mcp",
+                    "headers": {"Authorization": "Bearer token"},
+                    "meta": {"must": "not leak"}
+                },
+                "meta": {
+                    "remote": {"name": "Remote"}
+                }
+            }),
+        );
+
+        assert_eq!(
+            adapted["remote"],
+            json!({
+                "type": "remote",
+                "url": "https://example.com/mcp",
+                "headers": {
+                    "Authorization": "Bearer token",
+                    "Accept": "application/json, text/event-stream"
+                },
+                "enabled": true
+            })
+        );
+        assert_eq!(adapted["meta"], json!({"remote": {"name": "Remote"}}));
+        assert!(adapted["remote"].get("meta").is_none());
     }
 }
