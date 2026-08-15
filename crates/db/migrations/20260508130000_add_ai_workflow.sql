@@ -33,6 +33,7 @@ CREATE TABLE workflow_runs (
                        'running',
                        'awaiting_human',
                        'awaiting_arena',
+                       'cancelling',
                        'succeeded',
                        'failed',
                        'canceled'
@@ -62,8 +63,10 @@ CREATE TABLE node_executions (
                        'running',
                        'awaiting_human',
                        'awaiting_arena',
+                       'cancelling',
                        'succeeded',
                        'failed',
+                       'cancelled',
                        'skipped'
                    )),
     input_text     TEXT,

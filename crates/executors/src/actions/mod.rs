@@ -6,17 +6,11 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::{
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest, review::ReviewRequest,
-        script::ScriptRequest,
-    },
+    actions::script::ScriptRequest,
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
-    executors::{BaseCodingAgent, ExecutorError, SpawnedChild},
+    executors::{ExecutorError, SpawnedChild},
 };
-pub mod coding_agent_follow_up;
-pub mod coding_agent_initial;
 pub mod review;
 pub mod script;
 
@@ -27,10 +21,7 @@ pub use review::RepoReviewContext;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
 pub enum ExecutorActionType {
-    CodingAgentInitialRequest,
-    CodingAgentFollowUpRequest,
     ScriptRequest,
-    ReviewRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -58,17 +49,6 @@ impl ExecutorAction {
 
     pub fn next_action(&self) -> Option<&ExecutorAction> {
         self.next_action.as_deref()
-    }
-
-    pub fn base_executor(&self) -> Option<BaseCodingAgent> {
-        match self.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.base_executor()),
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                Some(request.base_executor())
-            }
-            ExecutorActionType::ReviewRequest(request) => Some(request.base_executor()),
-            ExecutorActionType::ScriptRequest(_) => None,
-        }
     }
 }
 

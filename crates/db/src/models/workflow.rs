@@ -23,6 +23,7 @@ pub enum WorkflowRunStatus {
     Running,
     AwaitingHuman,
     AwaitingArena,
+    Cancelling,
     Succeeded,
     Failed,
     Canceled,
@@ -39,6 +40,7 @@ pub enum WorkflowAttemptStatus {
     Running,
     AwaitingHuman,
     AwaitingArena,
+    Cancelling,
     Succeeded,
     Failed,
     Canceled,
@@ -54,8 +56,10 @@ pub enum NodeExecutionStatus {
     Running,
     AwaitingHuman,
     AwaitingArena,
+    Cancelling,
     Succeeded,
     Failed,
+    Cancelled,
     Skipped,
 }
 
@@ -74,6 +78,7 @@ pub struct Workflow {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct WorkflowRun {
     pub id: Uuid,
+    pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
@@ -114,6 +119,8 @@ pub struct NodeExecution {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub orchestration_node_execution_id: Option<Uuid>,
+    pub agent_run_id: Option<Uuid>,
     pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,
@@ -189,6 +196,8 @@ pub struct UpdateNodeExecution {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub orchestration_node_execution_id: Option<Uuid>,
+    pub agent_run_id: Option<Uuid>,
     pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,

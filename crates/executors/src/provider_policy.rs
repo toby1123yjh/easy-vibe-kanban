@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::executors::{AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, CodingAgent};
+use crate::executors::{
+    AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, CodingAgent,
+    provider_adapter::DirectProvider,
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -81,6 +84,15 @@ pub struct AgentProviderPolicy {
     pub diagnostics: Vec<AgentProviderDiagnostic>,
 }
 
+/// Capability policy for a V1 direct adapter. The snapshot is frozen on the
+/// run attempt by the runtime port; no executor fallback is implied.
+pub fn direct_provider_capability_snapshot(
+    provider: DirectProvider,
+    runtime_profile_id: impl Into<String>,
+) -> crate::runtime::CapabilitySnapshot {
+    provider.capabilities(runtime_profile_id)
+}
+
 impl AgentProviderPolicy {
     pub fn for_agent(
         executor: BaseCodingAgent,
@@ -153,30 +165,29 @@ fn capabilities_for_agent(agent: &CodingAgent) -> Vec<AgentProviderCapability> {
     }
 
     match agent {
-        CodingAgent::ClaudeCode(_) | CodingAgent::Codex(_) | CodingAgent::Gemini(_) => {
+        CodingAgent::ClaudeCode(_)
+        | CodingAgent::Codex(_)
+        | CodingAgent::Gemini(_)
+        | CodingAgent::OhMyPi(_) => {
             push_unique(&mut capabilities, AgentProviderCapability::ToolPermissions);
         }
-        _ => {}
+        #[cfg(feature = "qa-mode")]
+        CodingAgent::QaMock(_) => {}
     }
 
     match agent {
         CodingAgent::ClaudeCode(_)
         | CodingAgent::Codex(_)
         | CodingAgent::Gemini(_)
-        | CodingAgent::Opencode(_)
-        | CodingAgent::CursorAgent(_)
-        | CodingAgent::QwenCode(_)
-        | CodingAgent::Droid(_)
-        | CodingAgent::Copilot(_) => {
+        | CodingAgent::OhMyPi(_) => {
             push_unique(&mut capabilities, AgentProviderCapability::ModelSelector);
         }
-        CodingAgent::Amp(_) => {}
         #[cfg(feature = "qa-mode")]
         CodingAgent::QaMock(_) => {}
     }
 
     match agent {
-        CodingAgent::ClaudeCode(_) | CodingAgent::Codex(_) | CodingAgent::Opencode(_) => {
+        CodingAgent::ClaudeCode(_) | CodingAgent::Codex(_) => {
             push_unique(&mut capabilities, AgentProviderCapability::TeamSlot);
         }
         _ => {}
@@ -185,8 +196,8 @@ fn capabilities_for_agent(agent: &CodingAgent) -> Vec<AgentProviderCapability> {
     capabilities
 }
 
-fn agent_supports_follow_up(agent: &CodingAgent) -> bool {
-    !matches!(agent, CodingAgent::Amp(_))
+fn agent_supports_follow_up(_agent: &CodingAgent) -> bool {
+    true
 }
 
 fn agent_supports_graceful_cancel(agent: &CodingAgent) -> bool {
@@ -195,20 +206,12 @@ fn agent_supports_graceful_cancel(agent: &CodingAgent) -> bool {
         CodingAgent::ClaudeCode(_)
             | CodingAgent::Codex(_)
             | CodingAgent::Gemini(_)
-            | CodingAgent::Opencode(_)
-            | CodingAgent::QwenCode(_)
-            | CodingAgent::Copilot(_)
+            | CodingAgent::OhMyPi(_)
     )
 }
 
 fn agent_supports_observed_config(agent: &CodingAgent) -> bool {
-    matches!(
-        agent,
-        CodingAgent::ClaudeCode(_)
-            | CodingAgent::Codex(_)
-            | CodingAgent::Opencode(_)
-            | CodingAgent::CursorAgent(_)
-    )
+    matches!(agent, CodingAgent::ClaudeCode(_) | CodingAgent::Codex(_))
 }
 
 fn diagnostics_for_availability(availability: &AvailabilityInfo) -> Vec<AgentProviderDiagnostic> {
@@ -235,7 +238,7 @@ fn push_unique<T: PartialEq>(items: &mut Vec<T>, item: T) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::executors::{AppendPrompt, cursor::CursorAgent};
+    use crate::executors::oh_my_pi::OhMyPi;
 
     fn codex_agent() -> CodingAgent {
         CodingAgent::Codex(
@@ -345,31 +348,6 @@ mod tests {
     }
 
     #[test]
-    fn cursor_policy_preserves_platform_setup_helper_capability() {
-        let agent = CodingAgent::CursorAgent(CursorAgent {
-            append_prompt: AppendPrompt::default(),
-            force: None,
-            model: None,
-            reasoning: None,
-            cmd: Default::default(),
-        });
-
-        let policy = AgentProviderPolicy::for_agent(
-            BaseCodingAgent::CursorAgent,
-            &agent,
-            AvailabilityInfo::InstallationFound,
-        );
-
-        assert_eq!(policy.readiness, AgentProviderReadiness::Installed);
-        assert_eq!(
-            policy
-                .capabilities
-                .contains(&AgentProviderCapability::SetupHelper),
-            cfg!(unix)
-        );
-    }
-
-    #[test]
     fn claude_policy_includes_session_and_team_capabilities() {
         let agent = claude_agent();
 
@@ -405,6 +383,49 @@ mod tests {
             policy
                 .capabilities
                 .contains(&AgentProviderCapability::ObservedConfig)
+        );
+    }
+
+    #[test]
+    fn oh_my_pi_policy_uses_registered_native_capabilities() {
+        let agent = CodingAgent::OhMyPi(OhMyPi::default());
+
+        let policy = AgentProviderPolicy::for_agent(
+            BaseCodingAgent::OhMyPi,
+            &agent,
+            AvailabilityInfo::InstallationFound,
+        );
+
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::InitialRun)
+        );
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::FollowUp)
+        );
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::SessionResume)
+        );
+        assert!(policy.capabilities.contains(&AgentProviderCapability::Mcp));
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::ToolPermissions)
+        );
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::GracefulCancel)
+        );
+        assert!(
+            policy
+                .capabilities
+                .contains(&AgentProviderCapability::ContextUsage)
         );
     }
 }

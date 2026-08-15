@@ -44,27 +44,34 @@ pub struct Gemini {
 }
 
 impl Gemini {
-    fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new("gemini");
+    /// V1 direct-runtime metadata and decoder entry point.  Legacy ACP log
+    /// normalization remains available to old callers until the runtime port
+    /// is connected by the orchestration layer.
+    pub const DIRECT_PROVIDER: super::provider_adapter::DirectProvider =
+        super::provider_adapter::DirectProvider::Gemini;
 
-        if let Some(model) = &self.model {
-            builder = builder.extend_params(["--model", model.as_str()]);
-        }
-
-        if self.yolo.unwrap_or(false) {
-            builder = builder.extend_params(["--yolo"]);
-            builder = builder.extend_params(["--allowed-tools", "run_shell_command"]);
-        }
-
-        builder = builder.extend_params(["--experimental-acp"]);
-
-        apply_overrides(builder, &self.cmd)
+    pub fn direct_versions() -> super::provider_adapter::DirectAdapterVersions {
+        Self::DIRECT_PROVIDER.versions()
     }
-}
 
-#[async_trait]
-impl StandardCodingAgentExecutor for Gemini {
-    fn apply_overrides(&mut self, executor_config: &ExecutorConfig) {
+    pub fn direct_capabilities(
+        runtime_profile_id: impl Into<String>,
+    ) -> crate::runtime::CapabilitySnapshot {
+        Self::DIRECT_PROVIDER.capabilities(runtime_profile_id)
+    }
+
+    pub fn decode_native_frame(
+        frame: &crate::runtime::NativeAuditFrame,
+    ) -> Result<super::provider_adapter::DecodedProviderEvent, crate::runtime::NativeAuditError>
+    {
+        Self::DIRECT_PROVIDER.decode_native_frame(frame)
+    }
+
+    pub fn direct_mapper() -> super::provider_adapter::DirectProviderMapper {
+        Self::DIRECT_PROVIDER.mapper()
+    }
+
+    pub(crate) fn apply_direct_overrides(&mut self, executor_config: &ExecutorConfig) {
         if let Some(model_id) = &executor_config.model_id {
             self.model = Some(model_id.clone());
         }
@@ -76,11 +83,36 @@ impl StandardCodingAgentExecutor for Gemini {
         }
     }
 
-    fn use_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
+    pub(crate) fn use_direct_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
         self.approvals = Some(approvals);
     }
 
-    async fn spawn(
+    pub(crate) async fn launch_direct(
+        &self,
+        intent: super::provider_adapter::DirectIntent,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: Option<&str>,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        match intent {
+            super::provider_adapter::DirectIntent::Initial => {
+                self.spawn_initial_direct(current_dir, prompt, env).await
+            }
+            super::provider_adapter::DirectIntent::FollowUp
+            | super::provider_adapter::DirectIntent::Resume
+            | super::provider_adapter::DirectIntent::Review => {
+                if let Some(session_id) = session_id {
+                    self.spawn_follow_up_direct(current_dir, prompt, session_id, env)
+                        .await
+                } else {
+                    self.spawn_initial_direct(current_dir, prompt, env).await
+                }
+            }
+        }
+    }
+
+    async fn spawn_initial_direct(
         &self,
         current_dir: &Path,
         prompt: &str,
@@ -106,12 +138,11 @@ impl StandardCodingAgentExecutor for Gemini {
             .await
     }
 
-    async fn spawn_follow_up(
+    async fn spawn_follow_up_direct(
         &self,
         current_dir: &Path,
         prompt: &str,
         session_id: &str,
-        _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         let harness = AcpAgentHarness::new();
@@ -132,6 +163,55 @@ impl StandardCodingAgentExecutor for Gemini {
                 &self.cmd,
                 approvals,
             )
+            .await
+    }
+
+    fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
+        let mut builder = CommandBuilder::new("gemini");
+
+        if let Some(model) = &self.model {
+            builder = builder.extend_params(["--model", model.as_str()]);
+        }
+
+        if self.yolo.unwrap_or(false) {
+            builder = builder.extend_params(["--yolo"]);
+            builder = builder.extend_params(["--allowed-tools", "run_shell_command"]);
+        }
+
+        builder = builder.extend_params(["--experimental-acp"]);
+
+        apply_overrides(builder, &self.cmd)
+    }
+}
+
+#[async_trait]
+impl StandardCodingAgentExecutor for Gemini {
+    fn apply_overrides(&mut self, executor_config: &ExecutorConfig) {
+        self.apply_direct_overrides(executor_config);
+    }
+
+    fn use_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
+        self.use_direct_approvals(approvals);
+    }
+
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        self.spawn_initial_direct(current_dir, prompt, env).await
+    }
+
+    async fn spawn_follow_up(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: &str,
+        _reset_to_message_id: Option<&str>,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        self.spawn_follow_up_direct(current_dir, prompt, session_id, env)
             .await
     }
 

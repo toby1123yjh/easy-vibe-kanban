@@ -67,28 +67,6 @@ impl ExecutionProcessRepoState {
         Ok(())
     }
 
-    pub async fn update_before_head_commit(
-        pool: &SqlitePool,
-        execution_process_id: Uuid,
-        repo_id: Uuid,
-        before_head_commit: &str,
-    ) -> Result<(), sqlx::Error> {
-        let now = Utc::now();
-        sqlx::query!(
-            r#"UPDATE execution_process_repo_states
-               SET before_head_commit = $1, updated_at = $2
-             WHERE execution_process_id = $3
-               AND repo_id = $4"#,
-            before_head_commit,
-            now,
-            execution_process_id,
-            repo_id
-        )
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn update_after_head_commit(
         pool: &SqlitePool,
         execution_process_id: Uuid,

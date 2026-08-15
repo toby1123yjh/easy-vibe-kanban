@@ -1,5 +1,4 @@
 pub mod client;
-pub(crate) mod discovery;
 pub mod harness;
 pub mod normalize_logs;
 pub mod session;

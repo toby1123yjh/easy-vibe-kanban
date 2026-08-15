@@ -11,7 +11,6 @@ ALTER TABLE execution_processes
     CHECK (run_reason_new IN ('setupscript',
                                'cleanupscript',
                                'archivescript',
-                               'codingagent',
                                'devserver'));
 
 -- 2. Copy existing values across

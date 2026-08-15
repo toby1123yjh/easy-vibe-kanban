@@ -44,11 +44,15 @@ use worktree_manager::WorktreeManager;
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod agent_process_registry;
+pub mod agent_run_port;
 mod agent_runtime_supervisor;
 mod command;
 pub mod container;
 mod copy;
+pub mod process_host;
+mod process_supervisor;
 pub mod pty;
+mod transport;
 
 #[derive(Clone)]
 pub struct LocalDeployment {
@@ -58,6 +62,7 @@ pub struct LocalDeployment {
     workspace_manager: WorkspaceManager,
     analytics: Option<AnalyticsService>,
     container: LocalContainerService,
+    agent_run_port: agent_run_port::LocalAgentRunPort,
     git: GitService,
     repo: RepoService,
     file: FileService,
@@ -222,8 +227,10 @@ impl Deployment for LocalDeployment {
             analytics_service: s.clone(),
         });
         let workspace_manager = WorkspaceManager::new(db.clone());
+        let agent_run_port = agent_run_port::LocalAgentRunPort::new(db.clone());
         let container = LocalContainerService::new(
             db.clone(),
+            agent_run_port.clone(),
             workspace_manager.clone(),
             msg_stores.clone(),
             config.clone(),
@@ -235,6 +242,8 @@ impl Deployment for LocalDeployment {
             remote_client.clone().ok(),
         )
         .await;
+        container.spawn_agent_run_terminal_monitor();
+        agent_run_port.reconcile_process_hosts().await;
 
         let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
 
@@ -272,6 +281,7 @@ impl Deployment for LocalDeployment {
             workspace_manager,
             analytics,
             container,
+            agent_run_port,
             git,
             repo,
             file,
@@ -386,6 +396,10 @@ impl Deployment for LocalDeployment {
 }
 
 impl LocalDeployment {
+    pub fn agent_run_port(&self) -> &agent_run_port::LocalAgentRunPort {
+        &self.agent_run_port
+    }
+
     pub fn webrtc_host(&self) -> Option<Arc<WebRtcHost>> {
         let local_addr = self.client_info.get_server_addr()?;
 

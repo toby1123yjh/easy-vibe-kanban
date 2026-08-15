@@ -12,7 +12,6 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
-        coding_agent_turn::CodingAgentTurn,
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
@@ -20,28 +19,31 @@ use db::{
         repo::Repo,
         scratch::{DraftFollowUpData, Scratch, ScratchType},
         session::{Session, SessionError},
-        workspace::Workspace,
+        workspace::{Workspace, WorkspaceKind},
         workspace_repo::WorkspaceRepo,
     },
 };
 use deployment::DeploymentError;
 use executors::{
-    actions::{
-        Executable, ExecutorAction, ExecutorActionType,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest,
-    },
-    approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
+    actions::{Executable, ExecutorAction},
     env::{ExecutionEnv, RepoContext},
-    executors::{BaseCodingAgent, CancellationToken, ExecutorExitSignal},
-    logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
+    executors::{
+        CancellationToken, ExecutorExitSignal,
+        provider_adapter::{DirectProvider, require_capability},
+    },
+    provider_policy::direct_provider_capability_snapshot,
+    runtime::{
+        AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentCapability,
+        AgentRunIntent, AgentRunPort, AgentRunPortError, AgentRunRequestEnvelope, AgentRunStatus,
+        AgentRuntimeMessageRole, CanonicalMessage, ProviderSessionReference, RunAttemptMode,
+        RunAttemptRequest, WorkspaceMode, WorkspaceReference,
+    },
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
-use serde_json::json;
 use services::services::{
     analytics::AnalyticsContext,
-    approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
+    approvals::Approvals,
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
     container::{ContainerError, ContainerRef, ContainerService},
     diff_stream::{self, DiffStreamHandle},
@@ -50,22 +52,22 @@ use services::services::{
     notification::NotificationService,
     queued_message::QueuedMessageService,
     remote_client::RemoteClient,
-    remote_sync,
 };
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, types::Json};
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
-    text::{git_branch_id, short_uuid, truncate_to_char_boundary},
+    text::{git_branch_id, short_uuid},
 };
 use uuid::Uuid;
 use workspace_manager::{RepoWorkspaceInput, WorkspaceError, WorkspaceManager};
 
 use crate::{
     agent_process_registry::{AgentProcessRegistry, RegisteredAgentProcess},
-    agent_runtime_supervisor, command, copy,
+    agent_run_port::{AgentRunTerminalEvent, LocalAgentRunPort},
+    agent_runtime_supervisor, command, copy, process_supervisor,
 };
 
 const WORKSPACE_TOUCH_DEBOUNCE: Duration = Duration::from_mins(2);
@@ -101,6 +103,7 @@ async fn should_disable_default_commit_for_workspace(
 #[derive(Clone)]
 pub struct LocalContainerService {
     db: DBService,
+    agent_run_port: LocalAgentRunPort,
     workspace_manager: WorkspaceManager,
     child_store: Arc<RwLock<HashMap<Uuid, Arc<RwLock<AsyncGroupChild>>>>>,
     cancellation_tokens: Arc<RwLock<HashMap<Uuid, CancellationToken>>>,
@@ -125,6 +128,7 @@ impl LocalContainerService {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
+        agent_run_port: LocalAgentRunPort,
         workspace_manager: WorkspaceManager,
         msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
         config: Arc<RwLock<Config>>,
@@ -145,6 +149,7 @@ impl LocalContainerService {
 
         let container = LocalContainerService {
             db,
+            agent_run_port,
             workspace_manager,
             child_store,
             cancellation_tokens,
@@ -163,8 +168,11 @@ impl LocalContainerService {
             remote_client,
         };
 
+        // A service restart must observe and re-associate persisted processes;
+        // it is not an implicit shutdown policy. Only an explicit AgentRun
+        // control command may terminate a managed provider process.
         container
-            .cleanup_registered_agent_processes("startup")
+            .reconcile_registered_agent_processes("startup")
             .await;
         container.spawn_workspace_cleanup();
 
@@ -247,25 +255,139 @@ impl LocalContainerService {
         map.remove(id);
     }
 
-    async fn cleanup_registered_agent_processes(&self, reason: &'static str) {
-        match self.agent_process_registry.cleanup_all().await {
-            Ok(report) if !report.is_empty() => {
-                tracing::info!(
-                    reason,
-                    attempted = report.attempted,
-                    removed = report.removed,
-                    survivors = report.survivors,
-                    "cleaned registered agent process trees"
-                );
+    async fn reconcile_registered_agent_processes(&self, reason: &'static str) {
+        match self.agent_process_registry.reconcile().await {
+            Ok(report) => {
+                let mut action_counts = [0usize; 4];
+                for observation in &report.observations {
+                    // The child store is intentionally empty after a service
+                    // restart. An alive process therefore enters read-only
+                    // observation until the AgentRun supervisor can attach a
+                    // provider transport; it is never treated as completed.
+                    let has_live_handle = self
+                        .get_child_from_store(&observation.process.runtime_id)
+                        .await
+                        .is_some();
+                    let process_observation = match observation.presence {
+                        crate::agent_process_registry::RegisteredProcessPresence::Alive => {
+                            process_supervisor::ProcessObservation::Alive
+                        }
+                        crate::agent_process_registry::RegisteredProcessPresence::Exited => {
+                            process_supervisor::ProcessObservation::Exited(None)
+                        }
+                        crate::agent_process_registry::RegisteredProcessPresence::Unreachable => {
+                            process_supervisor::ProcessObservation::TemporarilyUnreachable
+                        }
+                    };
+                    let action = process_supervisor::reconciliation_action(
+                        process_observation,
+                        has_live_handle,
+                    );
+                    let action_index = match action {
+                        process_supervisor::ReconciliationAction::Attach => 0,
+                        process_supervisor::ReconciliationAction::ObserveReadOnly => 1,
+                        process_supervisor::ReconciliationAction::ConfirmExit => 2,
+                        process_supervisor::ReconciliationAction::PreserveForRetry => 3,
+                    };
+                    action_counts[action_index] += 1;
+                    tracing::debug!(
+                        reason,
+                        runtime_id = %observation.process.runtime_id,
+                        pid = observation.process.pid,
+                        presence = ?observation.presence,
+                        action = ?action,
+                        "observed registered agent process during restart reconciliation"
+                    );
+                }
+                let alive = report.alive().count();
+                let exited = report.exited().count();
+                let unreachable = report.observations.len().saturating_sub(alive + exited);
+                if !report.observations.is_empty() {
+                    tracing::info!(
+                        reason,
+                        observed = report.observations.len(),
+                        alive,
+                        exited,
+                        unreachable,
+                        attach = action_counts[0],
+                        observe_read_only = action_counts[1],
+                        confirm_exit = action_counts[2],
+                        preserve_for_retry = action_counts[3],
+                        "reconciled registered agent processes without cleanup"
+                    );
+                }
             }
-            Ok(_) => {}
             Err(error) => {
                 tracing::warn!(
                     reason,
                     error = %error,
-                    "failed to clean registered agent process registry"
+                    "failed to reconcile registered agent process registry"
                 );
             }
+        }
+    }
+
+    pub(crate) fn spawn_agent_run_terminal_monitor(&self) {
+        let mut terminal_events = self.agent_run_port.subscribe_terminal_events();
+        let container = self.clone();
+        tokio::spawn(async move {
+            loop {
+                match terminal_events.recv().await {
+                    Ok(event) => container.handle_agent_run_terminal(event).await,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            skipped,
+                            "AgentRun terminal monitor lagged; queued follow-ups may require reconciliation"
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    async fn handle_agent_run_terminal(&self, event: AgentRunTerminalEvent) {
+        let Some(queued_message) = self.queued_message_service.take_queued(event.session_id) else {
+            return;
+        };
+
+        if event.status != AgentRunStatus::Succeeded {
+            tracing::info!(
+                agent_run_id = %event.agent_run_id,
+                session_id = %event.session_id,
+                status = ?event.status,
+                "discarding queued follow-up after unsuccessful canonical AgentRun"
+            );
+            return;
+        }
+
+        if let Err(error) =
+            Scratch::delete(&self.db.pool, event.session_id, &ScratchType::DraftFollowUp).await
+        {
+            tracing::warn!(
+                agent_run_id = %event.agent_run_id,
+                session_id = %event.session_id,
+                %error,
+                "failed to delete scratch before consuming queued follow-up"
+            );
+        }
+
+        match self
+            .start_queued_follow_up(event.session_id, &queued_message.data)
+            .await
+        {
+            Ok(next_agent_run_id) => tracing::info!(
+                agent_run_id = %event.agent_run_id,
+                next_agent_run_id = %next_agent_run_id,
+                session_id = %event.session_id,
+                "started queued follow-up after canonical AgentRun completion"
+            ),
+            Err(error) => tracing::error!(
+                agent_run_id = %event.agent_run_id,
+                session_id = %event.session_id,
+                %error,
+                "failed to start queued follow-up after canonical AgentRun completion"
+            ),
         }
     }
 
@@ -276,7 +398,7 @@ impl LocalContainerService {
     ) {
         if let Err(error) = self
             .agent_process_registry
-            .remove_execution(execution_process_id)
+            .remove_runtime(execution_process_id)
             .await
         {
             tracing::warn!(
@@ -295,7 +417,7 @@ impl LocalContainerService {
     ) {
         match self
             .agent_process_registry
-            .cleanup_execution(execution_process_id)
+            .cleanup_runtime(execution_process_id)
             .await
         {
             Ok(report) if !report.is_empty() => {
@@ -463,39 +585,6 @@ impl LocalContainerService {
     /// Get the commit message based on the execution run reason.
     async fn get_commit_message(&self, ctx: &ExecutionContext) -> String {
         match ctx.execution_process.run_reason {
-            ExecutionProcessRunReason::CodingAgent => {
-                // Try to retrieve the task summary from the coding agent turn
-                // otherwise fallback to default message
-                match CodingAgentTurn::find_by_execution_process_id(
-                    &self.db().pool,
-                    ctx.execution_process.id,
-                )
-                .await
-                {
-                    Ok(Some(turn)) if turn.summary.is_some() => turn.summary.unwrap(),
-                    Ok(_) => {
-                        tracing::debug!(
-                            "No summary found for execution process {}, using default message",
-                            ctx.execution_process.id
-                        );
-                        format!(
-                            "Commit changes from coding agent for workspace {}",
-                            ctx.workspace.id
-                        )
-                    }
-                    Err(e) => {
-                        tracing::debug!(
-                            "Failed to retrieve summary for execution process {}: {}",
-                            ctx.execution_process.id,
-                            e
-                        );
-                        format!(
-                            "Commit changes from coding agent for workspace {}",
-                            ctx.workspace.id
-                        )
-                    }
-                }
-            }
             ExecutionProcessRunReason::CleanupScript => {
                 format!("Cleanup script changes for workspace {}", ctx.workspace.id)
             }
@@ -538,35 +627,6 @@ impl LocalContainerService {
         Ok(repos_with_changes)
     }
 
-    async fn has_commits_from_execution(
-        &self,
-        ctx: &ExecutionContext,
-    ) -> Result<bool, ContainerError> {
-        let workspace_root = self.workspace_to_current_dir(&ctx.workspace);
-
-        let repo_states = ExecutionProcessRepoState::find_by_execution_process_id(
-            &self.db.pool,
-            ctx.execution_process.id,
-        )
-        .await?;
-
-        for repo in &ctx.repos {
-            let repo_path = workspace_root.join(&repo.name);
-            let current_head = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
-
-            let before_head = repo_states
-                .iter()
-                .find(|s| s.repo_id == repo.id)
-                .and_then(|s| s.before_head_commit.clone());
-
-            if current_head != before_head {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
-    }
-
     /// Commit changes to each repo. Logs failures but continues with other repos.
     fn commit_repos(&self, repos_with_changes: Vec<(Repo, PathBuf)>, message: &str) -> bool {
         let mut any_committed = false;
@@ -606,9 +666,7 @@ impl LocalContainerService {
         let child_store = self.child_store.clone();
         let msg_stores = self.msg_stores.clone();
         let db = self.db.clone();
-        let config = self.config.clone();
         let container = self.clone();
-        let analytics = self.analytics.clone();
 
         let mut process_exit_rx = self.spawn_os_exit_watcher(exec_id);
 
@@ -685,11 +743,6 @@ impl LocalContainerService {
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
-                // Update executor session summary if available
-                if let Err(e) = container.update_executor_session_summary(&exec_id).await {
-                    tracing::warn!("Failed to update executor session summary: {}", e);
-                }
-
                 let success = matches!(
                     ctx.execution_process.status,
                     ExecutionProcessStatus::Completed
@@ -703,226 +756,26 @@ impl LocalContainerService {
                     ExecutionProcessStatus::Running
                 );
 
-                let mut already_finalized = false;
-
                 if success || cleanup_done {
                     // Commit changes (if any) and get feedback about whether changes were made
-                    let changes_committed = match container.try_commit_changes(&ctx).await {
-                        Ok(committed) => committed,
+                    match container.try_commit_changes(&ctx).await {
+                        Ok(_) => {}
                         Err(e) => {
                             tracing::error!("Failed to commit changes after execution: {}", e);
                             // Treat commit failures as if changes were made to be safe
-                            true
                         }
                     };
 
-                    let should_start_next = if matches!(
-                        ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    ) {
-                        // Check if agent made commits OR if we just committed uncommitted changes
-                        changes_committed
-                            || container
-                                .has_commits_from_execution(&ctx)
-                                .await
-                                .unwrap_or(false)
-                    } else {
-                        true
-                    };
-
-                    if should_start_next {
-                        // If the process exited successfully, start the next action
-                        if let Err(e) = container.try_start_next_action(&ctx).await {
-                            tracing::error!("Failed to start next action after completion: {}", e);
-                        }
-                    } else {
-                        tracing::info!(
-                            "Skipping cleanup script for workspace {} - no changes made by coding agent",
-                            ctx.workspace.id
-                        );
-
-                        // Manually finalize task since we're bypassing normal execution flow
-                        container.finalize_task(&ctx).await;
-                        already_finalized = true;
+                    // Script actions are the only ExecutionProcess actions. Any
+                    // canonical AgentRun is finalized by AgentRunPort and never
+                    // enters this legacy process monitor.
+                    if let Err(e) = container.try_start_next_action(&ctx).await {
+                        tracing::error!("Failed to start next action after completion: {}", e);
                     }
                 }
 
-                if !already_finalized && container.should_finalize(&ctx) {
-                    let has_chained_follow_up = ctx
-                        .execution_process
-                        .executor_action()
-                        .ok()
-                        .and_then(|action| action.next_action())
-                        .is_some();
-                    let mut started_queued_follow_up = false;
-
-                    // Only execute queued messages if the execution succeeded
-                    // If it failed or was killed, just clear the queue and finalize
-                    let should_execute_queued = !matches!(
-                        ctx.execution_process.status,
-                        ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
-                    );
-
-                    if let Some(queued_msg) =
-                        container.queued_message_service.take_queued(ctx.session.id)
-                    {
-                        if should_execute_queued {
-                            tracing::info!(
-                                "Found queued message for session {}, starting follow-up execution",
-                                ctx.session.id
-                            );
-
-                            // Delete the scratch since we're consuming the queued message
-                            if let Err(e) = Scratch::delete(
-                                &db.pool,
-                                ctx.session.id,
-                                &ScratchType::DraftFollowUp,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to delete scratch after consuming queued message: {}",
-                                    e
-                                );
-                            }
-
-                            // Execute the queued follow-up
-                            if let Err(e) = container
-                                .start_queued_follow_up(&ctx, &queued_msg.data)
-                                .await
-                            {
-                                tracing::error!("Failed to start queued follow-up: {}", e);
-                                // Fall back to finalization if follow-up fails
-                                container.finalize_task(&ctx).await;
-                            } else {
-                                started_queued_follow_up = true;
-                            }
-                        } else {
-                            // Execution failed or was killed - discard the queued message and finalize
-                            tracing::info!(
-                                "Discarding queued message for session {} due to execution status {:?}",
-                                ctx.session.id,
-                                ctx.execution_process.status
-                            );
-                            container.finalize_task(&ctx).await;
-                        }
-                    } else {
-                        container.finalize_task(&ctx).await;
-                    }
-
-                    let should_mark_turn_unseen = matches!(
-                        ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    ) && !has_chained_follow_up
-                        && !started_queued_follow_up;
-
-                    if should_mark_turn_unseen
-                        && let Err(e) = CodingAgentTurn::mark_unseen_by_execution_process_id(
-                            &db.pool,
-                            ctx.execution_process.id,
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            "Failed to mark coding agent turn unseen for execution {}: {}",
-                            ctx.execution_process.id,
-                            e
-                        );
-                    }
-                }
-
-                // When a parallel setup script finishes and no coding agent is running,
-                // consume any queued message that was stuck waiting
-                if matches!(
-                    ctx.execution_process.run_reason,
-                    ExecutionProcessRunReason::SetupScript
-                ) && !container.should_finalize(&ctx)
-                {
-                    let has_running_agent = ExecutionProcess::has_running_coding_agent_for_session(
-                        &db.pool,
-                        ctx.session.id,
-                    )
-                    .await
-                    .unwrap_or(true);
-
-                    if !has_running_agent
-                        && let Some(queued_msg) =
-                            container.queued_message_service.take_queued(ctx.session.id)
-                    {
-                        tracing::info!(
-                            "Parallel setup script finished with queued message for session {}, starting follow-up",
-                            ctx.session.id
-                        );
-
-                        if let Err(e) =
-                            Scratch::delete(&db.pool, ctx.session.id, &ScratchType::DraftFollowUp)
-                                .await
-                        {
-                            tracing::warn!(
-                                "Failed to delete scratch after consuming queued message: {}",
-                                e
-                            );
-                        }
-
-                        if let Err(e) = container
-                            .start_queued_follow_up(&ctx, &queued_msg.data)
-                            .await
-                        {
-                            tracing::error!(
-                                "Failed to start queued follow-up from setup script completion: {}",
-                                e
-                            );
-                        }
-                    }
-                }
-
-                // Fire analytics event when CodingAgent execution has finished
-                if config.read().await.analytics_enabled
-                    && matches!(
-                        &ctx.execution_process.run_reason,
-                        ExecutionProcessRunReason::CodingAgent
-                    )
-                    && let Some(analytics) = &analytics
-                {
-                    analytics.analytics_service.track_event(&analytics.user_id, "task_attempt_finished", Some(json!({
-                        "workspace_id": ctx.workspace.id.to_string(),
-                        "session_id": ctx.session.id.to_string(),
-                        "execution_success": matches!(ctx.execution_process.status, ExecutionProcessStatus::Completed),
-                        "exit_code": ctx.execution_process.exit_code,
-                    })));
-                }
-
-                // Sync workspace to remote after CodingAgent execution
-                if matches!(
-                    &ctx.execution_process.run_reason,
-                    ExecutionProcessRunReason::CodingAgent
-                ) && let Some(client) = &container.remote_client
-                {
-                    let stats = diff_stream::compute_diff_stats(
-                        &container.db.pool,
-                        &container.git,
-                        &ctx.workspace,
-                    )
-                    .await;
-                    let workspace_name =
-                        Workspace::find_by_id_with_status(&container.db.pool, ctx.workspace.id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|ws| ws.workspace.name);
-                    let client = client.clone();
-                    let workspace_id = ctx.workspace.id;
-                    let archived = ctx.workspace.archived;
-                    tokio::spawn(async move {
-                        remote_sync::sync_workspace_to_remote(
-                            &client,
-                            workspace_id,
-                            workspace_name.map(Some),
-                            Some(archived),
-                            stats.as_ref(),
-                        )
-                        .await;
-                    });
+                if container.should_finalize(&ctx) {
+                    container.finalize_task(&ctx).await;
                 }
             }
 
@@ -1034,56 +887,6 @@ impl LocalContainerService {
             .map_err(|e| ContainerError::Other(anyhow!("{e}")))
     }
 
-    /// Extract the last assistant message from the MsgStore history
-    fn extract_last_assistant_message(&self, exec_id: &Uuid) -> Option<String> {
-        // Get the MsgStore for this execution
-        let msg_stores = self.msg_stores.try_read().ok()?;
-        let msg_store = msg_stores.get(exec_id)?;
-
-        // Get the history and scan in reverse for the last assistant message
-        let history = msg_store.get_history();
-
-        for msg in history.iter().rev() {
-            if let LogMsg::JsonPatch(patch) = msg {
-                // Try to extract a NormalizedEntry from the patch
-                if let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
-                    && matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
-                {
-                    let content = entry.content.trim();
-                    if !content.is_empty() {
-                        const MAX_SUMMARY_LENGTH: usize = 4096;
-                        if content.len() > MAX_SUMMARY_LENGTH {
-                            let truncated = truncate_to_char_boundary(content, MAX_SUMMARY_LENGTH);
-                            return Some(format!("{truncated}..."));
-                        }
-                        return Some(content.to_string());
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Update the coding agent turn summary with the final assistant message
-    async fn update_executor_session_summary(&self, exec_id: &Uuid) -> Result<(), anyhow::Error> {
-        // Check if there's a coding agent turn for this execution process
-        let turn = CodingAgentTurn::find_by_execution_process_id(&self.db.pool, *exec_id).await?;
-
-        if let Some(turn) = turn {
-            // Only update if summary is not already set
-            if turn.summary.is_none() {
-                if let Some(summary) = self.extract_last_assistant_message(exec_id) {
-                    CodingAgentTurn::update_summary(&self.db.pool, *exec_id, &summary).await?;
-                } else {
-                    tracing::debug!("No assistant message found for execution {}", exec_id);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Copy project files and workspace attachments to the workspace.
     /// Skips files that already exist (fast no-op if all exist).
     async fn copy_files_and_images(
@@ -1185,81 +988,163 @@ impl LocalContainerService {
         Ok(())
     }
 
-    /// Start a follow-up execution from a queued message
+    /// Start a canonical AgentRun from a queued message.
     async fn start_queued_follow_up(
         &self,
-        ctx: &ExecutionContext,
+        session_id: Uuid,
         queued_data: &DraftFollowUpData,
-    ) -> Result<ExecutionProcess, ContainerError> {
+    ) -> Result<Uuid, ContainerError> {
+        let session = Session::find_by_id(&self.db.pool, session_id)
+            .await?
+            .ok_or(SessionError::NotFound)?;
+        let workspace = Workspace::find_by_id(&self.db.pool, session.workspace_id)
+            .await?
+            .ok_or(SessionError::WorkspaceNotFound)?;
         let executor_profile_id = queued_data.executor_config.profile_id();
 
-        // Validate executor matches session if session has prior executions
-        let expected_executor: Option<String> =
-            ExecutionProcess::latest_executor_profile_for_session(&self.db.pool, ctx.session.id)
-                .await?
-                .map(|profile| profile.executor.to_string())
-                .or_else(|| ctx.session.executor.clone());
-
-        if let Some(expected) = expected_executor {
+        if let Some(expected) = session.executor.clone() {
             let actual = executor_profile_id.executor.to_string();
             if expected != actual {
                 return Err(SessionError::ExecutorMismatch { expected, actual }.into());
             }
         }
 
-        if ctx.session.executor.is_none() {
+        if session.executor.is_none() {
             Session::update_executor(
                 &self.db.pool,
-                ctx.session.id,
+                session.id,
                 &executor_profile_id.executor.to_string(),
             )
             .await?;
         }
 
-        // Get latest agent turn for session continuity (from coding agent turns)
-        let latest_session_info =
-            CodingAgentTurn::find_latest_session_info(&self.db.pool, ctx.session.id).await?;
-
-        let repos =
-            WorkspaceRepo::find_repos_for_workspace(&self.db.pool, ctx.workspace.id).await?;
-        let cleanup_action = self.cleanup_actions_for_repos(&repos);
-
-        let working_dir = ctx
-            .session
-            .agent_working_dir
-            .as_ref()
-            .filter(|dir| !dir.is_empty())
-            .cloned();
-
-        let action_type = if let Some(info) = latest_session_info {
-            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                prompt: queued_data.message.clone(),
-                selected_skills: None,
-                session_id: info.session_id,
-                reset_to_message_id: None,
-                executor_config: queued_data.executor_config.clone(),
-                working_dir: working_dir.clone(),
-                transcript_backfill: None,
-            })
-        } else {
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: queued_data.message.clone(),
-                selected_skills: None,
-                executor_config: queued_data.executor_config.clone(),
-                working_dir,
-            })
-        };
-
-        let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
-
-        self.start_execution(
-            &ctx.workspace,
-            &ctx.session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
+        let provider = DirectProvider::from_base_agent(queued_data.executor_config.executor)
+            .ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "{} is not a V1 direct Agent Runtime provider",
+                    queued_data.executor_config.executor
+                ))
+            })?;
+        let runtime_profile_id = executor_profile_id.cache_key();
+        let provider_session = sqlx::query_scalar::<_, Json<ProviderSessionReference>>(
+            r#"
+            SELECT session_reference
+            FROM agent_provider_sessions
+            WHERE session_id = ? AND provider_id = ? AND runtime_profile_id = ?
+            LIMIT 1
+            "#,
         )
-        .await
+        .bind(session.id)
+        .bind(provider.id())
+        .bind(&runtime_profile_id)
+        .fetch_optional(&self.db.pool)
+        .await?
+        .map(|reference| reference.0);
+        let workspace_path = self.ensure_container_exists(&workspace).await?;
+        let (request, attempt) = build_queued_agent_run_requests(
+            session.id,
+            &workspace,
+            workspace_path,
+            queued_data,
+            provider_session,
+        )
+        .map_err(|error| ContainerError::Other(anyhow!(error)))?;
+
+        self.agent_run_port
+            .create(request, attempt)
+            .await
+            .map_err(|error| ContainerError::Other(anyhow!(error)))
     }
+}
+
+fn build_queued_agent_run_requests(
+    session_id: Uuid,
+    workspace: &Workspace,
+    workspace_path: String,
+    queued_data: &DraftFollowUpData,
+    provider_session: Option<ProviderSessionReference>,
+) -> Result<(AgentRunRequestEnvelope, RunAttemptRequest), AgentRunPortError> {
+    let provider = DirectProvider::from_base_agent(queued_data.executor_config.executor)
+        .ok_or_else(|| {
+            AgentRunPortError::Rejected(format!(
+                "{} is not a V1 direct Agent Runtime provider",
+                queued_data.executor_config.executor
+            ))
+        })?;
+    let runtime_profile_id = queued_data.executor_config.profile_id().cache_key();
+    let capability_snapshot =
+        direct_provider_capability_snapshot(provider, runtime_profile_id.clone());
+    let intent = if provider_session.is_some() {
+        require_capability(
+            provider,
+            &capability_snapshot,
+            AgentCapability::SessionResume,
+            false,
+        )
+        .map_err(|error| AgentRunPortError::Rejected(error.to_string()))?;
+        AgentRunIntent::FollowUp
+    } else {
+        AgentRunIntent::Initial
+    };
+    let request_id = Uuid::new_v4();
+    let agent_run_id = Uuid::new_v4();
+    let turn_id = Uuid::new_v4();
+    let correlation_id = Uuid::new_v4();
+    let created_at = chrono::Utc::now();
+    let idempotency_key = format!("session:{session_id}:request:{request_id}:queued");
+    let workspace = WorkspaceReference {
+        workspace_id: workspace.id,
+        mode: match workspace.workspace_kind {
+            WorkspaceKind::DirectFolder => WorkspaceMode::SharedWorkspace,
+            WorkspaceKind::Worktree => WorkspaceMode::IsolatedWorktree,
+        },
+        path: workspace_path,
+    };
+    let request = AgentRunRequestEnvelope {
+        schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+        payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+        request_id,
+        idempotency_key: idempotency_key.clone(),
+        session_id,
+        agent_run_id,
+        turn_id,
+        correlation_id,
+        intent,
+        runtime_profile_id: runtime_profile_id.clone(),
+        provider_id: provider.id().to_string(),
+        workspace: workspace.clone(),
+        input: CanonicalMessage {
+            message_id: Uuid::new_v4(),
+            role: AgentRuntimeMessageRole::User,
+            content: queued_data.message.clone(),
+        },
+        created_at,
+    };
+    let attempt = RunAttemptRequest {
+        schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+        payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+        request_id,
+        idempotency_key: format!("{idempotency_key}:attempt:1"),
+        session_id,
+        agent_run_id,
+        turn_id,
+        run_attempt_id: Uuid::new_v4(),
+        attempt_number: 1,
+        correlation_id,
+        mode: RunAttemptMode::Launch,
+        transport: provider.transport(),
+        runtime_profile_id,
+        provider_id: provider.id().to_string(),
+        workspace,
+        capability_snapshot,
+        executor_config: queued_data.executor_config.clone(),
+        selected_skills: None,
+        reset_to_message_id: None,
+        provider_session,
+        created_at,
+    };
+
+    Ok((request, attempt))
 }
 
 #[async_trait]
@@ -1497,6 +1382,15 @@ impl ContainerService for LocalContainerService {
         execution_process: &ExecutionProcess,
         executor_action: &ExecutorAction,
     ) -> Result<(), ContainerError> {
+        if !matches!(
+            executor_action.typ(),
+            executors::actions::ExecutorActionType::ScriptRequest(_)
+        ) {
+            return Err(ContainerError::Other(anyhow!(
+                "coding-agent ExecutionProcess actions were removed; use the canonical AgentRun API"
+            )));
+        }
+
         // Get the worktree path
         let container_ref = workspace
             .container_ref
@@ -1511,23 +1405,6 @@ impl ContainerService for LocalContainerService {
             lifecycle = ?starting.lifecycle,
             "classified agent runtime start outcome"
         );
-
-        let approvals_service: Arc<dyn ExecutorApprovalService> =
-            match executor_action.base_executor() {
-                Some(
-                    BaseCodingAgent::Codex
-                    | BaseCodingAgent::ClaudeCode
-                    | BaseCodingAgent::Gemini
-                    | BaseCodingAgent::QwenCode
-                    | BaseCodingAgent::Opencode,
-                ) => ExecutorApprovalBridge::new(
-                    self.approvals.clone(),
-                    self.db.clone(),
-                    self.notification_service.clone(),
-                    execution_process.id,
-                ),
-                _ => Arc::new(NoopExecutorApprovalService {}),
-            };
 
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
         let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
@@ -1553,24 +1430,22 @@ impl ContainerService for LocalContainerService {
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
 
-        let provider = executor_action
-            .base_executor()
-            .map(|executor| executor.to_string());
-
         // Create the child and stream, add to execution tracker with timeout
         let spawn_result = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service, &env),
+            executor_action.spawn(
+                &current_dir,
+                Arc::new(executors::approvals::NoopExecutorApprovalService {}),
+                &env,
+            ),
         )
         .await;
 
         let mut spawned = match spawn_result {
             Ok(Ok(spawned)) => spawned,
             Ok(Err(error)) => {
-                let outcome = agent_runtime_supervisor::classify_launch_executor_error(
-                    &error,
-                    provider.as_deref(),
-                );
+                let outcome =
+                    agent_runtime_supervisor::classify_launch_executor_error(&error, None);
                 trace_launch_diagnostic(execution_process.id, &outcome);
                 return Err(ContainerError::ExecutorError(error));
             }
@@ -1596,7 +1471,7 @@ impl ContainerService for LocalContainerService {
             execution_process.id,
             Some(execution_process.session_id),
             Some(workspace.id),
-            provider.clone(),
+            None,
             pid,
             Some(pid),
             None,
@@ -1822,7 +1697,7 @@ impl ContainerService for LocalContainerService {
     async fn try_commit_changes(&self, ctx: &ExecutionContext) -> Result<bool, ContainerError> {
         if !matches!(
             ctx.execution_process.run_reason,
-            ExecutionProcessRunReason::CodingAgent | ExecutionProcessRunReason::CleanupScript,
+            ExecutionProcessRunReason::CleanupScript,
         ) {
             return Ok(false);
         }
@@ -1905,15 +1780,21 @@ impl ContainerService for LocalContainerService {
             }
         }
 
-        self.cleanup_registered_agent_processes("shutdown").await;
-
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use db::models::arena_group::{ArenaLifecycleStatus, ArenaMode};
+    use chrono::Utc;
+    use db::models::{
+        arena_group::{ArenaLifecycleStatus, ArenaMode, ArenaStatus},
+        workspace::ContainerOwnership,
+    };
+    use executors::{
+        executors::BaseCodingAgent, profile::ExecutorConfig,
+        runtime::PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
+    };
     use sqlx::sqlite::SqlitePoolOptions;
 
     use super::*;
@@ -1991,6 +1872,126 @@ mod tests {
             .expect("insert workspace");
 
         workspace_id
+    }
+
+    fn runtime_workspace(workspace_kind: WorkspaceKind) -> Workspace {
+        let now = Utc::now();
+        Workspace {
+            id: Uuid::new_v4(),
+            task_id: None,
+            container_ref: Some("C:\\runtime-workspace".to_string()),
+            workspace_kind,
+            container_ownership: ContainerOwnership::Managed,
+            branch: "main".to_string(),
+            setup_completed_at: None,
+            created_at: now,
+            updated_at: now,
+            archived: false,
+            pinned: false,
+            name: None,
+            worktree_deleted: false,
+            arena_group_id: None,
+            arena_status: ArenaStatus::Active,
+        }
+    }
+
+    fn queued_follow_up_data() -> DraftFollowUpData {
+        let mut executor_config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        executor_config.variant = Some("queued-profile".to_string());
+        executor_config.model_id = Some("gpt-5.4".to_string());
+        executor_config.agent_id = Some("default".to_string());
+        executor_config.reasoning_id = Some("high".to_string());
+        DraftFollowUpData {
+            message: "Continue the canonical task".to_string(),
+            executor_config,
+        }
+    }
+
+    #[test]
+    fn queued_request_without_provider_session_is_canonical_initial() {
+        let session_id = Uuid::new_v4();
+        let workspace = runtime_workspace(WorkspaceKind::Worktree);
+        let queued_data = queued_follow_up_data();
+
+        let (request, attempt) = build_queued_agent_run_requests(
+            session_id,
+            &workspace,
+            "C:\\runtime-workspace".to_string(),
+            &queued_data,
+            None,
+        )
+        .expect("build queued AgentRun request");
+
+        request.validate_current().expect("valid request envelope");
+        attempt
+            .validate_for_run(&request)
+            .expect("valid attempt envelope");
+        assert_eq!(request.intent, AgentRunIntent::Initial);
+        assert_eq!(request.input.content, queued_data.message);
+        assert_eq!(attempt.executor_config, queued_data.executor_config);
+        assert_eq!(attempt.selected_skills, None);
+        assert_eq!(attempt.provider_session, None);
+        assert_eq!(request.workspace.mode, WorkspaceMode::IsolatedWorktree);
+        assert_eq!(request.workspace, attempt.workspace);
+    }
+
+    #[test]
+    fn queued_request_with_provider_session_is_native_follow_up() {
+        let session_id = Uuid::new_v4();
+        let workspace = runtime_workspace(WorkspaceKind::DirectFolder);
+        let queued_data = queued_follow_up_data();
+        let runtime_profile_id = queued_data.executor_config.profile_id().cache_key();
+        let provider_session = ProviderSessionReference {
+            schema_version: PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
+            provider_id: DirectProvider::Codex.id().to_string(),
+            runtime_profile_id,
+            provider_session_id: "native-session-1".to_string(),
+            observed_at: Utc::now(),
+            metadata: Some(serde_json::json!({ "source": "test" })),
+        };
+
+        let (request, attempt) = build_queued_agent_run_requests(
+            session_id,
+            &workspace,
+            "C:\\shared-workspace".to_string(),
+            &queued_data,
+            Some(provider_session.clone()),
+        )
+        .expect("build queued follow-up request");
+
+        request.validate_current().expect("valid request envelope");
+        attempt
+            .validate_for_run(&request)
+            .expect("valid attempt envelope");
+        assert_eq!(request.intent, AgentRunIntent::FollowUp);
+        assert_eq!(attempt.provider_session, Some(provider_session));
+        assert_eq!(attempt.executor_config, queued_data.executor_config);
+        assert_eq!(attempt.selected_skills, None);
+        assert_eq!(request.workspace.mode, WorkspaceMode::SharedWorkspace);
+    }
+
+    #[test]
+    fn queued_request_maps_both_workspace_collaboration_modes() {
+        let queued_data = queued_follow_up_data();
+        let cases = [
+            (WorkspaceKind::DirectFolder, WorkspaceMode::SharedWorkspace),
+            (WorkspaceKind::Worktree, WorkspaceMode::IsolatedWorktree),
+        ];
+
+        for (workspace_kind, expected_mode) in cases {
+            let workspace = runtime_workspace(workspace_kind);
+            let (request, attempt) = build_queued_agent_run_requests(
+                Uuid::new_v4(),
+                &workspace,
+                "C:\\workspace".to_string(),
+                &queued_data,
+                None,
+            )
+            .expect("build workspace-mode request");
+
+            assert_eq!(request.workspace.mode, expected_mode);
+            assert_eq!(attempt.workspace.mode, expected_mode);
+        }
     }
 
     #[tokio::test]

@@ -4,7 +4,7 @@ CREATE TABLE execution_processes (
     id                BLOB PRIMARY KEY,
     task_attempt_id   BLOB NOT NULL,
     process_type      TEXT NOT NULL DEFAULT 'setupscript'
-                         CHECK (process_type IN ('setupscript','codingagent','devserver')),
+                         CHECK (process_type IN ('setupscript','devserver')),
     status            TEXT NOT NULL DEFAULT 'running'
                          CHECK (status IN ('running','completed','failed','killed')),
     command           TEXT NOT NULL,

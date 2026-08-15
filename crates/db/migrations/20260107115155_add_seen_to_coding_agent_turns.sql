@@ -1,3 +1,3 @@
--- Add 'seen' column to coding_agent_turns table
--- New turns default to unseen (0), marked as seen (1) when user views the workspace
-ALTER TABLE coding_agent_turns ADD COLUMN seen INTEGER NOT NULL DEFAULT 0;
+-- Legacy coding-agent turn storage was removed before Agent Runtime V1.
+-- Keep this migration version as a no-op so a clean database can replay the
+-- historical migration chain without recreating the retired table.

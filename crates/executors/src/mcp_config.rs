@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use tokio::fs;
 use ts_rs::TS;
 
-use crate::executors::{CodingAgent, ExecutorError};
+use crate::executors::{CodingAgent, ExecutorError, provider_adapter::DirectProvider};
 
 fn is_jsonc_file(path: &Path) -> bool {
     path.extension()
@@ -264,19 +264,6 @@ fn adapt_gemini(servers: ServerMap, meta: Option<Value>) -> Value {
     attach_meta(servers, meta)
 }
 
-fn adapt_cursor(servers: ServerMap, meta: Option<Value>) -> Value {
-    let servers = transform_http_servers(servers, |mut s| {
-        let url = s
-            .remove("url")
-            .unwrap_or_else(|| Value::String(String::new()));
-        let headers = s
-            .remove("headers")
-            .unwrap_or_else(|| Value::Object(Default::default()));
-        Map::from_iter([("url".to_string(), url), ("headers".to_string(), headers)])
-    });
-    attach_meta(servers, meta)
-}
-
 fn adapt_codex(mut servers: ServerMap, mut meta: Option<Value>) -> Value {
     servers.retain(|_, value| {
         let Some(server) = value.as_object_mut() else {
@@ -314,95 +301,11 @@ fn adapt_codex(mut servers: ServerMap, mut meta: Option<Value>) -> Value {
     attach_meta(servers, meta)
 }
 
-fn adapt_opencode(servers: ServerMap, meta: Option<Value>) -> Value {
-    let mut servers = transform_http_servers(servers, |mut s| {
-        let url = s
-            .remove("url")
-            .unwrap_or_else(|| Value::String(String::new()));
-
-        let mut headers = s
-            .remove("headers")
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
-
-        ensure_header(
-            &mut headers,
-            "Accept",
-            "application/json, text/event-stream",
-        );
-
-        Map::from_iter([
-            ("type".to_string(), Value::String("remote".to_string())),
-            ("url".to_string(), url),
-            ("headers".to_string(), Value::Object(headers)),
-            ("enabled".to_string(), Value::Bool(true)),
-        ])
-    });
-
-    for (_k, v) in servers.iter_mut() {
-        if let Value::Object(s) = v
-            && is_stdio(s)
-        {
-            let command_str = s
-                .remove("command")
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s),
-                    _ => None,
-                })
-                .unwrap_or_default();
-
-            let mut cmd_vec: Vec<Value> = Vec::new();
-            if !command_str.is_empty() {
-                cmd_vec.push(Value::String(command_str));
-            }
-
-            if let Some(arr) = s.remove("args").and_then(|v| match v {
-                Value::Array(arr) => Some(arr),
-                _ => None,
-            }) {
-                for a in arr {
-                    match a {
-                        Value::String(s) => cmd_vec.push(Value::String(s)),
-                        other => cmd_vec.push(other), // fall back to raw value if not string
-                    }
-                }
-            }
-
-            let mut new_map = Map::new();
-            new_map.insert("type".to_string(), Value::String("local".to_string()));
-            new_map.insert("command".to_string(), Value::Array(cmd_vec));
-            if let Some(environment) = s.remove("env").or_else(|| s.remove("environment")) {
-                new_map.insert("environment".to_string(), environment);
-            }
-            new_map.insert("enabled".to_string(), Value::Bool(true));
-            *s = new_map;
-        }
-    }
-
-    attach_meta(servers, meta)
-}
-
-fn adapt_copilot(mut servers: ServerMap, meta: Option<Value>) -> Value {
-    for (_, value) in servers.iter_mut() {
-        if let Value::Object(s) = value
-            && !s.contains_key("tools")
-        {
-            s.insert(
-                "tools".to_string(),
-                Value::Array(vec![Value::String("*".to_string())]),
-            );
-        }
-    }
-    attach_meta(servers, meta)
-}
-
 enum Adapter {
     Passthrough,
+    OhMyPi,
     Gemini,
-    Cursor,
     Codex,
-    Opencode,
-    Copilot,
 }
 
 fn apply_adapter(adapter: Adapter, canonical: Value) -> Value {
@@ -413,11 +316,9 @@ fn apply_adapter(adapter: Adapter, canonical: Value) -> Value {
 
     match adapter {
         Adapter::Passthrough => adapt_passthrough(servers_only, meta),
+        Adapter::OhMyPi => adapt_passthrough(servers_only, meta),
         Adapter::Gemini => adapt_gemini(servers_only, meta),
-        Adapter::Cursor => adapt_cursor(servers_only, meta),
         Adapter::Codex => adapt_codex(servers_only, meta),
-        Adapter::Opencode => adapt_opencode(servers_only, meta),
-        Adapter::Copilot => adapt_copilot(servers_only, meta),
     }
 }
 
@@ -426,12 +327,10 @@ impl CodingAgent {
         use Adapter::*;
 
         let adapter = match self {
-            CodingAgent::ClaudeCode(_) | CodingAgent::Amp(_) | CodingAgent::Droid(_) => Passthrough,
-            CodingAgent::QwenCode(_) | CodingAgent::Gemini(_) => Gemini,
-            CodingAgent::CursorAgent(_) => Cursor,
+            CodingAgent::ClaudeCode(_) => Passthrough,
+            CodingAgent::OhMyPi(_) => OhMyPi,
+            CodingAgent::Gemini(_) => Gemini,
             CodingAgent::Codex(_) => Codex,
-            CodingAgent::Opencode(_) => Opencode,
-            CodingAgent::Copilot(..) => Copilot,
             #[cfg(feature = "qa-mode")]
             CodingAgent::QaMock(_) => Passthrough, // QA mock doesn't need MCP
         };
@@ -441,11 +340,42 @@ impl CodingAgent {
     }
 }
 
+/// MCP configuration for direct runtime adapters.
+pub fn direct_provider_mcp_config(provider: DirectProvider) -> McpConfig {
+    match provider {
+        DirectProvider::OhMyPi => McpConfig::new(
+            vec!["mcpServers".to_string()],
+            serde_json::json!({ "mcpServers": {} }),
+            apply_adapter(Adapter::OhMyPi, PRECONFIGURED_MCP_SERVERS.clone()),
+            false,
+        ),
+        DirectProvider::Gemini => McpConfig::new(
+            vec!["mcpServers".to_string()],
+            serde_json::json!({ "mcpServers": {} }),
+            apply_adapter(Adapter::Gemini, PRECONFIGURED_MCP_SERVERS.clone()),
+            false,
+        ),
+        DirectProvider::Codex => McpConfig::new(
+            vec!["mcp_servers".to_string()],
+            serde_json::json!({ "mcp_servers": {} }),
+            apply_adapter(Adapter::Codex, PRECONFIGURED_MCP_SERVERS.clone()),
+            true,
+        ),
+        DirectProvider::ClaudeCode => McpConfig::new(
+            vec!["mcpServers".to_string()],
+            serde_json::json!({ "mcpServers": {} }),
+            PRECONFIGURED_MCP_SERVERS.clone(),
+            false,
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::{Adapter, apply_adapter};
+    use crate::executors::{CodingAgent, oh_my_pi::OhMyPi};
 
     #[test]
     fn codex_preserves_stdio_and_remote_servers_and_filters_metadata() {
@@ -531,73 +461,11 @@ mod tests {
     }
 
     #[test]
-    fn opencode_adapts_stdio_command_and_environment() {
-        let adapted = apply_adapter(
-            Adapter::Opencode,
-            json!({
-                "canonical_env": {
-                    "command": "npx",
-                    "args": ["-y", "server"],
-                    "env": {"API_KEY": "canonical"},
-                    "environment": {"API_KEY": "native"}
-                },
-                "native_environment": {
-                    "command": "server",
-                    "environment": {"API_KEY": "native"}
-                }
-            }),
-        );
+    fn oh_my_pi_uses_its_native_mcp_settings_shape() {
+        let config = CodingAgent::OhMyPi(OhMyPi::default()).get_mcp_config();
 
-        assert_eq!(
-            adapted["canonical_env"],
-            json!({
-                "type": "local",
-                "command": ["npx", "-y", "server"],
-                "environment": {"API_KEY": "canonical"},
-                "enabled": true
-            })
-        );
-        assert_eq!(
-            adapted["native_environment"],
-            json!({
-                "type": "local",
-                "command": ["server"],
-                "environment": {"API_KEY": "native"},
-                "enabled": true
-            })
-        );
-    }
-
-    #[test]
-    fn opencode_adapts_remote_headers_without_leaking_metadata() {
-        let adapted = apply_adapter(
-            Adapter::Opencode,
-            json!({
-                "remote": {
-                    "type": "http",
-                    "url": "https://example.com/mcp",
-                    "headers": {"Authorization": "Bearer token"},
-                    "meta": {"must": "not leak"}
-                },
-                "meta": {
-                    "remote": {"name": "Remote"}
-                }
-            }),
-        );
-
-        assert_eq!(
-            adapted["remote"],
-            json!({
-                "type": "remote",
-                "url": "https://example.com/mcp",
-                "headers": {
-                    "Authorization": "Bearer token",
-                    "Accept": "application/json, text/event-stream"
-                },
-                "enabled": true
-            })
-        );
-        assert_eq!(adapted["meta"], json!({"remote": {"name": "Remote"}}));
-        assert!(adapted["remote"].get("meta").is_none());
+        assert_eq!(config.servers_path, vec!["mcpServers"]);
+        assert_eq!(config.template, json!({ "mcpServers": {} }));
+        assert!(!config.is_toml_config);
     }
 }

@@ -7,13 +7,6 @@
         }
       }
     },
-    "AMP": {
-      "DEFAULT": {
-        "AMP": {
-          "dangerously_allow_all": true
-        }
-      }
-    },
     "GEMINI": {
       "DEFAULT": {
         "GEMINI": {
@@ -28,40 +21,9 @@
         }
       }
     },
-    "OPENCODE": {
+    "OH_MY_PI": {
       "DEFAULT": {
-        "OPENCODE": {
-          "auto_approve": true
-        }
-      }
-    },
-    "QWEN_CODE": {
-      "DEFAULT": {
-        "QWEN_CODE": {
-          "yolo": true
-        }
-      }
-    },
-    "CURSOR_AGENT": {
-      "DEFAULT": {
-        "CURSOR_AGENT": {
-          "force": true,
-          "model": "auto"
-        }
-      }
-    },
-    "COPILOT": {
-      "DEFAULT": {
-        "COPILOT": {
-          "allow_all_tools": true
-        }
-      }
-    },
-    "DROID": {
-      "DEFAULT": {
-        "DROID": {
-          "autonomy": "skip-permissions-unsafe"
-        }
+        "OH_MY_PI": {}
       }
     }
   }

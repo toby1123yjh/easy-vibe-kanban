@@ -148,6 +148,93 @@ pub struct ClaudeCode {
 }
 
 impl ClaudeCode {
+    /// V1 direct-runtime metadata and decoder entry point.
+    pub const DIRECT_PROVIDER: super::provider_adapter::DirectProvider =
+        super::provider_adapter::DirectProvider::ClaudeCode;
+
+    pub fn direct_versions() -> super::provider_adapter::DirectAdapterVersions {
+        Self::DIRECT_PROVIDER.versions()
+    }
+
+    pub fn direct_capabilities(
+        runtime_profile_id: impl Into<String>,
+    ) -> crate::runtime::CapabilitySnapshot {
+        Self::DIRECT_PROVIDER.capabilities(runtime_profile_id)
+    }
+
+    pub fn decode_native_frame(
+        frame: &crate::runtime::NativeAuditFrame,
+    ) -> Result<super::provider_adapter::DecodedProviderEvent, crate::runtime::NativeAuditError>
+    {
+        Self::DIRECT_PROVIDER.decode_native_frame(frame)
+    }
+
+    pub fn direct_mapper() -> super::provider_adapter::DirectProviderMapper {
+        Self::DIRECT_PROVIDER.mapper()
+    }
+
+    pub(crate) fn apply_direct_overrides(&mut self, executor_config: &ExecutorConfig) {
+        if let Some(model_id) = &executor_config.model_id {
+            self.model = Some(model_id.clone());
+        }
+        if let Some(agent) = &executor_config.agent_id {
+            self.agent = Some(agent.clone());
+        }
+        if let Some(reasoning_id) = &executor_config.reasoning_id {
+            self.effort = reasoning_id.parse().ok();
+        }
+        if let Some(permission_policy) = executor_config.permission_policy.clone() {
+            match permission_policy {
+                PermissionPolicy::Plan => {
+                    self.plan = Some(true);
+                    self.approvals = Some(false);
+                }
+                PermissionPolicy::Supervised => {
+                    self.plan = Some(false);
+                    self.approvals = Some(true);
+                }
+                PermissionPolicy::Auto => {
+                    self.plan = Some(false);
+                    self.approvals = Some(false);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn use_direct_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
+        self.approvals_service = Some(approvals);
+    }
+
+    pub(crate) async fn launch_direct(
+        &self,
+        intent: super::provider_adapter::DirectIntent,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: Option<&str>,
+        reset_to_message_id: Option<&str>,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let command_builder = self.build_command_builder().await?;
+        let command_parts = match intent {
+            super::provider_adapter::DirectIntent::Initial => command_builder.build_initial()?,
+            super::provider_adapter::DirectIntent::FollowUp
+            | super::provider_adapter::DirectIntent::Resume
+            | super::provider_adapter::DirectIntent::Review => {
+                if let Some(session_id) = session_id {
+                    let mut args = vec!["--resume".to_string(), session_id.to_string()];
+                    if let Some(message_id) = reset_to_message_id {
+                        args.extend(["--resume-session-at".to_string(), message_id.to_string()]);
+                    }
+                    command_builder.build_follow_up(&args)?
+                } else {
+                    command_builder.build_initial()?
+                }
+            }
+        };
+        self.spawn_internal(current_dir, prompt, command_parts, env)
+            .await
+    }
+
     fn build_command_builder_with_effort_support(
         &self,
         supports_effort: bool,
@@ -404,35 +491,11 @@ fn default_discovered_options(
 #[async_trait]
 impl StandardCodingAgentExecutor for ClaudeCode {
     fn apply_overrides(&mut self, executor_config: &ExecutorConfig) {
-        if let Some(model_id) = &executor_config.model_id {
-            self.model = Some(model_id.clone());
-        }
-        if let Some(agent) = &executor_config.agent_id {
-            self.agent = Some(agent.clone());
-        }
-        if let Some(reasoning_id) = &executor_config.reasoning_id {
-            self.effort = reasoning_id.parse().ok();
-        }
-        if let Some(permission_policy) = executor_config.permission_policy.clone() {
-            match permission_policy {
-                PermissionPolicy::Plan => {
-                    self.plan = Some(true);
-                    self.approvals = Some(false);
-                }
-                PermissionPolicy::Supervised => {
-                    self.plan = Some(false);
-                    self.approvals = Some(true);
-                }
-                PermissionPolicy::Auto => {
-                    self.plan = Some(false);
-                    self.approvals = Some(false);
-                }
-            }
-        }
+        self.apply_direct_overrides(executor_config);
     }
 
     fn use_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
-        self.approvals_service = Some(approvals);
+        self.use_direct_approvals(approvals);
     }
 
     async fn spawn(
@@ -843,8 +906,6 @@ impl ClaudeCode {
 pub enum HistoryStrategy {
     // Claude-code format
     Default,
-    // Amp threads format which includes logs from previous executions
-    AmpResume,
 }
 
 /// Default context window for models (used until we get actual value from result)
@@ -1297,18 +1358,6 @@ impl ClaudeLogProcessor {
             ClaudeToolData::LS { .. } => ActionType::Other {
                 description: "List directory".to_string(),
             },
-            ClaudeToolData::Oracle { .. } => ActionType::Other {
-                description: "Oracle".to_string(),
-            },
-            ClaudeToolData::Mermaid { .. } => ActionType::Other {
-                description: "Mermaid diagram".to_string(),
-            },
-            ClaudeToolData::CodebaseSearchAgent { .. } => ActionType::Other {
-                description: "Codebase search".to_string(),
-            },
-            ClaudeToolData::UndoEdit { .. } => ActionType::Other {
-                description: "Undo edit".to_string(),
-            },
             ClaudeToolData::AskUserQuestion { questions } => ActionType::AskUserQuestion {
                 questions: questions
                     .iter()
@@ -1610,37 +1659,6 @@ impl ClaudeLogProcessor {
                     return patches;
                 }
 
-                if matches!(self.strategy, HistoryStrategy::AmpResume)
-                    && message
-                        .content
-                        .items()
-                        .any(|c| matches!(c, ClaudeContentItem::Text { .. }))
-                {
-                    let cur = entry_index_provider.current();
-                    if cur > 0 {
-                        for _ in 0..cur {
-                            patches.push(ConversationPatch::remove_diff(0.to_string()));
-                        }
-                        entry_index_provider.reset();
-                        self.tool_map.clear();
-                    }
-
-                    for item in message.content.items() {
-                        if let ClaudeContentItem::Text { text } = item {
-                            let entry = NormalizedEntry {
-                                timestamp: None,
-                                entry_type: NormalizedEntryType::UserMessage,
-                                content: text.clone(),
-                                metadata: Some(
-                                    serde_json::to_value(item).unwrap_or(serde_json::Value::Null),
-                                ),
-                            };
-                            let id = entry_index_provider.next();
-                            patches.push(ConversationPatch::add_normalized_entry(id, entry));
-                        }
-                    }
-                }
-
                 if *is_synthetic {
                     for item in message.content.items() {
                         if let ClaudeContentItem::Text { text } = item {
@@ -1702,7 +1720,7 @@ impl ClaudeLogProcessor {
                             };
 
                             let result = if let Ok(result) =
-                                serde_json::from_str::<AmpBashResult>(&content_str)
+                                serde_json::from_str::<StructuredBashResult>(&content_str)
                             {
                                 Some(crate::logs::CommandRunResult {
                                     exit_status: Some(crate::logs::CommandExitStatus::ExitCode {
@@ -1774,11 +1792,7 @@ impl ClaudeLogProcessor {
                             patches.push(ConversationPatch::replace(info.entry_index, entry));
                         } else if matches!(
                             info.tool_data,
-                            ClaudeToolData::Unknown { .. }
-                                | ClaudeToolData::Oracle { .. }
-                                | ClaudeToolData::Mermaid { .. }
-                                | ClaudeToolData::CodebaseSearchAgent { .. }
-                                | ClaudeToolData::NotebookEdit { .. }
+                            ClaudeToolData::Unknown { .. } | ClaudeToolData::NotebookEdit { .. }
                         ) {
                             let (res_type, res_value) =
                                 Self::normalize_claude_tool_result_value(content);
@@ -1950,22 +1964,7 @@ impl ClaudeLogProcessor {
                     patches.push(self.add_token_usage_entry(entry_index_provider));
                 }
 
-                if matches!(self.strategy, HistoryStrategy::AmpResume) && is_error.unwrap_or(false)
-                {
-                    let entry = NormalizedEntry {
-                        timestamp: None,
-                        entry_type: NormalizedEntryType::ErrorMessage {
-                            error_type: NormalizedEntryError::Other,
-                        },
-                        content: serde_json::to_string(claude_json)
-                            .unwrap_or_else(|_| "error".to_string()),
-                        metadata: Some(
-                            serde_json::to_value(claude_json).unwrap_or(serde_json::Value::Null),
-                        ),
-                    };
-                    let idx = entry_index_provider.next();
-                    patches.push(ConversationPatch::add_normalized_entry(idx, entry));
-                } else if matches!(subtype.as_deref(), Some("success"))
+                if matches!(subtype.as_deref(), Some("success"))
                     && let Some(text) = result.as_ref().and_then(|v| v.as_str())
                     && (self.last_assistant_message.is_none()
                         || matches!(&self.last_assistant_message, Some(message) if !message.contains(text)))
@@ -2244,37 +2243,6 @@ impl ClaudeLogProcessor {
                         )
                     } else {
                         format!("Find files: `{pattern}`")
-                    }
-                }
-                ClaudeToolData::Oracle { task, .. } => {
-                    if let Some(t) = task {
-                        format!("Oracle: `{t}`")
-                    } else {
-                        "Oracle".to_string()
-                    }
-                }
-                ClaudeToolData::Mermaid { .. } => "Mermaid diagram".to_string(),
-                ClaudeToolData::CodebaseSearchAgent { query, path, .. } => {
-                    match (query.as_ref(), path.as_ref()) {
-                        (Some(q), Some(p)) if !q.is_empty() && !p.is_empty() => format!(
-                            "Codebase search: `{}` in {}",
-                            q,
-                            make_path_relative(p, worktree_path)
-                        ),
-                        (Some(q), _) if !q.is_empty() => format!("Codebase search: `{q}`"),
-                        _ => "Codebase search".to_string(),
-                    }
-                }
-                ClaudeToolData::UndoEdit { path, .. } => {
-                    if let Some(p) = path.as_ref() {
-                        let rel = make_path_relative(p, worktree_path);
-                        if rel.is_empty() {
-                            "Undo edit".to_string()
-                        } else {
-                            format!("Undo edit: `{rel}`")
-                        }
-                    } else {
-                        "Undo edit".to_string()
                     }
                 }
                 _ => tool_data.get_name().to_string(),
@@ -2968,40 +2936,6 @@ pub enum ClaudeToolData {
         #[serde(default)]
         num_results: Option<u32>,
     },
-    // Amp-only utilities for better UX
-    #[serde(rename = "Oracle", alias = "oracle")]
-    Oracle {
-        #[serde(default)]
-        task: Option<String>,
-        #[serde(default)]
-        files: Option<Vec<String>>,
-        #[serde(default)]
-        context: Option<String>,
-    },
-    #[serde(rename = "Mermaid", alias = "mermaid")]
-    Mermaid {
-        code: String,
-    },
-    #[serde(rename = "CodebaseSearchAgent", alias = "codebase_search_agent")]
-    CodebaseSearchAgent {
-        #[serde(default)]
-        query: Option<String>,
-        #[serde(default)]
-        path: Option<String>,
-        #[serde(default)]
-        include: Option<Vec<String>>,
-        #[serde(default)]
-        exclude: Option<Vec<String>>,
-        #[serde(default)]
-        limit: Option<u32>,
-    },
-    #[serde(rename = "UndoEdit", alias = "undo_edit")]
-    UndoEdit {
-        #[serde(default, alias = "file_path")]
-        path: Option<String>,
-        #[serde(default)]
-        steps: Option<u32>,
-    },
     #[serde(rename = "TodoRead", alias = "todo_read")]
     TodoRead {},
     AskUserQuestion {
@@ -3026,11 +2960,11 @@ struct ClaudeToolWithInput {
     input: serde_json::Value,
 }
 
-// Amp's claude-compatible Bash tool_result content format
+// Claude-compatible structured Bash tool_result content format
 // Example content (often delivered as a JSON string):
 //   {"output":"...","exitCode":0}
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
-struct AmpBashResult {
+struct StructuredBashResult {
     #[serde(default)]
     output: String,
     #[serde(rename = "exitCode")]
@@ -3096,10 +3030,6 @@ impl ClaudeToolData {
             ClaudeToolData::WebFetch { .. } => "WebFetch",
             ClaudeToolData::WebSearch { .. } => "WebSearch",
             ClaudeToolData::TodoRead { .. } => "TodoRead",
-            ClaudeToolData::Oracle { .. } => "Oracle",
-            ClaudeToolData::Mermaid { .. } => "Mermaid",
-            ClaudeToolData::CodebaseSearchAgent { .. } => "CodebaseSearchAgent",
-            ClaudeToolData::UndoEdit { .. } => "UndoEdit",
             ClaudeToolData::AskUserQuestion { .. } => "AskUserQuestion",
             ClaudeToolData::Unknown { data } => data
                 .get("name")
@@ -3532,8 +3462,8 @@ mod tests {
     }
 
     #[test]
-    fn test_amp_tool_aliases_create_file_and_edit_file() {
-        // Amp "create_file" should deserialize into Write with alias field "path"
+    fn test_tool_aliases_create_file_and_edit_file() {
+        // Alternate tool names deserialize into the canonical file operations.
         let assistant_with_create = r#"{
             "type":"assistant",
             "message":{
@@ -3554,7 +3484,7 @@ mod tests {
             other => panic!("Expected ToolUse, got {other:?}"),
         }
 
-        // Amp "edit_file" should deserialize into Edit with aliases for path/old_str/new_str
+        // Alternate edit names deserialize into Edit with path/old_str/new_str aliases.
         let assistant_with_edit = r#"{
             "type":"assistant",
             "message":{
@@ -3577,70 +3507,7 @@ mod tests {
     }
 
     #[test]
-    fn test_amp_tool_aliases_oracle_mermaid_codebase_undo() {
-        // Oracle with task
-        let oracle_json = r#"{
-            "type":"assistant",
-            "message":{
-                "role":"assistant",
-                "content":[
-                    {"type":"tool_use","id":"t1","name":"oracle","input":{"task":"Assess project status"}}
-                ]
-            }
-        }"#;
-        let parsed: ClaudeJson = serde_json::from_str(oracle_json).unwrap();
-        let entries = normalize(&parsed, "/tmp/work");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].content, "Oracle: `Assess project status`");
-
-        // Mermaid with code
-        let mermaid_json = r#"{
-            "type":"assistant",
-            "message":{
-                "role":"assistant",
-                "content":[
-                    {"type":"tool_use","id":"t2","name":"mermaid","input":{"code":"graph TD; A-->B;"}}
-                ]
-            }
-        }"#;
-        let parsed: ClaudeJson = serde_json::from_str(mermaid_json).unwrap();
-        let entries = normalize(&parsed, "/tmp/work");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].content, "Mermaid diagram");
-
-        // CodebaseSearchAgent with query
-        let csa_json = r#"{
-            "type":"assistant",
-            "message":{
-                "role":"assistant",
-                "content":[
-                    {"type":"tool_use","id":"t3","name":"codebase_search_agent","input":{"query":"TODO markers"}}
-                ]
-            }
-        }"#;
-        let parsed: ClaudeJson = serde_json::from_str(csa_json).unwrap();
-        let entries = normalize(&parsed, "/tmp/work");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].content, "Codebase search: `TODO markers`");
-
-        // UndoEdit shows file path when available
-        let undo_json = r#"{
-            "type":"assistant",
-            "message":{
-                "role":"assistant",
-                "content":[
-                    {"type":"tool_use","id":"t4","name":"undo_edit","input":{"path":"README.md"}}
-                ]
-            }
-        }"#;
-        let parsed: ClaudeJson = serde_json::from_str(undo_json).unwrap();
-        let entries = normalize(&parsed, "/tmp/work");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].content, "Undo edit: `README.md`");
-    }
-
-    #[test]
-    fn test_amp_bash_and_task_content() {
+    fn test_bash_and_task_content() {
         // Bash with alias field cmd
         let bash_json = r#"{
             "type":"assistant",

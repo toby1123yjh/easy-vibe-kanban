@@ -15,6 +15,7 @@ CREATE TABLE workflow_attempts (
                        'running',
                        'awaiting_human',
                        'awaiting_arena',
+                       'cancelling',
                        'succeeded',
                        'failed',
                        'canceled'

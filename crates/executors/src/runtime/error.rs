@@ -77,6 +77,7 @@ pub fn classify_executor_error(error: &ExecutorError) -> AgentRuntimeErrorKind {
         ExecutorError::UnknownExecutorType(_)
         | ExecutorError::SetupHelperNotSupported
         | ExecutorError::FollowUpNotSupported(_)
+        | ExecutorError::ResetToMessageNotSupported(_)
         | ExecutorError::SpawnError(_)
         | ExecutorError::TomlSerialize(_)
         | ExecutorError::TomlDeserialize(_) => AgentRuntimeErrorKind::StartupFailed,
@@ -175,6 +176,7 @@ mod tests {
             ExecutorError::UnknownExecutorType("unknown".to_string()),
             ExecutorError::SetupHelperNotSupported,
             ExecutorError::FollowUpNotSupported("provider".to_string()),
+            ExecutorError::ResetToMessageNotSupported("provider".to_string()),
             ExecutorError::SpawnError(FuturesIoError::new(io::ErrorKind::NotFound, "spawn failed")),
         ];
 

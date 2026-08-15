@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use executors::actions::{ExecutorAction, ExecutorActionType};
+use executors::runtime::CanonicalMessage;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, Type};
+use sqlx::{FromRow, SqlitePool, Type, types::Json};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -11,7 +11,6 @@ const WORKSPACE_NAME_MAX_LEN: usize = 60;
 
 use super::{
     arena_group::{ArenaGroup, ArenaStatus},
-    execution_process::ExecutorActionField,
     session::Session,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
@@ -83,6 +82,14 @@ pub struct Workspace {
     pub arena_status: ArenaStatus,
 }
 
+#[derive(Debug, FromRow)]
+struct WorkspaceWithStatusRow {
+    #[sqlx(flatten)]
+    workspace: Workspace,
+    is_running: i64,
+    is_errored: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspaceWithStatus {
     #[serde(flatten)]
@@ -96,6 +103,16 @@ impl std::ops::Deref for WorkspaceWithStatus {
     type Target = Workspace;
     fn deref(&self) -> &Self::Target {
         &self.workspace
+    }
+}
+
+impl From<WorkspaceWithStatusRow> for WorkspaceWithStatus {
+    fn from(row: WorkspaceWithStatusRow) -> Self {
+        Self {
+            workspace: row.workspace,
+            is_running: row.is_running != 0,
+            is_errored: row.is_errored != 0,
+        }
     }
 }
 
@@ -642,47 +659,21 @@ impl Workspace {
         pool: &SqlitePool,
         workspace_id: Uuid,
     ) -> Result<Option<String>, sqlx::Error> {
-        let actions = sqlx::query_scalar!(
-            r#"SELECT ep.executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>"
-               FROM sessions s
-               JOIN execution_processes ep ON ep.session_id = s.id
-               WHERE s.workspace_id = $1
-               ORDER BY s.created_at ASC, ep.created_at ASC"#,
-            workspace_id
+        let input = sqlx::query_scalar::<_, Json<CanonicalMessage>>(
+            r#"
+            SELECT turn.input_message
+            FROM agent_runs run
+            JOIN agent_turns turn ON turn.agent_run_id = run.id
+            WHERE run.workspace_id = ?
+            ORDER BY run.created_at ASC, turn.created_at ASC
+            LIMIT 1
+            "#,
         )
-        .fetch_all(pool)
+        .bind(workspace_id)
+        .fetch_optional(pool)
         .await?;
 
-        for action in actions {
-            if let ExecutorActionField::ExecutorAction(action) = action.0
-                && let Some(prompt) = Self::extract_first_prompt_from_executor_action(&action)
-            {
-                return Ok(Some(prompt));
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn extract_first_prompt_from_executor_action(action: &ExecutorAction) -> Option<String> {
-        let mut current = Some(action);
-        while let Some(action) = current {
-            match action.typ() {
-                ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    return Some(request.prompt.clone());
-                }
-                ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    return Some(request.prompt.clone());
-                }
-                ExecutorActionType::ReviewRequest(request) => {
-                    return Some(request.prompt.clone());
-                }
-                ExecutorActionType::ScriptRequest(_) => {
-                    current = action.next_action();
-                }
-            }
-        }
-        None
+        Ok(input.map(|input| input.0.content))
     }
 
     pub fn truncate_to_name(prompt: &str, max_len: usize) -> String {
@@ -699,79 +690,100 @@ impl Workspace {
         }
     }
 
+    async fn find_status_rows(
+        pool: &SqlitePool,
+        workspace_id: Option<Uuid>,
+    ) -> Result<Vec<WorkspaceWithStatusRow>, sqlx::Error> {
+        sqlx::query_as::<_, WorkspaceWithStatusRow>(
+            r#"
+            WITH runtime_statuses AS (
+                SELECT ar.id AS runtime_id,
+                       ar.workspace_id,
+                       state.status,
+                       ar.created_at,
+                       'agent' AS runtime_kind
+                FROM agent_runs ar
+                JOIN agent_run_state state ON state.agent_run_id = ar.id
+
+                UNION ALL
+
+                SELECT ep.id AS runtime_id,
+                       session.workspace_id,
+                       ep.status,
+                       ep.created_at,
+                       'script' AS runtime_kind
+                FROM execution_processes ep
+                JOIN sessions session ON session.id = ep.session_id
+                WHERE ep.run_reason IN ('setupscript', 'cleanupscript', 'archivescript')
+                  AND ep.dropped = FALSE
+            ),
+            ranked_statuses AS (
+                SELECT runtime_id,
+                       workspace_id,
+                       status,
+                       runtime_kind,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY workspace_id
+                           ORDER BY created_at DESC, runtime_id DESC
+                       ) AS row_number
+                FROM runtime_statuses
+            ),
+            active_workspaces AS (
+                SELECT DISTINCT workspace_id
+                FROM runtime_statuses
+                WHERE (runtime_kind = 'agent' AND status IN (
+                           'pending',
+                           'starting',
+                           'running',
+                           'awaiting_input',
+                           'awaiting_approval',
+                           'cancelling'
+                       ))
+                   OR (runtime_kind = 'script' AND status = 'running')
+            )
+            SELECT w.id,
+                   w.task_id,
+                   w.container_ref,
+                   w.workspace_kind,
+                   w.container_ownership,
+                   w.branch,
+                   w.setup_completed_at,
+                   w.created_at,
+                   w.updated_at,
+                   w.archived,
+                   w.pinned,
+                   w.name,
+                   w.worktree_deleted,
+                   w.arena_group_id,
+                   w.arena_status,
+                   CASE WHEN active.workspace_id IS NOT NULL THEN 1 ELSE 0 END AS is_running,
+                   CASE WHEN latest.status IN (
+                       'failed', 'crashed', 'audit_failed', 'killed'
+                   ) THEN 1 ELSE 0 END AS is_errored
+            FROM workspaces w
+            LEFT JOIN active_workspaces active ON active.workspace_id = w.id
+            LEFT JOIN ranked_statuses latest
+              ON latest.workspace_id = w.id AND latest.row_number = 1
+            WHERE (? IS NULL OR w.id = ?)
+            ORDER BY w.updated_at DESC
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(workspace_id)
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn find_all_with_status(
         pool: &SqlitePool,
         archived: Option<bool>,
         limit: Option<i64>,
     ) -> Result<Vec<WorkspaceWithStatus>, sqlx::Error> {
-        // Fetch all workspaces with status (uses cached SQLx query)
-        let records = sqlx::query!(
-            r#"SELECT
-                w.id AS "id!: Uuid",
-                w.task_id AS "task_id: Uuid",
-                w.container_ref,
-                w.workspace_kind AS "workspace_kind!: WorkspaceKind",
-                w.container_ownership AS "container_ownership!: ContainerOwnership",
-                w.branch,
-                w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
-                w.created_at AS "created_at!: DateTime<Utc>",
-                w.updated_at AS "updated_at!: DateTime<Utc>",
-                w.archived AS "archived!: bool",
-                w.pinned AS "pinned!: bool",
-                w.name,
-                w.worktree_deleted AS "worktree_deleted!: bool",
-                w.arena_group_id   AS "arena_group_id: Uuid",
-                w.arena_status     AS "arena_status!: ArenaStatus",
-
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.status = 'running'
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS "is_running!: i64",
-
-                CASE WHEN (
-                    SELECT ep.status
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    ORDER BY ep.created_at DESC
-                    LIMIT 1
-                ) IN ('failed','killed') THEN 1 ELSE 0 END AS "is_errored!: i64"
-
-            FROM workspaces w
-            ORDER BY w.updated_at DESC"#
-        )
-        .fetch_all(pool)
-        .await?;
+        let records = Self::find_status_rows(pool, None).await?;
 
         let mut workspaces: Vec<WorkspaceWithStatus> = records
             .into_iter()
-            .map(|rec| WorkspaceWithStatus {
-                workspace: Workspace {
-                    id: rec.id,
-                    task_id: rec.task_id,
-                    container_ref: rec.container_ref,
-                    workspace_kind: rec.workspace_kind,
-                    container_ownership: rec.container_ownership,
-                    branch: rec.branch,
-                    setup_completed_at: rec.setup_completed_at,
-                    created_at: rec.created_at,
-                    updated_at: rec.updated_at,
-                    archived: rec.archived,
-                    pinned: rec.pinned,
-                    name: rec.name,
-                    worktree_deleted: rec.worktree_deleted,
-                    arena_group_id: rec.arena_group_id,
-                    arena_status: rec.arena_status,
-                },
-                is_running: rec.is_running != 0,
-                is_errored: rec.is_errored != 0,
-            })
+            .map(WorkspaceWithStatus::from)
             // Apply archived filter if provided
             .filter(|ws| archived.is_none_or(|a| ws.workspace.archived == a))
             .collect();
@@ -807,76 +819,13 @@ impl Workspace {
         pool: &SqlitePool,
         id: Uuid,
     ) -> Result<Option<WorkspaceWithStatus>, sqlx::Error> {
-        let rec = sqlx::query!(
-            r#"SELECT
-                w.id AS "id!: Uuid",
-                w.task_id AS "task_id: Uuid",
-                w.container_ref,
-                w.workspace_kind AS "workspace_kind!: WorkspaceKind",
-                w.container_ownership AS "container_ownership!: ContainerOwnership",
-                w.branch,
-                w.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
-                w.created_at AS "created_at!: DateTime<Utc>",
-                w.updated_at AS "updated_at!: DateTime<Utc>",
-                w.archived AS "archived!: bool",
-                w.pinned AS "pinned!: bool",
-                w.name,
-                w.worktree_deleted AS "worktree_deleted!: bool",
-                w.arena_group_id   AS "arena_group_id: Uuid",
-                w.arena_status     AS "arena_status!: ArenaStatus",
-
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.status = 'running'
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS "is_running!: i64",
-
-                CASE WHEN (
-                    SELECT ep.status
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-                    ORDER BY ep.created_at DESC
-                    LIMIT 1
-                ) IN ('failed','killed') THEN 1 ELSE 0 END AS "is_errored!: i64"
-
-            FROM workspaces w
-            WHERE w.id = $1"#,
-            id
-        )
-        .fetch_optional(pool)
-        .await?;
+        let rec = Self::find_status_rows(pool, Some(id)).await?.pop();
 
         let Some(rec) = rec else {
             return Ok(None);
         };
 
-        let mut ws = WorkspaceWithStatus {
-            workspace: Workspace {
-                id: rec.id,
-                task_id: rec.task_id,
-                container_ref: rec.container_ref,
-                workspace_kind: rec.workspace_kind,
-                container_ownership: rec.container_ownership,
-                branch: rec.branch,
-                setup_completed_at: rec.setup_completed_at,
-                created_at: rec.created_at,
-                updated_at: rec.updated_at,
-                archived: rec.archived,
-                pinned: rec.pinned,
-                name: rec.name,
-                worktree_deleted: rec.worktree_deleted,
-                arena_group_id: rec.arena_group_id,
-                arena_status: rec.arena_status,
-            },
-            is_running: rec.is_running != 0,
-            is_errored: rec.is_errored != 0,
-        };
+        let mut ws = WorkspaceWithStatus::from(rec);
 
         if ws.workspace.name.is_none()
             && let Some(prompt) = Self::get_first_user_message(pool, ws.workspace.id).await?
@@ -893,6 +842,8 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use executors::runtime::{AgentRuntimeMessageRole, CanonicalMessage};
+    use sqlx::{sqlite::SqlitePoolOptions, types::Json};
     use uuid::Uuid;
 
     use super::{ArenaStatus, ContainerOwnership, Workspace, WorkspaceKind};
@@ -967,5 +918,78 @@ mod tests {
         );
 
         assert_eq!(selected, None);
+    }
+
+    #[tokio::test]
+    async fn first_user_message_comes_from_earliest_canonical_agent_turn() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+        sqlx::query(
+            r#"
+            CREATE TABLE agent_runs (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create agent_runs");
+        sqlx::query(
+            r#"
+            CREATE TABLE agent_turns (
+                agent_run_id BLOB NOT NULL,
+                input_message TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create agent_turns");
+
+        let workspace_id = Uuid::new_v4();
+        for (created_at, content) in [
+            ("2026-08-14T02:00:00Z", "second prompt"),
+            ("2026-08-14T01:00:00Z", "first prompt"),
+        ] {
+            let agent_run_id = Uuid::new_v4();
+            sqlx::query("INSERT INTO agent_runs (id, workspace_id, created_at) VALUES (?, ?, ?)")
+                .bind(agent_run_id)
+                .bind(workspace_id)
+                .bind(created_at)
+                .execute(&pool)
+                .await
+                .expect("insert AgentRun");
+            sqlx::query(
+                "INSERT INTO agent_turns (agent_run_id, input_message, created_at) VALUES (?, ?, ?)",
+            )
+            .bind(agent_run_id)
+            .bind(Json(CanonicalMessage {
+                message_id: Uuid::new_v4(),
+                role: AgentRuntimeMessageRole::User,
+                content: content.to_string(),
+            }))
+            .bind(created_at)
+            .execute(&pool)
+            .await
+            .expect("insert AgentTurn");
+        }
+
+        let message = Workspace::get_first_user_message(&pool, workspace_id)
+            .await
+            .expect("load first canonical input");
+
+        assert_eq!(message.as_deref(), Some("first prompt"));
+        assert_eq!(
+            Workspace::get_first_user_message(&pool, Uuid::new_v4())
+                .await
+                .expect("load empty workspace"),
+            None
+        );
     }
 }

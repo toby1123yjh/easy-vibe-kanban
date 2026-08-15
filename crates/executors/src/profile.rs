@@ -61,7 +61,7 @@ const DEFAULT_PROFILES_JSON: &str = include_str!("../default_profiles.json");
 // Executor-centric profile identifier
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Hash, Eq)]
 pub struct ExecutorProfileId {
-    /// The executor type (e.g., "CLAUDE_CODE", "AMP")
+    /// The executor type (e.g., "CLAUDE_CODE", "GEMINI")
     #[serde(alias = "profile", deserialize_with = "de_base_coding_agent_kebab")]
     // Backwards compatibility with ProfileVariantIds, esp stored in DB under ExecutorAction
     pub executor: BaseCodingAgent,
@@ -123,7 +123,7 @@ impl std::fmt::Display for ExecutorProfileId {
 /// scratch persistence, and frontend state whenever an executor is used.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ExecutorConfig {
-    /// The executor type (e.g., CLAUDE_CODE, AMP)
+    /// The executor type (e.g., CLAUDE_CODE, GEMINI)
     #[serde(alias = "profile", deserialize_with = "de_base_coding_agent_kebab")]
     pub executor: BaseCodingAgent,
     /// Optional variant/preset name (e.g., "PLAN", "ROUTER")

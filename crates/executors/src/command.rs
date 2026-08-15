@@ -8,6 +8,13 @@ use workspace_utils::shell::resolve_executable_path;
 
 use crate::executors::ExecutorError;
 
+/// V1 direct runtime command names.  These resolve from PATH and are never
+/// rewritten to an npm `latest` selector.
+pub const GEMINI_DEFAULT_BASE_COMMAND: &str = "gemini";
+pub const CODEX_DEFAULT_BASE_COMMAND: &str = "codex";
+pub const CLAUDE_DEFAULT_BASE_COMMAND: &str = "claude";
+pub const OH_MY_PI_DEFAULT_BASE_COMMAND: &str = "omp";
+
 #[derive(Debug, Error)]
 pub enum CommandBuildError {
     #[error("base command cannot be parsed: {0}")]
@@ -62,7 +69,7 @@ pub struct CmdOverrides {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema)]
 pub struct CommandBuilder {
-    /// Base executable command (e.g., "claude", "codex", or "droid exec")
+    /// Base executable command (e.g., "claude", "codex", or "omp")
     pub base: String,
     /// Optional parameters to append to the base command
     pub params: Option<Vec<String>>,
@@ -224,17 +231,11 @@ mod tests {
 
     #[test]
     fn parses_builtin_local_executor_commands() {
-        let cases = [
-            ("amp", "amp", vec![]),
+        let cases: [(&str, &str, Vec<&str>); 4] = [
             ("claude", "claude", vec![]),
             ("codex", "codex", vec![]),
-            ("qwen", "qwen", vec![]),
-            ("copilot", "copilot", vec![]),
             ("gemini", "gemini", vec![]),
-            ("opencode", "opencode", vec![]),
-            ("ccr code", "ccr", vec!["code"]),
-            ("droid exec", "droid", vec!["exec"]),
-            ("cursor-agent", "cursor-agent", vec![]),
+            ("omp", "omp", vec![]),
         ];
 
         for (command, expected_program, expected_args) in cases {
@@ -243,7 +244,13 @@ mod tests {
                 .expect("command should parse");
 
             assert_eq!(parts.program, expected_program);
-            assert_eq!(parts.args, expected_args);
+            assert_eq!(
+                parts.args,
+                expected_args
+                    .iter()
+                    .map(|arg| (*arg).to_string())
+                    .collect::<Vec<_>>()
+            );
         }
     }
 

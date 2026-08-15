@@ -1,3 +1,4 @@
+pub mod agent_runtime;
 pub mod arena_group;
 pub mod coding_agent_turn;
 pub mod execution_process;
@@ -5,6 +6,7 @@ pub mod execution_process_logs;
 pub mod execution_process_repo_state;
 pub mod file;
 pub mod merge;
+pub mod orchestration;
 pub mod project;
 pub mod pull_request;
 pub mod repo;

@@ -17,7 +17,10 @@ const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct RegisteredAgentProcess {
-    pub execution_process_id: Uuid,
+    /// Identity of the supervised runtime attempt. This is an AgentRun
+    /// attempt ID for canonical agents and a standalone process ID for
+    /// script execution; the registry never translates between the two.
+    pub runtime_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -34,7 +37,7 @@ pub(crate) struct RegisteredAgentProcess {
 
 impl RegisteredAgentProcess {
     pub(crate) fn new(
-        execution_process_id: Uuid,
+        runtime_id: Uuid,
         session_id: Option<Uuid>,
         workspace_id: Option<Uuid>,
         provider: Option<String>,
@@ -43,7 +46,7 @@ impl RegisteredAgentProcess {
         command_preview: Option<String>,
     ) -> Self {
         Self {
-            execution_process_id,
+            runtime_id,
             session_id,
             workspace_id,
             provider,
@@ -82,6 +85,41 @@ pub(crate) struct AgentProcessCleanupReport {
     pub survivors: usize,
 }
 
+/// The observation returned by restart reconciliation.  Reconciliation is
+/// deliberately read-only: an entry is never killed or removed merely because
+/// the supervisor that created it is gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisteredProcessPresence {
+    Alive,
+    Exited,
+    Unreachable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RegisteredProcessObservation {
+    pub process: RegisteredAgentProcess,
+    pub presence: RegisteredProcessPresence,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct AgentProcessReconciliationReport {
+    pub observations: Vec<RegisteredProcessObservation>,
+}
+
+impl AgentProcessReconciliationReport {
+    pub(crate) fn alive(&self) -> impl Iterator<Item = &RegisteredProcessObservation> {
+        self.observations
+            .iter()
+            .filter(|observation| observation.presence == RegisteredProcessPresence::Alive)
+    }
+
+    pub(crate) fn exited(&self) -> impl Iterator<Item = &RegisteredProcessObservation> {
+        self.observations
+            .iter()
+            .filter(|observation| observation.presence == RegisteredProcessPresence::Exited)
+    }
+}
+
 impl AgentProcessCleanupReport {
     pub(crate) fn is_empty(self) -> bool {
         self.attempted == 0 && self.removed == 0 && self.survivors == 0
@@ -118,18 +156,18 @@ impl AgentProcessRegistry {
         let mut registry = self.load_registry_locked().await?;
         registry
             .processes
-            .retain(|entry| entry.execution_process_id != process.execution_process_id);
+            .retain(|entry| entry.runtime_id != process.runtime_id);
         registry.processes.push(process);
         self.write_registry_locked(&registry.processes).await
     }
 
-    pub(crate) async fn remove_execution(&self, execution_process_id: Uuid) -> io::Result<bool> {
+    pub(crate) async fn remove_runtime(&self, runtime_id: Uuid) -> io::Result<bool> {
         let _guard = self.lock.lock().await;
         let mut registry = self.load_registry_locked().await?;
         let before = registry.processes.len();
         registry
             .processes
-            .retain(|entry| entry.execution_process_id != execution_process_id);
+            .retain(|entry| entry.runtime_id != runtime_id);
         let removed = before != registry.processes.len();
 
         if removed || registry.needs_rewrite {
@@ -139,19 +177,60 @@ impl AgentProcessRegistry {
         Ok(removed)
     }
 
-    pub(crate) async fn cleanup_execution(
-        &self,
-        execution_process_id: Uuid,
-    ) -> io::Result<AgentProcessCleanupReport> {
-        self.cleanup_matching(
-            |entry| entry.execution_process_id == execution_process_id,
-            &OsProcessTerminator,
-        )
-        .await
+    /// Return the entries currently persisted in the registry. Invalid and
+    /// duplicate entries are dropped when the next mutation occurs, while a
+    /// read remains best-effort and never terminates a process.
+    pub(crate) async fn entries(&self) -> io::Result<Vec<RegisteredAgentProcess>> {
+        let _guard = self.lock.lock().await;
+        let registry = self.load_registry_locked().await?;
+        if registry.needs_rewrite {
+            self.write_registry_locked(&registry.processes).await?;
+        }
+        Ok(registry.processes)
     }
 
-    pub(crate) async fn cleanup_all(&self) -> io::Result<AgentProcessCleanupReport> {
-        self.cleanup_matching(|_| true, &OsProcessTerminator).await
+    pub(crate) async fn query_runtime(
+        &self,
+        runtime_id: Uuid,
+    ) -> io::Result<Option<RegisteredAgentProcess>> {
+        Ok(self
+            .entries()
+            .await?
+            .into_iter()
+            .find(|entry| entry.runtime_id == runtime_id))
+    }
+
+    /// Observe all persisted processes after a service restart. This operation
+    /// intentionally has no cleanup side effects. Callers may attach a live
+    /// process to a watcher, observe an exited process, or leave an
+    /// temporarily unreachable process for a later reconciliation pass.
+    pub(crate) async fn reconcile(&self) -> io::Result<AgentProcessReconciliationReport> {
+        let entries = self.entries().await?;
+        let mut observations = Vec::with_capacity(entries.len());
+        for process in entries {
+            let presence = match observe_os_process(&process).await {
+                Ok(presence) => presence,
+                Err(error) => {
+                    tracing::warn!(
+                        runtime_id = %process.runtime_id,
+                        pid = process.pid,
+                        error = %error,
+                        "unable to observe registered agent process; preserving registry entry"
+                    );
+                    RegisteredProcessPresence::Unreachable
+                }
+            };
+            observations.push(RegisteredProcessObservation { process, presence });
+        }
+        Ok(AgentProcessReconciliationReport { observations })
+    }
+
+    pub(crate) async fn cleanup_runtime(
+        &self,
+        runtime_id: Uuid,
+    ) -> io::Result<AgentProcessCleanupReport> {
+        self.cleanup_matching(|entry| entry.runtime_id == runtime_id, &OsProcessTerminator)
+            .await
     }
 
     async fn cleanup_matching<T, F>(
@@ -179,7 +258,7 @@ impl AgentProcessRegistry {
                 Ok(ProcessTermination::Terminated) => {
                     report.removed += 1;
                     tracing::info!(
-                        execution_process_id = %process.execution_process_id,
+                        runtime_id = %process.runtime_id,
                         session_id = ?process.session_id,
                         workspace_id = ?process.workspace_id,
                         provider = ?process.provider,
@@ -191,7 +270,7 @@ impl AgentProcessRegistry {
                 Ok(ProcessTermination::Missing) => {
                     report.removed += 1;
                     tracing::debug!(
-                        execution_process_id = %process.execution_process_id,
+                        runtime_id = %process.runtime_id,
                         pid = process.pid,
                         process_group_id = ?process.process_group_id,
                         "registered agent process was already gone"
@@ -200,7 +279,7 @@ impl AgentProcessRegistry {
                 Err(error) => {
                     report.survivors += 1;
                     tracing::warn!(
-                        execution_process_id = %process.execution_process_id,
+                        runtime_id = %process.runtime_id,
                         session_id = ?process.session_id,
                         workspace_id = ?process.workspace_id,
                         provider = ?process.provider,
@@ -278,7 +357,7 @@ impl AgentProcessRegistry {
             match serde_json::from_value::<RegisteredAgentProcess>(process_value.clone()) {
                 Ok(process) if process.is_valid() => {
                     if by_execution_id
-                        .insert(process.execution_process_id, process)
+                        .insert(process.runtime_id, process)
                         .is_some()
                     {
                         needs_rewrite = true;
@@ -287,7 +366,7 @@ impl AgentProcessRegistry {
                 Ok(process) => {
                     needs_rewrite = true;
                     tracing::warn!(
-                        execution_process_id = %process.execution_process_id,
+                        runtime_id = %process.runtime_id,
                         pid = process.pid,
                         process_group_id = ?process.process_group_id,
                         registered_at_ms = process.registered_at_ms,
@@ -509,6 +588,76 @@ async fn replace_file(temp_path: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
+#[cfg(unix)]
+async fn observe_os_process(
+    process: &RegisteredAgentProcess,
+) -> io::Result<RegisteredProcessPresence> {
+    use nix::{errno::Errno, sys::signal, unistd::Pid};
+
+    let raw_target = process
+        .process_group_id
+        .filter(|group| *group > 1)
+        .unwrap_or(process.pid);
+    let raw_target = i32::try_from(raw_target)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pid is too large"))?;
+    let grouped = process.process_group_id.is_some_and(|group| group > 1);
+    let target = if grouped {
+        Pid::from_raw(-raw_target)
+    } else {
+        Pid::from_raw(raw_target)
+    };
+
+    let pid = i32::try_from(process.pid)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pid is too large"))?;
+    tokio::task::spawn_blocking(move || match signal::kill(target, None) {
+        Ok(()) => Ok(RegisteredProcessPresence::Alive),
+        Err(Errno::ESRCH) if grouped => match signal::kill(Pid::from_raw(pid), None) {
+            Ok(()) => Ok(RegisteredProcessPresence::Alive),
+            Err(Errno::ESRCH) => Ok(RegisteredProcessPresence::Exited),
+            Err(Errno::EPERM) => Ok(RegisteredProcessPresence::Unreachable),
+            Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+        },
+        Err(Errno::ESRCH) => Ok(RegisteredProcessPresence::Exited),
+        Err(Errno::EPERM) => Ok(RegisteredProcessPresence::Unreachable),
+        Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+    })
+    .await
+    .map_err(|error| io::Error::other(format!("process observation task failed: {error}")))?
+}
+
+#[cfg(windows)]
+async fn observe_os_process(
+    process: &RegisteredAgentProcess,
+) -> io::Result<RegisteredProcessPresence> {
+    let output = tokio::process::Command::new("tasklist")
+        .args([
+            "/FI",
+            &format!("PID eq {}", process.pid),
+            "/FO",
+            "CSV",
+            "/NH",
+        ])
+        .output()
+        .await?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+        if stdout.contains("no tasks") || stdout.trim().is_empty() {
+            Ok(RegisteredProcessPresence::Exited)
+        } else {
+            Ok(RegisteredProcessPresence::Alive)
+        }
+    } else {
+        Ok(RegisteredProcessPresence::Unreachable)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn observe_os_process(
+    _process: &RegisteredAgentProcess,
+) -> io::Result<RegisteredProcessPresence> {
+    Ok(RegisteredProcessPresence::Unreachable)
+}
+
 fn default_registry_path() -> PathBuf {
     utils::assets::asset_dir()
         .join("runtime")
@@ -524,12 +673,7 @@ fn temp_registry_path(path: &Path) -> PathBuf {
 }
 
 fn sort_processes(processes: &mut [RegisteredAgentProcess]) {
-    processes.sort_by_key(|process| {
-        (
-            process.registered_at_ms,
-            process.execution_process_id.to_string(),
-        )
-    });
+    processes.sort_by_key(|process| (process.registered_at_ms, process.runtime_id.to_string()));
 }
 
 fn unix_time_ms_now() -> u64 {
@@ -553,7 +697,7 @@ mod tests {
 
     fn sample_process(pid: u32) -> RegisteredAgentProcess {
         RegisteredAgentProcess {
-            execution_process_id: Uuid::new_v4(),
+            runtime_id: Uuid::new_v4(),
             session_id: Some(Uuid::new_v4()),
             workspace_id: Some(Uuid::new_v4()),
             provider: Some("CODEX".to_string()),
@@ -584,23 +728,41 @@ mod tests {
             .await
             .expect("register second");
 
-        assert!(
-            registry
-                .remove_execution(first.execution_process_id)
-                .await
-                .expect("remove first")
-        );
+        assert!(registry
+            .remove_runtime(first.runtime_id)
+            .await
+            .expect("remove first"));
 
         let loaded = registry
             .load_registry_locked()
             .await
             .expect("load registry");
         assert_eq!(loaded.processes, vec![second]);
-        assert!(
-            !registry
-                .remove_execution(first.execution_process_id)
+        assert!(!registry
+            .remove_runtime(first.runtime_id)
+            .await
+            .expect("remove already removed"));
+    }
+
+    #[tokio::test]
+    async fn reconcile_is_observational_and_preserves_unreachable_entries() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let registry = registry_in_temp_dir(&temp_dir);
+        let process = sample_process(u32::MAX);
+        registry.register(process.clone()).await.expect("register");
+
+        let report = registry.reconcile().await.expect("reconcile");
+        assert_eq!(report.observations.len(), 1);
+        assert!(matches!(
+            report.observations[0].presence,
+            RegisteredProcessPresence::Exited | RegisteredProcessPresence::Unreachable
+        ));
+        assert_eq!(
+            registry
+                .query_runtime(process.runtime_id)
                 .await
-                .expect("remove already removed")
+                .expect("query"),
+            Some(process)
         );
     }
 
@@ -610,12 +772,12 @@ mod tests {
         let registry = registry_in_temp_dir(&temp_dir);
         let valid = sample_process(2001);
         let invalid_pid = serde_json::json!({
-            "execution_process_id": Uuid::new_v4(),
+            "runtime_id": Uuid::new_v4(),
             "pid": 0,
             "registered_at_ms": 1
         });
         let unreadable = serde_json::json!({
-            "execution_process_id": "not-a-uuid",
+            "runtime_id": "not-a-uuid",
             "pid": 2002,
             "registered_at_ms": 1
         });
@@ -646,12 +808,10 @@ mod tests {
         assert_eq!(loaded.processes, vec![valid.clone()]);
         assert!(loaded.needs_rewrite);
 
-        assert!(
-            !registry
-                .remove_execution(Uuid::new_v4())
-                .await
-                .expect("rewrite registry")
-        );
+        assert!(!registry
+            .remove_runtime(Uuid::new_v4())
+            .await
+            .expect("rewrite registry"));
 
         let rewritten = registry
             .load_registry_locked()
@@ -676,9 +836,9 @@ mod tests {
             self.calls
                 .lock()
                 .expect("calls lock")
-                .push(process.execution_process_id);
+                .push(process.runtime_id);
 
-            if self.failures.contains(&process.execution_process_id) {
+            if self.failures.contains(&process.runtime_id) {
                 Err(io::Error::other("still alive"))
             } else {
                 Ok(ProcessTermination::Terminated)
@@ -702,7 +862,7 @@ mod tests {
             .expect("register survivor");
 
         let terminator = FakeTerminator {
-            failures: HashSet::from([survivor.execution_process_id]),
+            failures: HashSet::from([survivor.runtime_id]),
             calls: Arc::new(StdMutex::new(Vec::new())),
         };
 
@@ -727,7 +887,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_execution_only_targets_matching_execution_id() {
+    async fn cleanup_runtime_only_targets_matching_runtime_id() {
         let temp_dir = TempDir::new().expect("temp dir");
         let registry = registry_in_temp_dir(&temp_dir);
         let target = sample_process(4001);
@@ -743,10 +903,7 @@ mod tests {
 
         let terminator = FakeTerminator::default();
         let report = registry
-            .cleanup_matching(
-                |entry| entry.execution_process_id == target.execution_process_id,
-                &terminator,
-            )
+            .cleanup_matching(|entry| entry.runtime_id == target.runtime_id, &terminator)
             .await
             .expect("cleanup target");
 

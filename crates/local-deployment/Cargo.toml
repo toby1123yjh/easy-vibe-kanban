@@ -31,7 +31,9 @@ ed25519-dalek = "2.2.0"
 anyhow = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
 tracing = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+rand = { version = "0.8", features = ["std"] }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 command-group = { version = "5.0", features = ["with-tokio"] }
@@ -48,3 +50,7 @@ dotenv = "0.15"
 
 [dev-dependencies]
 tempfile = "3.8"
+
+[[bin]]
+name = "agent-process-host"
+path = "src/bin/agent_process_host.rs"

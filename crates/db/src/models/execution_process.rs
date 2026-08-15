@@ -1,11 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use executors::{
-    actions::{ExecutorAction, ExecutorActionType},
-    profile::ExecutorProfileId,
-    runtime::{AgentRunLifecycle, AgentRuntimeError},
-};
+use executors::actions::ExecutorAction;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool, Type};
@@ -55,7 +51,6 @@ pub enum ExecutionProcessRunReason {
     SetupScript,
     CleanupScript,
     ArchiveScript,
-    CodingAgent,
     DevServer,
 }
 
@@ -96,18 +91,10 @@ pub struct ExecutionProcessView {
     pub completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub agent_runtime_lifecycle: Option<AgentRunLifecycle>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub agent_runtime_error: Option<AgentRuntimeError>,
 }
 
 impl ExecutionProcessView {
     pub fn from_process(process: ExecutionProcess) -> Self {
-        let (agent_runtime_lifecycle, agent_runtime_error) = project_agent_runtime(&process);
-
         Self {
             id: process.id,
             session_id: process.session_id,
@@ -120,8 +107,6 @@ impl ExecutionProcessView {
             completed_at: process.completed_at,
             created_at: process.created_at,
             updated_at: process.updated_at,
-            agent_runtime_lifecycle,
-            agent_runtime_error,
         }
     }
 }
@@ -130,28 +115,6 @@ impl From<ExecutionProcess> for ExecutionProcessView {
     fn from(process: ExecutionProcess) -> Self {
         Self::from_process(process)
     }
-}
-
-fn project_agent_runtime(
-    process: &ExecutionProcess,
-) -> (Option<AgentRunLifecycle>, Option<AgentRuntimeError>) {
-    if process.run_reason != ExecutionProcessRunReason::CodingAgent {
-        return (None, None);
-    }
-
-    let lifecycle = match process.status {
-        ExecutionProcessStatus::Running => Some(AgentRunLifecycle::Running),
-        ExecutionProcessStatus::Completed => Some(AgentRunLifecycle::Completed),
-        ExecutionProcessStatus::Failed => Some(AgentRunLifecycle::Failed),
-        // The lifecycle contract has no terminal cancelled state yet. Keep
-        // killed processes unset instead of overloading in-flight Cancelling.
-        ExecutionProcessStatus::Killed => None,
-    };
-
-    // Runtime errors are intentionally not inferred from the compatibility
-    // status. The supervisor currently classifies them in memory/logging only;
-    // a later persistence/event task can populate this field losslessly.
-    (lifecycle, None)
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -186,17 +149,6 @@ pub enum ExecutorActionField {
     Other(Value),
 }
 
-#[derive(Debug, Clone)]
-pub struct MissingBeforeContext {
-    pub id: Uuid,
-    pub session_id: Uuid,
-    pub workspace_id: Uuid,
-    pub repo_id: Uuid,
-    pub prev_after_head_commit: Option<String>,
-    pub target_branch: String,
-    pub repo_path: Option<String>,
-}
-
 impl ExecutionProcess {
     /// Find execution process by ID
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
@@ -219,57 +171,6 @@ impl ExecutionProcess {
         )
         .fetch_optional(pool)
         .await
-    }
-
-    /// Context for backfilling before_head_commit for legacy rows
-    /// List processes that have after_head_commit set but missing before_head_commit, with join context
-    pub async fn list_missing_before_context(
-        pool: &SqlitePool,
-    ) -> Result<Vec<MissingBeforeContext>, sqlx::Error> {
-        let rows = sqlx::query!(
-            r#"SELECT
-                ep.id                         as "id!: Uuid",
-                ep.session_id                 as "session_id!: Uuid",
-                s.workspace_id                as "workspace_id!: Uuid",
-                eprs.repo_id                  as "repo_id!: Uuid",
-                eprs.after_head_commit        as after_head_commit,
-                prev.after_head_commit        as prev_after_head_commit,
-                wr.target_branch              as "target_branch!",
-                r.path                        as repo_path
-            FROM execution_processes ep
-            JOIN sessions s ON s.id = ep.session_id
-            JOIN execution_process_repo_states eprs ON eprs.execution_process_id = ep.id
-            JOIN repos r ON r.id = eprs.repo_id
-            JOIN workspaces w ON w.id = s.workspace_id
-            JOIN workspace_repos wr ON wr.workspace_id = w.id AND wr.repo_id = eprs.repo_id
-            LEFT JOIN execution_process_repo_states prev
-              ON prev.execution_process_id = (
-                   SELECT id FROM execution_processes
-                     WHERE session_id = ep.session_id
-                       AND created_at < ep.created_at
-                     ORDER BY created_at DESC
-                     LIMIT 1
-               )
-              AND prev.repo_id = eprs.repo_id
-            WHERE eprs.before_head_commit IS NULL
-              AND eprs.after_head_commit IS NOT NULL"#
-        )
-        .fetch_all(pool)
-        .await?;
-
-        let result = rows
-            .into_iter()
-            .map(|r| MissingBeforeContext {
-                id: r.id,
-                session_id: r.session_id,
-                workspace_id: r.workspace_id,
-                repo_id: r.repo_id,
-                prev_after_head_commit: r.prev_after_head_commit,
-                target_branch: r.target_branch,
-                repo_path: Some(r.repo_path),
-            })
-            .collect();
-        Ok(result)
     }
 
     /// Find execution process by rowid
@@ -346,24 +247,6 @@ impl ExecutionProcess {
         )
         .fetch_all(pool)
         .await
-    }
-
-    /// Check if there's a running coding agent process for a session
-    pub async fn has_running_coding_agent_for_session(
-        pool: &SqlitePool,
-        session_id: Uuid,
-    ) -> Result<bool, sqlx::Error> {
-        let count: i64 = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) as "count!: i64"
-               FROM execution_processes ep
-               WHERE ep.session_id = $1
-                 AND ep.status = 'running'
-                 AND ep.run_reason = 'codingagent'"#,
-            session_id
-        )
-        .fetch_one(pool)
-        .await?;
-        Ok(count > 0)
     }
 
     /// Check if there are running processes (excluding dev servers) for a workspace (across all sessions)
@@ -630,60 +513,6 @@ impl ExecutionProcess {
         })
     }
 
-    /// Fetch the latest CodingAgent executor profile for a session.
-    /// Returns None if no CodingAgent execution process exists for this session.
-    pub async fn latest_executor_profile_for_session(
-        pool: &SqlitePool,
-        session_id: Uuid,
-    ) -> Result<Option<ExecutorProfileId>, ExecutionProcessError> {
-        // Find the latest CodingAgent execution process for this session
-        let latest_execution_process = sqlx::query_as!(
-            ExecutionProcess,
-            r#"SELECT
-                    ep.id as "id!: Uuid",
-                    ep.session_id as "session_id!: Uuid",
-                    ep.run_reason as "run_reason!: ExecutionProcessRunReason",
-                    ep.executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>",
-                    ep.status as "status!: ExecutionProcessStatus",
-                    ep.exit_code,
-                    ep.dropped as "dropped!: bool",
-                    ep.started_at as "started_at!: DateTime<Utc>",
-                    ep.completed_at as "completed_at?: DateTime<Utc>",
-                    ep.created_at as "created_at!: DateTime<Utc>",
-                    ep.updated_at as "updated_at!: DateTime<Utc>"
-               FROM execution_processes ep
-               WHERE ep.session_id = ? AND ep.run_reason = ? AND ep.dropped = FALSE
-               ORDER BY ep.created_at DESC LIMIT 1"#,
-            session_id,
-            ExecutionProcessRunReason::CodingAgent
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        let Some(latest_execution_process) = latest_execution_process else {
-            return Ok(None);
-        };
-
-        let action = latest_execution_process
-            .executor_action()
-            .map_err(|e| ExecutionProcessError::ValidationError(e.to_string()))?;
-
-        match &action.typ {
-            ExecutorActionType::CodingAgentInitialRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            ExecutorActionType::ReviewRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            _ => Err(ExecutionProcessError::ValidationError(
-                "Couldn't find profile from initial request".to_string(),
-            )),
-        }
-    }
-
     /// Fetch latest execution process info for all workspaces with the given archived status.
     /// Returns a map of workspace_id -> LatestProcessInfo for the most recent
     /// non-dropped execution process (excluding dev servers).
@@ -691,8 +520,7 @@ impl ExecutionProcess {
         pool: &SqlitePool,
         archived: bool,
     ) -> Result<HashMap<Uuid, LatestProcessInfo>, sqlx::Error> {
-        let rows: Vec<LatestProcessInfo> = sqlx::query_as!(
-            LatestProcessInfo,
+        let rows: Vec<LatestProcessInfo> = sqlx::query_as::<_, LatestProcessInfo>(
             r#"
             SELECT
                 workspace_id as "workspace_id!: Uuid",
@@ -715,13 +543,13 @@ impl ExecutionProcess {
                 JOIN sessions s ON ep.session_id = s.id
                 JOIN workspaces w ON s.workspace_id = w.id
                 WHERE w.archived = $1
-                  AND ep.run_reason IN ('codingagent', 'setupscript', 'cleanupscript')
+                  AND ep.run_reason IN ('setupscript', 'cleanupscript', 'archivescript')
                   AND ep.dropped = FALSE
             )
             WHERE rn = 1
             "#,
-            archived
         )
+        .bind(archived)
         .fetch_all(pool)
         .await?;
 
@@ -809,44 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn projects_coding_agent_running_lifecycle() {
-        let value = view_value(
-            ExecutionProcessRunReason::CodingAgent,
-            ExecutionProcessStatus::Running,
-        );
-
-        assert_eq!(value["agent_runtime_lifecycle"], "running");
-        assert!(value.get("agent_runtime_error").is_none());
-    }
-
-    #[test]
-    fn projects_coding_agent_terminal_lifecycles() {
-        let completed = view_value(
-            ExecutionProcessRunReason::CodingAgent,
-            ExecutionProcessStatus::Completed,
-        );
-        let failed = view_value(
-            ExecutionProcessRunReason::CodingAgent,
-            ExecutionProcessStatus::Failed,
-        );
-
-        assert_eq!(completed["agent_runtime_lifecycle"], "completed");
-        assert_eq!(failed["agent_runtime_lifecycle"], "failed");
-    }
-
-    #[test]
-    fn does_not_overload_killed_as_cancelling() {
-        let value = view_value(
-            ExecutionProcessRunReason::CodingAgent,
-            ExecutionProcessStatus::Killed,
-        );
-
-        assert!(value.get("agent_runtime_lifecycle").is_none());
-        assert!(value.get("agent_runtime_error").is_none());
-    }
-
-    #[test]
-    fn omits_runtime_fields_for_non_agent_processes() {
+    fn script_process_view_has_no_agent_runtime_projection() {
         let value = view_value(
             ExecutionProcessRunReason::SetupScript,
             ExecutionProcessStatus::Running,

@@ -272,35 +272,11 @@ pub struct Codex {
 #[async_trait]
 impl StandardCodingAgentExecutor for Codex {
     fn apply_overrides(&mut self, executor_config: &ExecutorConfig) {
-        if let Some(model_id) = &executor_config.model_id {
-            self.model = Some(model_id.clone());
-        }
-        if let Some(reasoning_id) = &executor_config.reasoning_id
-            && let Ok(reasoning_effort) = reasoning_id.parse()
-        {
-            self.model_reasoning_effort = Some(reasoning_effort)
-        }
-        if let Some(permission_policy) = &executor_config.permission_policy {
-            match permission_policy {
-                crate::model_selector::PermissionPolicy::Auto => {
-                    self.ask_for_approval = Some(AskForApproval::Never);
-                    self.plan = false;
-                }
-                crate::model_selector::PermissionPolicy::Supervised => {
-                    if matches!(self.ask_for_approval, None | Some(AskForApproval::Never)) {
-                        self.ask_for_approval = Some(AskForApproval::UnlessTrusted);
-                    }
-                    self.plan = false;
-                }
-                crate::model_selector::PermissionPolicy::Plan => {
-                    self.plan = true;
-                }
-            }
-        }
+        self.apply_direct_overrides(executor_config);
     }
 
     fn use_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
-        self.approvals = Some(approvals);
+        self.use_direct_approvals(approvals);
     }
 
     async fn spawn(
@@ -531,6 +507,102 @@ impl StandardCodingAgentExecutor for Codex {
 }
 
 impl Codex {
+    /// V1 direct-runtime metadata and decoder entry point.
+    pub const DIRECT_PROVIDER: super::provider_adapter::DirectProvider =
+        super::provider_adapter::DirectProvider::Codex;
+
+    pub fn direct_versions() -> super::provider_adapter::DirectAdapterVersions {
+        Self::DIRECT_PROVIDER.versions()
+    }
+
+    pub fn direct_capabilities(
+        runtime_profile_id: impl Into<String>,
+    ) -> crate::runtime::CapabilitySnapshot {
+        Self::DIRECT_PROVIDER.capabilities(runtime_profile_id)
+    }
+
+    pub fn decode_native_frame(
+        frame: &crate::runtime::NativeAuditFrame,
+    ) -> Result<super::provider_adapter::DecodedProviderEvent, crate::runtime::NativeAuditError>
+    {
+        Self::DIRECT_PROVIDER.decode_native_frame(frame)
+    }
+
+    pub fn direct_mapper() -> super::provider_adapter::DirectProviderMapper {
+        Self::DIRECT_PROVIDER.mapper()
+    }
+
+    pub(crate) fn apply_direct_overrides(&mut self, executor_config: &ExecutorConfig) {
+        if let Some(model_id) = &executor_config.model_id {
+            self.model = Some(model_id.clone());
+        }
+        if let Some(reasoning_id) = &executor_config.reasoning_id
+            && let Ok(reasoning_effort) = reasoning_id.parse()
+        {
+            self.model_reasoning_effort = Some(reasoning_effort)
+        }
+        if let Some(permission_policy) = &executor_config.permission_policy {
+            match permission_policy {
+                crate::model_selector::PermissionPolicy::Auto => {
+                    self.ask_for_approval = Some(AskForApproval::Never);
+                    self.plan = false;
+                }
+                crate::model_selector::PermissionPolicy::Supervised => {
+                    if matches!(self.ask_for_approval, None | Some(AskForApproval::Never)) {
+                        self.ask_for_approval = Some(AskForApproval::UnlessTrusted);
+                    }
+                    self.plan = false;
+                }
+                crate::model_selector::PermissionPolicy::Plan => {
+                    self.plan = true;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn use_direct_approvals(&mut self, approvals: Arc<dyn ExecutorApprovalService>) {
+        self.approvals = Some(approvals);
+    }
+
+    pub(crate) async fn launch_direct(
+        &self,
+        intent: super::provider_adapter::DirectIntent,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: Option<&str>,
+        selected_skills: &[SelectedSkill],
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        match intent {
+            super::provider_adapter::DirectIntent::Initial => {
+                self.spawn_slash_command(current_dir, prompt, None, selected_skills.to_vec(), env)
+                    .await
+            }
+            super::provider_adapter::DirectIntent::FollowUp
+            | super::provider_adapter::DirectIntent::Resume => {
+                self.spawn_slash_command(
+                    current_dir,
+                    prompt,
+                    session_id,
+                    selected_skills.to_vec(),
+                    env,
+                )
+                .await
+            }
+            super::provider_adapter::DirectIntent::Review => {
+                self.spawn_review_target(
+                    current_dir,
+                    ReviewTarget::Custom {
+                        instructions: prompt.to_string(),
+                    },
+                    session_id,
+                    env,
+                )
+                .await
+            }
+        }
+    }
+
     async fn spawn_review_target(
         &self,
         current_dir: &Path,

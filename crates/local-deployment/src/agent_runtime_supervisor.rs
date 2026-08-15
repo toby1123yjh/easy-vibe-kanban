@@ -5,16 +5,75 @@ use executors::{
     approvals::ExecutorApprovalError,
     executors::{ExecutorError, ExecutorExitResult},
     runtime::{
-        AgentRunLifecycle, AgentRuntimeError, AgentRuntimeErrorKind, AgentRuntimeLaunchPhase,
+        AgentRunLifecycle, AgentRunStatus, AgentRuntimeError, AgentRuntimeErrorKind,
+        AgentRuntimeLaunchPhase,
     },
 };
+use uuid::Uuid;
 
 const EXECUTOR_SIGNAL_SUCCESS_EXIT_CODE: i64 = 0;
 const EXECUTOR_SIGNAL_FAILURE_EXIT_CODE: i64 = 1;
 
+/// Platform identity is kept separate from process handles and observation.
+/// It remains stable when a supervisor is restarted or a RunAttempt is
+/// re-attached by another service instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AgentRuntimeIdentity {
+    pub session_id: Uuid,
+    pub agent_run_id: Uuid,
+    pub turn_id: Uuid,
+    pub run_attempt_id: Uuid,
+    pub correlation_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentRuntimeCoreState {
+    pub identity: AgentRuntimeIdentity,
+    pub lifecycle: AgentRunLifecycle,
+    pub status: AgentRunStatus,
+    pub terminal_decision: Option<TerminalDecision>,
+}
+
+impl AgentRuntimeCoreState {
+    pub(crate) fn new(identity: AgentRuntimeIdentity) -> Self {
+        Self {
+            identity,
+            lifecycle: AgentRunLifecycle::Starting,
+            status: AgentRunStatus::Starting,
+            terminal_decision: None,
+        }
+    }
+
+    pub(crate) fn is_terminal(&self) -> bool {
+        self.terminal_decision.is_some() || self.status.is_terminal()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalDecision {
+    Succeeded,
+    Failed,
+    Cancelled,
+    Crashed,
+    AuditFailed,
+}
+
+impl TerminalDecision {
+    pub(crate) fn status(self) -> AgentRunStatus {
+        match self {
+            Self::Succeeded => AgentRunStatus::Succeeded,
+            Self::Failed => AgentRunStatus::Failed,
+            Self::Cancelled => AgentRunStatus::Cancelled,
+            Self::Crashed => AgentRunStatus::Crashed,
+            Self::AuditFailed => AgentRunStatus::AuditFailed,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AgentRuntimeSupervisorOutcome {
     pub lifecycle: AgentRunLifecycle,
+    pub terminal_decision: Option<TerminalDecision>,
     pub process_status: Option<ExecutionProcessStatus>,
     pub exit_code: Option<i64>,
     pub runtime_error: Option<AgentRuntimeError>,
@@ -143,6 +202,7 @@ pub(crate) fn classify_watcher_error(error: impl Into<String>) -> AgentRuntimeSu
 fn in_flight(lifecycle: AgentRunLifecycle) -> AgentRuntimeSupervisorOutcome {
     AgentRuntimeSupervisorOutcome {
         lifecycle,
+        terminal_decision: None,
         process_status: None,
         exit_code: None,
         runtime_error: None,
@@ -157,9 +217,23 @@ fn terminal(
 ) -> AgentRuntimeSupervisorOutcome {
     AgentRuntimeSupervisorOutcome {
         lifecycle,
+        terminal_decision: Some(terminal_decision_for_lifecycle(lifecycle)),
         process_status: Some(process_status),
         exit_code,
         runtime_error,
+    }
+}
+
+fn terminal_decision_for_lifecycle(lifecycle: AgentRunLifecycle) -> TerminalDecision {
+    match lifecycle {
+        AgentRunLifecycle::Completed => TerminalDecision::Succeeded,
+        AgentRunLifecycle::Cancelling => TerminalDecision::Cancelled,
+        AgentRunLifecycle::Crashed => TerminalDecision::Crashed,
+        AgentRunLifecycle::Failed => TerminalDecision::Failed,
+        AgentRunLifecycle::Starting
+        | AgentRunLifecycle::Running
+        | AgentRunLifecycle::WaitingApproval
+        | AgentRunLifecycle::WaitingInput => TerminalDecision::Failed,
     }
 }
 
@@ -180,7 +254,9 @@ fn launch_phase_for_executor_error(error: &ExecutorError) -> AgentRuntimeLaunchP
         }
         ExecutorError::Json(_) => AgentRuntimeLaunchPhase::ProtocolConnect,
         ExecutorError::AuthRequired(_) => AgentRuntimeLaunchPhase::Warmup,
-        ExecutorError::FollowUpNotSupported(_) => AgentRuntimeLaunchPhase::SessionResume,
+        ExecutorError::FollowUpNotSupported(_) | ExecutorError::ResetToMessageNotSupported(_) => {
+            AgentRuntimeLaunchPhase::SessionResume
+        }
         ExecutorError::ExecutableNotFound { .. }
         | ExecutorError::UnknownExecutorType(_)
         | ExecutorError::SetupHelperNotSupported
@@ -208,6 +284,9 @@ mod tests {
     use futures::io::Error as FuturesIoError;
 
     use super::*;
+    use crate::process_supervisor::{
+        ProcessObservation, ReconciliationAction, reconciliation_action,
+    };
 
     fn success_status() -> ExitStatus {
         exit_status(0)
@@ -418,6 +497,50 @@ mod tests {
             ),
             AgentRuntimeErrorKind::StartupFailed,
             AgentRuntimeLaunchPhase::SessionResume,
+        );
+
+        assert_launch_error(
+            classify_launch_executor_error(
+                &ExecutorError::ResetToMessageNotSupported("omp".to_string()),
+                Some("omp"),
+            ),
+            AgentRuntimeErrorKind::StartupFailed,
+            AgentRuntimeLaunchPhase::SessionResume,
+        );
+    }
+
+    #[test]
+    fn restart_reconciliation_attaches_live_handle_without_terminal_decision() {
+        assert_eq!(
+            reconciliation_action(ProcessObservation::Alive, true),
+            ReconciliationAction::Attach
+        );
+        assert_eq!(
+            reconciliation_action(ProcessObservation::Alive, false),
+            ReconciliationAction::ObserveReadOnly
+        );
+        assert_eq!(
+            reconciliation_action(ProcessObservation::TemporarilyUnreachable, false),
+            ReconciliationAction::PreserveForRetry
+        );
+    }
+
+    #[test]
+    fn runtime_core_terminal_decision_is_independent_of_process_status() {
+        let identity = AgentRuntimeIdentity {
+            session_id: Uuid::new_v4(),
+            agent_run_id: Uuid::new_v4(),
+            turn_id: Uuid::new_v4(),
+            run_attempt_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+        };
+        let mut state = AgentRuntimeCoreState::new(identity);
+        assert!(!state.is_terminal());
+        state.terminal_decision = Some(TerminalDecision::Cancelled);
+        assert!(state.is_terminal());
+        assert_eq!(
+            TerminalDecision::Cancelled.status(),
+            executors::runtime::AgentRunStatus::Cancelled
         );
     }
 }

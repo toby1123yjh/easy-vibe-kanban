@@ -21,28 +21,21 @@ use crate::{
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
-    executors::{
-        amp::Amp, claude::ClaudeCode, codex::Codex, copilot::Copilot, cursor::CursorAgent,
-        droid::Droid, gemini::Gemini, opencode::Opencode, qwen::QwenCode,
-    },
+    executors::{claude::ClaudeCode, codex::Codex, gemini::Gemini, oh_my_pi::OhMyPi},
     logs::utils::patch,
     mcp_config::McpConfig,
     profile::ExecutorConfig,
 };
 
 pub mod acp;
-pub mod amp;
 pub mod bundled;
 pub mod claude;
 pub mod codex;
-pub mod copilot;
-pub mod cursor;
-pub mod droid;
 pub mod gemini;
-pub mod opencode;
+pub mod oh_my_pi;
+pub mod provider_adapter;
 #[cfg(feature = "qa-mode")]
 pub mod qa_mock;
-pub mod qwen;
 pub mod utils;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -94,6 +87,8 @@ pub enum BaseAgentCapability {
 pub enum ExecutorError {
     #[error("Follow-up is not supported: {0}")]
     FollowUpNotSupported(String),
+    #[error("Reset to a specific message is not supported: {0}")]
+    ResetToMessageNotSupported(String),
     #[error(transparent)]
     SpawnError(#[from] FuturesIoError),
     #[error("Unknown executor type: {0}")]
@@ -135,17 +130,9 @@ pub enum ExecutorError {
 )]
 pub enum CodingAgent {
     ClaudeCode,
-    Amp,
     Gemini,
     Codex,
-    Opencode,
-    #[serde(alias = "CURSOR")]
-    #[strum_discriminants(serde(alias = "CURSOR"))]
-    #[strum_discriminants(strum(serialize = "CURSOR", serialize = "CURSOR_AGENT"))]
-    CursorAgent,
-    QwenCode,
-    Copilot,
-    Droid,
+    OhMyPi,
     #[cfg(feature = "qa-mode")]
     QaMock(QaMockExecutor),
 }
@@ -161,24 +148,7 @@ impl CodingAgent {
                 self.preconfigured_mcp(),
                 true,
             ),
-            Self::Amp(_) => McpConfig::new(
-                vec!["amp.mcpServers".to_string()],
-                serde_json::json!({
-                    "amp.mcpServers": {}
-                }),
-                self.preconfigured_mcp(),
-                false,
-            ),
-            Self::Opencode(_) => McpConfig::new(
-                vec!["mcp".to_string()],
-                serde_json::json!({
-                    "mcp": {},
-                    "$schema": "https://opencode.ai/config.json"
-                }),
-                self.preconfigured_mcp(),
-                false,
-            ),
-            Self::Droid(_) => McpConfig::new(
+            Self::OhMyPi(_) => McpConfig::new(
                 vec!["mcpServers".to_string()],
                 serde_json::json!({
                     "mcpServers": {}
@@ -207,78 +177,18 @@ impl CodingAgent {
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::ContextUsage,
             ],
-            Self::Opencode(_) => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::ContextUsage,
-            ],
             Self::Codex(_) => vec![
                 BaseAgentCapability::SessionFork,
                 BaseAgentCapability::SetupHelper,
                 BaseAgentCapability::ContextUsage,
             ],
-            Self::Gemini(_) | Self::QwenCode(_) => {
-                vec![BaseAgentCapability::SessionFork]
-            }
-            Self::CursorAgent(_) if cfg!(unix) => vec![BaseAgentCapability::SetupHelper],
-            Self::CursorAgent(_) => vec![],
-            Self::Amp(_) | Self::Copilot(_) | Self::Droid(_) => vec![],
+            Self::OhMyPi(_) => vec![BaseAgentCapability::ContextUsage],
+            Self::Gemini(_) => vec![BaseAgentCapability::SessionFork],
             #[cfg(feature = "qa-mode")]
             Self::QaMock(_) => vec![], // QA mock doesn't need special capabilities
         }
     }
 
-    pub async fn spawn_with_selected_skills(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        selected_skills: &[SelectedSkill],
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError> {
-        match self {
-            Self::Codex(codex) => {
-                codex
-                    .spawn_with_selected_skills(current_dir, prompt, selected_skills, env)
-                    .await
-            }
-            _ => StandardCodingAgentExecutor::spawn(self, current_dir, prompt, env).await,
-        }
-    }
-
-    pub async fn spawn_follow_up_with_selected_skills(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: &str,
-        reset_to_message_id: Option<&str>,
-        selected_skills: &[SelectedSkill],
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError> {
-        match self {
-            Self::Codex(codex) => {
-                codex
-                    .spawn_follow_up_with_selected_skills(
-                        current_dir,
-                        prompt,
-                        session_id,
-                        reset_to_message_id,
-                        selected_skills,
-                        env,
-                    )
-                    .await
-            }
-            _ => {
-                StandardCodingAgentExecutor::spawn_follow_up(
-                    self,
-                    current_dir,
-                    prompt,
-                    session_id,
-                    reset_to_message_id,
-                    env,
-                )
-                .await
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -497,51 +407,17 @@ pub fn build_review_prompt(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     #[test]
-    fn test_cursor_agent_deserialization() {
-        // Test that CURSOR_AGENT is accepted
-        let result = BaseCodingAgent::from_str("CURSOR_AGENT");
-        assert!(result.is_ok(), "CURSOR_AGENT should be valid");
-        assert_eq!(result.unwrap(), BaseCodingAgent::CursorAgent);
-
-        // Test that legacy CURSOR is still accepted for backwards compatibility
-        let result = BaseCodingAgent::from_str("CURSOR");
-        assert!(
-            result.is_ok(),
-            "CURSOR should be valid for backwards compatibility"
-        );
-        assert_eq!(result.unwrap(), BaseCodingAgent::CursorAgent);
-
-        // Test serde deserialization for CURSOR_AGENT
-        let result: Result<BaseCodingAgent, _> = serde_json::from_str(r#""CURSOR_AGENT""#);
-        assert!(result.is_ok(), "CURSOR_AGENT should deserialize via serde");
-        assert_eq!(result.unwrap(), BaseCodingAgent::CursorAgent);
-
-        // Test serde deserialization for legacy CURSOR
-        let result: Result<BaseCodingAgent, _> = serde_json::from_str(r#""CURSOR""#);
-        assert!(result.is_ok(), "CURSOR should deserialize via serde");
-        assert_eq!(result.unwrap(), BaseCodingAgent::CursorAgent);
-    }
-
-    #[test]
-    fn cursor_setup_helper_capability_matches_platform_support() {
-        let agent = CodingAgent::CursorAgent(CursorAgent {
-            append_prompt: AppendPrompt::default(),
-            force: None,
-            model: None,
-            reasoning: None,
-            cmd: Default::default(),
-        });
-
-        assert_eq!(
-            agent
-                .capabilities()
-                .contains(&BaseAgentCapability::SetupHelper),
-            cfg!(unix)
-        );
+    fn v1_registry_contains_only_supported_products() {
+        let names = [
+            BaseCodingAgent::ClaudeCode,
+            BaseCodingAgent::Gemini,
+            BaseCodingAgent::Codex,
+            BaseCodingAgent::OhMyPi,
+        ]
+        .map(|agent| agent.to_string());
+        assert_eq!(names, ["CLAUDE_CODE", "GEMINI", "CODEX", "OH_MY_PI"]);
     }
 }

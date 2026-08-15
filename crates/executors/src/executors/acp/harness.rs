@@ -44,7 +44,7 @@ impl AcpPromptLoopOutcome {
     }
 }
 
-/// Reusable harness for ACP-based conns (Gemini, Qwen, etc.)
+/// Reusable harness for ACP-based connections such as Gemini.
 pub struct AcpAgentHarness {
     session_namespace: String,
     model: Option<String>,
@@ -68,7 +68,7 @@ impl AcpAgentHarness {
         }
     }
 
-    /// Create a harness with a custom session namespace (e.g. for Qwen)
+    /// Create a harness with a custom session namespace.
     pub fn with_session_namespace(namespace: impl Into<String>) -> Self {
         Self {
             session_namespace: namespace.into(),

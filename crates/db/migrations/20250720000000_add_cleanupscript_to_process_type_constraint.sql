@@ -3,7 +3,6 @@ ALTER TABLE execution_processes
   ADD COLUMN process_type_new TEXT NOT NULL DEFAULT 'setupscript'
     CHECK (process_type_new IN ('setupscript',
                                 'cleanupscript',   -- new value 🎉
-                                'codingagent',
                                 'devserver'));
 
 -- 2. Copy existing values across

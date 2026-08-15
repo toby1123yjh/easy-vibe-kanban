@@ -1,10 +1,6 @@
--- Refactor task_attempts into workspaces and sessions
--- - Rename task_attempts -> workspaces (keeps workspace-related fields)
--- - Create sessions table (executor moves here)
--- - Update execution_processes.task_attempt_id -> session_id
--- - Rename executor_sessions -> coding_agent_turns (drop redundant task_attempt_id)
--- - Rename merges.task_attempt_id -> workspace_id
--- - Rename tasks.parent_task_attempt -> parent_workspace_id
+-- Refactor task_attempts into workspaces and sessions.
+-- Agent Runtime V1 owns product-run identity; this migration leaves only the
+-- standalone script execution-process tables behind.
 
 -- 1. Rename task_attempts to workspaces (FK refs auto-update in schema)
 ALTER TABLE task_attempts RENAME TO workspaces;
@@ -59,7 +55,7 @@ CREATE TABLE execution_processes_new (
     id              BLOB PRIMARY KEY,
     session_id      BLOB NOT NULL,
     run_reason      TEXT NOT NULL DEFAULT 'setupscript'
-                       CHECK (run_reason IN ('setupscript','codingagent','devserver','cleanupscript')),
+                       CHECK (run_reason IN ('setupscript','devserver','cleanupscript')),
     executor_action TEXT NOT NULL DEFAULT '{}',
     status          TEXT NOT NULL DEFAULT 'running'
                        CHECK (status IN ('running','completed','failed','killed')),
@@ -93,29 +89,10 @@ ON execution_processes (session_id, status, run_reason);
 CREATE INDEX idx_execution_processes_session_run_reason_created
 ON execution_processes (session_id, run_reason, created_at DESC);
 
--- 8. Rename executor_sessions to coding_agent_turns and drop task_attempt_id
--- (needs rebuild to drop the redundant task_attempt_id column)
--- Also rename session_id to agent_session_id for clarity
-CREATE TABLE coding_agent_turns (
-    id                    BLOB PRIMARY KEY,
-    execution_process_id  BLOB NOT NULL,
-    agent_session_id      TEXT,
-    prompt                TEXT,
-    summary               TEXT,
-    created_at            TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-    updated_at            TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-    FOREIGN KEY (execution_process_id) REFERENCES execution_processes(id) ON DELETE CASCADE
-);
-
-INSERT INTO coding_agent_turns (id, execution_process_id, agent_session_id, prompt, summary, created_at, updated_at)
-SELECT id, execution_process_id, session_id, prompt, summary, created_at, updated_at
-FROM executor_sessions;
-
+-- 8. Drop the pre-runtime executor session table.
+-- Agent products now persist Session/AgentRun/Turn/RunAttempt in the
+-- agent-runtime schema; no legacy coding-agent turn table is created.
 DROP TABLE executor_sessions;
-
--- Recreate coding_agent_turns indexes
-CREATE INDEX idx_coding_agent_turns_execution_process_id ON coding_agent_turns(execution_process_id);
-CREATE INDEX idx_coding_agent_turns_agent_session_id ON coding_agent_turns(agent_session_id);
 
 -- 9. Rename attempt_repos to workspace_repos and attempt_id to workspace_id
 ALTER TABLE attempt_repos RENAME TO workspace_repos;
