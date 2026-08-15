@@ -1,0 +1,37 @@
+---
+title: "Oh My Pi"
+description: "Set up the Oh My Pi coding agent"
+---
+
+Oh My Pi is integrated as an external `omp` runtime over its stdio RPC
+protocol. Vibe Kanban keeps the provider-native session and protocol records
+separate from the canonical conversation timeline.
+
+<Steps>
+<Step title="Install Oh My Pi">
+  ```bash
+  npx -y @oh-my-pi/pi-coding-agent
+  ```
+</Step>
+
+<Step title="Follow the login instructions">
+  Complete the authentication flow provided by Oh My Pi. See the
+  [Oh My Pi repository](https://github.com/can1357/oh-my-pi) for current
+  installation and authentication details.
+</Step>
+
+<Step title="Start Vibe Kanban">
+  Once authenticated, launch Vibe Kanban:
+
+  ```bash
+  npx easy-vibe-kanban
+  ```
+
+  You can now select Oh My Pi when creating task attempts.
+</Step>
+</Steps>
+
+<Info>
+Vibe Kanban invokes the real `omp --mode rpc` executable. It does not embed a
+Node SDK or replace Oh My Pi's native tools, MCP servers, or subagent model.
+</Info>

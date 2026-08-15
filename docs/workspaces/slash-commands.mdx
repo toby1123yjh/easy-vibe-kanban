@@ -77,18 +77,12 @@ Vibe Kanban surfaces a curated subset of Codex built-in commands. For the full u
 | `/goal`        | Set or view the goal for a long-running task            |
 | `/personality` | Choose a Codex communication style                      |
 
-### OpenCode
+### Gemini CLI and Oh My Pi
 
-OpenCode provides built-in commands and custom commands. For full details, see the [built-in commands](https://opencode.ai/docs/tui/#commands) and [custom commands](https://opencode.ai/docs/commands) documentation.
-
-| Command     | Description                 |
-| ----------- | --------------------------- |
-| `/compact`  | Compact the session         |
-| `/commands` | Show all available commands |
-| `/models`   | List available models       |
-| `/agents`   | List available agents       |
-| `/status`   | Show status information     |
-| `/mcp`      | Show MCP server status      |
+Gemini CLI and Oh My Pi expose provider-native commands through their runtime
+protocols. Vibe Kanban discovers commands when the runtime supports discovery;
+otherwise the command list is empty rather than copied from a different
+provider.
 
 ## Command Discovery
 

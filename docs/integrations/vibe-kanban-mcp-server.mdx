@@ -160,14 +160,9 @@ When `issue_id` is provided, the workspace is automatically linked to the remote
 When using `start_workspace`, the following executors are supported (case-insensitive, accepts hyphens or underscores):
 
 - `claude-code` / `CLAUDE_CODE`
-- `amp` / `AMP`
 - `gemini` / `GEMINI`
 - `codex` / `CODEX`
-- `opencode` / `OPENCODE`
-- `cursor_agent` / `CURSOR_AGENT`
-- `qwen-code` / `QWEN_CODE`
-- `copilot` / `COPILOT`
-- `droid` / `DROID`
+- `oh-my-pi` / `OH_MY_PI`
 
 ## Using the MCP Server
 
@@ -228,7 +223,7 @@ This creates a new workspace, links it to the issue, generates a feature branch,
 3. List issues in the project filtered by status
 4. Create a new issue for "Add user profile page"
 5. Assign a team member to the issue
-6. Start a workspace session for the issue using Amp on the develop branch
+6. Start a workspace session for the issue using one of the supported V1 runtimes on the develop branch
 ```
 
 Each step uses the appropriate MCP tool (`list_organizations`, `list_projects`, `list_issues`, `create_issue`, `assign_issue`, `start_workspace`) to manage the complete workflow from planning to execution.

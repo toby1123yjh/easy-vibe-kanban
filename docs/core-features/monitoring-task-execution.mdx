@@ -53,7 +53,9 @@ As the agent works, each action appears in real-time:
 ### 4. Action Approvals
 
 <Note>
-Approvals are currently supported for Codex, with Claude Code coming soon.
+Approval and input controls are exposed according to the selected runtime's
+capability snapshot. Unsupported capabilities fail explicitly instead of being
+silently emulated.
 </Note>
 
 When an agent takes an action that requires human approval, a row appears below the action with approve/deny buttons.
@@ -100,7 +102,8 @@ This lets you:
 ### Editing Previous Messages
 
 <Note>
-Message editing is supported by Claude Code, Amp, Codex, Gemini, and Qwen.
+Message editing and resume controls are exposed only when the selected
+runtime advertises the corresponding native capability.
 </Note>
 
 <Frame>

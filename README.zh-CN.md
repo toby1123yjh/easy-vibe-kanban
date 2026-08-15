@@ -58,7 +58,7 @@ Start → 规划 (Claude Code) → 实现 (Codex) → 条件路由
 - **工作区执行** —— 每个工作区为 agent 提供独立分支、终端和 dev server
 - **Diff 审查 + 行内评论** —— 不离开 UI 直接把反馈发给 agent
 - **应用预览** —— 内置浏览器，带 devtools、元素检查和设备模拟
-- **10+ 编程智能体随时切换** —— Claude Code、Codex、Gemini CLI、GitHub Copilot、Amp、Cursor、OpenCode、Droid、CCR、Qwen Code
+- **编程智能体随时切换** —— Claude Code、Codex、Gemini CLI、Oh My Pi
 - **创建 PR 并合并** —— AI 生成 PR 描述，GitHub 上审查、合并
 
 ![](packages/public/vibe-kanban-screenshot-workspace.png)

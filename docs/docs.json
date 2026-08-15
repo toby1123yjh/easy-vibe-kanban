@@ -36,14 +36,8 @@
               "supported-coding-agents",
               "agents/claude-code",
               "agents/openai-codex",
-              "agents/github-copilot",
               "agents/gemini-cli",
-              "agents/amp",
-              "agents/cursor-cli",
-              "agents/opencode",
-              "agents/droid",
-              "agents/ccr",
-              "agents/qwen-code"
+              "agents/oh-my-pi"
             ]
           }
         ]
