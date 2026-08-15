@@ -180,6 +180,7 @@ export function VSCodeWorkspacePage() {
         >
           <ApprovalFeedbackProvider>
             <EntriesProvider
+              sessionId={selectedSessionId}
               key={
                 workspaceWithSession
                   ? `${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`

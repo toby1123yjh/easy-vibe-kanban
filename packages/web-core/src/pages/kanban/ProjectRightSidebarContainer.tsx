@@ -236,7 +236,10 @@ function WorkspaceSessionPanel({
       sessionId={selectedSessionId}
     >
       <ApprovalFeedbackProvider>
-        <EntriesProvider key={`${workspaceId}-${selectedSessionId ?? 'new'}`}>
+        <EntriesProvider
+          key={`${workspaceId}-${selectedSessionId ?? 'new'}`}
+          sessionId={selectedSessionId}
+        >
           <MessageEditProvider>
             <div className="relative flex h-full flex-1 flex-col bg-primary">
               <div className="flex items-center justify-between px-base py-half border-b shrink-0">

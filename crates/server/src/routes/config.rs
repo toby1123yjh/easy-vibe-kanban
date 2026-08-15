@@ -611,6 +611,8 @@ fn bundled_version_for(executor: BaseCodingAgent) -> Option<String> {
     match executor {
         BaseCodingAgent::ClaudeCode => executors::executors::bundled::bundled_claude_version(),
         BaseCodingAgent::Codex => executors::executors::bundled::bundled_codex_version(),
+        // Oh My Pi is resolved from PATH and is not shipped by the npx wrapper.
+        BaseCodingAgent::OhMyPi => None,
         _ => None,
     }
 }

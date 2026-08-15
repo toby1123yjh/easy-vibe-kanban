@@ -185,18 +185,8 @@ export function getWorkflowNodeIdentityClass(
         return 'node-identity-codex';
       case 'GEMINI':
         return 'node-identity-gemini';
-      case 'QWEN_CODE':
-        return 'node-identity-qwen';
-      case 'OPENCODE':
-        return 'node-identity-opencode';
-      case 'CURSOR_AGENT':
-        return 'node-identity-cursor';
-      case 'COPILOT':
-        return 'node-identity-copilot';
-      case 'AMP':
-        return 'node-identity-amp';
-      case 'DROID':
-        return 'node-identity-droid';
+      case 'OH_MY_PI':
+        return 'node-identity-oh-my-pi';
       default:
         return 'node-identity-default';
     }

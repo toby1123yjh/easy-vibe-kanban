@@ -1,8 +1,4 @@
 import { useCallback, useMemo } from 'react';
-import { useExecutionProcessesContext } from '@/shared/hooks/useExecutionProcessesContext';
-import { useBranchStatus } from '@/shared/hooks/useBranchStatus';
-import { isCodingAgent } from '@/shared/constants/processes';
-import { useResetProcessMutation } from './useResetProcessMutation';
 
 export interface UseResetProcessResult {
   resetProcess: (executionProcessId: string) => void;
@@ -15,46 +11,25 @@ export interface UseResetProcessResult {
  * @param selectedSessionId - passed explicitly to avoid subscribing to WorkspaceContext
  */
 export function useResetProcess(
-  workspaceId: string | undefined,
-  selectedSessionId: string | undefined
+  _workspaceId: string | undefined,
+  _selectedSessionId: string | undefined
 ): UseResetProcessResult {
-  const { data: branchStatus } = useBranchStatus(workspaceId);
-  const { executionProcessesAll: processes } = useExecutionProcessesContext();
-
-  const resetMutation = useResetProcessMutation(selectedSessionId ?? '');
-  const isResetPending = resetMutation.isPending;
-
-  const hasCodingProcess = useMemo(
-    () =>
-      processes.some(
-        (process) => !process.dropped && isCodingAgent(process.run_reason)
-      ),
-    [processes]
-  );
-
+  // Agent runs are reset through the canonical AgentRun control API. The
+  // legacy execution-process reset route is intentionally unavailable. A
+  // caller must use the canonical AgentRun retry/control APIs with an
+  // AgentRun identity instead of an ExecutionProcess id.
   const canResetProcess = useCallback(
-    (executionProcessId: string) => hasCodingProcess && !!executionProcessId,
-    [hasCodingProcess]
+    (_executionProcessId: string) => false,
+    []
   );
-
-  const resetProcess = useCallback(
-    (executionProcessId: string) => {
-      if (!selectedSessionId) return;
-      resetMutation.mutate({
-        executionProcessId,
-        branchStatus,
-        processes,
-      });
-    },
-    [branchStatus, processes, resetMutation, selectedSessionId]
-  );
+  const resetProcess = useCallback((_executionProcessId: string) => {}, []);
 
   return useMemo(
     () => ({
       resetProcess,
       canResetProcess,
-      isResetPending,
+      isResetPending: false,
     }),
-    [resetProcess, canResetProcess, isResetPending]
+    [resetProcess, canResetProcess]
   );
 }

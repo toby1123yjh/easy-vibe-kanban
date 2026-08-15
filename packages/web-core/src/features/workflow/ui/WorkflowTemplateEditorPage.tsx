@@ -1157,6 +1157,8 @@ export function WorkflowTemplateEditorPage({
               typeof sessionPanelNode.data.session_id === 'string'
                 ? sessionPanelNode.data.session_id
                 : null,
+            orchestration_node_execution_id: null,
+            agent_run_id: null,
             execution_process_id: null,
             arena_group_id: null,
             tokens_used: null,
@@ -1164,6 +1166,7 @@ export function WorkflowTemplateEditorPage({
             started_at: null,
             finished_at: null,
             error_text: null,
+            projection_status: null,
             created_at:
               workflowAttempt?.created_at ??
               template?.created_at ??

@@ -1192,7 +1192,9 @@ fn last_status_from_str(value: &str) -> Result<ScheduledTaskLastStatus, ApiError
 
 fn last_status_from_run_status(status: WorkflowRunStatus) -> &'static str {
     match status {
-        WorkflowRunStatus::Pending | WorkflowRunStatus::Running => "running",
+        WorkflowRunStatus::Pending | WorkflowRunStatus::Running | WorkflowRunStatus::Cancelling => {
+            "running"
+        }
         WorkflowRunStatus::AwaitingHuman => "awaiting_human",
         WorkflowRunStatus::AwaitingArena => "awaiting_arena",
         WorkflowRunStatus::Succeeded => "succeeded",
@@ -1554,6 +1556,7 @@ mod tests {
                 workspace_id BLOB,
                 trigger_source TEXT NOT NULL DEFAULT 'manual',
                 input_text TEXT NOT NULL,
+                graph_snapshot TEXT,
                 output_text TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 started_at TEXT,
@@ -1709,6 +1712,7 @@ mod tests {
             },
             WorkflowRunResponse {
                 id: run_id,
+                orchestration_run_id: None,
                 workflow_id,
                 attempt_id: Some(attempt_id),
                 issue_id,

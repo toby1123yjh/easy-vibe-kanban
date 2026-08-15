@@ -1,17 +1,11 @@
 import { NormalizedEntry, PatchType, TokenUsageInfo } from 'shared/types';
 
-import {
-  makeLoadingPatch,
-  nextActionPatch,
-} from '@/shared/hooks/useConversationHistory/constants';
+import { nextActionPatch } from '@/shared/hooks/useConversationHistory/constants';
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 import {
   deriveConversationTurns,
-  type ConversationAgentTurn,
   type ConversationScriptTurn,
-  type ConversationTurn,
 } from './deriveConversationTurns';
-import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
 export interface DerivedConversationEntriesResult {
   readonly entries: PatchTypeWithKey[];
@@ -36,42 +30,6 @@ function patchWithKey(
     patchKey: `${executionProcessId}:${index}`,
     executionProcessId,
   };
-}
-
-function appendAgentTurnEntries(
-  turn: ConversationAgentTurn,
-  turnEntries: PatchTypeWithKey[]
-) {
-  const nativeBackfillEntries = turn.visibleEntries.filter(
-    isNativeHistoryBackfillEntry
-  );
-  const currentRunEntries = turn.visibleEntries.filter(
-    (entry) => !isNativeHistoryBackfillEntry(entry)
-  );
-
-  turnEntries.push(...nativeBackfillEntries);
-
-  if (turn.shouldEmitUserMessage && turn.prompt) {
-    const userNormalizedEntry: NormalizedEntry = {
-      entry_type: { type: 'user_message' },
-      content: turn.prompt,
-      timestamp: null,
-    };
-
-    turnEntries.push(
-      patchWithKey(
-        { type: 'NORMALIZED_ENTRY', content: userNormalizedEntry },
-        turn.process.executionProcess.id,
-        'user'
-      )
-    );
-  }
-
-  turnEntries.push(...currentRunEntries);
-
-  if (turn.shouldEmitLoading) {
-    turnEntries.push(makeLoadingPatch(turn.process.executionProcess.id));
-  }
 }
 
 function appendScriptTurnEntries(
@@ -147,15 +105,6 @@ function appendScriptTurnEntries(
   }
 }
 
-function isAgentTurn(turn: ConversationTurn): turn is ConversationAgentTurn {
-  return (
-    turn.kind === 'agent_idle' ||
-    turn.kind === 'agent_running' ||
-    turn.kind === 'agent_pending_approval' ||
-    turn.kind === 'agent_failed'
-  );
-}
-
 // This stage serializes already-derived turn meaning into visible conversation entries.
 
 export function deriveConversationEntries({
@@ -167,42 +116,12 @@ export function deriveConversationEntries({
   let hasPendingApproval = false;
   let hasRunningProcess = false;
   let lastProcessFailedOrKilled = false;
-  let needsSetup = false;
-  let setupHelpText: string | undefined;
   let latestTokenUsageInfo: TokenUsageInfo | null = null;
   let hasSetupScriptRun = false;
   let hasCleanupScriptRun = false;
 
-  const entries = conversationTurns.turns.flatMap((turn, index) => {
+  const scriptEntries = conversationTurns.turns.flatMap((turn, index) => {
     const turnEntries: PatchTypeWithKey[] = [];
-
-    if (isAgentTurn(turn)) {
-      if (turn.latestTokenUsageInfo) {
-        latestTokenUsageInfo = turn.latestTokenUsageInfo;
-      }
-
-      if (turn.kind === 'agent_pending_approval') {
-        hasPendingApproval = true;
-      }
-
-      if (turn.kind === 'agent_running') {
-        hasRunningProcess = true;
-      }
-
-      if (
-        turn.kind === 'agent_failed' &&
-        index === conversationTurns.turns.length - 1
-      ) {
-        lastProcessFailedOrKilled = true;
-        if (turn.needsSetup) {
-          needsSetup = true;
-          setupHelpText = turn.setupHelpText;
-        }
-      }
-
-      appendAgentTurnEntries(turn, turnEntries);
-      return turnEntries;
-    }
 
     if (turn.kind === 'setup_script') {
       hasSetupScriptRun = true;
@@ -225,13 +144,54 @@ export function deriveConversationEntries({
     return turnEntries;
   });
 
+  const setupEntries: PatchTypeWithKey[] = [];
+  const trailingScriptEntries: PatchTypeWithKey[] = [];
+  for (const entry of scriptEntries) {
+    const process =
+      source.executionProcessState[entry.executionProcessId ?? ''];
+    const action = process?.executionProcess.executor_action.typ;
+    if (
+      action?.type === 'ScriptRequest' &&
+      (action.context === 'SetupScript' ||
+        action.context === 'ToolInstallScript')
+    ) {
+      setupEntries.push(entry);
+    } else {
+      trailingScriptEntries.push(entry);
+    }
+  }
+
+  const entries = [
+    ...setupEntries,
+    ...source.canonical.entries,
+    ...trailingScriptEntries,
+  ];
+  hasRunningProcess ||= source.canonical.isRunning;
+  hasPendingApproval ||= source.canonical.entries.some(
+    (entry) =>
+      entry.type === 'NORMALIZED_ENTRY' &&
+      entry.content.entry_type.type === 'tool_use' &&
+      entry.content.entry_type.status.status === 'pending_approval'
+  );
+  const canonicalTokenUsage = source.canonical.entries.findLast(
+    (entry) =>
+      entry.type === 'NORMALIZED_ENTRY' &&
+      entry.content.entry_type.type === 'token_usage_info'
+  );
+  if (
+    canonicalTokenUsage?.type === 'NORMALIZED_ENTRY' &&
+    canonicalTokenUsage.content.entry_type.type === 'token_usage_info'
+  ) {
+    latestTokenUsageInfo = canonicalTokenUsage.content.entry_type;
+  }
+
   if (!hasRunningProcess && !hasPendingApproval) {
     entries.push(
       nextActionPatch(
         lastProcessFailedOrKilled,
         conversationTurns.turns.length,
-        needsSetup,
-        setupHelpText
+        false,
+        undefined
       )
     );
   }

@@ -1,3 +1,4 @@
+pub mod agent_runtime;
 pub mod analytics;
 pub mod approvals;
 pub mod auth;
@@ -13,6 +14,7 @@ pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod notification;
 pub mod oauth_credentials;
+pub mod orchestration;
 pub mod pr_monitor;
 
 #[cfg(feature = "qa-mode")]

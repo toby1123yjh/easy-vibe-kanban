@@ -3,35 +3,9 @@ import {
   AgentProviderCapability,
   AgentProviderReadiness,
   BaseCodingAgent,
-  ExecutionProcessStatus,
   type AgentProviderPolicy,
-  type ExecutionProcess,
 } from 'shared/types';
 import { deriveRuntimeActionPolicy } from './runtimeActionPolicy';
-
-const baseProcess = {
-  id: 'process-1',
-  session_id: 'session-1',
-  run_reason: 'codingagent',
-  executor_action: {
-    typ: {
-      type: 'CodingAgentInitialRequest',
-      prompt: 'Implement feature',
-      executor_config: {
-        executor: BaseCodingAgent.CODEX,
-      },
-      working_dir: null,
-    },
-    next_action: null,
-  },
-  status: ExecutionProcessStatus.running,
-  exit_code: null,
-  dropped: false,
-  started_at: '2026-06-23T00:00:00Z',
-  completed_at: null,
-  created_at: '2026-06-23T00:00:00Z',
-  updated_at: '2026-06-23T00:00:00Z',
-} as ExecutionProcess;
 
 const readyPolicy: AgentProviderPolicy = {
   executor: BaseCodingAgent.CODEX,
@@ -46,24 +20,23 @@ const readyPolicy: AgentProviderPolicy = {
   diagnostics: [],
 };
 
-function makeProcess(overrides: Partial<ExecutionProcess>): ExecutionProcess {
-  return {
-    ...baseProcess,
-    ...overrides,
-  };
-}
-
 function baseInput(
   overrides: Partial<Parameters<typeof deriveRuntimeActionPolicy>[0]> = {}
 ): Parameters<typeof deriveRuntimeActionPolicy>[0] {
   return {
-    processes: [],
     hasContent: true,
     hasWorkspace: true,
     hasSession: true,
     hasExecutor: true,
     isNewSessionMode: false,
-    isWorkspaceBusy: false,
+    hasPriorAgentRun: false,
+    isAgentRunActive: false,
+    isAgentRunCancelling: false,
+    isLatestAgentRunTerminal: false,
+    isStandaloneScriptActive: false,
+    canCancelAgentRun: false,
+    canResolveApproval: false,
+    canSubmitInput: false,
     isSending: false,
     isStopping: false,
     isQueueLoading: false,
@@ -92,12 +65,8 @@ describe('runtime action policy', () => {
   it('allows existing idle follow-up after a prior coding run', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [
-          makeProcess({
-            status: ExecutionProcessStatus.completed,
-            completed_at: '2026-06-23T00:01:00Z',
-          }),
-        ],
+        hasPriorAgentRun: true,
+        isLatestAgentRunTerminal: true,
       })
     );
 
@@ -108,8 +77,9 @@ describe('runtime action policy', () => {
   it('blocks direct follow-up and allows queue while running', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
       })
     );
 
@@ -121,8 +91,9 @@ describe('runtime action policy', () => {
   it('blocks duplicate queue and allows queue cancel', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
         isQueued: true,
       })
     );
@@ -134,8 +105,9 @@ describe('runtime action policy', () => {
   it('blocks send and queue while stopping', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
         isStopping: true,
       })
     );
@@ -145,15 +117,21 @@ describe('runtime action policy', () => {
     expect(policy.stop.reason).toBe('runtime_cancelling');
   });
 
+  it('blocks sends and allows stop while a standalone script is active', () => {
+    const policy = deriveRuntimeActionPolicy(
+      baseInput({ isStandaloneScriptActive: true })
+    );
+
+    expect(policy.send_follow_up.reason).toBe('unknown_runtime');
+    expect(policy.send_initial.reason).toBe('runtime_busy');
+    expect(policy.stop.allowed).toBe(true);
+  });
+
   it('allows follow-up after a failed terminal run', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [
-          makeProcess({
-            status: ExecutionProcessStatus.failed,
-            completed_at: '2026-06-23T00:01:00Z',
-          }),
-        ],
+        hasPriorAgentRun: true,
+        isLatestAgentRunTerminal: true,
       })
     );
 
@@ -164,16 +142,20 @@ describe('runtime action policy', () => {
   it('preserves approval approve and request-change rules', () => {
     const approvePolicy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
+        canResolveApproval: true,
         hasContent: false,
         hasPendingApproval: true,
       })
     );
     const requestChangesPolicy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
+        canResolveApproval: true,
         hasPendingApproval: true,
       })
     );
@@ -189,8 +171,10 @@ describe('runtime action policy', () => {
   it('allows question answers while question mode owns input', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [baseProcess],
-        isWorkspaceBusy: true,
+        hasPriorAgentRun: true,
+        isAgentRunActive: true,
+        canCancelAgentRun: true,
+        canSubmitInput: true,
         hasPendingQuestion: true,
       })
     );
@@ -202,12 +186,8 @@ describe('runtime action policy', () => {
   it('uses provider capability when policy exists', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [
-          makeProcess({
-            status: ExecutionProcessStatus.completed,
-            completed_at: '2026-06-23T00:01:00Z',
-          }),
-        ],
+        hasPriorAgentRun: true,
+        isLatestAgentRunTerminal: true,
         providerPolicy: {
           ...readyPolicy,
           capabilities: [AgentProviderCapability.INITIAL_RUN],
@@ -221,12 +201,8 @@ describe('runtime action policy', () => {
   it('falls back compatibly when provider policy is absent', () => {
     const policy = deriveRuntimeActionPolicy(
       baseInput({
-        processes: [
-          makeProcess({
-            status: ExecutionProcessStatus.completed,
-            completed_at: '2026-06-23T00:01:00Z',
-          }),
-        ],
+        hasPriorAgentRun: true,
+        isLatestAgentRunTerminal: true,
         providerPolicy: null,
       })
     );

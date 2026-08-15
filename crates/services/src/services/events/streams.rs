@@ -350,13 +350,13 @@ mod tests {
 
     use super::{execution_process_patch, execution_processes_snapshot_map};
 
-    fn coding_agent_process(status: ExecutionProcessStatus) -> ExecutionProcess {
+    fn script_process(status: ExecutionProcessStatus) -> ExecutionProcess {
         let now = Utc::now();
 
         ExecutionProcess {
             id: Uuid::new_v4(),
             session_id: Uuid::new_v4(),
-            run_reason: ExecutionProcessRunReason::CodingAgent,
+            run_reason: ExecutionProcessRunReason::SetupScript,
             executor_action: sqlx::types::Json(ExecutorActionField::ExecutorAction(
                 ExecutorAction::new(
                     ExecutorActionType::ScriptRequest(ScriptRequest {
@@ -379,8 +379,8 @@ mod tests {
     }
 
     #[test]
-    fn execution_process_snapshot_matches_live_patch_runtime_projection() {
-        let process = coding_agent_process(ExecutionProcessStatus::Running);
+    fn execution_process_snapshot_matches_live_patch_projection() {
+        let process = script_process(ExecutionProcessStatus::Running);
         let process_id = process.id.to_string();
 
         let snapshot = execution_processes_snapshot_map(vec![process.clone()]);
@@ -393,13 +393,8 @@ mod tests {
             panic!("expected add operation");
         };
 
-        assert_eq!(
-            snapshot_value["agent_runtime_lifecycle"],
-            op.value["agent_runtime_lifecycle"]
-        );
-        assert_eq!(
-            snapshot_value.get("agent_runtime_error"),
-            op.value.get("agent_runtime_error")
-        );
+        assert_eq!(snapshot_value, &op.value);
+        assert!(snapshot_value.get("agent_runtime_lifecycle").is_none());
+        assert!(snapshot_value.get("agent_runtime_error").is_none());
     }
 }

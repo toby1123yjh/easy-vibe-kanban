@@ -13,6 +13,7 @@ import type {
   PatchTypeWithKey,
   UseConversationHistoryParams,
 } from '@/shared/hooks/useConversationHistory/types';
+import { useCanonicalAgentSession } from '../contexts/EntriesContext';
 
 // Result type for the new UI's conversation history hook
 export interface UseConversationHistoryResult {
@@ -35,6 +36,7 @@ export const useConversationHistory = ({
     isLoading,
     isConnected,
   } = useExecutionProcessesContext();
+  const canonicalSession = useCanonicalAgentSession();
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
@@ -48,13 +50,8 @@ export const useConversationHistory = ({
 
   // Derive whether this is the first turn (no follow-up processes exist)
   const isFirstTurn = useMemo(() => {
-    const codingAgentProcessCount = executionProcessesRaw.filter(
-      (ep) =>
-        ep.executor_action.typ.type === 'CodingAgentInitialRequest' ||
-        ep.executor_action.typ.type === 'CodingAgentFollowUpRequest'
-    ).length;
-    return codingAgentProcessCount <= 1;
-  }, [executionProcessesRaw]);
+    return canonicalSession.conversation.runCount <= 1;
+  }, [canonicalSession.conversation.runCount]);
 
   const mergeIntoDisplayed = (
     mutator: (state: ExecutionProcessStateStore) => void
@@ -72,8 +69,9 @@ export const useConversationHistory = ({
     ): ConversationTimelineSource => ({
       executionProcessState,
       liveExecutionProcesses: executionProcesses.current,
+      canonical: canonicalSession.conversation,
     }),
-    []
+    [canonicalSession.conversation]
   );
 
   useEffect(() => {
@@ -83,23 +81,14 @@ export const useConversationHistory = ({
   // Keep executionProcesses up to date
   useEffect(() => {
     executionProcesses.current = executionProcessesRaw.filter(
-      (ep) =>
-        ep.run_reason === 'setupscript' ||
-        ep.run_reason === 'cleanupscript' ||
-        ep.run_reason === 'archivescript' ||
-        ep.run_reason === 'codingagent'
+      (ep) => ep.executor_action.typ.type === 'ScriptRequest'
     );
   }, [executionProcessesRaw]);
 
   const loadEntriesForHistoricExecutionProcess = (
     executionProcess: ExecutionProcess
   ) => {
-    let url = '';
-    if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-      url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-    } else {
-      url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-    }
+    const url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
 
     return new Promise<PatchType[]>((resolve) => {
       const controller = streamJsonPatchEntries<PatchType>(url, {
@@ -136,12 +125,7 @@ export const useConversationHistory = ({
   ): PatchTypeWithKey[] => {
     return Object.values(executionProcessState)
       .filter(
-        (p) =>
-          p.executionProcess.executor_action.typ.type ===
-            'CodingAgentFollowUpRequest' ||
-          p.executionProcess.executor_action.typ.type ===
-            'CodingAgentInitialRequest' ||
-          p.executionProcess.executor_action.typ.type === 'ReviewRequest'
+        (p) => p.executionProcess.executor_action.typ.type === 'ScriptRequest'
       )
       .sort(
         (a, b) =>
@@ -153,7 +137,7 @@ export const useConversationHistory = ({
       .flatMap((p) => p.entries);
   };
 
-  const getActiveAgentProcesses = (): ExecutionProcess[] => {
+  const getActiveScriptProcesses = (): ExecutionProcess[] => {
     return (
       executionProcesses?.current.filter(
         (p) => isExecutionProcessActive(p) && p.run_reason !== 'devserver'
@@ -204,12 +188,7 @@ export const useConversationHistory = ({
   const loadRunningAndEmit = useCallback(
     (executionProcess: ExecutionProcess): Promise<void> => {
       return new Promise((resolve, reject) => {
-        let url = '';
-        if (executionProcess.executor_action.typ.type === 'ScriptRequest') {
-          url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
-        } else {
-          url = `/api/execution-processes/${executionProcess.id}/normalized-logs/ws`;
-        }
+        const url = `/api/execution-processes/${executionProcess.id}/raw-logs/ws`;
         const controller = streamJsonPatchEntries<PatchType>(url, {
           onEntries(entries) {
             const patchesWithKey = entries.map((entry, index) =>
@@ -433,7 +412,7 @@ export const useConversationHistory = ({
   ]); // include idListKey so new processes trigger reload
 
   useEffect(() => {
-    const activeProcesses = getActiveAgentProcesses();
+    const activeProcesses = getActiveScriptProcesses();
     if (activeProcesses.length === 0) return;
 
     for (const activeProcess of activeProcesses) {
@@ -466,11 +445,15 @@ export const useConversationHistory = ({
   ]);
 
   useEffect(() => {
-    if (!executionProcessesRaw) return;
+    // Ordinary coding-agent runs are projected from the canonical AgentRun
+    // stream. Only standalone script processes own the legacy raw-log
+    // endpoint; iterating the raw provider list here would re-introduce
+    // provider transcripts into the canonical conversation after completion.
+    if (executionProcesses.current.length === 0) return;
 
     const processesToReload: ExecutionProcess[] = [];
 
-    for (const process of executionProcessesRaw) {
+    for (const process of executionProcesses.current) {
       const previousActive = previousActiveMapRef.current.get(process.id);
       const currentActive = isExecutionProcessActive(process);
 

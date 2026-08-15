@@ -2,16 +2,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
-  type WheelEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ExecutorConfig,
   WorkflowNodeExecutionResponse,
-  WorkflowNodeWorkView,
 } from 'shared/types';
 import {
   AlertCircle,
@@ -22,29 +19,18 @@ import {
   Settings2,
 } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
-import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
-import { ConversationList } from '@/features/workspace-chat/ui/ConversationListContainer';
-import type { ConversationListHandle } from '@/features/workspace-chat/ui/ConversationListContainer';
-import { SessionChatBoxContainer } from '@/features/workspace-chat/ui/SessionChatBoxContainer';
-import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
-import { EntriesProvider } from '@/features/workspace-chat/model/contexts/EntriesContext';
-import { MessageEditProvider } from '@/features/workspace-chat/model/contexts/MessageEditContext';
-import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryUiContext';
-import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
-import { ContextBarContainer } from '@/pages/workspaces/ContextBarContainer';
-import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
-import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
-import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
-import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import {
   WorkspaceFilePreviewActionsProvider,
   WorkspaceFilesInlineInspector,
   useWorkspaceFilePreviewState,
   type WorkspaceFilePreviewTarget,
 } from '@/features/workspace-files';
-import { ExecutionProcessesProvider } from '@/shared/providers/ExecutionProcessesProvider';
-import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { cn } from '@/shared/lib/utils';
+import { useAgentRunCanonicalStream } from '@/features/agent-runtime/model/useAgentRunCanonicalStream';
+import {
+  isCanonicalProjectionAvailable,
+  type CanonicalAgentTimelineItem,
+} from '@/features/agent-runtime/model/canonicalAgentTimeline';
 import type { WorkflowNodeData } from '../model/workflowGraph';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
@@ -53,6 +39,7 @@ import {
   getNodeStatusTone,
   type StatusTone,
 } from '../model/workflowRunView';
+import type { CanonicalWorkflowNodeWorkView } from '../model/workflowRuntimeView';
 import {
   getConditionRouterHumanPrompt,
   getConditionRouterReason,
@@ -75,7 +62,7 @@ interface WorkflowNodeSessionPanelProps {
   runStepDisabled?: boolean;
   runStepTitle?: string;
   afterHeaderContent?: ReactNode;
-  runtimeWork?: WorkflowNodeWorkView | null;
+  runtimeWork?: CanonicalWorkflowNodeWorkView | null;
   onInspectFiles?: () => void;
   inspectFilesDisabled?: boolean;
 }
@@ -92,7 +79,7 @@ interface WorkflowNodeSessionHeaderProps {
   onRunStep?: () => void;
   runStepDisabled?: boolean;
   runStepTitle?: string;
-  runtimeWork?: WorkflowNodeWorkView | null;
+  runtimeWork?: CanonicalWorkflowNodeWorkView | null;
   onInspectFiles?: () => void;
   inspectFilesDisabled?: boolean;
 }
@@ -131,6 +118,16 @@ export function WorkflowNodeSessionPanel({
   runtimeWork,
 }: WorkflowNodeSessionPanelProps) {
   const nodeSessionId = execution.session_id;
+  const agentRunId = runtimeWork?.active_agent_run_id ?? execution.agent_run_id;
+  const projectionStatus =
+    runtimeWork?.projection_status ?? execution.projection_status ?? null;
+  const projectionAvailable = Boolean(
+    agentRunId && projectionStatus === 'current'
+  );
+  const canonicalStream = useAgentRunCanonicalStream(
+    agentRunId ?? undefined,
+    projectionAvailable
+  );
   const [showFilesInspector, setShowFilesInspector] = useState(false);
   const { target, openTarget, clearTarget } = useWorkspaceFilePreviewState();
   const previewScopeKey = `${workspaceId ?? 'no-workspace'}:${nodeSessionId ?? 'no-session'}`;
@@ -155,7 +152,7 @@ export function WorkflowNodeSessionPanel({
     [openTarget]
   );
 
-  if (!workspaceId || !nodeSessionId) {
+  if (!projectionAvailable || !agentRunId) {
     return (
       <WorkflowNodeSessionFallback
         execution={execution}
@@ -172,6 +169,9 @@ export function WorkflowNodeSessionPanel({
         runStepTitle={runStepTitle}
         afterHeaderContent={afterHeaderContent}
         runtimeWork={runtimeWork}
+        canonicalStream={canonicalStream}
+        agentRunId={agentRunId}
+        projectionStatus={projectionStatus}
       />
     );
   }
@@ -205,7 +205,7 @@ export function WorkflowNodeSessionPanel({
           {showFilesInspector ? (
             <WorkspaceFilesInlineInspector
               key={`${workspaceId}-${nodeSessionId}`}
-              workspaceId={workspaceId}
+              workspaceId={workspaceId!}
               target={target}
               source="workflow"
               sessionId={nodeSessionId}
@@ -216,12 +216,10 @@ export function WorkflowNodeSessionPanel({
               onClose={() => setShowFilesInspector(false)}
             />
           ) : (
-            <WorkflowNodeEmbeddedSession
+            <WorkflowNodeCanonicalSession
               execution={execution}
-              nodeSessionId={nodeSessionId}
-              sessionHref={sessionHref}
-              workspaceId={workspaceId}
-              workspaceHref={workspaceHref}
+              agentRunId={agentRunId}
+              canonicalStream={canonicalStream}
               preferredExecutorConfig={preferredExecutorConfig}
             />
           )}
@@ -407,7 +405,7 @@ function WorkflowNodeRunSummary({
   runtimeWork,
 }: {
   execution: WorkflowNodeExecutionResponse;
-  runtimeWork?: WorkflowNodeWorkView | null;
+  runtimeWork?: CanonicalWorkflowNodeWorkView | null;
 }) {
   const { t } = useTranslation('common');
   const statusTone = runtimeWork?.active_slow
@@ -528,8 +526,17 @@ function WorkflowNodeTechnicalDetails({
         <TechnicalDetailRow label={t('workflow.nodeSession.sessionId')}>
           {execution.session_id ?? t('workflow.dashboard.notStarted')}
         </TechnicalDetailRow>
-        <TechnicalDetailRow label={t('workflow.nodeSession.processId')}>
-          {execution.execution_process_id ?? t('workflow.dashboard.notStarted')}
+        <TechnicalDetailRow
+          label={t('workflow.nodeSession.orchestrationNodeExecutionId')}
+        >
+          {execution.orchestration_node_execution_id ??
+            t('workflow.dashboard.notAvailable')}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label={t('workflow.nodeSession.agentRunId')}>
+          {execution.agent_run_id ?? t('workflow.dashboard.notAvailable')}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label={t('workflow.nodeSession.projection')}>
+          {execution.projection_status ?? t('workflow.dashboard.notAvailable')}
         </TechnicalDetailRow>
       </div>
     </details>
@@ -551,178 +558,120 @@ function TechnicalDetailRow({
   );
 }
 
-function WorkflowNodeEmbeddedSession({
+function WorkflowNodeCanonicalSession({
   execution,
-  nodeSessionId,
-  sessionHref,
-  workspaceId,
-  workspaceHref,
+  agentRunId,
+  canonicalStream,
   preferredExecutorConfig,
 }: {
   execution: WorkflowNodeExecutionResponse;
-  nodeSessionId: string;
-  sessionHref: string | null;
-  workspaceId: string;
-  workspaceHref: string | null;
+  agentRunId: string;
+  canonicalStream: ReturnType<typeof useAgentRunCanonicalStream>;
   preferredExecutorConfig: ExecutorConfig | null;
 }) {
-  const containerRef = useRef<HTMLElement>(null);
-  const conversationListRef = useRef<ConversationListHandle>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
-  const { data: workspace, isLoading: isWorkspaceLoading } = useWorkspaceRecord(
-    workspaceId,
-    { enabled: !!workspaceId }
+  const { t } = useTranslation('common');
+  const timeline = canonicalStream.timeline;
+  const projectionAvailable = isCanonicalProjectionAvailable(
+    timeline?.state ?? null
   );
-  const { repos } = useWorkspaceRepo(workspaceId, { enabled: !!workspaceId });
-  const {
-    sessions,
-    selectSession,
-    isLoading: isSessionsLoading,
-  } = useWorkspaceSessions(workspaceId, { enabled: !!workspaceId });
-
-  const nodeSession = useMemo(
-    () => sessions.find((session) => session.id === nodeSessionId),
-    [nodeSessionId, sessions]
-  );
-  const nodeSessions = useMemo(
-    () => (nodeSession ? [nodeSession] : []),
-    [nodeSession]
-  );
-
-  const workspaceSummary = useMemo(
-    () =>
-      [...activeWorkspaces, ...archivedWorkspaces].find(
-        (candidate) => candidate.id === workspaceId
-      ),
-    [activeWorkspaces, archivedWorkspaces, workspaceId]
-  );
-
-  const workspaceWithSession = useMemo(() => {
-    if (!workspace) return undefined;
-    return createWorkspaceWithSession(workspace, nodeSession);
-  }, [workspace, nodeSession]);
-
-  const handleScrollToPreviousMessage = useCallback(() => {
-    conversationListRef.current?.scrollToPreviousUserMessage();
-  }, []);
-
-  const handleScrollToUserMessage = useCallback((patchKey: string) => {
-    conversationListRef.current?.scrollToEntryByPatchKey(patchKey);
-  }, []);
-
-  const handleGetActiveTurnPatchKey = useCallback(() => {
-    return conversationListRef.current?.getVisibleUserMessagePatchKey() ?? null;
-  }, []);
-
-  const handleScrollToBottom = useCallback(
-    (behavior: 'auto' | 'smooth' = 'smooth') => {
-      conversationListRef.current?.scrollToBottom(behavior);
-    },
-    []
-  );
-
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    setIsAtBottom(atBottom);
-  }, []);
-
-  const entriesProviderKey = `${workspaceId}-${nodeSessionId}`;
-
-  if (!isSessionsLoading && !nodeSession) {
-    return (
-      <WorkflowNodeSessionFallback
-        execution={execution}
-        sessionHref={sessionHref}
-        workspaceHref={workspaceHref}
-      />
-    );
-  }
-
-  const conversationContent = workspaceWithSession ? (
-    <div
-      className="flex min-h-0 flex-1 justify-center overflow-hidden"
-      onWheel={(event: WheelEvent<HTMLDivElement>) =>
-        forwardWheelToScroller(event, conversationListRef)
-      }
-    >
-      <div className="h-full w-chat max-w-full">
-        <RetryUiProvider workspaceId={workspaceWithSession.id}>
-          <ConversationList
-            key={entriesProviderKey}
-            ref={conversationListRef}
-            attempt={workspaceWithSession}
-            repos={repos}
-            onAtBottomChange={handleAtBottomChange}
-            sessionScopeId={nodeSessionId}
-          />
-        </RetryUiProvider>
-      </div>
-    </div>
-  ) : null;
-
-  const chatBoxContent = (
-    <SessionChatBoxContainer
-      {...(isSessionsLoading || isWorkspaceLoading
-        ? {
-            mode: 'placeholder' as const,
-          }
-        : nodeSession
-          ? {
-              mode: 'existing-session' as const,
-              session: nodeSession,
-              onSelectSession: selectSession,
-              onStartNewSession: undefined,
-            }
-          : {
-              mode: 'placeholder' as const,
-            })}
-      sessions={nodeSessions}
-      filesChanged={workspaceSummary?.filesChanged ?? 0}
-      linesAdded={workspaceSummary?.linesAdded ?? 0}
-      linesRemoved={workspaceSummary?.linesRemoved ?? 0}
-      disableViewCode={false}
-      showOpenWorkspaceButton
-      onScrollToPreviousMessage={handleScrollToPreviousMessage}
-      onScrollToBottom={handleScrollToBottom}
-      onScrollToUserMessage={handleScrollToUserMessage}
-      getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
-      preferredExecutorConfig={preferredExecutorConfig}
-    />
-  );
+  const items = timeline?.items ?? [];
 
   return (
-    <ExecutionProcessesProvider
-      key={`${workspaceId}-${nodeSessionId}`}
-      sessionId={nodeSessionId}
-    >
-      <ApprovalFeedbackProvider>
-        <EntriesProvider key={entriesProviderKey}>
-          <MessageEditProvider>
-            <WorkspacesMain
-              workspaceWithSession={
-                workspaceWithSession
-                  ? { id: workspaceWithSession.id }
-                  : undefined
-              }
-              isLoading={isWorkspaceLoading || isSessionsLoading}
-              containerRef={containerRef}
-              conversationContent={conversationContent}
-              chatBoxContent={chatBoxContent}
-              contextBarContent={
-                workspaceWithSession ? (
-                  <ContextBarContainer containerRef={containerRef} />
-                ) : null
-              }
-              isAtBottom={isAtBottom}
-              onAtBottomChange={handleAtBottomChange}
-              onScrollToBottom={handleScrollToBottom}
-            />
-          </MessageEditProvider>
-        </EntriesProvider>
-      </ApprovalFeedbackProvider>
-    </ExecutionProcessesProvider>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-primary p-base">
+      {!projectionAvailable ? (
+        <div className="mb-base rounded border border-warning/40 bg-warning/10 p-half text-xs text-warning">
+          {t('workflow.nodeSession.projectionUnavailable', {
+            defaultValue:
+              'Canonical AgentRun projection is unavailable; actions are disabled.',
+          })}
+        </div>
+      ) : null}
+      <div className="mb-base grid gap-half text-xs text-low sm:grid-cols-2">
+        <TechnicalDetailRow label={t('workflow.nodeSession.agentRunId')}>
+          {agentRunId}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label={t('workflow.nodeSession.sessionId')}>
+          {execution.session_id ?? t('workflow.dashboard.notAvailable')}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label={t('workflow.nodeSession.projection')}>
+          {timeline?.state?.projection_status ??
+            t('workflow.dashboard.notAvailable')}
+        </TechnicalDetailRow>
+        <TechnicalDetailRow label={t('workflow.nodeSession.runtimeConnection')}>
+          {canonicalStream.isConnected
+            ? t('workflow.nodeSession.connected', { defaultValue: 'Connected' })
+            : t('workflow.nodeSession.disconnected', {
+                defaultValue: 'Disconnected',
+              })}
+        </TechnicalDetailRow>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto space-y-half">
+        {canonicalStream.error ? (
+          <div className="rounded border border-error/50 bg-error/10 p-half text-xs text-error">
+            {canonicalStream.error}
+          </div>
+        ) : null}
+        {items.length === 0 ? (
+          <div className="rounded border border-secondary bg-panel/50 p-base text-sm text-low">
+            {t('workflow.nodeSession.noAgentResponse')}
+          </div>
+        ) : (
+          items.map((item) => (
+            <CanonicalTimelineItemView key={item.eventId} item={item} />
+          ))
+        )}
+      </div>
+      <div className="mt-base rounded border border-secondary bg-panel/60 p-half text-[10px] text-low">
+        {preferredExecutorConfig
+          ? t('workflow.nodeSession.nativeConfigLoaded', {
+              defaultValue: 'Native executor configuration loaded.',
+            })
+          : t('workflow.nodeSession.nativeConfigUnavailable', {
+              defaultValue: 'Native executor configuration is unavailable.',
+            })}
+      </div>
+    </div>
   );
 }
+
+function CanonicalTimelineItemView({
+  item,
+}: {
+  item: CanonicalAgentTimelineItem;
+}) {
+  const { t } = useTranslation('common');
+  const label =
+    item.kind === 'status' && item.status
+      ? `${item.kind}: ${item.status}`
+      : item.kind;
+  return (
+    <div className="rounded border border-secondary bg-panel/60 p-half text-xs">
+      <div className="flex items-center justify-between gap-half text-[10px] uppercase text-low">
+        <span>{label}</span>
+        <time>{formatWorkflowTimestamp(item.timestamp) ?? item.timestamp}</time>
+      </div>
+      {item.content ? (
+        <p className="mt-1 whitespace-pre-wrap text-high">{item.content}</p>
+      ) : null}
+      {!item.content ? (
+        <p className="mt-1 text-low">
+          {t('workflow.nodeSession.eventRecorded', {
+            defaultValue: 'Canonical event recorded.',
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+type WorkflowNodeSessionFallbackProps = Omit<
+  WorkflowNodeSessionPanelProps,
+  'workspaceId'
+> & {
+  canonicalStream?: ReturnType<typeof useAgentRunCanonicalStream>;
+  agentRunId?: string | null;
+  projectionStatus?: string | null;
+};
 
 function WorkflowNodeSessionFallback({
   execution,
@@ -739,7 +688,10 @@ function WorkflowNodeSessionFallback({
   runStepTitle,
   afterHeaderContent,
   runtimeWork,
-}: Omit<WorkflowNodeSessionPanelProps, 'workspaceId'>) {
+  canonicalStream,
+  agentRunId,
+  projectionStatus,
+}: WorkflowNodeSessionFallbackProps) {
   const { t } = useTranslation('common');
   return (
     <div
@@ -765,7 +717,20 @@ function WorkflowNodeSessionFallback({
       {afterHeaderContent}
 
       <div className="flex flex-1 flex-col gap-base overflow-y-auto p-base">
-        <WorkflowNodeOutputFallback execution={execution} />
+        {agentRunId ? (
+          <div className="rounded border border-warning/40 bg-warning/10 p-half text-xs text-warning">
+            {t('workflow.nodeSession.projectionUnavailable', {
+              defaultValue:
+                'Canonical AgentRun projection is unavailable; actions are disabled.',
+            })}
+          </div>
+        ) : null}
+        <WorkflowNodeOutputFallback
+          execution={execution}
+          agentRunId={agentRunId}
+          projectionStatus={projectionStatus}
+          streamError={canonicalStream?.error ?? null}
+        />
 
         <div className="rounded border border-secondary bg-primary p-half">
           <h3 className="text-xs font-semibold uppercase text-low">
@@ -793,8 +758,14 @@ function WorkflowNodeSessionFallback({
 
 function WorkflowNodeOutputFallback({
   execution,
+  agentRunId,
+  projectionStatus,
+  streamError,
 }: {
   execution: WorkflowNodeExecutionResponse;
+  agentRunId?: string | null;
+  projectionStatus?: string | null;
+  streamError?: string | null;
 }) {
   const { t } = useTranslation('common');
   const routerOutput = parseConditionRouterOutput(execution.output_text);
@@ -811,6 +782,18 @@ function WorkflowNodeOutputFallback({
           id: execution.session_id ?? t('workflow.dashboard.notStarted'),
         })}
       </p>
+      {agentRunId ? (
+        <div className="mt-half space-y-1 text-[10px] text-low">
+          <div>
+            {t('workflow.nodeSession.agentRunId')}: {agentRunId}
+          </div>
+          <div>
+            {t('workflow.nodeSession.projection')}:{' '}
+            {projectionStatus ?? t('workflow.dashboard.notAvailable')}
+          </div>
+          {streamError ? <div className="text-error">{streamError}</div> : null}
+        </div>
+      ) : null}
       {routerOutput ? (
         <div className="mt-half space-y-half text-xs">
           {routerPrompt ? (

@@ -200,13 +200,13 @@ mod tests {
 
     use super::execution_process_patch;
 
-    fn coding_agent_process(status: ExecutionProcessStatus) -> ExecutionProcess {
+    fn script_process(status: ExecutionProcessStatus) -> ExecutionProcess {
         let now = Utc::now();
 
         ExecutionProcess {
             id: Uuid::new_v4(),
             session_id: Uuid::new_v4(),
-            run_reason: ExecutionProcessRunReason::CodingAgent,
+            run_reason: ExecutionProcessRunReason::SetupScript,
             executor_action: sqlx::types::Json(ExecutorActionField::ExecutorAction(
                 ExecutorAction::new(
                     ExecutorActionType::ScriptRequest(ScriptRequest {
@@ -229,15 +229,16 @@ mod tests {
     }
 
     #[test]
-    fn execution_process_patch_serializes_runtime_projection() {
-        let process = coding_agent_process(ExecutionProcessStatus::Running);
+    fn execution_process_patch_serializes_script_process() {
+        let process = script_process(ExecutionProcessStatus::Running);
         let patch = execution_process_patch::add(&process);
 
         let PatchOperation::Add(op) = &patch.0[0] else {
             panic!("expected add operation");
         };
 
-        assert_eq!(op.value["agent_runtime_lifecycle"], "running");
+        assert_eq!(op.value["run_reason"], "setupscript");
+        assert!(op.value.get("agent_runtime_lifecycle").is_none());
         assert!(op.value.get("agent_runtime_error").is_none());
     }
 }

@@ -11,7 +11,6 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/shared/lib/api';
-import { ProfileVariantBadge } from '@/shared/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useLogStream } from '@/shared/hooks/useLogStream';
 import { ProcessLogsViewerContent } from './ProcessLogsViewer';
@@ -238,23 +237,6 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                               {runtimeDisplay.errorLabel}
                             </p>
                           )}
-                          {
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {t('processes.agent')}{' '}
-                              {process.executor_action.typ.type ===
-                                'CodingAgentInitialRequest' ||
-                              process.executor_action.typ.type ===
-                                'CodingAgentFollowUpRequest' ||
-                              process.executor_action.typ.type ===
-                                'ReviewRequest' ? (
-                                <ProfileVariantBadge
-                                  executorConfig={
-                                    process.executor_action.typ.executor_config
-                                  }
-                                />
-                              ) : null}
-                            </p>
-                          }
                         </div>
                       </div>
                       <div className="text-right">
@@ -262,11 +244,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                           className={`inline-block px-2 py-1 text-xs font-medium border rounded-full ${getStatusColor(
                             runtimeDisplay.tone
                           )}`}
-                          title={
-                            runtimeDisplay.source === 'agent_runtime'
-                              ? process.status
-                              : undefined
-                          }
+                          title={process.status}
                         >
                           {runtimeDisplay.label}
                         </span>

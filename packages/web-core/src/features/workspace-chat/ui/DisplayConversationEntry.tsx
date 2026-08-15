@@ -80,7 +80,8 @@ import {
 
 type Props = {
   expansionKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
+  canonicalActive?: boolean;
   workspaceWithSession: WorkspaceWithSession;
   resetAction: UseResetProcessResult;
   repos: RepoWithTargetBranch[];
@@ -95,8 +96,10 @@ type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 
 function isActiveToolStatus(
   status: ToolStatus,
-  executionProcess: ExecutionProcess | null
+  executionProcess: ExecutionProcess | null,
+  canonicalActive?: boolean
 ) {
+  if (canonicalActive !== undefined) return canonicalActive;
   if (status.status === 'pending_approval') return true;
   if (status.status !== 'created') return false;
   return isProcessRunning(executionProcess);
@@ -265,7 +268,11 @@ function renderToolUseEntry(
     props;
   const sessionId = workspaceWithSession?.session?.id;
   const { action_type, status } = entryType;
-  const active = isActiveToolStatus(status, executionProcess);
+  const active = isActiveToolStatus(
+    status,
+    executionProcess,
+    props.canonicalActive
+  );
 
   // File edit - use ChatFileEntry
   if (action_type.action === 'file_edit') {
@@ -418,10 +425,11 @@ function DisplayConversationEntry(props: Props) {
     workspaceWithSession,
     resetAction,
   } = props;
-  const executionProcess =
-    executionProcessesByIdVisible[executionProcessId] ??
-    executionProcessesByIdAll[executionProcessId] ??
-    null;
+  const executionProcess = executionProcessId
+    ? (executionProcessesByIdVisible[executionProcessId] ??
+      executionProcessesByIdAll[executionProcessId] ??
+      null)
+    : null;
   const sessionId = workspaceWithSession?.session?.id;
   const executorCanFork = !!(
     workspaceWithSession?.session?.executor &&
@@ -929,7 +937,9 @@ function UserMessageEntry({
   // Edit/retry/reset is not supported when the executor doesn't have the fork capability
   const canEdit = canShowActions && executorCanFork;
   // Only show reset if we have a process ID, not in edit mode, and not pending
-  const canReset = canEdit && canResetProcess(executionProcessId);
+  const canReset = Boolean(
+    executionProcessId && canEdit && canResetProcess(executionProcessId)
+  );
 
   return (
     <ChatUserMessage
@@ -1388,7 +1398,11 @@ function AggregatedGroupEntry({
       }
 
       const { action_type, status, tool_name } = entryType;
-      const active = isActiveToolStatus(status, executionProcess);
+      const active = isActiveToolStatus(
+        status,
+        executionProcess,
+        patchEntry.canonical?.active
+      );
       const timing = getPatchEntryTiming({
         entry: patchEntry,
         isRunning: active,

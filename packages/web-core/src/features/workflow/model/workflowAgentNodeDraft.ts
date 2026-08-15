@@ -13,7 +13,6 @@ function coerceBaseCodingAgent(value: unknown): BaseCodingAgent | null {
   if (typeof value !== 'string') return null;
 
   const normalized = value.trim().replaceAll('-', '_').toUpperCase();
-  if (normalized === 'CURSOR') return BaseCodingAgent.CURSOR_AGENT;
   if (BASE_CODING_AGENT_VALUES.has(normalized as BaseCodingAgent)) {
     return normalized as BaseCodingAgent;
   }

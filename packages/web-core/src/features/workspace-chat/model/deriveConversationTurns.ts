@@ -1,38 +1,14 @@
-import {
-  type CommandExitStatus,
-  type ExecutorAction,
-  type TokenUsageInfo,
-  type ToolStatus,
-} from 'shared/types';
+import { type CommandExitStatus, type ToolStatus } from 'shared/types';
 
 import type { ConversationSemanticProcessItem } from './deriveConversationSemanticTimeline';
 import { deriveConversationSemanticTimeline } from './deriveConversationSemanticTimeline';
 import type { ConversationTimelineSource } from '@/shared/hooks/useConversationHistory/types';
-import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
 type ScriptTurnKind =
   | 'setup_script'
   | 'cleanup_script'
   | 'archive_script'
   | 'tool_install_script';
-
-export interface ConversationAgentTurn {
-  readonly key: string;
-  readonly kind:
-    | 'agent_idle'
-    | 'agent_running'
-    | 'agent_pending_approval'
-    | 'agent_failed';
-  readonly process: ConversationSemanticProcessItem;
-  readonly prompt: string | null;
-  readonly shouldEmitUserMessage: boolean;
-  readonly visibleEntries: ConversationSemanticProcessItem['visibleEntries'];
-  readonly latestTokenUsageInfo: TokenUsageInfo | null;
-  readonly shouldEmitLoading: boolean;
-  readonly failedOrKilled: boolean;
-  readonly needsSetup: boolean;
-  readonly setupHelpText?: string;
-}
 
 export interface ConversationScriptTurnProcess {
   readonly process: ConversationSemanticProcessItem;
@@ -49,7 +25,7 @@ export interface ConversationScriptTurn {
   readonly processes: ReadonlyArray<ConversationScriptTurnProcess>;
 }
 
-export type ConversationTurn = ConversationAgentTurn | ConversationScriptTurn;
+export type ConversationTurn = ConversationScriptTurn;
 
 export interface ConversationTurns {
   readonly turns: ConversationTurn[];
@@ -57,157 +33,9 @@ export interface ConversationTurns {
   readonly hasSetupScriptWithPrompt: boolean;
 }
 
-// Turns are the first product-shaped model in the pipeline.
-// From this point on, the code reasons about conversation meaning instead of raw process order.
-
-function isAgentTurn(turn: ConversationTurn): turn is ConversationAgentTurn {
-  return (
-    turn.kind === 'agent_idle' ||
-    turn.kind === 'agent_running' ||
-    turn.kind === 'agent_pending_approval' ||
-    turn.kind === 'agent_failed'
-  );
-}
-
-function getPromptFromActionChain(
-  action: ExecutorAction | null
-): string | null {
-  let current = action;
-  while (current) {
-    const typ = current.typ;
-    if (
-      typ.type === 'CodingAgentInitialRequest' ||
-      typ.type === 'CodingAgentFollowUpRequest' ||
-      typ.type === 'ReviewRequest'
-    ) {
-      return typ.prompt;
-    }
-    current = current.next_action;
-  }
-  return null;
-}
-
-function getLatestTokenUsageInfo(
-  process: ConversationSemanticProcessItem
-): TokenUsageInfo | null {
-  if (process.latestTokenUsageEntry?.type !== 'NORMALIZED_ENTRY') {
-    return null;
-  }
-
-  return process.latestTokenUsageEntry.content.entry_type as TokenUsageInfo;
-}
-
-function getSetupRequiredHelp(
-  process: ConversationSemanticProcessItem
-): string | undefined {
-  const setupRequiredEntry = process.visibleEntries.find((entry) => {
-    if (entry.type !== 'NORMALIZED_ENTRY') return false;
-    return (
-      entry.content.entry_type.type === 'error_message' &&
-      entry.content.entry_type.error_type.type === 'setup_required'
-    );
-  });
-
-  return setupRequiredEntry?.type === 'NORMALIZED_ENTRY'
-    ? setupRequiredEntry.content.content
-    : undefined;
-}
-
-function hasVisibleAgentActivity(
-  entries: ConversationSemanticProcessItem['visibleEntries']
-): boolean {
-  return entries.some((entry) => {
-    if (entry.type !== 'NORMALIZED_ENTRY') return true;
-
-    switch (entry.content.entry_type.type) {
-      case 'system_message':
-      case 'token_usage_info':
-      case 'user_message':
-        return false;
-      default:
-        return !isNativeHistoryBackfillEntry(entry);
-    }
-  });
-}
-
-function deriveAgentTurn(
-  process: ConversationSemanticProcessItem,
-  hasSetupScriptWithPrompt: boolean,
-  isLastTurn: boolean
-): ConversationAgentTurn {
-  const executorActionType = process.executionProcess.executor_action.typ;
-  const prompt = getPromptFromActionChain(
-    process.executionProcess.executor_action
-  );
-  const setupHelpText = process.failedOrKilled
-    ? getSetupRequiredHelp(process)
-    : undefined;
-  const needsSetup = Boolean(setupHelpText);
-  const shouldEmitUserMessage = !(
-    executorActionType.type === 'CodingAgentInitialRequest' &&
-    hasSetupScriptWithPrompt
-  );
-
-  if (process.hasPendingApprovalEntry) {
-    return {
-      key: process.executionProcessId,
-      kind: 'agent_pending_approval',
-      process,
-      prompt,
-      shouldEmitUserMessage,
-      visibleEntries: process.visibleEntries,
-      latestTokenUsageInfo: getLatestTokenUsageInfo(process),
-      shouldEmitLoading: false,
-      failedOrKilled: process.failedOrKilled && isLastTurn,
-      needsSetup: isLastTurn ? needsSetup : false,
-      setupHelpText: isLastTurn ? setupHelpText : undefined,
-    };
-  }
-
-  if (process.isRunning) {
-    return {
-      key: process.executionProcessId,
-      kind: 'agent_running',
-      process,
-      prompt,
-      shouldEmitUserMessage,
-      visibleEntries: process.visibleEntries,
-      latestTokenUsageInfo: getLatestTokenUsageInfo(process),
-      shouldEmitLoading: !hasVisibleAgentActivity(process.visibleEntries),
-      failedOrKilled: false,
-      needsSetup: false,
-    };
-  }
-
-  if (process.failedOrKilled && isLastTurn) {
-    return {
-      key: process.executionProcessId,
-      kind: 'agent_failed',
-      process,
-      prompt,
-      shouldEmitUserMessage,
-      visibleEntries: process.visibleEntries,
-      latestTokenUsageInfo: getLatestTokenUsageInfo(process),
-      shouldEmitLoading: false,
-      failedOrKilled: true,
-      needsSetup,
-      setupHelpText,
-    };
-  }
-
-  return {
-    key: process.executionProcessId,
-    kind: 'agent_idle',
-    process,
-    prompt,
-    shouldEmitUserMessage,
-    visibleEntries: process.visibleEntries,
-    latestTokenUsageInfo: getLatestTokenUsageInfo(process),
-    shouldEmitLoading: false,
-    failedOrKilled: false,
-    needsSetup: false,
-  };
-}
+// Turns are the first product-shaped model in the pipeline. Agent turns come
+// exclusively from the canonical AgentRun projection; this model only groups
+// standalone ExecutionProcess script output.
 
 function toScriptTurnKind(
   process: ConversationSemanticProcessItem
@@ -244,8 +72,7 @@ function toScriptToolName(kind: ScriptTurnKind): string {
 
 function deriveScriptTurnProcess(
   process: ConversationSemanticProcessItem,
-  kind: ScriptTurnKind,
-  isFirstTurn: boolean
+  kind: ScriptTurnKind
 ): ConversationScriptTurnProcess {
   const exitCode = Number(process.liveExecutionProcess?.exit_code) || 0;
   const exitStatus: CommandExitStatus | null = process.isRunning
@@ -260,8 +87,7 @@ function deriveScriptTurnProcess(
       ? { status: 'success' }
       : { status: 'failed' };
 
-  const shouldEmitInitialPromptAfterSetup =
-    kind === 'setup_script' && isFirstTurn && !process.isRunning;
+  const shouldEmitInitialPromptAfterSetup = false;
 
   return {
     process,
@@ -269,9 +95,7 @@ function deriveScriptTurnProcess(
     exitStatus,
     toolStatus,
     shouldEmitInitialPromptAfterSetup,
-    initialPromptAfterSetup: shouldEmitInitialPromptAfterSetup
-      ? getPromptFromActionChain(process.executionProcess.executor_action)
-      : null,
+    initialPromptAfterSetup: null,
   };
 }
 
@@ -294,37 +118,20 @@ export function deriveConversationTurns(
       ): item is {
         process: ConversationSemanticProcessItem;
         scriptKind: ScriptTurnKind | null;
-      } => item.process.kind === 'agent' || item.scriptKind !== null
+      } => item.scriptKind !== null
     );
 
-  for (const [index, item] of typedProcesses.entries()) {
-    const isLastTurn = index === typedProcesses.length - 1;
-
-    if (item.process.kind === 'agent') {
-      turns.push(
-        deriveAgentTurn(
-          item.process,
-          semanticTimeline.hasSetupScriptWithPrompt,
-          isLastTurn
-        )
-      );
-      continue;
-    }
-
+  for (const item of typedProcesses) {
     const kind = item.scriptKind;
     if (!kind) continue;
 
     const previousTurn = turns.at(-1);
-    if (
-      previousTurn &&
-      !isAgentTurn(previousTurn) &&
-      previousTurn.kind === kind
-    ) {
+    if (previousTurn && previousTurn.kind === kind) {
       turns[turns.length - 1] = {
         ...previousTurn,
         processes: [
           ...previousTurn.processes,
-          deriveScriptTurnProcess(item.process, kind, index === 0),
+          deriveScriptTurnProcess(item.process, kind),
         ],
       };
       continue;
@@ -333,7 +140,7 @@ export function deriveConversationTurns(
     turns.push({
       key: item.process.executionProcessId,
       kind,
-      processes: [deriveScriptTurnProcess(item.process, kind, index === 0)],
+      processes: [deriveScriptTurnProcess(item.process, kind)],
     });
   }
 

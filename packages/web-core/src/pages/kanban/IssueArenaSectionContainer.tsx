@@ -7,7 +7,7 @@ import {
   useActiveArenaForIssue,
 } from '@/shared/hooks/useArenaGroup';
 import { CreateArenaDialog } from '@/features/arena';
-import { arenaApi } from '@/shared/lib/arenaApi';
+import { arenaApi, isActiveArenaAgentRunStatus } from '@/shared/lib/arenaApi';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 
 interface IssueArenaSectionContainerProps {
@@ -81,8 +81,8 @@ export function IssueArenaSectionContainer({
 
   if (activeArena && activeArena.workspaces.length > 0) {
     const total = activeArena.workspaces.length;
-    const running = activeArena.workspaces.filter(
-      (ws) => ws.latest_execution_status === 'running'
+    const running = activeArena.workspaces.filter((ws) =>
+      isActiveArenaAgentRunStatus(ws.latest_agent_run_status)
     ).length;
     const modeLabel =
       activeArena.mode === 'design'

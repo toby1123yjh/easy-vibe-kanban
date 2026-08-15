@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { WorkflowNodeWorkView, WorkflowRunResponse } from 'shared/types';
+import type { WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -14,6 +14,7 @@ import {
 import {
   getDefaultWorkflowRuntimeNodeId,
   getWorkflowNodeActionGate,
+  getWorkflowNodeExecutionForWork,
   getWorkflowNodeWork,
   getWorkflowRuntimeView,
 } from '../model/workflowRuntimeView';
@@ -47,22 +48,6 @@ export interface WorkflowRunDashboardTabProps {
 
 function getDefaultSelectedNodeId(run: WorkflowRunResponse): string | null {
   return getDefaultWorkflowRuntimeNodeId(getWorkflowRuntimeView(run));
-}
-
-function getExecutionForWork(
-  run: WorkflowRunResponse,
-  work: WorkflowNodeWorkView | null
-) {
-  if (!work) return null;
-  return (
-    run.nodes.find((node) => node.id === work.active_execution_id) ??
-    run.nodes.find(
-      (node) =>
-        node.node_id === work.node_id && node.iteration === work.iteration
-    ) ??
-    run.nodes.find((node) => node.node_id === work.node_id) ??
-    null
-  );
 }
 
 function getReadableWorkflowNodeOutput(
@@ -104,16 +89,16 @@ export function WorkflowRunDashboardTab({
   useEffect(() => {
     if (
       selectedNodeId &&
-      run.nodes.some((node) => node.node_id === selectedNodeId)
+      runtimeView.node_work.some((work) => work.node_id === selectedNodeId)
     ) {
       return;
     }
 
     setSelectedNodeId(getDefaultSelectedNodeId(run));
-  }, [run, selectedNodeId]);
+  }, [runtimeView, selectedNodeId]);
 
   const selectedNodeWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
-  const selectedNode = getExecutionForWork(run, selectedNodeWork);
+  const selectedNode = getWorkflowNodeExecutionForWork(run, selectedNodeWork);
   const selectedNodeActionGate = getWorkflowNodeActionGate(selectedNodeWork);
   const selectedNodeOutput = selectedNode
     ? getReadableWorkflowNodeOutput(
@@ -131,6 +116,15 @@ export function WorkflowRunDashboardTab({
   }, [appNav, projectId, run.issue_id, run.workspace_id]);
 
   const handleCancelRun = async () => {
+    if (!run.runtime_view || runtimeView.authority !== 'current') {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await mutations.cancelRun(run.id);
@@ -144,6 +138,16 @@ export function WorkflowRunDashboardTab({
   };
 
   const handleRetryNode = async (nodeId: string) => {
+    const work = getWorkflowNodeWork(runtimeView, nodeId);
+    if (!getWorkflowNodeActionGate(work).canRetry) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await mutations.retryNode({ runId: run.id, nodeId });
@@ -155,6 +159,18 @@ export function WorkflowRunDashboardTab({
   };
 
   const handleApproveNode = async (nodeId: string) => {
+    if (
+      !getWorkflowNodeActionGate(getWorkflowNodeWork(runtimeView, nodeId))
+        .canApprove
+    ) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await mutations.approveNode({
@@ -172,6 +188,18 @@ export function WorkflowRunDashboardTab({
   };
 
   const handleRejectNode = async (nodeId: string) => {
+    if (
+      !getWorkflowNodeActionGate(getWorkflowNodeWork(runtimeView, nodeId))
+        .canReject
+    ) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await mutations.rejectNode({
@@ -237,19 +265,20 @@ export function WorkflowRunDashboardTab({
             <h2 className="text-sm font-semibold text-high">
               {t('workflow.dashboard.progress')}
             </h2>
-            {(run.status === 'running' ||
-              run.status === 'pending' ||
-              run.status === 'awaiting_human' ||
-              run.status === 'awaiting_arena') && (
-              <button
-                className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-xs text-error hover:opacity-80"
-                onClick={() => void handleCancelRun()}
-                disabled={mutations.isCanceling}
-              >
-                <Square className="h-3 w-3" />
-                {t('workflow.dashboard.cancelRun')}
-              </button>
-            )}
+            {runtimeView.authority === 'current' &&
+              (run.status === 'running' ||
+                run.status === 'pending' ||
+                run.status === 'awaiting_human' ||
+                run.status === 'awaiting_arena') && (
+                <button
+                  className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-xs text-error hover:opacity-80"
+                  onClick={() => void handleCancelRun()}
+                  disabled={mutations.isCanceling}
+                >
+                  <Square className="h-3 w-3" />
+                  {t('workflow.dashboard.cancelRun')}
+                </button>
+              )}
           </div>
           <div className="flex items-center gap-4 text-xs">
             <div className="flex-1">
@@ -317,12 +346,23 @@ export function WorkflowRunDashboardTab({
             {t('workflow.dashboard.stepsTimeline')}
           </h2>
           <div className="space-y-2">
-            {run.nodes.length === 0 ? (
+            {runtimeView.node_work.length === 0 ? (
               <div className="text-xs text-low">
                 {t('workflow.dashboard.noStepsExecuted')}
               </div>
             ) : (
-              run.nodes.map((node) => {
+              runtimeView.node_work.map((work) => {
+                const node = getWorkflowNodeExecutionForWork(run, work);
+                if (!node) {
+                  return (
+                    <div
+                      key={`unknown-${work.node_id}-${work.iteration}`}
+                      className="rounded border border-warning/30 bg-warning/10 p-2 text-xs text-warning"
+                    >
+                      {t('workflow.dashboard.runtimeProjectionUnavailable')}
+                    </div>
+                  );
+                }
                 const nodeSessionHref = buildWorkspaceSessionHref(
                   workflowWorkspaceHref,
                   node.session_id
@@ -382,19 +422,20 @@ export function WorkflowRunDashboardTab({
                       <span>
                         {formatDuration(node.started_at, node.finished_at)}
                       </span>
-                      {node.status === 'failed' && (
-                        <button
-                          className="rounded p-1 text-high hover:bg-secondary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleRetryNode(node.node_id);
-                          }}
-                          disabled={mutations.isRetrying}
-                          title={t('workflow.dashboard.retryStep')}
-                        >
-                          <RefreshCcw className="h-3 w-3" />
-                        </button>
-                      )}
+                      {node.status === 'failed' &&
+                        getWorkflowNodeActionGate(work).canRetry && (
+                          <button
+                            className="rounded p-1 text-high hover:bg-secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleRetryNode(node.node_id);
+                            }}
+                            disabled={mutations.isRetrying}
+                            title={t('workflow.dashboard.retryStep')}
+                          >
+                            <RefreshCcw className="h-3 w-3" />
+                          </button>
+                        )}
                     </div>
                   </div>
                 );
@@ -565,99 +606,106 @@ export function WorkflowRunDashboardTab({
             {t('workflow.dashboard.decisionsMade')}
           </h2>
           <div className="space-y-3 text-xs">
-            {run.nodes.filter(
-              (n) =>
-                n.node_type === 'condition' ||
-                n.node_type === 'human_gate' ||
-                n.node_type === 'arena'
+            {runtimeView.node_work.filter(
+              (work) =>
+                work.node_type === 'condition' ||
+                work.node_type === 'human_gate' ||
+                work.node_type === 'arena'
             ).length === 0 ? (
               <div className="text-low italic">
                 {t('workflow.dashboard.noDecisionNodes')}
               </div>
             ) : (
-              run.nodes
+              runtimeView.node_work
                 .filter(
-                  (n) =>
-                    n.node_type === 'condition' ||
-                    n.node_type === 'human_gate' ||
-                    n.node_type === 'arena'
+                  (work) =>
+                    work.node_type === 'condition' ||
+                    work.node_type === 'human_gate' ||
+                    work.node_type === 'arena'
                 )
-                .map((node) => (
-                  <div
-                    key={`dec-${node.id}`}
-                    className="border-l-2 border-brand pl-3"
-                  >
-                    <div className="font-medium text-high">
-                      {node.node_id}{' '}
-                      <span className="text-low font-normal">
-                        ({node.node_type})
-                      </span>
-                    </div>
-                    {node.node_type === 'condition' && (
-                      <div className="text-low mt-1">
-                        {t('workflow.dashboard.conditionMet')}:{' '}
-                        <span className="text-high">
-                          {getReadableWorkflowNodeOutput(
-                            node.node_type,
-                            node.output_text
-                          ) || t('workflow.dashboard.none')}
+                .map((work) => {
+                  const node = getWorkflowNodeExecutionForWork(run, work);
+                  if (!node) return null;
+                  return (
+                    <div
+                      key={`dec-${node.id}`}
+                      className="border-l-2 border-brand pl-3"
+                    >
+                      <div className="font-medium text-high">
+                        {node.node_id}{' '}
+                        <span className="text-low font-normal">
+                          ({node.node_type})
                         </span>
                       </div>
-                    )}
-                    {node.node_type === 'human_gate' && (
-                      <div className="text-low mt-1">
-                        {t('workflow.dashboard.status')}:{' '}
-                        <span
-                          className={cn(
-                            'font-medium',
-                            getToneTextClass(getNodeStatusTone(node.status))
-                          )}
-                        >
-                          {t(`workflow.nodeStatus.${statusKey(node.status)}`)}
-                        </span>
-                      </div>
-                    )}
-                    {node.node_type === 'arena' && (
-                      <div className="text-low mt-1 space-y-1">
-                        <div>
-                          {t('workflow.dashboard.status')}:{' '}
+                      {node.node_type === 'condition' && (
+                        <div className="text-low mt-1">
+                          {t('workflow.dashboard.conditionMet')}:{' '}
                           <span className="text-high">
+                            {getReadableWorkflowNodeOutput(
+                              node.node_type,
+                              node.output_text
+                            ) || t('workflow.dashboard.none')}
+                          </span>
+                        </div>
+                      )}
+                      {node.node_type === 'human_gate' && (
+                        <div className="text-low mt-1">
+                          {t('workflow.dashboard.status')}:{' '}
+                          <span
+                            className={cn(
+                              'font-medium',
+                              getToneTextClass(getNodeStatusTone(node.status))
+                            )}
+                          >
                             {t(`workflow.nodeStatus.${statusKey(node.status)}`)}
                           </span>
                         </div>
-                        {node.arena_group_id && (
+                      )}
+                      {node.node_type === 'arena' && (
+                        <div className="text-low mt-1 space-y-1">
                           <div>
-                            {t('workflow.dashboard.arenaGroup')}:{' '}
-                            <a
-                              className="inline-flex items-center gap-1 text-brand hover:underline"
-                              href={`/projects/${projectId}/issues/${run.issue_id}/arena/${node.arena_group_id}`}
-                            >
-                              {node.arena_group_id}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          </div>
-                        )}
-                        {node.status === 'awaiting_arena' && (
-                          <button
-                            type="button"
-                            className="text-brand hover:underline"
-                            onClick={() => setSelectedNodeId(node.node_id)}
-                          >
-                            {t('workflow.dashboard.pickWinner')}
-                          </button>
-                        )}
-                        {node.output_text && (
-                          <div>
-                            {t('workflow.dashboard.winner')}:{' '}
-                            <span className="text-success">
-                              {node.output_text}
+                            {t('workflow.dashboard.status')}:{' '}
+                            <span className="text-high">
+                              {t(
+                                `workflow.nodeStatus.${statusKey(node.status)}`
+                              )}
                             </span>
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))
+                          {node.arena_group_id && (
+                            <div>
+                              {t('workflow.dashboard.arenaGroup')}:{' '}
+                              <a
+                                className="inline-flex items-center gap-1 text-brand hover:underline"
+                                href={`/projects/${projectId}/issues/${run.issue_id}/arena/${node.arena_group_id}`}
+                              >
+                                {node.arena_group_id}
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          )}
+                          {node.status === 'awaiting_arena' && (
+                            <button
+                              type="button"
+                              className="text-brand hover:underline"
+                              onClick={() => setSelectedNodeId(node.node_id)}
+                            >
+                              {t('workflow.dashboard.pickWinner')}
+                            </button>
+                          )}
+                          {node.output_text && (
+                            <div>
+                              {t('workflow.dashboard.winner')}:{' '}
+                              <span className="text-success">
+                                {node.output_text}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+                .filter((item): item is JSX.Element => Boolean(item))
             )}
           </div>
         </section>
@@ -693,7 +741,11 @@ export function WorkflowRunDashboardTab({
                 {t('workflow.dashboard.agentSteps')}:
               </span>
               <span className="text-high font-medium">
-                {run.nodes.filter((n) => n.node_type === 'agent').length}
+                {
+                  runtimeView.node_work.filter(
+                    (work) => work.node_type === 'agent'
+                  ).length
+                }
               </span>
             </div>
             <div className="flex justify-between">
@@ -701,7 +753,11 @@ export function WorkflowRunDashboardTab({
                 {t('workflow.dashboard.controlSteps')}:
               </span>
               <span className="text-high font-medium">
-                {run.nodes.filter((n) => n.node_type !== 'agent').length}
+                {
+                  runtimeView.node_work.filter(
+                    (work) => work.node_type !== 'agent'
+                  ).length
+                }
               </span>
             </div>
           </div>

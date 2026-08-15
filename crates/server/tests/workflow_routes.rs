@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 
 use db::models::{
-    execution_process::ExecutionProcessStatus,
     scratch::DraftWorkspaceRepo,
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
 };
@@ -23,14 +22,16 @@ use server::{
     workflow_runtime::{
         arena::{
             ArenaNodeExecution, ArenaNodeRequest, ArenaWinnerExecution, ArenaWinnerRequest,
-            WorkflowArenaCreator, WorkflowArenaWinnerApplier,
+            NoopWorkflowArenaCreator, WorkflowArenaCreator, WorkflowArenaWinnerApplier,
         },
         runner::{
-            AgentNodeExecution, AgentNodeRequest, WorkflowAgentExecutor, WorkflowRunCanceller,
+            AgentNodeExecution, AgentNodeRequest, AgentRunReconciliationBoundary,
+            AgentRunReconciliationResult, WorkflowAgentExecutor, WorkflowRunCanceller,
             WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node,
-            cancel_workflow_run_runtime, reconcile_workflow_run, recover_stale_workflow_runs,
-            reject_human_node, retry_workflow_node, select_arena_winner_with_arena,
-            trigger_workflow_run, trigger_workflow_run_with_arena, workflow_event_history,
+            cancel_workflow_run_runtime, reconcile_workflow_run_with_arena_and_boundary,
+            recover_stale_workflow_runs, reject_human_node, retry_workflow_node,
+            select_arena_winner_with_arena, trigger_workflow_run, trigger_workflow_run_with_arena,
+            workflow_event_history,
         },
     },
 };
@@ -64,6 +65,25 @@ async fn setup_workflow_pool() -> SqlitePool {
         )
         "#,
         r#"
+        CREATE TABLE workspaces (
+            id BLOB PRIMARY KEY,
+            task_id BLOB,
+            container_ref TEXT,
+            workspace_kind TEXT NOT NULL DEFAULT 'worktree',
+            container_ownership TEXT NOT NULL DEFAULT 'managed',
+            branch TEXT NOT NULL,
+            setup_completed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            archived BOOLEAN NOT NULL DEFAULT FALSE,
+            pinned BOOLEAN NOT NULL DEFAULT FALSE,
+            name TEXT,
+            worktree_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+            arena_group_id BLOB,
+            arena_status TEXT NOT NULL DEFAULT 'active'
+        )
+        "#,
+        r#"
         CREATE TABLE workflows (
             id          BLOB PRIMARY KEY,
             source      TEXT NOT NULL CHECK (source IN ('system','project')),
@@ -88,8 +108,10 @@ async fn setup_workflow_pool() -> SqlitePool {
             workspace_id   BLOB,
             trigger_source TEXT NOT NULL DEFAULT 'manual',
             input_text     TEXT NOT NULL,
+            graph_snapshot TEXT,
             output_text    TEXT,
             status         TEXT NOT NULL DEFAULT 'pending',
+            orchestration_run_id BLOB,
             started_at     TEXT,
             finished_at    TEXT,
             error_text     TEXT,
@@ -124,6 +146,8 @@ async fn setup_workflow_pool() -> SqlitePool {
             output_text    TEXT,
             session_id     BLOB,
             execution_process_id BLOB,
+            orchestration_node_execution_id BLOB,
+            agent_run_id BLOB,
             arena_group_id BLOB,
             tokens_used    INTEGER,
             cost_estimate  REAL,
@@ -189,6 +213,235 @@ async fn setup_workflow_pool() -> SqlitePool {
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
         )
         "#,
+        r#"
+        CREATE TABLE orchestration_runs (
+            id BLOB PRIMARY KEY,
+            request_id BLOB NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            correlation_id BLOB NOT NULL,
+            product_kind TEXT NOT NULL,
+            source_definition_id BLOB NOT NULL,
+            source_definition_version TEXT NOT NULL,
+            plan_schema_version INTEGER NOT NULL,
+            plan_snapshot TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            projection_status TEXT NOT NULL DEFAULT 'current',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_state (
+            orchestration_run_id BLOB PRIMARY KEY,
+            state_schema_version INTEGER NOT NULL,
+            reducer_version INTEGER NOT NULL,
+            last_event_sequence INTEGER NOT NULL DEFAULT 0,
+            last_event_id BLOB,
+            status TEXT NOT NULL DEFAULT 'pending',
+            projection_status TEXT NOT NULL DEFAULT 'current',
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_node_executions (
+            id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            node_key TEXT NOT NULL,
+            iteration INTEGER NOT NULL DEFAULT 0,
+            stable_order INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (orchestration_run_id, node_key, iteration)
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_events (
+            event_id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            sequence INTEGER NOT NULL,
+            correlation_id BLOB NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload_version INTEGER NOT NULL,
+            event_envelope TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (orchestration_run_id, sequence)
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_leases (
+            resource_kind TEXT NOT NULL,
+            resource_id BLOB NOT NULL,
+            owner_id TEXT NOT NULL,
+            fencing_token INTEGER NOT NULL,
+            acquired_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (resource_kind, resource_id)
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_agent_run_links (
+            id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            node_execution_id BLOB NOT NULL,
+            agent_run_id BLOB NOT NULL,
+            dispatch_idempotency_key TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (node_execution_id, agent_run_id)
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_outbox (
+            id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            node_execution_id BLOB,
+            command_id BLOB NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            command_schema_version INTEGER NOT NULL,
+            command_envelope TEXT NOT NULL,
+            delivery_status TEXT NOT NULL DEFAULT 'pending',
+            delivery_attempts INTEGER NOT NULL DEFAULT 0,
+            available_at TEXT NOT NULL,
+            delivered_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_inbox (
+            id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            source_event_id BLOB NOT NULL,
+            source_agent_run_id BLOB NOT NULL,
+            source_sequence INTEGER NOT NULL,
+            event_envelope TEXT NOT NULL,
+            consumption_status TEXT NOT NULL DEFAULT 'pending',
+            received_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            consumed_at TEXT
+        )
+        "#,
+        r#"
+        CREATE TABLE orchestration_consumption (
+            id BLOB PRIMARY KEY,
+            orchestration_run_id BLOB NOT NULL,
+            join_node_execution_id BLOB NOT NULL,
+            source_node_execution_id BLOB NOT NULL,
+            source_agent_run_id BLOB NOT NULL,
+            source_event_id BLOB NOT NULL,
+            target_node_execution_id BLOB,
+            consumed_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (join_node_execution_id, source_node_execution_id)
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_runs (
+            id BLOB PRIMARY KEY,
+            session_id BLOB NOT NULL,
+            workspace_id BLOB NOT NULL,
+            request_id BLOB NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            correlation_id BLOB NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload_version INTEGER NOT NULL,
+            runtime_profile_id TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            workspace_mode TEXT NOT NULL,
+            workspace_path TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            projection_status TEXT NOT NULL DEFAULT 'current',
+            request_envelope TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_turns (
+            id BLOB PRIMARY KEY,
+            agent_run_id BLOB NOT NULL UNIQUE,
+            request_id BLOB NOT NULL UNIQUE,
+            turn_number INTEGER NOT NULL,
+            intent TEXT NOT NULL,
+            input_message TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_run_attempts (
+            id BLOB PRIMARY KEY,
+            agent_run_id BLOB NOT NULL,
+            turn_id BLOB NOT NULL,
+            request_id BLOB NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            attempt_number INTEGER NOT NULL,
+            mode TEXT NOT NULL,
+            transport TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload_version INTEGER NOT NULL,
+            capability_snapshot TEXT NOT NULL,
+            request_envelope TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            projection_status TEXT NOT NULL DEFAULT 'current',
+            started_at TEXT,
+            finished_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (agent_run_id, attempt_number)
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_process_registry (
+            id BLOB PRIMARY KEY,
+            run_attempt_id BLOB NOT NULL UNIQUE,
+            registry_status TEXT NOT NULL DEFAULT 'reserved',
+            pid INTEGER,
+            process_group_id INTEGER,
+            process_started_at TEXT,
+            executable TEXT,
+            command_fingerprint TEXT,
+            exit_code INTEGER,
+            observed_exited_at TEXT,
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_run_state (
+            agent_run_id BLOB PRIMARY KEY,
+            state_schema_version INTEGER NOT NULL,
+            reducer_version INTEGER NOT NULL,
+            last_run_attempt_id BLOB,
+            last_run_attempt_number INTEGER NOT NULL DEFAULT 0,
+            last_event_sequence INTEGER NOT NULL DEFAULT 0,
+            last_event_id BLOB,
+            status TEXT NOT NULL DEFAULT 'pending',
+            projection_status TEXT NOT NULL DEFAULT 'current',
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_events (
+            event_id BLOB PRIMARY KEY,
+            session_id BLOB NOT NULL,
+            agent_run_id BLOB NOT NULL,
+            turn_id BLOB NOT NULL,
+            run_attempt_id BLOB NOT NULL,
+            run_attempt_number INTEGER NOT NULL,
+            sequence INTEGER NOT NULL,
+            correlation_id BLOB NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload_version INTEGER NOT NULL,
+            event_envelope TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (run_attempt_id, sequence)
+        )
+        "#,
     ] {
         sqlx::query(statement)
             .execute(&pool)
@@ -233,40 +486,6 @@ async fn insert_project_workflow(pool: &SqlitePool, project_id: Uuid) -> Uuid {
     .await
     .expect("insert project workflow");
     workflow_id
-}
-
-async fn insert_execution_process(
-    pool: &SqlitePool,
-    execution_process_id: Uuid,
-    session_id: Uuid,
-    status: ExecutionProcessStatus,
-    exit_code: Option<i64>,
-) {
-    let completed_at = if matches!(status, ExecutionProcessStatus::Running) {
-        None
-    } else {
-        Some("2026-05-17T00:00:00.000Z")
-    };
-    sqlx::query(
-        r#"
-        INSERT INTO execution_processes
-            (id, session_id, run_reason, executor_action, status, exit_code, dropped, completed_at)
-        VALUES (?, ?, 'codingagent', '{}', ?, ?, FALSE, ?)
-        "#,
-    )
-    .bind(execution_process_id)
-    .bind(session_id)
-    .bind(match status {
-        ExecutionProcessStatus::Running => "running",
-        ExecutionProcessStatus::Completed => "completed",
-        ExecutionProcessStatus::Failed => "failed",
-        ExecutionProcessStatus::Killed => "killed",
-    })
-    .bind(exit_code)
-    .bind(completed_at)
-    .execute(pool)
-    .await
-    .expect("insert execution process");
 }
 
 fn valid_graph_json() -> String {
@@ -577,13 +796,15 @@ fn unreachable_draft_graph_json() -> String {
 
 #[derive(Debug)]
 struct FakeWorkspaceResolver {
+    pool: SqlitePool,
     workspace_id: Uuid,
     requests: Mutex<Vec<WorkflowWorkspaceRequest>>,
 }
 
 impl FakeWorkspaceResolver {
-    fn new(workspace_id: Uuid) -> Self {
+    fn new(pool: &SqlitePool, workspace_id: Uuid) -> Self {
         Self {
+            pool: pool.clone(),
             workspace_id,
             requests: Mutex::new(Vec::new()),
         }
@@ -604,6 +825,25 @@ impl WorkflowWorkspaceResolver for FakeWorkspaceResolver {
             .lock()
             .expect("workspace requests")
             .push(request.clone());
+
+        sqlx::query(
+            r#"
+            INSERT INTO workspaces (id, container_ref, workspace_kind, container_ownership, branch)
+            VALUES (?, ?, 'worktree', 'managed', ?)
+            ON CONFLICT(id) DO NOTHING
+            "#,
+        )
+        .bind(request.existing_workspace_id.unwrap_or(self.workspace_id))
+        .bind(
+            std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        )
+        .bind(format!("workflow-{}", request.run_id))
+        .execute(&self.pool)
+        .await
+        .map_err(ApiError::Database)?;
 
         Ok(request.existing_workspace_id.unwrap_or(self.workspace_id))
     }
@@ -647,7 +887,8 @@ impl WorkflowAgentExecutor for FakeAgentExecutor {
 
         Ok(AgentNodeExecution::Completed {
             session_id: self.session_id,
-            execution_process_id: self.execution_process_id,
+            orchestration_node_execution_id: self.execution_process_id,
+            agent_run_id: self.execution_process_id,
             output_text: self.output_text.clone(),
         })
     }
@@ -681,7 +922,8 @@ impl WorkflowAgentExecutor for StartedAgentExecutor {
 
         Ok(AgentNodeExecution::Started {
             session_id: self.session_id,
-            execution_process_id: self.execution_process_id,
+            orchestration_node_execution_id: self.execution_process_id,
+            agent_run_id: self.execution_process_id,
             output_text: Some("agent still running".to_string()),
         })
     }
@@ -726,14 +968,16 @@ impl WorkflowAgentExecutor for AsyncThenCompleteAgentExecutor {
         if node_id == "agent-a" {
             return Ok(AgentNodeExecution::Started {
                 session_id: self.first_session_id,
-                execution_process_id: self.first_execution_process_id,
+                orchestration_node_execution_id: self.first_execution_process_id,
+                agent_run_id: self.first_execution_process_id,
                 output_text: Some("agent A started".to_string()),
             });
         }
 
         Ok(AgentNodeExecution::Completed {
             session_id: self.second_session_id,
-            execution_process_id: self.second_execution_process_id,
+            orchestration_node_execution_id: self.second_execution_process_id,
+            agent_run_id: self.second_execution_process_id,
             output_text: "agent B done".to_string(),
         })
     }
@@ -775,7 +1019,8 @@ impl WorkflowAgentExecutor for FailOnceAgentExecutor {
 
         Ok(AgentNodeExecution::Completed {
             session_id: self.session_id,
-            execution_process_id: Uuid::new_v4(),
+            orchestration_node_execution_id: Uuid::new_v4(),
+            agent_run_id: Uuid::new_v4(),
             output_text: self.output_text.clone(),
         })
     }
@@ -858,6 +1103,7 @@ impl WorkflowArenaWinnerApplier for FakeArenaWinnerApplier {
 #[derive(Debug, Default)]
 struct FakeRunCanceller {
     stopped_sessions: Mutex<Vec<Uuid>>,
+    cancelled_orchestration_runs: Mutex<Vec<Uuid>>,
 }
 
 impl FakeRunCanceller {
@@ -865,6 +1111,13 @@ impl FakeRunCanceller {
         self.stopped_sessions
             .lock()
             .expect("stopped sessions")
+            .clone()
+    }
+
+    fn cancelled_orchestration_runs(&self) -> Vec<Uuid> {
+        self.cancelled_orchestration_runs
+            .lock()
+            .expect("cancelled orchestration runs")
             .clone()
     }
 }
@@ -877,6 +1130,101 @@ impl WorkflowRunCanceller for FakeRunCanceller {
             .expect("stopped sessions")
             .push(session_id);
         Ok(())
+    }
+
+    async fn cancel_orchestration_run(
+        &self,
+        _pool: &SqlitePool,
+        orchestration_run_id: Uuid,
+    ) -> Result<(), ApiError> {
+        self.cancelled_orchestration_runs
+            .lock()
+            .expect("cancelled orchestration runs")
+            .push(orchestration_run_id);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FakeCanonicalOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone)]
+struct FakeCanonicalReconciliationBoundary {
+    outcome: FakeCanonicalOutcome,
+    output_text: Option<String>,
+}
+
+impl FakeCanonicalReconciliationBoundary {
+    fn completed(output_text: impl Into<String>) -> Self {
+        Self {
+            outcome: FakeCanonicalOutcome::Completed,
+            output_text: Some(output_text.into()),
+        }
+    }
+
+    fn failed(error_text: impl Into<String>) -> Self {
+        Self {
+            outcome: FakeCanonicalOutcome::Failed,
+            output_text: Some(error_text.into()),
+        }
+    }
+
+    fn cancelled() -> Self {
+        Self {
+            outcome: FakeCanonicalOutcome::Cancelled,
+            output_text: None,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentRunReconciliationBoundary for FakeCanonicalReconciliationBoundary {
+    async fn reconcile_workflow_run(
+        &self,
+        pool: &SqlitePool,
+        run_id: Uuid,
+    ) -> Result<AgentRunReconciliationResult, ApiError> {
+        let (status, finished, error_text) = match self.outcome {
+            FakeCanonicalOutcome::Completed => ("succeeded", true, None),
+            FakeCanonicalOutcome::Failed => ("failed", true, self.output_text.as_deref()),
+            FakeCanonicalOutcome::Cancelled => ("cancelled", true, None),
+        };
+        sqlx::query(
+            r#"
+            UPDATE node_executions
+            SET status = ?, output_text = COALESCE(?, output_text),
+                error_text = ?, finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE finished_at END,
+                updated_at = datetime('now', 'subsec')
+            WHERE run_id = ? AND status IN ('running', 'cancelling')
+            "#,
+        )
+        .bind(status)
+        .bind(self.output_text.as_deref().filter(|_| matches!(self.outcome, FakeCanonicalOutcome::Completed)))
+        .bind(error_text)
+        .bind(finished)
+        .bind(run_id)
+        .execute(pool)
+        .await
+        .map_err(ApiError::Database)?;
+
+        Ok(match self.outcome {
+            FakeCanonicalOutcome::Completed => AgentRunReconciliationResult {
+                completed: true,
+                ..Default::default()
+            },
+            FakeCanonicalOutcome::Failed => AgentRunReconciliationResult {
+                failed: true,
+                ..Default::default()
+            },
+            FakeCanonicalOutcome::Cancelled => AgentRunReconciliationResult {
+                cancelled: true,
+                ..Default::default()
+            },
+        })
     }
 }
 
@@ -1046,7 +1394,7 @@ async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
     insert_project(&pool, project_id).await;
     insert_local_issue(&pool, project_id, issue_id, "Build workflow attempt").await;
 
-    let workspace_resolver = FakeWorkspaceResolver::new(workspace_id);
+    let workspace_resolver = FakeWorkspaceResolver::new(&pool, workspace_id);
     let attempt = create_issue_workflow_attempt_with_resources(
         &pool,
         project_id,
@@ -1455,7 +1803,7 @@ async fn workflow_runner_trigger_creates_run_workspace_and_node_executions() {
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent final output");
 
     let run = trigger_workflow_run(
@@ -1531,7 +1879,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
     .await
     .expect("create workflow attempt");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(Uuid::new_v4(), "unused");
     let run = run_workflow_attempt_runtime(
         &pool,
@@ -1593,7 +1941,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
     .await
     .expect("create workflow attempt");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = StartedAgentExecutor::new(session_id);
     let running = run_workflow_attempt_runtime(
         &pool,
@@ -1622,7 +1970,12 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
         .await
         .expect("query attempt")
         .expect("attempt exists");
-    assert_eq!(refreshed.status, WorkflowAttemptStatus::Canceled);
+    assert_eq!(canceled.status, WorkflowRunStatus::Cancelling);
+    assert_eq!(
+        node_status(&canceled.nodes, "agent"),
+        NodeExecutionStatus::Cancelling
+    );
+    assert_eq!(refreshed.status, WorkflowAttemptStatus::Cancelling);
     assert_eq!(refreshed.latest_run_id, Some(running.id));
 }
 
@@ -1664,7 +2017,7 @@ async fn workflow_runner_resolves_project_id_from_local_issue_for_system_workflo
     .await
     .expect("insert historical run reference");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent final output");
 
     let run = trigger_workflow_run(
@@ -1712,7 +2065,7 @@ async fn workflow_runner_trigger_binds_existing_workspace() {
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(fallback_workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, fallback_workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent final output");
 
     let run = trigger_workflow_run(
@@ -1763,7 +2116,7 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::with_execution_process(
         session_id,
         execution_process_id,
@@ -1808,7 +2161,12 @@ async fn workflow_runner_agent_node_uses_main_workspace_and_stores_session_outpu
         .find(|node| node.node_id == "agent")
         .expect("agent node execution");
     assert_eq!(agent_node.session_id, Some(session_id));
-    assert_eq!(agent_node.execution_process_id, Some(execution_process_id));
+    assert_eq!(agent_node.execution_process_id, None);
+    assert_eq!(
+        agent_node.orchestration_node_execution_id,
+        Some(execution_process_id)
+    );
+    assert_eq!(agent_node.agent_run_id, Some(execution_process_id));
     assert_eq!(
         agent_node.output_text.as_deref(),
         Some("implemented feature")
@@ -1842,7 +2200,7 @@ async fn workflow_reconcile_completed_agent_process_resumes_downstream_nodes() {
     .await
     .expect("insert two-agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = AsyncThenCompleteAgentExecutor::new(
         first_session_id,
         first_execution_process_id,
@@ -1872,18 +2230,16 @@ async fn workflow_reconcile_completed_agent_process_resumes_downstream_nodes() {
     );
     assert_eq!(agent.requests().len(), 1);
 
-    insert_execution_process(
+    let boundary = FakeCanonicalReconciliationBoundary::completed("agent A done");
+    let reconciled = reconcile_workflow_run_with_arena_and_boundary(
         &pool,
-        first_execution_process_id,
-        first_session_id,
-        ExecutionProcessStatus::Completed,
-        Some(0),
+        running.id,
+        &agent,
+        &NoopWorkflowArenaCreator,
+        &boundary,
     )
-    .await;
-
-    let reconciled = reconcile_workflow_run(&pool, running.id, &agent)
-        .await
-        .expect("reconcile workflow run");
+    .await
+    .expect("reconcile workflow run");
 
     let requests = agent.requests();
     assert_eq!(requests.len(), 2);
@@ -1928,7 +2284,7 @@ async fn workflow_reconcile_failed_agent_process_fails_run_and_skips_downstream(
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = StartedAgentExecutor::new(session_id);
     let running = trigger_workflow_run(
         &pool,
@@ -1945,18 +2301,16 @@ async fn workflow_reconcile_failed_agent_process_fails_run_and_skips_downstream(
     .await
     .expect("trigger workflow run");
 
-    insert_execution_process(
+    let boundary = FakeCanonicalReconciliationBoundary::failed("agent failed");
+    let reconciled = reconcile_workflow_run_with_arena_and_boundary(
         &pool,
-        agent.execution_process_id(),
-        session_id,
-        ExecutionProcessStatus::Failed,
-        Some(1),
+        running.id,
+        &agent,
+        &NoopWorkflowArenaCreator,
+        &boundary,
     )
-    .await;
-
-    let reconciled = reconcile_workflow_run(&pool, running.id, &agent)
-        .await
-        .expect("reconcile failed workflow run");
+    .await
+    .expect("reconcile failed workflow run");
 
     assert_eq!(reconciled.status, WorkflowRunStatus::Failed);
     assert_eq!(
@@ -1992,7 +2346,7 @@ async fn workflow_runner_fan_in_triggers_same_agent_session_multiple_times() {
     .await
     .expect("insert fan-in workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "reviewed branch");
 
     let run = trigger_workflow_run(
@@ -2067,7 +2421,7 @@ async fn workflow_human_gate_sets_run_awaiting_human() {
     .await
     .expect("insert human workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "should not run yet");
 
     let run = trigger_workflow_run(
@@ -2121,7 +2475,7 @@ async fn workflow_arena_node_creates_group_and_waits_for_winner() {
     .await
     .expect("insert arena workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent should not run");
     let arena = FakeArenaCreator::new(arena_group_id);
 
@@ -2228,7 +2582,7 @@ async fn workflow_arena_winner_selection_applies_winner_and_resumes_downstream_n
     .await
     .expect("insert arena workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent should not run");
     let arena = FakeArenaCreator::new(arena_group_id);
     let winner = FakeArenaWinnerApplier::succeeds("Winner applied from Candidate B");
@@ -2320,7 +2674,7 @@ async fn workflow_arena_winner_apply_failure_fails_run_with_conflict_text() {
     .await
     .expect("insert arena workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent should not run");
     let arena = FakeArenaCreator::new(arena_group_id);
     let winner = FakeArenaWinnerApplier::fails("winner diff conflict in src/main.rs");
@@ -2395,7 +2749,7 @@ async fn workflow_arena_winner_selection_requires_awaiting_arena_node() {
     .await
     .expect("insert arena workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "agent should not run");
     let arena = FakeArenaCreator::new(arena_group_id);
     let winner = FakeArenaWinnerApplier::succeeds("Winner should not apply");
@@ -2470,7 +2824,7 @@ async fn workflow_human_approve_resumes_downstream_nodes() {
     .await
     .expect("insert human workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "approved implementation");
 
     let run = trigger_workflow_run(
@@ -2534,7 +2888,7 @@ async fn workflow_human_reject_fails_run() {
     .await
     .expect("insert human workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "should not run");
 
     let run = trigger_workflow_run(
@@ -2593,7 +2947,7 @@ async fn workflow_human_cancel_marks_run_canceled_and_stops_running_session() {
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = StartedAgentExecutor::new(session_id);
 
     let run = trigger_workflow_run(
@@ -2613,15 +2967,35 @@ async fn workflow_human_cancel_marks_run_canceled_and_stops_running_session() {
     assert_eq!(run.status, WorkflowRunStatus::Running);
 
     let canceller = FakeRunCanceller::default();
-    let canceled = cancel_workflow_run_runtime(&pool, run.id, &canceller)
+    let cancelling = cancel_workflow_run_runtime(&pool, run.id, &canceller)
         .await
         .expect("cancel workflow run");
 
+    assert_eq!(cancelling.status, WorkflowRunStatus::Cancelling);
+    assert!(canceller.stopped_sessions().is_empty());
+    assert_eq!(
+        canceller.cancelled_orchestration_runs(),
+        vec![run.orchestration_run_id.expect("orchestration run")]
+    );
+    assert_eq!(
+        node_status(&cancelling.nodes, "agent"),
+        NodeExecutionStatus::Cancelling
+    );
+
+    let boundary = FakeCanonicalReconciliationBoundary::cancelled();
+    let canceled = reconcile_workflow_run_with_arena_and_boundary(
+        &pool,
+        run.id,
+        &agent,
+        &NoopWorkflowArenaCreator,
+        &boundary,
+    )
+    .await
+    .expect("reconcile cancelled workflow run");
     assert_eq!(canceled.status, WorkflowRunStatus::Canceled);
-    assert_eq!(canceller.stopped_sessions(), vec![session_id]);
     assert_eq!(
         node_status(&canceled.nodes, "agent"),
-        NodeExecutionStatus::Failed
+        NodeExecutionStatus::Cancelled
     );
 }
 
@@ -2648,7 +3022,7 @@ async fn workflow_human_retry_failed_agent_node_resumes_without_rerunning_start(
     .await
     .expect("insert agent workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FailOnceAgentExecutor::new(session_id, "retry succeeded");
 
     let failed = trigger_workflow_run(
@@ -2715,7 +3089,7 @@ async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
     .await
     .expect("insert transform workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "unused");
 
     let failed = trigger_workflow_run(
@@ -2779,7 +3153,7 @@ async fn workflow_run_rejects_condition_without_router_config() {
     .await
     .expect("insert condition workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "unused");
 
     let result = trigger_workflow_run(
@@ -2861,16 +3235,12 @@ async fn workflow_human_recovery_marks_stale_running_nodes_failed() {
         .expect("get recovered run");
 
     assert_eq!(recovered, 1);
-    assert_eq!(run.status, WorkflowRunStatus::Failed);
+    assert_eq!(run.status, WorkflowRunStatus::Running);
     assert_eq!(
         node_status(&run.nodes, "agent"),
-        NodeExecutionStatus::Failed
+        NodeExecutionStatus::Running
     );
-    assert!(
-        run.error_text
-            .as_deref()
-            .is_some_and(|message| message.contains("recover"))
-    );
+    assert!(run.error_text.is_none());
 }
 
 #[tokio::test]
@@ -2958,7 +3328,7 @@ async fn recovery_syncs_attempt_status_for_stale_running_run() {
             .fetch_one(&pool)
             .await
             .expect("fetch attempt status");
-    assert_eq!(attempt_status, "failed");
+    assert_eq!(attempt_status, "running");
 }
 
 #[tokio::test]
@@ -2984,7 +3354,7 @@ async fn workflow_events_records_run_and_node_status_changes() {
     .await
     .expect("insert human workflow");
 
-    let workspace = FakeWorkspaceResolver::new(workspace_id);
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
     let agent = FakeAgentExecutor::new(session_id, "approved implementation");
     let run = trigger_workflow_run(
         &pool,

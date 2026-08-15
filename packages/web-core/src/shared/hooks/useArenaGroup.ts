@@ -4,7 +4,11 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
-import { arenaApi, type ArenaGroupResponse } from '@/shared/lib/arenaApi';
+import {
+  arenaApi,
+  isActiveArenaAgentRunStatus,
+  type ArenaGroupResponse,
+} from '@/shared/lib/arenaApi';
 
 // Query-key conventions live next to the hook so other call sites can
 // invalidate by group / by issue without redefining the shape.
@@ -17,12 +21,12 @@ export const arenaQueryKeys = {
 
 interface UseArenaGroupOptions {
   /**
-   * Polling interval in ms while at least one workspace in the group
-   * is still in `active` status. Set to `false` to disable polling
+   * Polling interval in ms while at least one workspace has an active
+   * AgentRun. Set to `false` to disable polling
    * (caller is responsible for invalidation).
    *
-   * Defaults to 4s while an attempt is running. Once every workspace
-   * is `promoted` or `archived`, polling stops automatically.
+   * Defaults to 4s while an attempt is active. Polling stops once every
+   * workspace's latest AgentRun is terminal or absent.
    */
   refetchIntervalMs?: number | false;
   enabled?: boolean;
@@ -49,8 +53,8 @@ export function useArenaGroup(
       if (refetchIntervalMs === false) return false;
       const data = query.state.data as ArenaGroupResponse | undefined;
       if (!data) return false;
-      const stillRunning = data.workspaces.some(
-        (ws) => ws.latest_execution_status === 'running'
+      const stillRunning = data.workspaces.some((ws) =>
+        isActiveArenaAgentRunStatus(ws.latest_agent_run_status)
       );
       return stillRunning ? refetchIntervalMs : false;
     },
@@ -83,8 +87,8 @@ export function useActiveArenaForIssue(
       const data = query.state.data as ArenaGroupResponse | null | undefined;
       if (!data) return false;
       if (data.lifecycle_status !== 'open') return false;
-      const stillRunning = data.workspaces.some(
-        (ws) => ws.latest_execution_status === 'running'
+      const stillRunning = data.workspaces.some((ws) =>
+        isActiveArenaAgentRunStatus(ws.latest_agent_run_status)
       );
       return stillRunning ? refetchIntervalMs : false;
     },

@@ -1,13 +1,7 @@
 import {
   AgentProviderCapability,
   type AgentProviderPolicy,
-  type ExecutionProcess,
 } from 'shared/types';
-import {
-  getExecutionProcessLifecycle,
-  isExecutionProcessActive,
-  isExecutionProcessFailedLike,
-} from './executionProcessRuntime';
 import { getAgentProviderBlockedReason } from './agentProviderOptions';
 
 export type RuntimeAction =
@@ -49,13 +43,19 @@ export interface RuntimeActionDecision {
 export type RuntimeActionPolicy = Record<RuntimeAction, RuntimeActionDecision>;
 
 export interface RuntimeActionPolicyInput {
-  processes: ExecutionProcess[];
   hasContent: boolean;
   hasWorkspace: boolean;
   hasSession: boolean;
   hasExecutor: boolean;
   isNewSessionMode: boolean;
-  isWorkspaceBusy: boolean;
+  hasPriorAgentRun: boolean;
+  isAgentRunActive: boolean;
+  isAgentRunCancelling: boolean;
+  isLatestAgentRunTerminal: boolean;
+  isStandaloneScriptActive: boolean;
+  canCancelAgentRun: boolean;
+  canResolveApproval: boolean;
+  canSubmitInput: boolean;
   isSending: boolean;
   isStopping: boolean;
   isQueueLoading: boolean;
@@ -65,11 +65,8 @@ export interface RuntimeActionPolicyInput {
   isApprovalTimedOut: boolean;
   isApprovalSubmitting?: boolean;
   isQuestionSubmitting?: boolean;
-  hasRetryTarget?: boolean;
   providerPolicy?: AgentProviderPolicy | null;
 }
-
-const CODING_AGENT_RUN_REASON = 'codingagent';
 
 function allow(action: RuntimeAction): RuntimeActionDecision {
   return { action, allowed: true, reason: null };
@@ -80,14 +77,6 @@ function block(
   reason: RuntimeActionBlockedReason
 ): RuntimeActionDecision {
   return { action, allowed: false, reason };
-}
-
-function isCodingAgentProcess(process: ExecutionProcess): boolean {
-  return process.run_reason === CODING_AGENT_RUN_REASON;
-}
-
-function lastProcess(processes: ExecutionProcess[]): ExecutionProcess | null {
-  return processes.length > 0 ? processes[processes.length - 1] : null;
 }
 
 function mutationBlockReason(
@@ -109,25 +98,7 @@ function ownedInputModeBlockReason(
 export function deriveRuntimeActionPolicy(
   input: RuntimeActionPolicyInput
 ): RuntimeActionPolicy {
-  const codingProcesses = input.processes.filter(isCodingAgentProcess);
-  const latestCodingProcess = lastProcess(codingProcesses);
-  const hasPriorCodingProcess = codingProcesses.length > 0;
-  const activeCodingProcess =
-    codingProcesses.find((process) => isExecutionProcessActive(process)) ??
-    null;
-  const activeLifecycle = activeCodingProcess
-    ? getExecutionProcessLifecycle(activeCodingProcess)
-    : null;
-  const latestLifecycle = latestCodingProcess
-    ? getExecutionProcessLifecycle(latestCodingProcess)
-    : null;
-  const latestFailedLike = latestCodingProcess
-    ? isExecutionProcessFailedLike(latestCodingProcess)
-    : false;
-  const isCancelling =
-    input.isStopping ||
-    activeLifecycle === 'cancelling' ||
-    latestLifecycle === 'cancelling';
+  const isCancelling = input.isStopping || input.isAgentRunCancelling;
 
   const providerInitialBlock = getAgentProviderBlockedReason(
     input.providerPolicy,
@@ -136,10 +107,6 @@ export function deriveRuntimeActionPolicy(
   const providerFollowUpBlock = getAgentProviderBlockedReason(
     input.providerPolicy,
     [AgentProviderCapability.FOLLOW_UP]
-  );
-  const providerResumeBlock = getAgentProviderBlockedReason(
-    input.providerPolicy,
-    [AgentProviderCapability.SESSION_RESUME]
   );
   const mutationBlock = mutationBlockReason(input);
   const ownedInputBlock = ownedInputModeBlockReason(input);
@@ -151,13 +118,13 @@ export function deriveRuntimeActionPolicy(
     sendInitial = block('send_initial', 'no_executor');
   } else if (!input.hasContent) {
     sendInitial = block('send_initial', 'no_content');
-  } else if (!input.isNewSessionMode && hasPriorCodingProcess) {
+  } else if (!input.isNewSessionMode && input.hasPriorAgentRun) {
     sendInitial = block('send_initial', 'unknown_runtime');
   } else if (mutationBlock) {
     sendInitial = block('send_initial', mutationBlock);
   } else if (isCancelling) {
     sendInitial = block('send_initial', 'runtime_cancelling');
-  } else if (input.isWorkspaceBusy) {
+  } else if (input.isAgentRunActive || input.isStandaloneScriptActive) {
     sendInitial = block('send_initial', 'runtime_busy');
   } else if (providerInitialBlock) {
     sendInitial = block('send_initial', providerInitialBlock);
@@ -174,7 +141,7 @@ export function deriveRuntimeActionPolicy(
     sendFollowUp = block('send_follow_up', 'no_executor');
   } else if (!input.hasContent) {
     sendFollowUp = block('send_follow_up', 'no_content');
-  } else if (!hasPriorCodingProcess) {
+  } else if (!input.hasPriorAgentRun) {
     sendFollowUp = block('send_follow_up', 'unknown_runtime');
   } else if (ownedInputBlock) {
     sendFollowUp = block('send_follow_up', ownedInputBlock);
@@ -184,7 +151,7 @@ export function deriveRuntimeActionPolicy(
     sendFollowUp = block('send_follow_up', mutationBlock);
   } else if (isCancelling) {
     sendFollowUp = block('send_follow_up', 'runtime_cancelling');
-  } else if (activeCodingProcess || input.isWorkspaceBusy) {
+  } else if (input.isAgentRunActive || input.isStandaloneScriptActive) {
     sendFollowUp = block('send_follow_up', 'runtime_busy');
   } else if (providerFollowUpBlock) {
     sendFollowUp = block('send_follow_up', providerFollowUpBlock);
@@ -209,10 +176,10 @@ export function deriveRuntimeActionPolicy(
     queueFollowUp = block('queue_follow_up', mutationBlock);
   } else if (isCancelling) {
     queueFollowUp = block('queue_follow_up', 'runtime_cancelling');
-  } else if (!activeCodingProcess) {
+  } else if (!input.isAgentRunActive) {
     queueFollowUp = block(
       'queue_follow_up',
-      latestFailedLike ? 'runtime_terminal' : 'unknown_runtime'
+      input.isLatestAgentRunTerminal ? 'runtime_terminal' : 'unknown_runtime'
     );
   } else if (providerFollowUpBlock) {
     queueFollowUp = block('queue_follow_up', providerFollowUpBlock);
@@ -236,10 +203,10 @@ export function deriveRuntimeActionPolicy(
     stop = block('stop', 'no_workspace');
   } else if (isCancelling) {
     stop = block('stop', 'runtime_cancelling');
-  } else if (!input.isWorkspaceBusy && !activeCodingProcess) {
+  } else if (!input.canCancelAgentRun && !input.isStandaloneScriptActive) {
     stop = block(
       'stop',
-      latestCodingProcess ? 'runtime_terminal' : 'unknown_runtime'
+      input.isLatestAgentRunTerminal ? 'runtime_terminal' : 'unknown_runtime'
     );
   } else {
     stop = allow('stop');
@@ -250,6 +217,8 @@ export function deriveRuntimeActionPolicy(
     approve = block('approve', 'no_session');
   } else if (!input.hasPendingApproval) {
     approve = block('approve', 'approval_required');
+  } else if (!input.canResolveApproval) {
+    approve = block('approve', 'unknown_runtime');
   } else if (input.isApprovalTimedOut) {
     approve = block('approve', 'approval_timed_out');
   } else if (input.isApprovalSubmitting || input.isStopping) {
@@ -263,6 +232,8 @@ export function deriveRuntimeActionPolicy(
     requestChanges = block('request_changes', 'no_session');
   } else if (!input.hasPendingApproval) {
     requestChanges = block('request_changes', 'approval_required');
+  } else if (!input.canResolveApproval) {
+    requestChanges = block('request_changes', 'unknown_runtime');
   } else if (input.isApprovalTimedOut) {
     requestChanges = block('request_changes', 'approval_timed_out');
   } else if (!input.hasContent) {
@@ -278,6 +249,8 @@ export function deriveRuntimeActionPolicy(
     answerQuestion = block('answer_question', 'no_session');
   } else if (!input.hasPendingQuestion) {
     answerQuestion = block('answer_question', 'question_required');
+  } else if (!input.canSubmitInput) {
+    answerQuestion = block('answer_question', 'unknown_runtime');
   } else if (input.isApprovalTimedOut) {
     answerQuestion = block('answer_question', 'approval_timed_out');
   } else if (input.isQuestionSubmitting || input.isStopping) {
@@ -286,43 +259,8 @@ export function deriveRuntimeActionPolicy(
     answerQuestion = allow('answer_question');
   }
 
-  let retry = block('retry', 'unknown_runtime');
-  if (!input.hasWorkspace) {
-    retry = block('retry', 'no_workspace');
-  } else if (!input.hasSession) {
-    retry = block('retry', 'no_session');
-  } else if (!input.hasExecutor) {
-    retry = block('retry', 'no_executor');
-  } else if (!input.hasRetryTarget) {
-    retry = block('retry', 'unknown_runtime');
-  } else if (!input.hasContent) {
-    retry = block('retry', 'no_content');
-  } else if (mutationBlock) {
-    retry = block('retry', mutationBlock);
-  } else if (activeCodingProcess || input.isWorkspaceBusy) {
-    retry = block('retry', 'runtime_busy');
-  } else if (providerFollowUpBlock) {
-    retry = block('retry', providerFollowUpBlock);
-  } else {
-    retry = allow('retry');
-  }
-
-  let resume = block('resume', 'unknown_runtime');
-  if (!input.hasWorkspace) {
-    resume = block('resume', 'no_workspace');
-  } else if (!input.hasSession) {
-    resume = block('resume', 'no_session');
-  } else if (!input.hasExecutor) {
-    resume = block('resume', 'no_executor');
-  } else if (mutationBlock) {
-    resume = block('resume', mutationBlock);
-  } else if (activeCodingProcess || input.isWorkspaceBusy) {
-    resume = block('resume', 'runtime_busy');
-  } else if (providerResumeBlock) {
-    resume = block('resume', providerResumeBlock);
-  } else {
-    resume = allow('resume');
-  }
+  const retry = block('retry', 'unknown_runtime');
+  const resume = block('resume', 'unknown_runtime');
 
   return {
     send_initial: sendInitial,

@@ -1344,8 +1344,12 @@ mod tests {
             .single()
             .expect("timestamp");
 
-        assert!(list_native_resumable_agent_sessions("opencode", since, 10, &[], true).is_empty());
-        assert!(get_native_agent_session_preview("opencode", "session", 20, &[], true).is_none());
+        assert!(
+            list_native_resumable_agent_sessions("unsupported", since, 10, &[], true).is_empty()
+        );
+        assert!(
+            get_native_agent_session_preview("unsupported", "session", 20, &[], true).is_none()
+        );
     }
 
     #[test]

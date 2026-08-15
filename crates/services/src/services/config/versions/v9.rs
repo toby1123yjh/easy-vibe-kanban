@@ -27,11 +27,6 @@ fn default_relay_enabled() -> bool {
 
 fn default_hidden_agents() -> Vec<BaseCodingAgent> {
     vec![
-        BaseCodingAgent::Amp,
-        BaseCodingAgent::QwenCode,
-        BaseCodingAgent::CursorAgent,
-        BaseCodingAgent::Copilot,
-        BaseCodingAgent::Droid,
         #[cfg(feature = "qa-mode")]
         BaseCodingAgent::QaMock,
     ]
@@ -103,7 +98,10 @@ impl Config {
             send_message_shortcut: old_config.send_message_shortcut,
             relay_enabled: old_config.relay_enabled,
             host_nickname: old_config.host_nickname,
-            hidden_agents: old_config.hidden_agents,
+            // Provider visibility is rebuilt from the V1 registry; removed
+            // provider entries are intentionally not carried across config
+            // versions.
+            hidden_agents: default_hidden_agents(),
         }
     }
 
@@ -208,12 +206,11 @@ mod tests {
         assert!(!hidden_agents.contains(&BaseCodingAgent::ClaudeCode));
         assert!(!hidden_agents.contains(&BaseCodingAgent::Codex));
         assert!(!hidden_agents.contains(&BaseCodingAgent::Gemini));
-        assert!(!hidden_agents.contains(&BaseCodingAgent::Opencode));
-        assert!(hidden_agents.contains(&BaseCodingAgent::Amp));
-        assert!(hidden_agents.contains(&BaseCodingAgent::QwenCode));
-        assert!(hidden_agents.contains(&BaseCodingAgent::CursorAgent));
-        assert!(hidden_agents.contains(&BaseCodingAgent::Copilot));
-        assert!(hidden_agents.contains(&BaseCodingAgent::Droid));
+        assert!(!hidden_agents.contains(&BaseCodingAgent::OhMyPi));
+        #[cfg(feature = "qa-mode")]
+        assert_eq!(hidden_agents, vec![BaseCodingAgent::QaMock]);
+        #[cfg(not(feature = "qa-mode"))]
+        assert!(hidden_agents.is_empty());
     }
 
     #[test]

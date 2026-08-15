@@ -2,10 +2,14 @@ use std::{
     collections::HashSet,
     fs, io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use deployment::{Deployment, DeploymentError};
-use services::services::container::ContainerService;
+use services::services::{
+    agent_runtime::AgentRunCommandService, container::ContainerService,
+    orchestration::OrchestrationService,
+};
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
 use utils::assets::asset_dir;
@@ -13,9 +17,16 @@ use utils::assets::asset_dir;
 use crate::{
     DeploymentImpl,
     middleware::origin::validate_origin,
-    routes::{self, scheduled_tasks::spawn_scheduled_task_loop},
+    routes::{
+        self,
+        scheduled_tasks::spawn_scheduled_task_loop,
+        sessions::setup_gate::{reconcile_setup_launch_gates, spawn_setup_launch_gate_watcher},
+    },
     runtime::relay_registration,
-    workflow_runtime::runner::{recover_stale_workflow_runs, spawn_workflow_completion_watcher},
+    workflow_runtime::runner::{
+        DeploymentAgentRunReconciliationBoundary, recover_stale_workflow_runs_with_boundary,
+        spawn_workflow_completion_watcher,
+    },
 };
 
 /// A running server instance. Callers can read the port, then call `serve()`
@@ -159,12 +170,48 @@ pub async fn initialize_deployment(
     let deployment = DeploymentImpl::new(shutdown).await?;
     migrate_legacy_attachment_directories(&deployment).await?;
     deployment.update_sentry_scope().await?;
-    deployment
-        .container()
-        .cleanup_orphan_executions()
+
+    // Runtime recovery is ordered from the real process owner outward.
+    // Deployment construction has already re-attached durable provider hosts,
+    // so replay direct control commands next and only then advance
+    // orchestration. The old execution-process orphan cleanup is intentionally
+    // excluded: it cannot distinguish a live managed AgentRun from a stale
+    // legacy row and would violate restart reconciliation semantics.
+    let command_reconciliation =
+        AgentRunCommandService::new(&deployment.db().pool, deployment.agent_run_port())
+            .reconcile_startup()
+            .await
+            .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(
+        recovered_inflight = command_reconciliation.recovered_inflight,
+        delivered = command_reconciliation.delivered,
+        failed = command_reconciliation.failed,
+        "Reconciled durable direct AgentRun commands"
+    );
+    spawn_setup_launch_gate_watcher(deployment.clone());
+    let setup_gate_count = reconcile_setup_launch_gates(&deployment)
         .await
-        .map_err(DeploymentError::from)?;
-    recover_stale_workflow_runs(&deployment.db().pool)
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(setup_gate_count, "Reconciled durable setup launch gates");
+    let orchestration = OrchestrationService::new(
+        deployment.db().pool.clone(),
+        Arc::new(deployment.agent_run_port().clone()),
+    );
+    let reconciliation = orchestration
+        .reconcile_startup()
+        .await
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(
+        recovered_outbox_deliveries = reconciliation.recovered_outbox_deliveries,
+        recovered_inbox_claims = reconciliation.recovered_inbox_claims,
+        recovered_leases = reconciliation.recovered_leases,
+        reconciled_runs = reconciliation.reconciled_runs,
+        unreachable_agent_runs = reconciliation.unreachable_agent_runs,
+        delivery_failures = reconciliation.delivery_failures,
+        "Reconciled durable AgentRun orchestration state"
+    );
+    let workflow_boundary = DeploymentAgentRunReconciliationBoundary::new(deployment.clone());
+    recover_stale_workflow_runs_with_boundary(&deployment.db().pool, &workflow_boundary)
         .await
         .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
     // Start the event-driven workflow completion watcher. This eliminates the
@@ -174,11 +221,6 @@ pub async fn initialize_deployment(
     // immediately.
     spawn_workflow_completion_watcher(deployment.clone());
     spawn_scheduled_task_loop(deployment.clone());
-    deployment
-        .container()
-        .backfill_before_head_commits()
-        .await
-        .map_err(DeploymentError::from)?;
     deployment
         .container()
         .backfill_repo_names()

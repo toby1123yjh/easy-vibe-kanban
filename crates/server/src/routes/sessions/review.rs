@@ -2,20 +2,16 @@ use std::path::PathBuf;
 
 use axum::{Extension, Json, extract::State, response::Json as ResponseJson};
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessView},
     session::Session,
     workspace::{Workspace, WorkspaceError},
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType,
-        review::{RepoReviewContext as ExecutorRepoReviewContext, ReviewRequest as ReviewAction},
-    },
+    actions::review::RepoReviewContext as ExecutorRepoReviewContext,
     executors::build_review_prompt,
     profile::ExecutorConfig,
+    runtime::{AgentRunIntent, AgentRunPortSnapshot, RunAttemptMode},
 };
 use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
@@ -44,7 +40,7 @@ pub async fn start_review(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<StartReviewRequest>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcessView, ReviewError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<AgentRunPortSnapshot, ReviewError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace = Workspace::find_by_id(pool, session.workspace_id)
@@ -53,9 +49,7 @@ pub async fn start_review(
             "Workspace not found".to_string(),
         )))?;
 
-    if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace.id)
-        .await?
-    {
+    if super::agent_run::has_active_agent_run_for_workspace(pool, workspace.id).await? {
         return Ok(ResponseJson(ApiResponse::error_with_data(
             ReviewError::ProcessAlreadyRunning,
         )));
@@ -66,9 +60,12 @@ pub async fn start_review(
         .ensure_container_exists(&workspace)
         .await?;
 
-    let agent_session_id = CodingAgentTurn::find_latest_session_info(pool, session.id)
-        .await?
-        .map(|info| info.session_id);
+    super::agent_run::validate_session_executor(pool, &session, &payload.executor_config).await?;
+    let provider = super::agent_run::direct_provider(&payload.executor_config)?;
+    let runtime_profile_id = payload.executor_config.profile_id().cache_key();
+    let provider_session =
+        super::agent_run::latest_provider_session(pool, session.id, provider, &runtime_profile_id)
+            .await?;
 
     let context: Option<Vec<ExecutorRepoReviewContext>> = if payload.use_all_workspace_commits {
         let repos =
@@ -100,28 +97,23 @@ pub async fn start_review(
     };
 
     let prompt = build_review_prompt(context.as_deref(), payload.additional_prompt.as_deref());
-    let resumed_session = agent_session_id.is_some();
-
-    let action = ExecutorAction::new(
-        ExecutorActionType::ReviewRequest(ReviewAction {
-            executor_config: payload.executor_config.clone(),
-            context,
+    let resumed_session = provider_session.is_some();
+    let agent_run = super::agent_run::create_agent_run(
+        &deployment,
+        &session,
+        &workspace,
+        container_ref,
+        super::agent_run::AgentRunLaunch {
+            intent: AgentRunIntent::Review,
+            mode: RunAttemptMode::Launch,
             prompt,
-            session_id: agent_session_id,
-            working_dir: session.agent_working_dir.clone(),
-        }),
-        None,
-    );
-
-    let execution_process = deployment
-        .container()
-        .start_execution(
-            &workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
+            selected_skills: None,
+            executor_config: payload.executor_config.clone(),
+            provider_session,
+        },
+        super::agent_run::AgentRunDispatch::Immediate,
+    )
+    .await?;
 
     deployment
         .track_if_analytics_allowed(
@@ -136,7 +128,5 @@ pub async fn start_review(
         )
         .await;
 
-    Ok(ResponseJson(ApiResponse::success(
-        ExecutionProcessView::from_process(execution_process),
-    )))
+    Ok(ResponseJson(ApiResponse::success(agent_run)))
 }

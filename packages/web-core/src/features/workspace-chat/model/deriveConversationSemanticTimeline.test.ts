@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AgentRunLifecycle,
-  BaseCodingAgent,
-  ExecutionProcessStatus,
-  type ExecutionProcess,
-} from 'shared/types';
+import { ExecutionProcessStatus, type ExecutionProcess } from 'shared/types';
 import type {
   ConversationTimelineSource,
   ExecutionProcessState,
@@ -19,11 +14,10 @@ const staticProcess: ExecutionProcessState['executionProcess'] = {
   updated_at: '2026-06-22T00:00:00Z',
   executor_action: {
     typ: {
-      type: 'CodingAgentInitialRequest',
-      prompt: 'Implement feature',
-      executor_config: {
-        executor: BaseCodingAgent.CODEX,
-      },
+      type: 'ScriptRequest',
+      script: 'echo setup',
+      language: 'Bash',
+      context: 'SetupScript',
       working_dir: null,
     },
     next_action: null,
@@ -33,7 +27,7 @@ const staticProcess: ExecutionProcessState['executionProcess'] = {
 const liveProcessBase = {
   id: 'process-1',
   session_id: 'session-1',
-  run_reason: 'codingagent',
+  run_reason: 'setupscript',
   executor_action: staticProcess.executor_action,
   status: ExecutionProcessStatus.running,
   exit_code: null,
@@ -53,6 +47,15 @@ function makeSource(liveProcess: ExecutionProcess): ConversationTimelineSource {
       },
     },
     liveExecutionProcesses: [liveProcess],
+    canonical: {
+      entries: [],
+      activeAgentRunIds: new Set(),
+      runCount: 0,
+      isLoading: false,
+      isRunning: false,
+      projectionDegraded: false,
+      latestStatus: null,
+    },
   };
 }
 
@@ -180,11 +183,11 @@ describe('deriveConversationSemanticTimeline', () => {
     expect(timeline.processes[0].visibleEntries).toHaveLength(1);
   });
 
-  it('keeps waiting runtime lifecycle active', () => {
+  it('keeps running process status active', () => {
     const timeline = deriveConversationSemanticTimeline(
       makeSource({
         ...liveProcessBase,
-        agent_runtime_lifecycle: AgentRunLifecycle.waiting_input,
+        status: ExecutionProcessStatus.running,
       })
     );
 
@@ -194,11 +197,11 @@ describe('deriveConversationSemanticTimeline', () => {
     });
   });
 
-  it('treats crashed runtime lifecycle as failed-like', () => {
+  it('treats failed process status as failed-like', () => {
     const timeline = deriveConversationSemanticTimeline(
       makeSource({
         ...liveProcessBase,
-        agent_runtime_lifecycle: AgentRunLifecycle.crashed,
+        status: ExecutionProcessStatus.failed,
       })
     );
 
@@ -297,8 +300,21 @@ describe('deriveConversationSemanticTimeline', () => {
     ).toEqual(['old question']);
   });
 
-  it('emits native history backfill before the current prompt', () => {
+  it('does not infer an agent prompt from a legacy process action', () => {
     const source = makeSource(liveProcessBase);
+    const legacyAgentAction = {
+      typ: {
+        type: 'LegacyCodingAgent',
+        prompt: 'Implement feature',
+        executor_config: { executor: 'CODEX' },
+        working_dir: null,
+      },
+      next_action: null,
+    } as unknown as typeof staticProcess.executor_action;
+    source.executionProcessState[staticProcess.id].executionProcess = {
+      ...staticProcess,
+      executor_action: legacyAgentAction,
+    };
     source.executionProcessState[staticProcess.id].entries = [
       nativeBackfillEntry('user_message', 'old question'),
       nativeBackfillEntry('assistant_message', 'old answer'),
@@ -310,16 +326,12 @@ describe('deriveConversationSemanticTimeline', () => {
     });
 
     expect(
-      derived.entries.map((entry) =>
-        entry.type === 'NORMALIZED_ENTRY'
-          ? [entry.content.entry_type.type, entry.content.content]
-          : [entry.type, entry.content]
+      derived.entries.some(
+        (entry) =>
+          entry.type === 'NORMALIZED_ENTRY' &&
+          entry.content.entry_type.type === 'user_message' &&
+          entry.content.content === 'Implement feature'
       )
-    ).toEqual([
-      ['user_message', 'old question'],
-      ['assistant_message', 'old answer'],
-      ['user_message', 'Implement feature'],
-      ['loading', ''],
-    ]);
+    ).toBe(false);
   });
 });

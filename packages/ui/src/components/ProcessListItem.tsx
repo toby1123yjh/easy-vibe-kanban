@@ -1,7 +1,6 @@
 import {
   TerminalIcon,
   GearIcon,
-  CodeIcon,
   GlobeIcon,
 } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
@@ -18,8 +17,6 @@ interface ProcessListItemProps {
 
 function getRunReasonLabel(runReason: string): string {
   switch (runReason) {
-    case 'codingagent':
-      return 'Coding Agent';
     case 'setupscript':
       return 'Setup Script';
     case 'cleanupscript':
@@ -35,8 +32,6 @@ function getRunReasonLabel(runReason: string): string {
 
 function getRunReasonIcon(runReason: string): typeof TerminalIcon {
   switch (runReason) {
-    case 'codingagent':
-      return CodeIcon;
     case 'setupscript':
     case 'cleanupscript':
     case 'archivescript':

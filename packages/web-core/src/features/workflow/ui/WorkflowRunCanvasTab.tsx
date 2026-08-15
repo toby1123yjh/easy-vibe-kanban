@@ -48,8 +48,10 @@ import { buildWorkspaceSessionHref } from '../model/workflowRunView';
 import {
   getDefaultWorkflowRuntimeNodeId,
   getWorkflowNodeActionGate,
+  getWorkflowNodeExecutionForWork,
   getWorkflowNodeWork,
   getWorkflowRuntimeView,
+  type WorkflowRuntimeAuthority,
 } from '../model/workflowRuntimeView';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import { queueWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
@@ -107,6 +109,8 @@ export interface WorkflowRunCanvasTabProps {
 
 interface RunNodeData extends WorkflowNodeData {
   execution?: WorkflowNodeExecutionResponse | null;
+  runtimeStatus?: WorkflowNodeWorkView['status'];
+  runtimeAuthority?: WorkflowRuntimeAuthority;
   isSelected?: boolean;
   nodeId?: string;
   nodeType?: WorkflowNodeKind;
@@ -121,6 +125,8 @@ const statusIconMap: Record<NodeExecutionStatus, ReactNode> = {
   failed: <AlertCircle className="h-4 w-4 text-error" />,
   awaiting_human: <User className="h-4 w-4 text-warning" />,
   awaiting_arena: <Swords className="h-4 w-4 text-warning" />,
+  cancelling: <Clock className="h-4 w-4 text-warning" />,
+  cancelled: <Clock className="h-4 w-4 text-low" />,
   skipped: <Clock className="h-4 w-4 text-low" />,
 };
 
@@ -133,13 +139,16 @@ const runPortHandles = [
 
 function RunNode({ data }: { data: RunNodeData }) {
   const { t } = useTranslation('common');
-  const status = data.execution?.status ?? 'pending';
+  const status: NodeExecutionStatus =
+    data.execution?.status ??
+    (data.runtimeStatus === 'starting' ? 'running' : data.runtimeStatus) ??
+    'pending';
   const type = data.nodeType ?? 'agent';
   const structural = type === 'start' || type === 'end';
   const Icon = getWorkflowNodeIcon(type);
   const nodeState = getWorkflowCanvasNodeState({
     data,
-    executionStatus: data.execution?.status,
+    executionStatus: status,
     nodeType: type,
   });
   const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
@@ -195,7 +204,11 @@ function RunNode({ data }: { data: RunNodeData }) {
             WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
             isRunning ? 'workflow-status-dot-running' : ''
           )}
-          title={stateLabel}
+          title={
+            data.runtimeAuthority && data.runtimeAuthority !== 'current'
+              ? `${stateLabel} (${data.runtimeAuthority})`
+              : stateLabel
+          }
         />
         <div
           style={nodeAccentStyle}
@@ -311,33 +324,6 @@ function parseWorkflowGraph(graphJson: string): WorkflowGraph | null {
     return null;
   }
   return null;
-}
-
-function getExecutionForNode(
-  run: WorkflowRunResponse,
-  nodeId: string
-): WorkflowNodeExecutionResponse | null {
-  return run.nodes.find((node) => node.node_id === nodeId) ?? null;
-}
-
-function getExecutionForWork(
-  run: WorkflowRunResponse,
-  work: WorkflowNodeWorkView | null,
-  nodeId: string | null
-): WorkflowNodeExecutionResponse | null {
-  if (work) {
-    return (
-      run.nodes.find((node) => node.id === work.active_execution_id) ??
-      run.nodes.find(
-        (node) =>
-          node.node_id === work.node_id && node.iteration === work.iteration
-      ) ??
-      run.nodes.find((node) => node.node_id === work.node_id) ??
-      null
-    );
-  }
-
-  return nodeId ? getExecutionForNode(run, nodeId) : null;
 }
 
 function getDefaultPositions(graph: WorkflowGraph) {
@@ -456,7 +442,7 @@ export function WorkflowRunCanvasTab({
   useEffect(() => {
     if (
       selectedNodeId &&
-      run.nodes.some((node) => node.node_id === selectedNodeId)
+      runtimeView.node_work.some((work) => work.node_id === selectedNodeId)
     ) {
       return;
     }
@@ -466,7 +452,7 @@ export function WorkflowRunCanvasTab({
     if (activeNodeId) {
       setSelectedNodeId(activeNodeId);
     }
-  }, [run.nodes, runtimeView, selectedNodeId]);
+  }, [runtimeView, selectedNodeId]);
 
   const graph = useMemo(
     () => (template ? parseWorkflowGraph(template.graph_json) : null),
@@ -476,20 +462,25 @@ export function WorkflowRunCanvasTab({
   useEffect(() => {
     if (!graph) return;
 
-    const execNodeMap = new Map(run.nodes.map((node) => [node.node_id, node]));
+    const workMap = new Map(
+      runtimeView.node_work.map((work) => [work.node_id, work])
+    );
     const positions = getDefaultPositions(graph);
     const baseNodes = toReactFlowNodes(graph, positions);
     const baseEdges = toReactFlowEdges(graph);
 
     setNodes(
       baseNodes.map((baseNode) => {
-        const execution = execNodeMap.get(baseNode.id) ?? null;
+        const work = workMap.get(baseNode.id) ?? null;
+        const execution = getWorkflowNodeExecutionForWork(run, work);
 
         return {
           ...baseNode,
           data: {
             ...baseNode.data,
             execution,
+            runtimeStatus: work?.status,
+            runtimeAuthority: work?.runtime_authority,
             isSelected: baseNode.id === selectedNodeId,
             nodeId: baseNode.id,
             nodeType: baseNode.type,
@@ -502,8 +493,8 @@ export function WorkflowRunCanvasTab({
 
     setEdges(
       baseEdges.map((baseEdge) => {
-        const sourceExecution = execNodeMap.get(baseEdge.source);
-        const targetExecution = execNodeMap.get(baseEdge.target);
+        const sourceWork = workMap.get(baseEdge.source);
+        const targetWork = workMap.get(baseEdge.target);
 
         return {
           ...baseEdge,
@@ -511,8 +502,8 @@ export function WorkflowRunCanvasTab({
           data: {
             ...baseEdge.data,
             visualStatus: getWorkflowCanvasEdgeState(
-              sourceExecution?.status,
-              targetExecution?.status
+              sourceWork?.status,
+              targetWork?.status
             ),
           },
         };
@@ -522,6 +513,7 @@ export function WorkflowRunCanvasTab({
     graph,
     openNodeConversationById,
     run,
+    runtimeView,
     selectNodeById,
     selectedNodeId,
     setEdges,
@@ -529,11 +521,7 @@ export function WorkflowRunCanvasTab({
   ]);
 
   const selectedWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
-  const selectedExecution = getExecutionForWork(
-    run,
-    selectedWork,
-    selectedNodeId
-  );
+  const selectedExecution = getWorkflowNodeExecutionForWork(run, selectedWork);
   const selectedGraphNode =
     graph && selectedNodeId
       ? (graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
@@ -587,7 +575,18 @@ export function WorkflowRunCanvasTab({
   ]);
 
   const handleApprove = async () => {
-    if (!selectedExecution) return;
+    if (
+      !selectedExecution ||
+      !getWorkflowNodeActionGate(selectedWork).canApprove
+    ) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await approveNode({
@@ -605,7 +604,18 @@ export function WorkflowRunCanvasTab({
   };
 
   const handleReject = async () => {
-    if (!selectedExecution) return;
+    if (
+      !selectedExecution ||
+      !getWorkflowNodeActionGate(selectedWork).canReject
+    ) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await rejectNode({
@@ -623,7 +633,18 @@ export function WorkflowRunCanvasTab({
   };
 
   const handleSelectConditionBranch = async (targetNodeIds: string[]) => {
-    if (!selectedExecution) return;
+    if (
+      !selectedExecution ||
+      !getWorkflowNodeActionGate(selectedWork).canSelectConditionBranch
+    ) {
+      setActionError(
+        t('workflow.runCanvas.actionUnavailable', {
+          defaultValue:
+            'Action unavailable while runtime projection is unavailable.',
+        })
+      );
+      return;
+    }
     setActionError(null);
     try {
       await selectConditionBranch({
@@ -1298,9 +1319,19 @@ function NodeExecutionTab({
         <MetadataRow label={t('workflow.nodeSession.sessionId')}>
           {selectedExecution.session_id ?? t('workflow.dashboard.notStarted')}
         </MetadataRow>
-        <MetadataRow label={t('workflow.nodeSession.processId')}>
-          {selectedExecution.execution_process_id ??
-            t('workflow.dashboard.notStarted')}
+        <MetadataRow
+          label={t('workflow.nodeSession.orchestrationNodeExecutionId')}
+        >
+          {selectedExecution.orchestration_node_execution_id ??
+            t('workflow.dashboard.notAvailable')}
+        </MetadataRow>
+        <MetadataRow label={t('workflow.nodeSession.agentRunId')}>
+          {selectedExecution.agent_run_id ??
+            t('workflow.dashboard.notAvailable')}
+        </MetadataRow>
+        <MetadataRow label={t('workflow.nodeSession.projection')}>
+          {selectedExecution.projection_status ??
+            t('workflow.dashboard.notAvailable')}
         </MetadataRow>
         <MetadataRow label={t('workflow.runCanvas.workspaceId')}>
           {run.workspace_id ?? t('workflow.runCanvas.noWorkspace')}

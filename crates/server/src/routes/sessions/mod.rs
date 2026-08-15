@@ -1,6 +1,8 @@
+mod agent_run;
 mod native_history;
 pub mod queue;
 pub mod review;
+pub mod setup_gate;
 
 use std::path::PathBuf;
 
@@ -14,7 +16,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use db::models::{
     arena_group::{ArenaLifecycleStatus, ArenaMode},
-    coding_agent_turn::{CodingAgentResumeInfo, CodingAgentTurn, ResumableAgentSession},
+    coding_agent_turn::ResumableAgentSession,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessView},
     requests::UpdateSession,
     scratch::{Scratch, ScratchType},
@@ -24,14 +26,9 @@ use db::models::{
 };
 use deployment::Deployment;
 use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType, SelectedSkill,
-        coding_agent_follow_up::{
-            CodingAgentFollowUpRequest, CodingAgentTranscriptBackfillEntry,
-            CodingAgentTranscriptBackfillRole,
-        },
-    },
+    actions::SelectedSkill,
     profile::ExecutorConfig,
+    runtime::{AgentRunIntent, AgentRunPortSnapshot, RunAttemptMode},
 };
 pub use native_history::{NativeAgentSessionPreview, NativeSessionPreviewEntry};
 use serde::Deserialize;
@@ -65,13 +62,6 @@ async fn is_open_design_arena_workspace(
         group.map(|g| (g.mode, g.lifecycle_status)),
         Some((ArenaMode::Design, ArenaLifecycleStatus::Open))
     ))
-}
-
-fn should_block_direct_follow_up_while_running(
-    retry_process_id: Option<Uuid>,
-    has_running_coding_agent: bool,
-) -> bool {
-    retry_process_id.is_none() && has_running_coding_agent
 }
 
 #[derive(Debug, Deserialize)]
@@ -164,52 +154,6 @@ pub async fn get_native_agent_session_preview(
     Ok(ResponseJson(ApiResponse::success(preview)))
 }
 
-pub(crate) fn native_resume_transcript_backfill(
-    executor: &str,
-    resume_session_id: Option<&str>,
-) -> Option<Vec<CodingAgentTranscriptBackfillEntry>> {
-    let resume_session_id = resume_session_id
-        .map(str::trim)
-        .filter(|session_id| !session_id.is_empty())?;
-
-    let preview = native_history::get_native_agent_session_preview(
-        executor,
-        resume_session_id,
-        native_history::DEFAULT_NATIVE_SESSION_PREVIEW_TURNS,
-        &[],
-        true,
-    )?;
-
-    let entries = preview
-        .entries
-        .into_iter()
-        .filter_map(native_preview_entry_to_transcript_backfill)
-        .collect::<Vec<_>>();
-
-    (!entries.is_empty()).then_some(entries)
-}
-
-fn native_preview_entry_to_transcript_backfill(
-    entry: NativeSessionPreviewEntry,
-) -> Option<CodingAgentTranscriptBackfillEntry> {
-    let role = match entry.role.as_str() {
-        "user" => CodingAgentTranscriptBackfillRole::User,
-        "assistant" => CodingAgentTranscriptBackfillRole::Assistant,
-        _ => return None,
-    };
-
-    let content = entry.content.trim();
-    if content.is_empty() {
-        return None;
-    }
-
-    Some(CodingAgentTranscriptBackfillEntry {
-        role,
-        content: content.to_string(),
-        timestamp: entry.timestamp.map(|timestamp| timestamp.to_rfc3339()),
-    })
-}
-
 fn native_history_scope_path(scope_path: Option<&str>) -> Option<PathBuf> {
     scope_path
         .map(str::trim)
@@ -270,42 +214,26 @@ pub struct CreateFollowUpAttempt {
     #[serde(default)]
     #[ts(optional)]
     pub resume_session_id: Option<String>,
-    pub retry_process_id: Option<Uuid>,
-    pub force_when_dirty: Option<bool>,
-    pub perform_git_reset: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, TS)]
-pub struct ResetProcessRequest {
-    pub process_id: Uuid,
-    pub force_when_dirty: Option<bool>,
-    pub perform_git_reset: Option<bool>,
 }
 
 pub async fn follow_up(
     Extension(session): Extension<Session>,
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateFollowUpAttempt>,
-) -> Result<ResponseJson<ApiResponse<ExecutionProcessView>>, ApiError> {
-    let execution_process = start_coding_agent_execution_for_session(
+) -> Result<ResponseJson<ApiResponse<AgentRunPortSnapshot>>, ApiError> {
+    let agent_run = start_coding_agent_execution_for_session(
         &deployment,
         session,
         payload.prompt,
         payload.selected_skills,
         payload.executor_config,
         payload.resume_session_id,
-        payload.retry_process_id,
-        payload.force_when_dirty,
-        payload.perform_git_reset,
     )
     .await?;
 
-    Ok(ResponseJson(ApiResponse::success(
-        ExecutionProcessView::from_process(execution_process),
-    )))
+    Ok(ResponseJson(ApiResponse::success(agent_run)))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn start_coding_agent_execution_for_session(
     deployment: &DeploymentImpl,
     session: Session,
@@ -313,10 +241,48 @@ pub async fn start_coding_agent_execution_for_session(
     selected_skills: Option<Vec<SelectedSkill>>,
     executor_config: ExecutorConfig,
     resume_session_id: Option<String>,
-    retry_process_id: Option<Uuid>,
-    force_when_dirty: Option<bool>,
-    perform_git_reset: Option<bool>,
-) -> Result<ExecutionProcess, ApiError> {
+) -> Result<AgentRunPortSnapshot, ApiError> {
+    prepare_coding_agent_execution_for_session(
+        deployment,
+        session,
+        prompt,
+        selected_skills,
+        executor_config,
+        resume_session_id,
+        agent_run::AgentRunDispatch::Immediate,
+    )
+    .await
+}
+
+pub(crate) async fn reserve_coding_agent_execution_for_session(
+    deployment: &DeploymentImpl,
+    session: Session,
+    prompt: String,
+    selected_skills: Option<Vec<SelectedSkill>>,
+    executor_config: ExecutorConfig,
+    resume_session_id: Option<String>,
+) -> Result<AgentRunPortSnapshot, ApiError> {
+    prepare_coding_agent_execution_for_session(
+        deployment,
+        session,
+        prompt,
+        selected_skills,
+        executor_config,
+        resume_session_id,
+        agent_run::AgentRunDispatch::Reserved,
+    )
+    .await
+}
+
+async fn prepare_coding_agent_execution_for_session(
+    deployment: &DeploymentImpl,
+    session: Session,
+    prompt: String,
+    selected_skills: Option<Vec<SelectedSkill>>,
+    executor_config: ExecutorConfig,
+    resume_session_id: Option<String>,
+    dispatch: agent_run::AgentRunDispatch,
+) -> Result<AgentRunPortSnapshot, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace = Workspace::find_by_id(pool, session.workspace_id)
@@ -327,70 +293,33 @@ pub async fn start_coding_agent_execution_for_session(
 
     tracing::info!("{:?}", workspace);
 
-    if should_block_direct_follow_up_while_running(
-        retry_process_id,
-        ExecutionProcess::has_running_coding_agent_for_session(pool, session.id).await?,
-    ) {
+    if agent_run::has_active_agent_run_for_session(pool, session.id).await? {
         return Err(ApiError::BadRequest(
             "A coding agent is already running for this session. Queue the follow-up instead."
                 .to_string(),
         ));
     }
 
-    deployment
+    let workspace_path = deployment
         .container()
         .ensure_container_exists(&workspace)
         .await?;
 
-    let executor_profile_id = executor_config.profile_id();
-
-    let requested_executor = executor_profile_id.executor.to_string();
-    let expected_executor: Option<String> =
-        ExecutionProcess::latest_executor_profile_for_session(pool, session.id)
-            .await?
-            .map(|profile| profile.executor.to_string())
-            .or_else(|| session.executor.clone());
-
-    if let Some(expected) = expected_executor {
-        if expected != requested_executor {
-            return Err(ApiError::Session(SessionError::ExecutorMismatch {
-                expected,
-                actual: requested_executor.clone(),
-            }));
-        }
-    }
-
-    if session.executor.is_none() {
-        Session::update_executor(pool, session.id, &requested_executor).await?;
-    }
-
-    if let Some(proc_id) = retry_process_id {
-        let force_when_dirty = force_when_dirty.unwrap_or(false);
-        let perform_git_reset = perform_git_reset.unwrap_or(true);
-        deployment
-            .container()
-            .reset_session_to_process(session.id, proc_id, perform_git_reset, force_when_dirty)
-            .await?;
-    }
-
-    let explicit_resume_session_id = resume_session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(ToOwned::to_owned)
-        .filter(|_| retry_process_id.is_none());
-
-    let native_transcript_backfill = native_resume_transcript_backfill(
-        &requested_executor,
-        explicit_resume_session_id.as_deref(),
+    agent_run::validate_session_executor(pool, &session, &executor_config).await?;
+    let provider = agent_run::direct_provider(&executor_config)?;
+    let runtime_profile_id = executor_config.profile_id().cache_key();
+    let explicit_provider_session = agent_run::explicit_provider_session(
+        provider,
+        &runtime_profile_id,
+        resume_session_id.as_deref(),
+        Utc::now(),
     );
-
-    let latest_session_info = match explicit_resume_session_id {
-        Some(session_id) => Some(CodingAgentResumeInfo {
-            session_id,
-            message_id: None,
-        }),
-        None => CodingAgentTurn::find_latest_session_info(pool, session.id).await?,
+    let provider_session = match explicit_provider_session {
+        Some(reference) => Some(reference),
+        None => {
+            agent_run::latest_provider_session(pool, session.id, provider, &runtime_profile_id)
+                .await?
+        }
     };
 
     let mut prompt = prompt;
@@ -398,48 +327,37 @@ pub async fn start_coding_agent_execution_for_session(
         prompt = design_arena_prompt(&prompt);
     }
 
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let cleanup_action = deployment.container().cleanup_actions_for_repos(&repos);
-
-    let working_dir = session
-        .agent_working_dir
-        .as_ref()
-        .filter(|dir| !dir.is_empty())
-        .cloned();
-
-    let action_type = if let Some(info) = latest_session_info {
-        let is_reset = retry_process_id.is_some();
-        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt: prompt.clone(),
-            selected_skills: selected_skills.clone(),
-            session_id: info.session_id,
-            reset_to_message_id: if is_reset { info.message_id } else { None },
-            executor_config: executor_config.clone(),
-            working_dir: working_dir.clone(),
-            transcript_backfill: native_transcript_backfill.clone(),
-        })
-    } else {
-        ExecutorActionType::CodingAgentInitialRequest(
-            executors::actions::coding_agent_initial::CodingAgentInitialRequest {
-                prompt,
-                selected_skills: selected_skills.clone(),
-                executor_config: executor_config.clone(),
-                working_dir,
+    let (intent, mode) = if provider_session.is_some() {
+        (
+            AgentRunIntent::FollowUp,
+            if resume_session_id
+                .as_deref()
+                .is_some_and(|session_id| !session_id.trim().is_empty())
+            {
+                RunAttemptMode::Resume
+            } else {
+                RunAttemptMode::Launch
             },
         )
+    } else {
+        (AgentRunIntent::Initial, RunAttemptMode::Launch)
     };
-
-    let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
-
-    let execution_process = deployment
-        .container()
-        .start_execution(
-            &workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
+    let agent_run = agent_run::create_agent_run(
+        deployment,
+        &session,
+        &workspace,
+        workspace_path,
+        agent_run::AgentRunLaunch {
+            intent,
+            mode,
+            prompt,
+            selected_skills,
+            executor_config,
+            provider_session,
+        },
+        dispatch,
+    )
+    .await?;
 
     if let Err(e) = Scratch::delete(pool, session.id, &ScratchType::DraftFollowUp).await {
         tracing::debug!(
@@ -449,32 +367,35 @@ pub async fn start_coding_agent_execution_for_session(
         );
     }
 
-    Ok(execution_process)
+    Ok(agent_run)
+}
+
+pub(crate) async fn launch_reserved_coding_agent_execution(
+    deployment: &DeploymentImpl,
+    agent_run_id: Uuid,
+) -> Result<AgentRunPortSnapshot, ApiError> {
+    deployment
+        .agent_run_port()
+        .launch_reserved(agent_run_id)
+        .await
+        .map_err(agent_run::agent_run_port_error)
+}
+
+pub(crate) async fn fail_reserved_coding_agent_execution(
+    deployment: &DeploymentImpl,
+    agent_run_id: Uuid,
+    message: String,
+) -> Result<AgentRunPortSnapshot, ApiError> {
+    deployment
+        .agent_run_port()
+        .fail_reserved(agent_run_id, message)
+        .await
+        .map_err(agent_run::agent_run_port_error)
 }
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
-    use super::{native_history_scope_path, should_block_direct_follow_up_while_running};
-
-    #[test]
-    fn blocks_direct_follow_up_when_session_agent_is_running() {
-        assert!(should_block_direct_follow_up_while_running(None, true));
-    }
-
-    #[test]
-    fn allows_retry_path_even_when_session_agent_is_running() {
-        assert!(!should_block_direct_follow_up_while_running(
-            Some(Uuid::new_v4()),
-            true
-        ));
-    }
-
-    #[test]
-    fn allows_direct_follow_up_when_session_agent_is_idle() {
-        assert!(!should_block_direct_follow_up_while_running(None, false));
-    }
+    use super::native_history_scope_path;
 
     #[test]
     fn native_history_scope_uses_only_the_explicit_working_directory() {
@@ -488,27 +409,6 @@ mod tests {
         assert!(native_history_scope_path(None).is_none());
         assert!(native_history_scope_path(Some("  ")).is_none());
     }
-}
-
-pub async fn reset_process(
-    Extension(session): Extension<Session>,
-    State(deployment): State<DeploymentImpl>,
-    Json(payload): Json<ResetProcessRequest>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
-    let force_when_dirty = payload.force_when_dirty.unwrap_or(false);
-    let perform_git_reset = payload.perform_git_reset.unwrap_or(true);
-
-    deployment
-        .container()
-        .reset_session_to_process(
-            session.id,
-            payload.process_id,
-            perform_git_reset,
-            force_when_dirty,
-        )
-        .await?;
-
-    Ok(ResponseJson(ApiResponse::success(())))
 }
 
 pub async fn run_setup_script(
@@ -574,7 +474,6 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let session_id_router = Router::new()
         .route("/", get(get_session).put(update_session))
         .route("/follow-up", post(follow_up))
-        .route("/reset", post(reset_process))
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
         .layer(from_fn_with_state(

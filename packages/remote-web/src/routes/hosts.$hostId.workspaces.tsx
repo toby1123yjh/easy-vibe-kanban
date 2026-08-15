@@ -104,7 +104,8 @@ function MobileWorkspacesList() {
             {workspaces.map((workspace) => {
               const isFailed =
                 workspace.latestProcessStatus === "failed" ||
-                workspace.latestProcessStatus === "killed";
+                workspace.latestProcessStatus === "crashed" ||
+                workspace.latestProcessStatus === "audit_failed";
               const hasChanges =
                 workspace.filesChanged !== undefined &&
                 workspace.filesChanged > 0;

@@ -2,6 +2,11 @@ import { useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 import { createHmrContext } from '@/shared/lib/hmrContext';
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 import type { TokenUsageInfo } from 'shared/types';
+import {
+  AgentRunSessionProvider,
+  useAgentRunSession,
+  type AgentRunSessionContextValue,
+} from '@/features/agent-runtime';
 
 // ---------------------------------------------------------------------------
 // Entries context — changes on every streaming update
@@ -49,9 +54,13 @@ const TokenUsageContext = createHmrContext<TokenUsageContextType | null>(
 
 interface EntriesProviderProps {
   children: ReactNode;
+  sessionId?: string;
 }
 
-export const EntriesProvider = ({ children }: EntriesProviderProps) => {
+export const EntriesProvider = ({
+  children,
+  sessionId,
+}: EntriesProviderProps) => {
   const [entries, setEntriesState] = useState<PatchTypeWithKey[]>([]);
   const [tokenUsageInfo, setTokenUsageInfoState] =
     useState<TokenUsageInfo | null>(null);
@@ -85,13 +94,15 @@ export const EntriesProvider = ({ children }: EntriesProviderProps) => {
   );
 
   return (
-    <EntriesActionsContext.Provider value={entriesActionsValue}>
-      <EntriesContext.Provider value={entriesValue}>
-        <TokenUsageContext.Provider value={tokenUsageValue}>
-          {children}
-        </TokenUsageContext.Provider>
-      </EntriesContext.Provider>
-    </EntriesActionsContext.Provider>
+    <AgentRunSessionProvider sessionId={sessionId}>
+      <EntriesActionsContext.Provider value={entriesActionsValue}>
+        <EntriesContext.Provider value={entriesValue}>
+          <TokenUsageContext.Provider value={tokenUsageValue}>
+            {children}
+          </TokenUsageContext.Provider>
+        </EntriesContext.Provider>
+      </EntriesActionsContext.Provider>
+    </AgentRunSessionProvider>
   );
 };
 
@@ -143,3 +154,7 @@ export const useSetTokenUsageInfo = (): ((
   }
   return context.setTokenUsageInfo;
 };
+
+/** Session-scoped canonical AgentRun projection for chat consumers. */
+export const useCanonicalAgentSession = (): AgentRunSessionContextValue =>
+  useAgentRunSession();

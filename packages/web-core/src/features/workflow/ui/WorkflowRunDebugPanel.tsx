@@ -69,9 +69,18 @@ export function WorkflowRunDebugPanel({
         value={debug.sessionId}
       />
       <DebugBlock
-        title={t('workflow.nodeSession.processId')}
-        emptyLabel={t('workflow.debug.noProcessId')}
-        value={debug.executionProcessId}
+        title={t('workflow.nodeSession.orchestrationNodeExecutionId', {
+          defaultValue: 'Orchestration node execution ID',
+        })}
+        emptyLabel={t('workflow.dashboard.notAvailable')}
+        value={debug.orchestrationNodeExecutionId}
+      />
+      <DebugBlock
+        title={t('workflow.nodeSession.agentRunId', {
+          defaultValue: 'AgentRun ID',
+        })}
+        emptyLabel={t('workflow.dashboard.notAvailable')}
+        value={debug.agentRunId}
       />
     </div>
   );

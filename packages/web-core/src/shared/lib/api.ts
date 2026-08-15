@@ -5,7 +5,7 @@ import {
   ApiResponse,
   Config,
   CreateFollowUpAttempt,
-  ResetProcessRequest,
+  AgentRunPortSnapshot,
   EditorType,
   CreatePrApiRequest,
   CreateTag,
@@ -366,12 +366,12 @@ export const sessionsApi = {
   followUp: async (
     sessionId: string,
     data: CreateFollowUpAttempt
-  ): Promise<ExecutionProcess> => {
+  ): Promise<AgentRunPortSnapshot> => {
     const response = await makeRequest(`/api/sessions/${sessionId}/follow-up`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return handleApiResponse<ExecutionProcess>(response);
+    return handleApiResponse<AgentRunPortSnapshot>(response);
   },
 
   getResumable: async (params: {
@@ -419,17 +419,6 @@ export const sessionsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<ExecutionProcess, ReviewError>(response);
-  },
-
-  reset: async (
-    sessionId: string,
-    data: ResetProcessRequest
-  ): Promise<void> => {
-    const response = await makeRequest(`/api/sessions/${sessionId}/reset`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    return handleApiResponse<void>(response);
   },
 
   runSetupScript: async (
@@ -868,7 +857,7 @@ export const workspacesApi = {
     return handleApiResponse<PrCommentsResponse>(response);
   },
 
-  /** Mark all coding agent turns for a workspace as seen */
+  /** Mark all canonical agent runs for a workspace as seen */
   markSeen: async (workspaceId: string): Promise<void> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}/seen`, {
       method: 'PUT',

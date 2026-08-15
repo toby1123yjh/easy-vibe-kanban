@@ -1,5 +1,6 @@
 import type {
   NodeExecutionStatus,
+  ProjectionStatus,
   WorkflowNodeExecutionResponse,
   WorkflowNodeWorkStatus,
   WorkflowNodeWorkView,
@@ -13,6 +14,34 @@ export interface WorkflowRuntimeViewOptions {
   nowMs?: number;
   activeSlowThresholdMs?: number;
 }
+
+/**
+ * Frontend-only metadata attached while crossing the workflow API boundary.
+ * It is deliberately not serialized back to the server and prevents a
+ * missing/degraded canonical projection from silently becoming actionable UI.
+ */
+export type WorkflowRuntimeAuthority = 'current' | 'degraded' | 'unknown';
+
+export type CanonicalWorkflowNodeWorkView = WorkflowNodeWorkView & {
+  orchestration_node_execution_id?: string | null;
+  active_agent_run_id?: string | null;
+  projection_status?: ProjectionStatus | null;
+  runtime_authority?: WorkflowRuntimeAuthority;
+};
+
+type CanonicalWorkflowNodeExecution = WorkflowNodeExecutionResponse & {
+  orchestration_node_execution_id?: string | null;
+  agent_run_id?: string | null;
+  projection_status?: ProjectionStatus | null;
+};
+
+export type WorkflowRuntimeProjection = Omit<
+  WorkflowRunRuntimeView,
+  'node_work'
+> & {
+  node_work: CanonicalWorkflowNodeWorkView[];
+  authority: WorkflowRuntimeAuthority;
+};
 
 export interface WorkflowNodeActionGate {
   canOpenSession: boolean;
@@ -36,20 +65,60 @@ export interface WorkflowNodeRuntimeSummary {
 export function getWorkflowRuntimeView(
   run: WorkflowRunResponse,
   options: WorkflowRuntimeViewOptions = {}
-): WorkflowRunRuntimeView {
+): WorkflowRuntimeProjection {
   if (run.runtime_view) {
-    return run.runtime_view;
+    return normalizeBackendRuntimeView(run.runtime_view);
   }
 
   return buildFallbackWorkflowRuntimeView(run, options);
 }
 
 export function getWorkflowNodeWork(
-  view: WorkflowRunRuntimeView,
+  view: WorkflowRuntimeProjection | WorkflowRunRuntimeView,
   nodeId: string | null | undefined
-): WorkflowNodeWorkView | null {
+): CanonicalWorkflowNodeWorkView | null {
   if (!nodeId) return null;
   return view.node_work.find((work) => work.node_id === nodeId) ?? null;
+}
+
+/**
+ * Resolve the detail row for a canonical node projection. Runtime state is
+ * matched by orchestration identity first; a legacy process id is never used
+ * to identify current work.
+ */
+export function getWorkflowNodeExecutionForWork(
+  run: WorkflowRunResponse,
+  work: WorkflowNodeWorkView | null | undefined
+): WorkflowNodeExecutionResponse | null {
+  if (!work) return null;
+  const canonicalWork = work as CanonicalWorkflowNodeWorkView;
+  if (canonicalWork.runtime_authority !== 'current') return null;
+
+  const orchestrationNodeExecutionId =
+    canonicalWork.orchestration_node_execution_id;
+  const agentRunId = canonicalWork.active_agent_run_id;
+
+  return (
+    (orchestrationNodeExecutionId
+      ? (run.nodes.find(
+          (node) =>
+            (node as CanonicalWorkflowNodeExecution)
+              .orchestration_node_execution_id === orchestrationNodeExecutionId
+        ) ?? null)
+      : null) ??
+    (agentRunId
+      ? (run.nodes.find(
+          (node) =>
+            (node as CanonicalWorkflowNodeExecution).agent_run_id === agentRunId
+        ) ?? null)
+      : null) ??
+    (canonicalWork.active_execution_id
+      ? (run.nodes.find(
+          (node) => node.id === canonicalWork.active_execution_id
+        ) ?? null)
+      : null) ??
+    null
+  );
 }
 
 export function isWorkflowNodeProcessing(
@@ -61,6 +130,21 @@ export function isWorkflowNodeProcessing(
 export function getWorkflowNodeActionGate(
   work: WorkflowNodeWorkView | null | undefined
 ): WorkflowNodeActionGate {
+  const canonicalWork = work as
+    | CanonicalWorkflowNodeWorkView
+    | null
+    | undefined;
+  if (canonicalWork?.runtime_authority !== 'current') {
+    return {
+      canOpenSession: false,
+      canRetry: false,
+      canApprove: false,
+      canReject: false,
+      canSelectArenaWinner: false,
+      canSelectConditionBranch: false,
+      canCancelNode: false,
+    };
+  }
   return {
     canOpenSession: work?.can_open_session ?? false,
     canRetry: work?.can_retry ?? false,
@@ -86,7 +170,7 @@ export function getWorkflowNodeRuntimeSummary(
 }
 
 export function getDefaultWorkflowRuntimeNodeId(
-  view: WorkflowRunRuntimeView
+  view: WorkflowRuntimeProjection | WorkflowRunRuntimeView
 ): string | null {
   const waiting = view.node_work.find((work) =>
     isWaitingWorkflowNodeWorkStatus(work.status)
@@ -107,7 +191,7 @@ export function getDefaultWorkflowRuntimeNodeId(
 function buildFallbackWorkflowRuntimeView(
   run: WorkflowRunResponse,
   options: WorkflowRuntimeViewOptions
-): WorkflowRunRuntimeView {
+): WorkflowRuntimeProjection {
   const nowMs = options.nowMs ?? Date.now();
   const activeSlowThresholdMs =
     options.activeSlowThresholdMs ?? WORKFLOW_NODE_ACTIVE_SLOW_THRESHOLD_MS;
@@ -148,7 +232,44 @@ function buildFallbackWorkflowRuntimeView(
       (work) => work.status === 'succeeded' || work.status === 'skipped'
     ).length,
     node_work: nodeWork,
+    authority: 'unknown',
   };
+}
+
+function normalizeBackendRuntimeView(
+  view: WorkflowRunRuntimeView
+): WorkflowRuntimeProjection {
+  const nodeWork = view.node_work.map((work) => {
+    const canonicalWork = work as CanonicalWorkflowNodeWorkView;
+    const projectionStatus = canonicalWork.projection_status ?? null;
+    const hasCanonicalIdentity = Boolean(
+      canonicalWork.orchestration_node_execution_id ||
+        canonicalWork.active_agent_run_id
+    );
+    const runtimeAuthority: WorkflowRuntimeAuthority =
+      projectionStatus === 'projection_degraded' ||
+      projectionStatus === 'rebuilding' ||
+      (canonicalWork.runtime_health as string) === 'projection_degraded'
+        ? 'degraded'
+        : hasCanonicalIdentity || canonicalWork.node_type !== 'agent'
+          ? 'current'
+          : 'unknown';
+
+    return {
+      ...canonicalWork,
+      runtime_authority: runtimeAuthority,
+    };
+  });
+
+  const authority = nodeWork.some(
+    (work) => work.runtime_authority === 'degraded'
+  )
+    ? 'degraded'
+    : nodeWork.some((work) => work.runtime_authority === 'unknown')
+      ? 'unknown'
+      : 'current';
+
+  return { ...view, node_work: nodeWork, authority };
 }
 
 function buildFallbackNodeWorkView(
@@ -161,8 +282,9 @@ function buildFallbackNodeWorkView(
     nowMs: number;
     activeSlowThresholdMs: number;
   }
-): WorkflowNodeWorkView {
-  const status = workflowNodeWorkStatus(current);
+): CanonicalWorkflowNodeWorkView {
+  const canonicalCurrent = current as CanonicalWorkflowNodeExecution;
+  const status = workflowNodeWorkStatus(canonicalCurrent);
   const active = isActiveWorkflowNodeWorkStatus(status);
   const waiting = isWaitingWorkflowNodeWorkStatus(status);
   const activeElapsedMs = active
@@ -179,29 +301,33 @@ function buildFallbackNodeWorkView(
     pending_work_count: executions.filter((node) => node.status === 'pending')
       .length,
     starting_child_count: executions.filter(
-      (node) => node.status === 'running' && !node.execution_process_id
+      (node) =>
+        node.status === 'running' &&
+        !(
+          (node as CanonicalWorkflowNodeExecution).agent_run_id ||
+          (node as CanonicalWorkflowNodeExecution)
+            .orchestration_node_execution_id
+        )
     ).length,
     active_execution_id: active || waiting ? current.id : null,
     active_session_id: current.session_id,
-    execution_process_id: current.execution_process_id,
+    orchestration_node_execution_id:
+      canonicalCurrent.orchestration_node_execution_id ?? null,
+    active_agent_run_id: canonicalCurrent.agent_run_id ?? null,
+    projection_status: canonicalCurrent.projection_status ?? null,
     active_started_at: active || waiting ? current.started_at : null,
     active_elapsed_ms: activeElapsedMs,
     active_slow: activeSlow,
     active_slow_threshold_ms: activeSlowThresholdMs,
-    runtime_health: workflowRuntimeHealth(current, status, activeSlow),
-    can_open_session:
-      Boolean(current.session_id) &&
-      (current.node_type === 'agent' || current.node_type === 'condition'),
-    can_retry: current.status === 'failed',
-    can_approve:
-      current.status === 'awaiting_human' && current.node_type === 'human_gate',
-    can_reject:
-      current.status === 'awaiting_human' && current.node_type === 'human_gate',
-    can_select_arena_winner:
-      current.status === 'awaiting_arena' && current.node_type === 'arena',
-    can_select_condition_branch:
-      current.status === 'awaiting_human' && current.node_type === 'condition',
+    runtime_health: 'unknown',
+    can_open_session: false,
+    can_retry: false,
+    can_approve: false,
+    can_reject: false,
+    can_select_arena_winner: false,
+    can_select_condition_branch: false,
     can_cancel_node: false,
+    runtime_authority: 'unknown',
   };
 }
 
@@ -231,24 +357,16 @@ function isAfterNodeExecution(
 }
 
 function workflowNodeWorkStatus(
-  node: WorkflowNodeExecutionResponse
+  node: CanonicalWorkflowNodeExecution
 ): WorkflowNodeWorkStatus {
-  if (node.status === 'running' && !node.execution_process_id) {
+  if (
+    node.status === 'running' &&
+    !node.agent_run_id &&
+    !node.orchestration_node_execution_id
+  ) {
     return 'starting';
   }
   return node.status;
-}
-
-function workflowRuntimeHealth(
-  node: WorkflowNodeExecutionResponse,
-  status: WorkflowNodeWorkStatus,
-  activeSlow: boolean
-): WorkflowNodeWorkView['runtime_health'] {
-  if (status === 'starting' && activeSlow) return 'process_missing';
-  if (status === 'starting') return 'starting';
-  if (status === 'running' && activeSlow) return 'slow';
-  if (status === 'pending' && !node.started_at) return 'unknown';
-  return 'ok';
 }
 
 function calculateElapsedMs(startedAt: string | null, nowMs: number) {

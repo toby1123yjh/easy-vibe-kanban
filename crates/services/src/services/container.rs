@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use db::{
     DBService,
     models::{
-        coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
         execution_process::{
             CreateExecutionProcess, ExecutionContext, ExecutionProcess, ExecutionProcessError,
             ExecutionProcessRunReason, ExecutionProcessStatus,
@@ -23,34 +22,19 @@ use db::{
         workspace_repo::WorkspaceRepo,
     },
 };
-#[cfg(feature = "qa-mode")]
-use executors::executors::qa_mock::QaMockExecutor;
 #[cfg(not(feature = "qa-mode"))]
 use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType, SelectedSkill,
-        coding_agent_follow_up::{
-            CodingAgentFollowUpRequest, CodingAgentTranscriptBackfillEntry,
-            CodingAgentTranscriptBackfillRole,
-        },
-        coding_agent_initial::CodingAgentInitialRequest,
+        ExecutorAction, ExecutorActionType,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
     executors::{ExecutorError, StandardCodingAgentExecutor},
-    logs::{
-        NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
-        utils::{
-            ConversationPatch, EntryIndexProvider,
-            patch::{fix_patch_ops, is_add_or_replace, patch_entry_path},
-        },
-    },
-    profile::{ExecutorConfig, ExecutorProfileId},
+    profile::ExecutorProfileId,
 };
 use futures::{StreamExt, future, stream::BoxStream};
 use git::{GitService, GitServiceError};
 use json_patch::Patch;
-use serde_json::{Map, Value};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
@@ -65,55 +49,11 @@ use worktree_manager::WorktreeError;
 use crate::services::{execution_process, notification::NotificationService};
 pub type ContainerRef = String;
 
-const NATIVE_HISTORY_BACKFILL_METADATA_KEY: &str = "native_history_backfill";
-
 fn has_container_ref(workspace: &Workspace) -> bool {
     matches!(
         workspace.container_ref.as_deref(),
         Some(container_ref) if !container_ref.is_empty()
     )
-}
-
-fn transcript_backfill_entries_for_action(
-    executor_action: &ExecutorAction,
-) -> Option<&[CodingAgentTranscriptBackfillEntry]> {
-    match executor_action.typ() {
-        ExecutorActionType::CodingAgentFollowUpRequest(request) => request
-            .transcript_backfill
-            .as_deref()
-            .filter(|entries| !entries.is_empty()),
-        _ => None,
-    }
-}
-
-fn native_history_backfill_metadata() -> Value {
-    let mut metadata = Map::new();
-    metadata.insert(
-        NATIVE_HISTORY_BACKFILL_METADATA_KEY.to_string(),
-        Value::Bool(true),
-    );
-    Value::Object(metadata)
-}
-
-fn normalized_entry_from_transcript_backfill(
-    entry: &CodingAgentTranscriptBackfillEntry,
-) -> Option<NormalizedEntry> {
-    let content = entry.content.trim();
-    if content.is_empty() {
-        return None;
-    }
-
-    let entry_type = match entry.role {
-        CodingAgentTranscriptBackfillRole::User => NormalizedEntryType::UserMessage,
-        CodingAgentTranscriptBackfillRole::Assistant => NormalizedEntryType::AssistantMessage,
-    };
-
-    Some(NormalizedEntry {
-        timestamp: entry.timestamp.clone(),
-        entry_type,
-        content: content.to_string(),
-        metadata: Some(native_history_backfill_metadata()),
-    })
 }
 
 #[derive(Debug, Error)]
@@ -402,58 +342,6 @@ pub trait ContainerService {
             // Process marked as failed
             tracing::info!("Marked orphaned execution process {} as failed", process.id);
         }
-        Ok(())
-    }
-
-    /// Backfill before_head_commit for legacy execution processes.
-    /// Rules:
-    /// - If a process has after_head_commit and missing before_head_commit,
-    ///   then set before_head_commit to the previous process's after_head_commit.
-    /// - If there is no previous process, set before_head_commit to the base branch commit.
-    async fn backfill_before_head_commits(&self) -> Result<(), ContainerError> {
-        let pool = &self.db().pool;
-        let rows = ExecutionProcess::list_missing_before_context(pool).await?;
-        for row in rows {
-            // Skip if no after commit at all (shouldn't happen due to WHERE)
-            // Prefer previous process after-commit if present
-            let mut before = row.prev_after_head_commit.clone();
-
-            // Fallback to base branch commit OID
-            if before.is_none() {
-                let repo_path = std::path::Path::new(row.repo_path.as_deref().unwrap_or_default());
-                match self
-                    .git()
-                    .get_branch_oid(repo_path, row.target_branch.as_str())
-                {
-                    Ok(oid) => before = Some(oid),
-                    Err(e) => {
-                        tracing::warn!(
-                            "Backfill: Failed to resolve base branch OID for workspace {} (branch {}): {}",
-                            row.workspace_id,
-                            row.target_branch,
-                            e
-                        );
-                    }
-                }
-            }
-
-            if let Some(before_oid) = before
-                && let Err(e) = ExecutionProcessRepoState::update_before_head_commit(
-                    pool,
-                    row.id,
-                    row.repo_id,
-                    &before_oid,
-                )
-                .await
-            {
-                tracing::warn!(
-                    "Backfill: Failed to update before_head_commit for process {}: {}",
-                    row.id,
-                    e
-                );
-            }
-        }
-
         Ok(())
     }
 
@@ -929,371 +817,20 @@ pub trait ContainerService {
             let raw_messages =
                 execution_process::load_raw_log_messages(&self.db().pool, *id).await?;
 
-            // Create temporary store and populate
-            // Include JsonPatch messages (already normalized) and Stdout/Stderr (need normalization)
-            let temp_store = Arc::new(MsgStore::new());
-            for msg in raw_messages {
-                if matches!(
-                    msg,
-                    LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
-                ) {
-                    temp_store.push(msg);
-                }
-            }
-            temp_store.push_finished();
-
-            let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
-                Ok(Some(process)) => process,
-                Ok(None) => {
-                    tracing::error!("No execution process found for ID: {}", id);
-                    return None;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch execution process {}: {}", id, e);
-                    return None;
-                }
-            };
-
-            // Get the workspace to determine correct directory
-            let (workspace, _session) =
-                match process.parent_workspace_and_session(&self.db().pool).await {
-                    Ok(Some((workspace, session))) => (workspace, session),
-                    Ok(None) => {
-                        tracing::error!(
-                            "No workspace/session found for session ID: {}",
-                            process.session_id
-                        );
-                        return None;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to fetch workspace for session {}: {}",
-                            process.session_id,
-                            e
-                        );
-                        return None;
-                    }
-                };
-
-            if let Err(err) = self.ensure_container_exists(&workspace).await {
-                tracing::warn!(
-                    "Failed to recreate worktree before log normalization for workspace {}: {}",
-                    workspace.id,
-                    err
-                );
-            }
-
-            let current_dir = self.workspace_to_current_dir(&workspace);
-
-            let executor_action = if let Ok(executor_action) = process.executor_action() {
-                executor_action
-            } else {
-                tracing::error!(
-                    "Failed to parse executor action: {:?}",
-                    process.executor_action()
-                );
-                return None;
-            };
-
-            // Spawn normalizer on populated store and collect JoinHandles
-            let handles = match executor_action.typ() {
-                ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    #[cfg(feature = "qa-mode")]
-                    {
-                        let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
-                    }
-                    #[cfg(not(feature = "qa-mode"))]
-                    {
-                        let executor = ExecutorConfigs::get_cached()
-                            .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
-                    }
-                }
-                ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    #[cfg(feature = "qa-mode")]
-                    {
-                        let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
-                    }
-                    #[cfg(not(feature = "qa-mode"))]
-                    {
-                        let executor = ExecutorConfigs::get_cached()
-                            .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        )
-                    }
-                }
-                #[cfg(feature = "qa-mode")]
-                ExecutorActionType::ReviewRequest(_request) => {
-                    let executor = QaMockExecutor;
-                    executor.normalize_logs(temp_store.clone(), &current_dir)
-                }
-                #[cfg(not(feature = "qa-mode"))]
-                ExecutorActionType::ReviewRequest(request) => {
-                    let executor = ExecutorConfigs::get_cached()
-                        .get_coding_agent_or_default(&request.executor_config.profile_id());
-                    executor.normalize_logs(temp_store.clone(), &current_dir)
-                }
-                _ => {
-                    tracing::debug!(
-                        "Executor action doesn't support log normalization: {:?}",
-                        process.executor_action()
-                    );
-                    return None;
-                }
-            };
-
-            // Await all normalizer tasks, then push Ready so the dedup
-            // stream knows when to flush its buffer and terminate.
-            {
-                let store = temp_store.clone();
-                tokio::spawn(async move {
-                    for handle in handles {
-                        let _ = handle.await;
-                    }
-                    store.push(LogMsg::Ready);
+            let patches = raw_messages
+                .into_iter()
+                .filter_map(|message| match message {
+                    LogMsg::JsonPatch(patch) => Some(Ok(LogMsg::JsonPatch(patch))),
+                    _ => None,
                 });
-            }
-
-            // Stream normalized patches, deduplicating consecutive patches
-            // that target the same path (only the final state matters for
-            // historical replay). The Ready sentinel flushes the buffer.
-            enum PatchOrDone {
-                Patch(Patch),
-                Done,
-            }
-
-            let stream = temp_store
-                .history_plus_stream()
-                .filter_map(|msg| async move {
-                    match msg {
-                        Ok(LogMsg::JsonPatch(patch)) => Some(PatchOrDone::Patch(patch)),
-                        Ok(LogMsg::Ready) => Some(PatchOrDone::Done),
-                        _ => None,
-                    }
-                });
-
-            let deduped = futures::stream::unfold(
-                (stream.boxed(), None::<Patch>, HashSet::<String>::new()),
-                |(mut stream, buffered, mut sent_paths)| async move {
-                    match stream.next().await {
-                        Some(PatchOrDone::Patch(patch)) => {
-                            let Some(prev) = buffered else {
-                                // First patch — just buffer it
-                                return Some((None, (stream, Some(patch), sent_paths)));
-                            };
-                            if patch_entry_path(&patch) == patch_entry_path(&prev)
-                                && is_add_or_replace(&patch)
-                                && is_add_or_replace(&prev)
-                            {
-                                // Same path, both add/replace — replace buffer
-                                Some((None, (stream, Some(patch), sent_paths)))
-                            } else {
-                                // Different — emit prev, buffer new
-                                let prev = fix_patch_ops(prev, &mut sent_paths);
-                                Some((Some(prev), (stream, Some(patch), sent_paths)))
-                            }
-                        }
-                        Some(PatchOrDone::Done) | None => {
-                            // Sentinel or stream end: flush buffer and terminate
-                            if let Some(prev) = buffered {
-                                let prev = fix_patch_ops(prev, &mut sent_paths);
-                                return Some((Some(prev), (stream, None, sent_paths)));
-                            }
-                            None
-                        }
-                    }
-                },
-            )
-            .filter_map(|opt| async move { opt })
-            .map(|p| Ok::<_, std::io::Error>(LogMsg::JsonPatch(p)))
-            .chain(futures::stream::once(async {
-                Ok::<_, std::io::Error>(LogMsg::Finished)
-            }));
-
-            Some(deduped.boxed())
+            return Some(
+                futures::stream::iter(patches)
+                    .chain(futures::stream::once(async {
+                        Ok::<_, std::io::Error>(LogMsg::Finished)
+                    }))
+                    .boxed(),
+            );
         }
-    }
-
-    async fn start_workspace(
-        &self,
-        workspace: &Workspace,
-        executor_config: ExecutorConfig,
-        prompt: String,
-    ) -> Result<ExecutionProcess, ContainerError> {
-        self.start_workspace_with_selected_skills(workspace, executor_config, prompt, None, None)
-            .await
-    }
-
-    async fn start_workspace_with_selected_skills(
-        &self,
-        workspace: &Workspace,
-        executor_config: ExecutorConfig,
-        prompt: String,
-        selected_skills: Option<Vec<SelectedSkill>>,
-        resume_session_id: Option<String>,
-    ) -> Result<ExecutionProcess, ContainerError> {
-        self.start_workspace_with_selected_skills_and_transcript_backfill(
-            workspace,
-            executor_config,
-            prompt,
-            selected_skills,
-            resume_session_id,
-            None,
-        )
-        .await
-    }
-
-    async fn start_workspace_with_selected_skills_and_transcript_backfill(
-        &self,
-        workspace: &Workspace,
-        executor_config: ExecutorConfig,
-        prompt: String,
-        selected_skills: Option<Vec<SelectedSkill>>,
-        resume_session_id: Option<String>,
-        transcript_backfill: Option<Vec<CodingAgentTranscriptBackfillEntry>>,
-    ) -> Result<ExecutionProcess, ContainerError> {
-        // Create container
-        self.create(workspace).await?;
-
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-
-        let workspace = Workspace::find_by_id(&self.db().pool, workspace.id)
-            .await?
-            .ok_or(SqlxError::RowNotFound)?;
-
-        // Create a session for this workspace
-        let session = Session::create(
-            &self.db().pool,
-            &CreateSession {
-                executor: Some(executor_config.executor.to_string()),
-                name: None,
-            },
-            Uuid::new_v4(),
-            workspace.id,
-        )
-        .await?;
-
-        let repos_with_setup: Vec<&Repo> = if workspace.is_direct_folder() {
-            Vec::new()
-        } else {
-            repos.iter().filter(|r| r.setup_script.is_some()).collect()
-        };
-
-        let all_parallel = repos_with_setup.iter().all(|r| r.parallel_setup_script);
-
-        let cleanup_action = if workspace.is_direct_folder() {
-            None
-        } else {
-            self.cleanup_actions_for_repos(&repos)
-        };
-
-        let working_dir = session
-            .agent_working_dir
-            .as_ref()
-            .filter(|dir| !dir.is_empty())
-            .cloned();
-
-        let action_type = if let Some(session_id) = resume_session_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|session_id| !session_id.is_empty())
-        {
-            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                prompt,
-                selected_skills,
-                session_id: session_id.to_string(),
-                reset_to_message_id: None,
-                executor_config: executor_config.clone(),
-                working_dir,
-                transcript_backfill,
-            })
-        } else {
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt,
-                selected_skills,
-                executor_config: executor_config.clone(),
-                working_dir,
-            })
-        };
-
-        let coding_action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
-
-        let execution_process = if all_parallel {
-            // All parallel: start each setup independently, then start coding agent
-            for repo in &repos_with_setup {
-                if let Some(action) = Self::setup_action_for_repo(repo)
-                    && let Err(e) = self
-                        .start_execution(
-                            &workspace,
-                            &session,
-                            &action,
-                            &ExecutionProcessRunReason::SetupScript,
-                        )
-                        .await
-                {
-                    tracing::warn!(?e, "Failed to start setup script in parallel mode");
-                }
-            }
-            self.start_execution(
-                &workspace,
-                &session,
-                &coding_action,
-                &ExecutionProcessRunReason::CodingAgent,
-            )
-            .await?
-        } else {
-            // Any sequential: chain ALL setups → coding agent via next_action
-            let main_action = Self::build_sequential_setup_chain(&repos_with_setup, coding_action);
-            self.start_execution(
-                &workspace,
-                &session,
-                &main_action,
-                &ExecutionProcessRunReason::SetupScript,
-            )
-            .await?
-        };
-
-        Ok(execution_process)
-    }
-
-    async fn insert_transcript_backfill(
-        &self,
-        session_id: Uuid,
-        execution_process_id: Uuid,
-        msg_store: &Arc<MsgStore>,
-        entries: &[CodingAgentTranscriptBackfillEntry],
-    ) -> Result<(), ContainerError> {
-        let index_provider = EntryIndexProvider::start_from(msg_store);
-
-        for entry in entries {
-            let Some(normalized_entry) = normalized_entry_from_transcript_backfill(entry) else {
-                continue;
-            };
-            let patch =
-                ConversationPatch::add_normalized_entry(index_provider.next(), normalized_entry);
-            execution_process::append_log_message(
-                session_id,
-                execution_process_id,
-                &LogMsg::JsonPatch(patch.clone()),
-            )
-            .await?;
-            msg_store.push_patch(patch);
-        }
-
-        Ok(())
     }
 
     async fn start_execution(
@@ -1303,6 +840,12 @@ pub trait ContainerService {
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
     ) -> Result<ExecutionProcess, ContainerError> {
+        if !matches!(executor_action.typ(), ExecutorActionType::ScriptRequest(_)) {
+            return Err(ContainerError::Other(anyhow!(
+                "coding-agent ExecutionProcess actions were removed; use the canonical AgentRun API"
+            )));
+        }
+
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
         let repositories =
@@ -1373,57 +916,6 @@ pub trait ContainerService {
             return Err(e.into());
         }
 
-        if let Some(prompt) = match executor_action.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(coding_agent_request) => {
-                Some(coding_agent_request.prompt.clone())
-            }
-            ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request) => {
-                Some(follow_up_request.prompt.clone())
-            }
-            ExecutorActionType::ReviewRequest(review_request) => {
-                Some(review_request.prompt.clone())
-            }
-            ExecutorActionType::ScriptRequest(_) => None,
-        } {
-            let create_coding_agent_turn = CreateCodingAgentTurn {
-                execution_process_id: execution_process.id,
-                prompt: Some(prompt),
-            };
-
-            let coding_agent_turn_id = Uuid::new_v4();
-
-            if let Err(e) = CodingAgentTurn::create(
-                &self.db().pool,
-                &create_coding_agent_turn,
-                coding_agent_turn_id,
-            )
-            .await
-            {
-                self.msg_stores()
-                    .write()
-                    .await
-                    .remove(&execution_process.id);
-                return Err(e.into());
-            }
-        }
-
-        if let Some(transcript_backfill) = transcript_backfill_entries_for_action(executor_action)
-            && let Err(e) = self
-                .insert_transcript_backfill(
-                    session.id,
-                    execution_process.id,
-                    &msg_store,
-                    transcript_backfill,
-                )
-                .await
-        {
-            self.msg_stores()
-                .write()
-                .await
-                .remove(&execution_process.id);
-            return Err(e);
-        }
-
         if let Err(start_error) = self
             .start_execution_inner(
                 &workspace_for_execution,
@@ -1467,91 +959,11 @@ pub trait ContainerService {
                 );
             }
 
-            // Emit NextAction with failure context for coding agent requests
-            if let ContainerError::ExecutorError(ExecutorError::ExecutableNotFound { program }) =
-                &start_error
-            {
-                let help_text = format!("The required executable `{program}` is not installed.");
-                let error_message = NormalizedEntry {
-                    timestamp: None,
-                    entry_type: NormalizedEntryType::ErrorMessage {
-                        error_type: NormalizedEntryError::SetupRequired,
-                    },
-                    content: help_text,
-                    metadata: None,
-                };
-                let patch = ConversationPatch::add_normalized_entry(2, error_message);
-                if let Err(e) = execution_process::append_log_message(
-                    session.id,
-                    execution_process.id,
-                    &LogMsg::JsonPatch(patch),
-                )
-                .await
-                {
-                    tracing::error!(
-                        "Failed to write setup-required log for execution {}: {}",
-                        execution_process.id,
-                        e
-                    );
-                }
-            };
             return Err(start_error);
-        }
-
-        // Start processing normalised logs for executor requests and follow ups
-        let workspace_root = self.workspace_to_current_dir(workspace);
-        #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
-        if let Some((executor_profile_id, working_dir)) = match executor_action.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(request) => Some((
-                request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
-            )),
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => Some((
-                request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
-            )),
-            ExecutorActionType::ReviewRequest(request) => Some((
-                request.executor_config.profile_id(),
-                request.effective_dir(&workspace_root),
-            )),
-            _ => None,
-        } {
-            let msg_store = match self.get_msg_store_by_id(&execution_process.id).await {
-                Some(store) => store,
-                None => {
-                    self.msg_stores()
-                        .write()
-                        .await
-                        .remove(&execution_process.id);
-                    return Err(ContainerError::Other(anyhow!(
-                        "MsgStore missing for execution {} during normalization setup",
-                        execution_process.id
-                    )));
-                }
-            };
-            #[cfg(feature = "qa-mode")]
-            {
-                let executor = QaMockExecutor;
-                let _ = executor.normalize_logs(msg_store, &working_dir);
-            }
-            #[cfg(not(feature = "qa-mode"))]
-            {
-                if let Some(executor) =
-                    ExecutorConfigs::get_cached().get_coding_agent(&executor_profile_id)
-                {
-                    let _ = executor.normalize_logs(msg_store, &working_dir);
-                } else {
-                    tracing::error!(
-                        "Failed to resolve profile '{:?}' for normalization",
-                        executor_profile_id
-                    );
-                }
-            }
         }
 
         execution_process::spawn_stream_raw_logs_to_storage(
             self.msg_stores().clone(),
-            self.db().clone(),
             execution_process.id,
             session.id,
         );
@@ -1567,24 +979,9 @@ pub trait ContainerService {
             return Ok(());
         };
 
-        // Determine the run reason of the next action
-        let next_run_reason = match (action.typ(), next_action.typ()) {
-            (ExecutorActionType::ScriptRequest(_), ExecutorActionType::ScriptRequest(_)) => {
-                ExecutionProcessRunReason::SetupScript
-            }
-            (
-                ExecutorActionType::CodingAgentInitialRequest(_)
-                | ExecutorActionType::CodingAgentFollowUpRequest(_)
-                | ExecutorActionType::ReviewRequest(_),
-                ExecutorActionType::ScriptRequest(_),
-            ) => ExecutionProcessRunReason::CleanupScript,
-            (
-                _,
-                ExecutorActionType::CodingAgentFollowUpRequest(_)
-                | ExecutorActionType::CodingAgentInitialRequest(_)
-                | ExecutorActionType::ReviewRequest(_),
-            ) => ExecutionProcessRunReason::CodingAgent,
-        };
+        // ExecutionProcess chaining is limited to standalone scripts. Agent
+        // actions are created and resumed through the canonical AgentRun API.
+        let next_run_reason = ExecutionProcessRunReason::SetupScript;
 
         self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason)
             .await?;

@@ -5,7 +5,7 @@ use axum::{
     response::Json as ResponseJson,
 };
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
+    agent_runtime::AgentRunRecord,
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     workspace::{Workspace, WorkspaceError},
 };
@@ -188,6 +188,6 @@ pub async fn mark_seen(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     let pool = &deployment.db().pool;
-    CodingAgentTurn::mark_seen_by_workspace_id(pool, workspace.id).await?;
+    AgentRunRecord::mark_seen_by_workspace_id(pool, workspace.id).await?;
     Ok(ResponseJson(ApiResponse::success(())))
 }

@@ -15,7 +15,6 @@ import { useKeySubmitTask } from '@/shared/keyboard/hooks';
 import { Scope } from '@/shared/keyboard/registry';
 import { executionProcessesApi } from '@/shared/lib/api';
 import {
-  isCodingAgent,
   PROCESS_RUN_REASONS,
   shouldShowInLogs,
 } from '@/shared/constants/processes';
@@ -88,27 +87,24 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
     // Compute processes to be deleted
     // For retry mode: only processes AFTER target (target itself will be retried)
     // For reset mode: target process AND all processes after it
-    const { deletedCount, deletedCoding, deletedSetup, deletedCleanup } =
-      useMemo(() => {
-        const procs = (processes || []).filter(
-          (p) => !p.dropped && shouldShowInLogs(p.run_reason)
-        );
-        const idx = procs.findIndex((p) => p.id === executionProcessId);
-        // For reset mode, include the target process; for retry, only later processes
-        const startIdx = mode === 'reset' ? idx : idx + 1;
-        const toDelete = idx >= 0 ? procs.slice(startIdx) : [];
-        return {
-          deletedCount: toDelete.length,
-          deletedCoding: toDelete.filter((p) => isCodingAgent(p.run_reason))
-            .length,
-          deletedSetup: toDelete.filter(
-            (p) => p.run_reason === PROCESS_RUN_REASONS.SETUP_SCRIPT
-          ).length,
-          deletedCleanup: toDelete.filter(
-            (p) => p.run_reason === PROCESS_RUN_REASONS.CLEANUP_SCRIPT
-          ).length,
-        };
-      }, [processes, executionProcessId, mode]);
+    const { deletedCount, deletedSetup, deletedCleanup } = useMemo(() => {
+      const procs = (processes || []).filter(
+        (p) => !p.dropped && shouldShowInLogs(p.run_reason)
+      );
+      const idx = procs.findIndex((p) => p.id === executionProcessId);
+      // For reset mode, include the target process; for retry, only later processes
+      const startIdx = mode === 'reset' ? idx : idx + 1;
+      const toDelete = idx >= 0 ? procs.slice(startIdx) : [];
+      return {
+        deletedCount: toDelete.length,
+        deletedSetup: toDelete.filter(
+          (p) => p.run_reason === PROCESS_RUN_REASONS.SETUP_SCRIPT
+        ).length,
+        deletedCleanup: toDelete.filter(
+          (p) => p.run_reason === PROCESS_RUN_REASONS.CLEANUP_SCRIPT
+        ).length,
+      };
+    }, [processes, executionProcessId, mode]);
 
     // Join repo states with branch status to get repo names and compute aggregated values
     const repoInfo = useMemo(() => {
@@ -242,14 +238,6 @@ const RestoreLogsDialogImpl = create<RestoreLogsDialogProps>(
                             {t('restoreLogsDialog.historyChange.fromHistory')}
                           </p>
                           <ul className="mt-1 text-xs text-muted-foreground list-disc pl-5">
-                            {deletedCoding > 0 && (
-                              <li>
-                                {t(
-                                  'restoreLogsDialog.historyChange.codingAgentRuns',
-                                  { count: deletedCoding }
-                                )}
-                              </li>
-                            )}
                             {deletedSetup + deletedCleanup > 0 && (
                               <li>
                                 {t(

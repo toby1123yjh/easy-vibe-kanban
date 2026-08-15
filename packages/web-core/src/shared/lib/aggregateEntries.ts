@@ -73,10 +73,13 @@ function isActiveToolEntry(
   const entryType = entry.content.entry_type;
   if (entryType.type !== 'tool_use') return false;
 
+  if (entry.canonical) return entry.canonical.active;
   if (entryType.status.status === 'pending_approval') return true;
   if (entryType.status.status !== 'created') return false;
 
-  return runningProcessIds.has(entry.executionProcessId);
+  return Boolean(
+    entry.executionProcessId && runningProcessIds.has(entry.executionProcessId)
+  );
 }
 
 /**
@@ -141,9 +144,10 @@ function aggregateThinkingInPreviousTurns(
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const isInPreviousTurn = i < lastUserMessageIndex;
-    const isInCompletedProcess = !runningProcessIds.has(
-      entry.executionProcessId
-    );
+    const isInCompletedProcess = entry.canonical
+      ? !entry.canonical.active
+      : !entry.executionProcessId ||
+        !runningProcessIds.has(entry.executionProcessId);
 
     // Track turn boundaries
     if (isUserMessage(entry)) {

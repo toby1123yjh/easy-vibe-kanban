@@ -20,32 +20,28 @@ use db::models::{
     arena_group::{
         ArenaGroup, ArenaGroupError, ArenaLifecycleStatus, ArenaMode, ArenaStatus, CreateArenaGroup,
     },
-    coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus},
+    execution_process::ExecutionProcessRunReason,
     requests::WorkspaceRepoInput,
-    session::Session,
+    session::{CreateSession, Session},
     workspace::Workspace as DbWorkspace,
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest,
-    },
     profile::ExecutorConfig,
+    runtime::{AgentRunStatus, AgentRuntimeMessageRole, RunState},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::container::ContainerService;
-use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use sqlx::{Row, SqlitePool, sqlite::SqliteRow, types::Json as SqlxJson};
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::{scheduled_tasks, workflows, workspaces::create::create_workspace_record},
+    routes::{scheduled_tasks, sessions, workflows, workspaces::create::create_workspace_record},
 };
 
 const LOCAL_PROJECT_COLOR: &str = "210 80% 52%";
@@ -1943,7 +1939,7 @@ pub struct ArenaWorkspaceSummary {
     pub arena_status: ArenaStatus,
     pub executor: Option<String>,
     pub variant: Option<String>,
-    pub latest_execution_status: Option<ExecutionProcessStatus>,
+    pub latest_agent_run_status: Option<AgentRunStatus>,
     pub has_uncommitted_changes: Option<bool>,
 }
 
@@ -2147,25 +2143,6 @@ fn find_attempt_workspace_in_group(
         })
 }
 
-fn build_design_arena_prompt(prompt: &str) -> String {
-    format!(
-        "You are in AI Arena Design Mode.\n\
-         Your goal is to produce a design direction, reasoning, tradeoffs, risks, and decision support.\n\
-         Use free-form prose. Do not force a fixed template.\n\
-         You may inspect the repository for context, but do not create commits, push branches, open PRs, or treat code changes as the final output.\n\
-         If you change files while exploring, leave them uncommitted unless the user explicitly asks to start implementation.\n\n\
-         User request:\n{}",
-        prompt
-    )
-}
-
-fn build_attempt_prompt(mode: ArenaMode, prompt: &str) -> String {
-    match mode {
-        ArenaMode::Design => build_design_arena_prompt(prompt),
-        ArenaMode::Implementation => prompt.to_string(),
-    }
-}
-
 fn build_synthesis_prompt(
     instruction: &str,
     original_prompt: &str,
@@ -2213,38 +2190,22 @@ fn build_synthesis_prompt(
     sections.join("\n\n---\n\n")
 }
 
-async fn latest_session_id_for_workspace(
+async fn latest_agent_run_state_for_workspace(
     pool: &SqlitePool,
     workspace_id: Uuid,
-) -> Result<Option<Uuid>, ApiError> {
-    Ok(sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT id
-             FROM sessions
-            WHERE workspace_id = ?
-            ORDER BY created_at DESC
+) -> Result<Option<RunState>, ApiError> {
+    Ok(sqlx::query_scalar::<_, SqlxJson<RunState>>(
+        r#"SELECT state.state_json
+             FROM agent_runs run
+             JOIN agent_run_state state ON state.agent_run_id = run.id
+            WHERE run.workspace_id = ?
+            ORDER BY run.created_at DESC, run.id DESC
             LIMIT 1"#,
     )
     .bind(workspace_id)
     .fetch_optional(pool)
-    .await?)
-}
-
-async fn latest_execution_status_for_workspace(
-    pool: &SqlitePool,
-    workspace_id: Uuid,
-) -> Result<Option<ExecutionProcessStatus>, ApiError> {
-    Ok(sqlx::query_scalar::<_, ExecutionProcessStatus>(
-        r#"SELECT ep.status
-             FROM sessions s
-             JOIN execution_processes ep ON ep.session_id = s.id
-            WHERE s.workspace_id = ?
-              AND ep.run_reason = 'codingagent'
-            ORDER BY ep.created_at DESC
-            LIMIT 1"#,
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?)
+    .await?
+    .map(|state| state.0))
 }
 
 async fn workspace_to_summary(
@@ -2252,18 +2213,117 @@ async fn workspace_to_summary(
     ws: &DbWorkspace,
     executor_config: Option<&ExecutorConfig>,
 ) -> Result<ArenaWorkspaceSummary, ApiError> {
+    let latest_agent_run = latest_agent_run_state_for_workspace(pool, ws.id).await?;
+
     Ok(ArenaWorkspaceSummary {
         workspace_id: ws.id,
-        session_id: latest_session_id_for_workspace(pool, ws.id).await?,
+        session_id: latest_agent_run.as_ref().map(|state| state.session_id),
         name: ws.name.clone(),
         branch: ws.branch.clone(),
         purpose: arena_workspace_purpose_from_name(ws.name.as_deref()),
         arena_status: ws.arena_status,
         executor: executor_config.map(|c| c.executor.to_string()),
         variant: executor_config.and_then(|c| c.variant.clone()),
-        latest_execution_status: latest_execution_status_for_workspace(pool, ws.id).await?,
+        latest_agent_run_status: latest_agent_run.map(|state| state.status),
         has_uncommitted_changes: None,
     })
+}
+
+async fn start_arena_workspace(
+    deployment: &DeploymentImpl,
+    workspace: &DbWorkspace,
+    executor_config: ExecutorConfig,
+    prompt: String,
+) -> Result<(), ApiError> {
+    let pool = &deployment.db().pool;
+    deployment.container().create(workspace).await?;
+
+    let workspace = DbWorkspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Arena workspace not found".to_string()))?;
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor: Some(executor_config.executor.to_string()),
+            name: None,
+        },
+        Uuid::new_v4(),
+        workspace.id,
+    )
+    .await?;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    let repos_with_setup = repos
+        .iter()
+        .filter(|repo| repo.setup_script.is_some())
+        .collect::<Vec<_>>();
+
+    if repos_with_setup.is_empty() {
+        sessions::start_coding_agent_execution_for_session(
+            deployment,
+            session,
+            prompt,
+            None,
+            executor_config,
+            None,
+        )
+        .await?;
+    } else if repos_with_setup
+        .iter()
+        .all(|repo| repo.parallel_setup_script)
+    {
+        for repo in repos_with_setup {
+            if let Some(setup_action) = deployment
+                .container()
+                .setup_actions_for_repos(std::slice::from_ref(repo))
+                && let Err(error) = deployment
+                    .container()
+                    .start_execution(
+                        &workspace,
+                        &session,
+                        &setup_action,
+                        &ExecutionProcessRunReason::SetupScript,
+                    )
+                    .await
+            {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    repo_id = %repo.id,
+                    "failed to start parallel Arena setup script: {error:#}"
+                );
+            }
+        }
+        sessions::start_coding_agent_execution_for_session(
+            deployment,
+            session,
+            prompt,
+            None,
+            executor_config,
+            None,
+        )
+        .await?;
+    } else if let Some(setup_action) = deployment.container().setup_actions_for_repos(&repos) {
+        let reserved = sessions::reserve_coding_agent_execution_for_session(
+            deployment,
+            session,
+            prompt,
+            None,
+            executor_config,
+            None,
+        )
+        .await?;
+        sessions::setup_gate::start_reserved_after_setup(
+            deployment,
+            reserved.agent_run_id,
+            &setup_action,
+        )
+        .await?;
+    } else {
+        return Err(ApiError::BadRequest(
+            "Arena workspace setup configuration was inconsistent".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Spawn one workspace inside a group: create the DB row, attach
@@ -2322,14 +2382,13 @@ async fn spawn_arena_attempt(
     DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
     insert_workspace_link(pool, workspace.id, project_id, issue_id).await?;
 
-    deployment
-        .container()
-        .start_workspace(
-            &workspace,
-            attempt.executor_config.clone(),
-            build_attempt_prompt(group.mode, &attempt_prompt),
-        )
-        .await?;
+    start_arena_workspace(
+        deployment,
+        &workspace,
+        attempt.executor_config.clone(),
+        attempt_prompt,
+    )
+    .await?;
 
     let updated = DbWorkspace::find_by_id(pool, workspace.id)
         .await?
@@ -2648,19 +2707,11 @@ async fn latest_workspace_summary_text(
     pool: &SqlitePool,
     workspace_id: Uuid,
 ) -> Result<Option<String>, ApiError> {
-    Ok(sqlx::query_scalar::<_, String>(
-        r#"SELECT cat.summary
-             FROM sessions s
-             JOIN execution_processes ep ON ep.session_id = s.id
-             JOIN coding_agent_turns cat ON cat.execution_process_id = ep.id
-            WHERE s.workspace_id = ?
-              AND cat.summary IS NOT NULL
-            ORDER BY ep.created_at DESC
-            LIMIT 1"#,
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?)
+    Ok(latest_agent_run_state_for_workspace(pool, workspace_id)
+        .await?
+        .and_then(|state| state.terminal_output)
+        .filter(|message| message.role == AgentRuntimeMessageRole::Assistant)
+        .map(|message| message.content))
 }
 
 fn build_challenge_prompt(user_prompt: &str, source_label: &str, source_summary: &str) -> String {
@@ -2774,10 +2825,7 @@ async fn spawn_arena_synthesis_workspace(
     DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
     insert_workspace_link(pool, workspace.id, group.project_id, group.issue_id).await?;
 
-    deployment
-        .container()
-        .start_workspace(&workspace, executor_config, prompt)
-        .await?;
+    start_arena_workspace(deployment, &workspace, executor_config, prompt).await?;
 
     let updated = DbWorkspace::find_by_id(pool, workspace.id)
         .await?
@@ -2805,62 +2853,27 @@ async fn start_arena_follow_up(
     executor_config: Option<ExecutorConfig>,
 ) -> Result<Uuid, ApiError> {
     let pool = &deployment.db().pool;
-    deployment
-        .container()
-        .ensure_container_exists(workspace)
-        .await?;
-
-    let session_id = latest_session_id_for_workspace(pool, workspace.id)
+    let latest_agent_run = latest_agent_run_state_for_workspace(pool, workspace.id)
         .await?
-        .ok_or_else(|| ApiError::BadRequest("Arena workspace has no session".to_string()))?;
-    let session = Session::find_by_id(pool, session_id)
+        .ok_or_else(|| ApiError::BadRequest("Arena workspace has no AgentRun".to_string()))?;
+    let session = Session::find_by_id(pool, latest_agent_run.session_id)
         .await?
-        .ok_or_else(|| ApiError::BadRequest("Arena session not found".to_string()))?;
+        .ok_or_else(|| ApiError::BadRequest("Arena AgentRun session not found".to_string()))?;
 
     let executor_config = executor_config.ok_or_else(|| {
         ApiError::BadRequest("Arena follow-up requires an executor_config".to_string())
     })?;
+    let snapshot = sessions::start_coding_agent_execution_for_session(
+        deployment,
+        session,
+        prompt,
+        None,
+        executor_config,
+        None,
+    )
+    .await?;
 
-    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let cleanup_action = deployment.container().cleanup_actions_for_repos(&repos);
-    let working_dir = session
-        .agent_working_dir
-        .as_ref()
-        .filter(|dir| !dir.is_empty())
-        .cloned();
-
-    let action_type = if let Some(info) = latest_session_info {
-        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt,
-            selected_skills: None,
-            session_id: info.session_id,
-            reset_to_message_id: None,
-            executor_config,
-            working_dir,
-            transcript_backfill: None,
-        })
-    } else {
-        ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt,
-            selected_skills: None,
-            executor_config,
-            working_dir,
-        })
-    };
-
-    let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
-    let execution_process = deployment
-        .container()
-        .start_execution(
-            workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
-
-    Ok(execution_process.id)
+    Ok(snapshot.agent_run_id)
 }
 
 async fn send_arena_message(
@@ -3286,8 +3299,9 @@ async fn list_issue_workspaces(
 mod tests {
     use api_types::{CreateIssueRequest, CreateProjectRequest, IssuePriority};
     use chrono::Utc;
+    use executors::runtime::{AgentRunStatus, ProjectionStatus, RunState};
     use serde_json::Value;
-    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions, types::Json};
     use uuid::Uuid;
 
     async fn setup_pool() -> SqlitePool {
@@ -3365,6 +3379,110 @@ mod tests {
         }
 
         pool
+    }
+
+    async fn setup_agent_run_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory sqlite");
+
+        for statement in [
+            r#"
+            CREATE TABLE agent_runs (
+                id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL,
+                workspace_id BLOB NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            "#,
+            r#"
+            CREATE TABLE agent_run_state (
+                agent_run_id BLOB PRIMARY KEY,
+                state_json TEXT NOT NULL
+            )
+            "#,
+        ] {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .expect("create AgentRun test schema");
+        }
+
+        pool
+    }
+
+    fn run_state(session_id: Uuid, agent_run_id: Uuid, status: AgentRunStatus) -> RunState {
+        RunState {
+            state_schema_version: 1,
+            reducer_version: 1,
+            session_id,
+            agent_run_id,
+            turn_id: Uuid::new_v4(),
+            status,
+            projection_status: ProjectionStatus::Current,
+            last_run_attempt_id: None,
+            last_run_attempt_number: 0,
+            last_event_sequence: 0,
+            last_event_id: None,
+            provider_session: None,
+            terminal_output: None,
+            last_error: None,
+            unknown_event_count: 0,
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn latest_arena_agent_run_keeps_session_and_state_together() {
+        let pool = setup_agent_run_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let older_session_id = Uuid::new_v4();
+        let older_run_id = Uuid::new_v4();
+        let latest_session_id = Uuid::new_v4();
+        let latest_run_id = Uuid::new_v4();
+
+        for (run_id, session_id, created_at, state) in [
+            (
+                older_run_id,
+                older_session_id,
+                "2026-08-14T01:00:00Z",
+                run_state(older_session_id, older_run_id, AgentRunStatus::Succeeded),
+            ),
+            (
+                latest_run_id,
+                latest_session_id,
+                "2026-08-14T02:00:00Z",
+                run_state(latest_session_id, latest_run_id, AgentRunStatus::Running),
+            ),
+        ] {
+            sqlx::query(
+                "INSERT INTO agent_runs (id, session_id, workspace_id, created_at) VALUES (?, ?, ?, ?)",
+            )
+            .bind(run_id)
+            .bind(session_id)
+            .bind(workspace_id)
+            .bind(created_at)
+            .execute(&pool)
+            .await
+            .expect("insert AgentRun");
+            sqlx::query("INSERT INTO agent_run_state (agent_run_id, state_json) VALUES (?, ?)")
+                .bind(run_id)
+                .bind(Json(state))
+                .execute(&pool)
+                .await
+                .expect("insert RunState");
+        }
+
+        let latest = super::latest_agent_run_state_for_workspace(&pool, workspace_id)
+            .await
+            .expect("load latest Arena AgentRun")
+            .expect("latest Arena AgentRun");
+
+        assert_eq!(latest.agent_run_id, latest_run_id);
+        assert_eq!(latest.session_id, latest_session_id);
+        assert_eq!(latest.status, AgentRunStatus::Running);
     }
 
     #[tokio::test]

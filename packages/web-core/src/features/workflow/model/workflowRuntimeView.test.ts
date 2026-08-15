@@ -30,6 +30,9 @@ function node(
     input_text: null,
     output_text: null,
     session_id: null,
+    orchestration_node_execution_id: null,
+    agent_run_id: null,
+    projection_status: null,
     execution_process_id: null,
     arena_group_id: null,
     tokens_used: null,
@@ -44,6 +47,7 @@ function node(
 
 const baseRun = {
   id: 'run-1',
+  orchestration_run_id: null,
   workflow_id: 'workflow-1',
   attempt_id: null,
   issue_id: 'issue-1',
@@ -80,7 +84,9 @@ describe('workflow runtime view', () => {
           starting_child_count: 0,
           active_execution_id: 'exec-1',
           active_session_id: 'session-1',
-          execution_process_id: 'process-1',
+          orchestration_node_execution_id: 'orch-node-1',
+          active_agent_run_id: 'agent-run-1',
+          projection_status: 'current',
           active_started_at: '2026-06-25T00:00:00Z',
           active_elapsed_ms: 1000,
           active_slow: false,
@@ -99,7 +105,7 @@ describe('workflow runtime view', () => {
 
     expect(
       getWorkflowRuntimeView({ ...baseRun, runtime_view: runtimeView })
-    ).toBe(runtimeView);
+    ).toMatchObject({ node_work: [{ runtime_authority: 'current' }] });
   });
 
   it('builds a fallback projection from node executions', () => {
@@ -133,7 +139,7 @@ describe('workflow runtime view', () => {
     expect(
       getWorkflowNodeActionGate(getWorkflowNodeWork(view, 'agent'))
     ).toEqual({
-      canOpenSession: true,
+      canOpenSession: false,
       canRetry: false,
       canApprove: false,
       canReject: false,
@@ -143,7 +149,7 @@ describe('workflow runtime view', () => {
     });
   });
 
-  it('marks running nodes without process ids as starting or missing process', () => {
+  it('marks running nodes without canonical identity as starting and unknown', () => {
     const starting = {
       ...node('exec-1', 'starting', 'agent', 'running'),
       started_at: '2026-06-25T00:09:30Z',
@@ -176,7 +182,7 @@ describe('workflow runtime view', () => {
       getWorkflowNodeRuntimeSummary(getWorkflowNodeWork(view, 'missing')!)
     ).toMatchObject({
       status: 'starting',
-      runtimeHealth: 'process_missing',
+      runtimeHealth: 'unknown',
       activeSlow: true,
       startingChildCount: 1,
     });

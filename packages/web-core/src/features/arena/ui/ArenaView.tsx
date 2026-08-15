@@ -5,10 +5,11 @@ import { Button } from '@vibe/ui/components/Button';
 import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
 import { ConfirmDialog } from '@/shared/dialogs/shared/ConfirmDialog';
-import type {
-  ArenaEvent,
-  ArenaGroupResponse,
-  ArenaWorkspaceSummary,
+import {
+  isActiveArenaAgentRunStatus,
+  type ArenaEvent,
+  type ArenaGroupResponse,
+  type ArenaWorkspaceSummary,
 } from '@/shared/lib/arenaApi';
 import { ArenaConversationPane } from './ArenaConversationPane';
 import { ArenaModeBadge } from './ArenaModeBadge';
@@ -51,8 +52,8 @@ function ArenaHeader({
   const archived = group.workspaces.filter(
     (ws) => ws.arena_status === 'archived'
   ).length;
-  const running = group.workspaces.filter(
-    (ws) => ws.latest_execution_status === 'running'
+  const running = group.workspaces.filter((ws) =>
+    isActiveArenaAgentRunStatus(ws.latest_agent_run_status)
   ).length;
 
   const { dissolve, close } = useArenaActions(group.id, group.issue_id);

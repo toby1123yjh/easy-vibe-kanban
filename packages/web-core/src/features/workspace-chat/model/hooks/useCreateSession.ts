@@ -42,9 +42,6 @@ export function useCreateSession() {
         selected_skills: selectedSkills,
         executor_config: executorConfig,
         resume_session_id: resumeSessionId || undefined,
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
       };
       await sessionsApi.followUp(session.id, body);
 

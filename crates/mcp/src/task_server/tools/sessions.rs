@@ -1,7 +1,5 @@
-use db::models::{
-    execution_process::{ExecutionProcess, ExecutionProcessStatus},
-    session::Session,
-};
+use db::models::session::Session;
+use executors::runtime::{AgentRunPortSnapshot, AgentRunStatus, RunState};
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, schemars, tool,
     tool_router,
@@ -81,9 +79,6 @@ struct RunCodingAgentInSessionRequest {
 struct FollowUpPayload {
     prompt: String,
     executor_config: ExecutorConfigPayload,
-    retry_process_id: Option<Uuid>,
-    force_when_dirty: Option<bool>,
-    perform_git_reset: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,8 +94,10 @@ struct ExecutorConfigPayload {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct RunCodingAgentInSessionResponse {
     session_id: String,
-    execution_id: String,
-    execution: serde_json::Value,
+    agent_run_id: String,
+    status: String,
+    is_finished: bool,
+    state: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -292,44 +289,37 @@ impl McpServer {
         let payload = FollowUpPayload {
             prompt: prompt.to_string(),
             executor_config,
-            retry_process_id: None,
-            force_when_dirty: None,
-            perform_git_reset: None,
         };
 
         let url = self.url(&format!("/api/sessions/{session_id}/follow-up"));
-        let execution_process: ExecutionProcess =
+        let snapshot: AgentRunPortSnapshot =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(value) => value,
                 Err(error_result) => return Ok(Self::tool_error(error_result)),
             };
-
-        let execution_id = execution_process.id.to_string();
-        let execution = match Self::serialize_execution_process(&execution_process) {
-            Ok(value) => value,
-            Err(error_result) => return Ok(Self::tool_error(error_result)),
-        };
+        let state = snapshot.state;
 
         Self::success(&RunCodingAgentInSessionResponse {
             session_id: session_id.to_string(),
-            execution_id,
-            execution,
+            agent_run_id: snapshot.agent_run_id.to_string(),
+            status: Self::agent_run_status_label(state.status).to_string(),
+            is_finished: state.status.is_terminal(),
+            state: serde_json::to_value(&state).unwrap_or(serde_json::Value::Null),
         })
     }
 
-    #[tool(description = "Get status for an execution.")]
+    #[tool(description = "Get canonical status for an AgentRun.")]
     async fn get_execution(
         &self,
         Parameters(GetExecutionRequest { execution_id }): Parameters<GetExecutionRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let process_url = self.url(&format!("/api/execution-processes/{execution_id}"));
-        let execution_process: ExecutionProcess =
-            match self.send_json(self.client.get(&process_url)).await {
-                Ok(value) => value,
-                Err(error_result) => return Ok(Self::tool_error(error_result)),
-            };
+        let run_url = self.url(&format!("/api/agent-runs/{execution_id}"));
+        let state: RunState = match self.send_json(self.client.get(&run_url)).await {
+            Ok(value) => value,
+            Err(error_result) => return Ok(Self::tool_error(error_result)),
+        };
 
-        let session_url = self.url(&format!("/api/sessions/{}", execution_process.session_id));
+        let session_url = self.url(&format!("/api/sessions/{}", state.session_id));
         let session: Session = match self.send_json(self.client.get(&session_url)).await {
             Ok(value) => value,
             Err(error_result) => return Ok(Self::tool_error(error_result)),
@@ -338,20 +328,16 @@ impl McpServer {
             return Ok(Self::tool_error(error_result));
         }
 
-        let is_finished = execution_process.status != ExecutionProcessStatus::Running;
-
-        let execution_process_value = match Self::serialize_execution_process(&execution_process) {
-            Ok(value) => value,
-            Err(error_result) => return Ok(Self::tool_error(error_result)),
-        };
-
         Self::success(&GetExecutionResponse {
-            execution_id: execution_process.id.to_string(),
-            session_id: execution_process.session_id.to_string(),
-            status: Self::execution_process_status_label(&execution_process.status).to_string(),
-            is_finished,
-            execution: execution_process_value,
-            final_message: None,
+            execution_id: state.agent_run_id.to_string(),
+            session_id: state.session_id.to_string(),
+            status: Self::agent_run_status_label(state.status).to_string(),
+            is_finished: state.status.is_terminal(),
+            execution: serde_json::to_value(&state).unwrap_or(serde_json::Value::Null),
+            final_message: state
+                .terminal_output
+                .as_ref()
+                .map(|message| message.content.clone()),
         })
     }
 }
@@ -383,14 +369,19 @@ impl McpServer {
         }
     }
 
-    fn serialize_execution_process(
-        execution_process: &ExecutionProcess,
-    ) -> Result<serde_json::Value, super::ToolError> {
-        serde_json::to_value(execution_process).map_err(|error| {
-            super::ToolError::new(
-                "Failed to serialize execution process response",
-                Some(error.to_string()),
-            )
-        })
+    fn agent_run_status_label(status: AgentRunStatus) -> &'static str {
+        match status {
+            AgentRunStatus::Pending => "pending",
+            AgentRunStatus::Starting => "starting",
+            AgentRunStatus::Running => "running",
+            AgentRunStatus::AwaitingInput => "awaiting_input",
+            AgentRunStatus::AwaitingApproval => "awaiting_approval",
+            AgentRunStatus::Cancelling => "cancelling",
+            AgentRunStatus::Succeeded => "succeeded",
+            AgentRunStatus::Failed => "failed",
+            AgentRunStatus::Cancelled => "cancelled",
+            AgentRunStatus::Crashed => "crashed",
+            AgentRunStatus::AuditFailed => "audit_failed",
+        }
     }
 }

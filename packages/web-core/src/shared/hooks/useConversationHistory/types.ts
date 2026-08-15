@@ -1,13 +1,25 @@
 import {
+  AgentRunStatus,
   ExecutionProcess,
   ExecutorAction,
   PatchType,
   Workspace,
 } from 'shared/types';
 
+export interface CanonicalConversationIdentity {
+  readonly agentRunId: string;
+  readonly runAttemptId: string;
+  readonly runAttemptNumber: number;
+  readonly eventId: string;
+  readonly eventIds: readonly string[];
+  readonly sequence: bigint;
+  readonly active: boolean;
+}
+
 export type PatchTypeWithKey = PatchType & {
   patchKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
+  canonical?: CanonicalConversationIdentity;
 };
 
 /**
@@ -39,7 +51,7 @@ export type AggregatedPatchGroup = {
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
   patchKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
 };
 
 /**
@@ -54,7 +66,7 @@ export type AggregatedDiffGroup = {
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
   patchKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
 };
 
 /**
@@ -67,7 +79,7 @@ export type AggregatedFileChangeGroup = {
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
   patchKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
 };
 
 /**
@@ -80,7 +92,7 @@ export type AggregatedThinkingGroup = {
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
   patchKey: string;
-  executionProcessId: string;
+  executionProcessId?: string;
 };
 
 export type DisplayEntry =
@@ -119,6 +131,23 @@ export type AddEntryType = 'initial' | 'running' | 'historic' | 'plan';
 export interface ConversationTimelineSource {
   executionProcessState: ExecutionProcessStateStore;
   liveExecutionProcesses: ExecutionProcess[];
+  canonical: CanonicalConversationProjection;
+}
+
+export interface CanonicalConversationProjection {
+  readonly entries: PatchTypeWithKey[];
+  readonly activeAgentRunIds: ReadonlySet<string>;
+  readonly runCount: number;
+  readonly isLoading: boolean;
+  readonly isRunning: boolean;
+  readonly projectionDegraded: boolean;
+  readonly latestStatus: AgentRunStatus | null;
+}
+
+export function getConversationEntryRuntimeId(
+  entry: Pick<PatchTypeWithKey, 'canonical' | 'executionProcessId'>
+): string | null {
+  return entry.canonical?.agentRunId ?? entry.executionProcessId ?? null;
 }
 
 export type OnEntriesUpdated = (

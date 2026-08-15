@@ -156,6 +156,7 @@ function renderRowContent(
         aggregatedFileChangeGroup={null}
         aggregatedThinkingGroup={null}
         executionProcessId={entry.executionProcessId}
+        canonicalActive={entry.canonical?.active}
         workspaceWithSession={attempt}
         resetAction={resetAction}
         repos={repos}

@@ -111,10 +111,7 @@ describe('workflow agent node draft sessions', () => {
       variant: null,
     });
 
-    expect(coerceWorkflowNodeExecutorConfig({ executor: 'CURSOR' })).toEqual({
-      executor: BaseCodingAgent.CURSOR_AGENT,
-      variant: null,
-    });
+    expect(coerceWorkflowNodeExecutorConfig({ executor: 'CURSOR' })).toBe(null);
 
     expect(coerceWorkflowNodeExecutorConfig({ executor: 'not-real' })).toBe(
       null

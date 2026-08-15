@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
   BaseAgentCapability,
@@ -19,7 +19,11 @@ import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useApprovalFeedbackOptional } from '../model/contexts/ApprovalFeedbackContext';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
-import { useEntries, useTokenUsage } from '../model/contexts/EntriesContext';
+import {
+  useCanonicalAgentSession,
+  useEntries,
+  useTokenUsage,
+} from '../model/contexts/EntriesContext';
 import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useReviewOptional } from '@/shared/hooks/useReview';
 import { useActions } from '@/shared/hooks/useActions';
@@ -75,6 +79,9 @@ import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
 import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
 import { resolveWorkspaceWorkingDirectory } from '@/shared/lib/workspaceContext';
+import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
+import { deriveCanonicalAgentRunActionPolicy } from '@/features/agent-runtime';
+import { canonicalAgentControls } from '../model/canonicalAgentControls';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -84,7 +91,7 @@ function computeExecutionStatus(params: {
   isQueueLoading: boolean;
   isSendingFollowUp: boolean;
   isQueued: boolean;
-  isAttemptRunning: boolean;
+  isAgentRunActive: boolean;
 }): ExecutionStatus {
   if (params.isInFeedbackMode) return 'feedback';
   if (params.isInEditMode) return 'edit';
@@ -92,7 +99,7 @@ function computeExecutionStatus(params: {
   if (params.isQueueLoading) return 'queue-loading';
   if (params.isSendingFollowUp) return 'sending';
   if (params.isQueued) return 'queued';
-  if (params.isAttemptRunning) return 'running';
+  if (params.isAgentRunActive) return 'running';
   return 'idle';
 }
 
@@ -223,6 +230,26 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Get entries early to extract pending approval for scratch key
   const { entries } = useEntries();
   const tokenUsageInfo = useTokenUsage();
+  const { timeline: canonicalTimeline } = useCanonicalAgentSession();
+  const activeAgentRun = canonicalTimeline?.activeRun ?? null;
+  const latestAgentRun = canonicalTimeline?.latestRun ?? null;
+  const activeAgentRunState = activeAgentRun
+    ? (activeAgentRun.timeline?.state ?? activeAgentRun.summary.state)
+    : null;
+  const activeAgentRunEvents = activeAgentRun?.timeline?.events ?? [];
+  const canonicalAgentActionPolicy = useMemo(
+    () =>
+      deriveCanonicalAgentRunActionPolicy(
+        activeAgentRunState,
+        activeAgentRunEvents
+      ),
+    [activeAgentRunEvents, activeAgentRunState]
+  );
+  const latestAgentRunState = latestAgentRun
+    ? (latestAgentRun.timeline?.state ?? latestAgentRun.summary.state)
+    : null;
+  const isAgentRunActive = Boolean(activeAgentRun);
+  const isAgentRunCancelling = latestAgentRunState?.status === 'cancelling';
 
   // Extract user messages for turn navigation
   const userMessageTurns: TurnNavigationItem[] = useMemo(() => {
@@ -245,23 +272,31 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   }, [entries]);
 
   // Execution state
-  const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useWorkspaceExecution(workspaceId);
+  const {
+    processes,
+    stopExecution: stopStandaloneScripts,
+    isStopping: isStandaloneScriptStopping,
+  } = useWorkspaceExecution(workspaceId);
+  const isStandaloneScriptActive = processes.some(
+    (process) =>
+      process.executor_action.typ.type === 'ScriptRequest' &&
+      isExecutionProcessActive(process)
+  );
 
   // Mobile layout — enables the enlarged approval footer + one-tap deny
   const isMobile = useIsMobile();
 
   // Pending approval for this workspace (shared with the mobile approval banner)
-  const pendingApproval = useWorkspacePendingApproval(workspaceId);
+  const pendingApproval = useWorkspacePendingApproval();
 
   // Use approval_id as scratch key when pending approval exists to avoid
   // prefilling approval response with queued follow-up message
   const scratchId = useMemo(() => {
-    if (pendingApproval?.approvalId) {
-      return pendingApproval.approvalId;
+    if (pendingApproval) {
+      return pendingApproval.controlId;
     }
     return isNewSessionMode ? workspaceId : sessionId;
-  }, [pendingApproval?.approvalId, isNewSessionMode, workspaceId, sessionId]);
+  }, [pendingApproval, isNewSessionMode, workspaceId, sessionId]);
 
   // Get repos for file search
   const { repos } = useWorkspaceRepo(workspaceId);
@@ -307,6 +342,18 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     denyError,
     answerError,
   } = useApprovalMutation();
+  const { mutate: cancelAgentRun, isPending: isCancelAgentRunPending } =
+    useMutation({
+      mutationFn: (agentRunId: string) =>
+        canonicalAgentControls.cancel(agentRunId, 'Cancelled by user.'),
+      onError: (err) => {
+        console.error('Failed to cancel AgentRun:', err);
+      },
+    });
+  const isStopping =
+    isCancelAgentRunPending ||
+    isAgentRunCancelling ||
+    isStandaloneScriptStopping;
 
   // Branch status for edit retry and conflict detection
   const { data: branchStatus } = useBranchStatus(workspaceId);
@@ -558,25 +605,26 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     reviewContext,
   ]);
 
-  // Track previous process count for queue refresh
-  const prevProcessCountRef = useRef(processes.length);
+  // Track canonical run discovery for queue refresh.
+  const agentRunCount = canonicalTimeline?.runs.length ?? 0;
+  const prevAgentRunCountRef = useRef(agentRunCount);
 
-  // Refresh queue status when execution stops or new process starts
+  // Refresh queue status when a canonical run stops or a new run appears.
   useEffect(() => {
-    const prevCount = prevProcessCountRef.current;
-    prevProcessCountRef.current = processes.length;
+    const prevCount = prevAgentRunCountRef.current;
+    prevAgentRunCountRef.current = agentRunCount;
 
     if (!workspaceId) return;
 
-    if (!isAttemptRunning) {
+    if (!isAgentRunActive) {
       refreshQueueStatus();
       return;
     }
 
-    if (processes.length > prevCount) {
+    if (agentRunCount > prevCount) {
       refreshQueueStatus();
     }
-  }, [isAttemptRunning, workspaceId, processes.length, refreshQueueStatus]);
+  }, [agentRunCount, isAgentRunActive, workspaceId, refreshQueueStatus]);
 
   // Queue message handler
   const handleQueueMessage = useCallback(async () => {
@@ -819,7 +867,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle approve action
   const handleApprove = useCallback(async () => {
-    if (!pendingApproval) return;
+    if (pendingApproval?.kind !== 'approval') return;
 
     // Exit feedback mode if active
     feedbackContext?.exitFeedbackMode();
@@ -827,7 +875,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     try {
       await approveAsync({
         approvalId: pendingApproval.approvalId,
-        executionProcessId: pendingApproval.executionProcessId,
+        agentRunId: pendingApproval.agentRunId,
       });
 
       // Invalidate workspace summary cache to update sidebar
@@ -846,12 +894,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle request changes (deny with feedback)
   const handleRequestChanges = useCallback(async () => {
-    if (!pendingApproval || !localMessage.trim()) return;
+    if (pendingApproval?.kind !== 'approval' || !localMessage.trim()) return;
 
     try {
       await denyAsync({
         approvalId: pendingApproval.approvalId,
-        executionProcessId: pendingApproval.executionProcessId,
+        agentRunId: pendingApproval.agentRunId,
         reason: localMessage.trim(),
       });
       cancelDebouncedSave();
@@ -880,12 +928,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // does not require the composer to be non-empty — this powers the mobile
   // approval footer's dedicated Deny button.
   const handleDeny = useCallback(async () => {
-    if (!pendingApproval) return;
+    if (pendingApproval?.kind !== 'approval') return;
 
     try {
       await denyAsync({
         approvalId: pendingApproval.approvalId,
-        executionProcessId: pendingApproval.executionProcessId,
+        agentRunId: pendingApproval.agentRunId,
         reason: localMessage.trim() || 'User denied this tool use request.',
       });
       if (localMessage.trim()) {
@@ -914,12 +962,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Handle AskUserQuestion answer submission
   const handleAnswerQuestion = useCallback(
     async (answers: Array<{ question: string; answer: string[] }>) => {
-      if (!pendingApproval) return;
+      if (pendingApproval?.kind !== 'input') return;
 
       try {
         await answerAsync({
-          approvalId: pendingApproval.approvalId,
-          executionProcessId: pendingApproval.executionProcessId,
+          agentRunId: pendingApproval.agentRunId,
+          inputId: pendingApproval.inputId,
           answers,
         });
         queryClient.invalidateQueries({
@@ -933,43 +981,76 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     [pendingApproval, answerAsync, queryClient, onScrollToBottom]
   );
 
-  // Check if approval is timed out
-  const isApprovalTimedOut = pendingApproval
-    ? new Date() > new Date(pendingApproval.timeoutAt)
-    : false;
+  const isApprovalTimedOut = false;
+
+  const handleStop = useCallback(() => {
+    if (activeAgentRun) {
+      if (
+        !canonicalAgentActionPolicy.cancel.allowed ||
+        isCancelAgentRunPending
+      ) {
+        return;
+      }
+      cancelAgentRun(activeAgentRun.summary.agent_run_id);
+      return;
+    }
+
+    if (isStandaloneScriptActive && !isStandaloneScriptStopping) {
+      void stopStandaloneScripts();
+    }
+  }, [
+    activeAgentRun,
+    cancelAgentRun,
+    canonicalAgentActionPolicy.cancel.allowed,
+    isCancelAgentRunPending,
+    isStandaloneScriptActive,
+    isStandaloneScriptStopping,
+    stopStandaloneScripts,
+  ]);
 
   const hasMessageContent =
     localMessage.trim().length > 0 || reviewMarkdown.length > 0;
   const runtimeActionPolicy = useMemo(
     () =>
       deriveRuntimeActionPolicy({
-        processes,
         hasContent: hasMessageContent,
         hasWorkspace: !!workspaceId,
         hasSession: !!sessionId,
         hasExecutor: !!executorConfig,
         isNewSessionMode,
-        isWorkspaceBusy: isAttemptRunning,
+        hasPriorAgentRun: (canonicalTimeline?.runs.length ?? 0) > 0,
+        isAgentRunActive,
+        isAgentRunCancelling,
+        isLatestAgentRunTerminal: canonicalTimeline?.isTerminal ?? false,
+        isStandaloneScriptActive,
+        canCancelAgentRun: canonicalAgentActionPolicy.cancel.allowed,
+        canResolveApproval: canonicalAgentActionPolicy.resolve_approval.allowed,
+        canSubmitInput: canonicalAgentActionPolicy.submit_input.allowed,
         isSending,
         isStopping,
         isQueueLoading,
         isQueued,
-        hasPendingApproval: !!pendingApproval && !pendingApproval.questions,
-        hasPendingQuestion: !!pendingApproval?.questions,
+        hasPendingApproval: pendingApproval?.kind === 'approval',
+        hasPendingQuestion: pendingApproval?.kind === 'input',
         isApprovalTimedOut,
         isApprovalSubmitting: isApproving || isDenying,
         isQuestionSubmitting: isAnswering,
-        hasRetryTarget: !!editContext.activeEdit,
         providerPolicy,
       }),
     [
-      processes,
       hasMessageContent,
       workspaceId,
       sessionId,
       executorConfig,
       isNewSessionMode,
-      isAttemptRunning,
+      canonicalTimeline?.runs.length,
+      canonicalTimeline?.isTerminal,
+      isAgentRunActive,
+      isAgentRunCancelling,
+      canonicalAgentActionPolicy.cancel.allowed,
+      canonicalAgentActionPolicy.resolve_approval.allowed,
+      canonicalAgentActionPolicy.submit_input.allowed,
+      isStandaloneScriptActive,
       isSending,
       isStopping,
       isQueueLoading,
@@ -979,7 +1060,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       isApproving,
       isDenying,
       isAnswering,
-      editContext.activeEdit,
       providerPolicy,
     ]
   );
@@ -991,7 +1071,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     isQueueLoading,
     isSendingFollowUp: isSending,
     isQueued,
-    isAttemptRunning,
+    isAgentRunActive: isAgentRunActive || isStandaloneScriptActive,
   });
 
   // During loading, render with empty editor to preserve container UI
@@ -1050,7 +1130,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         scopePath={resumeScopePath}
         executor={effectiveExecutor}
         selectedSessionId={stagedResumeSession?.agent_session_id}
-        disabled={isSending || isStopping || isAttemptRunning}
+        disabled={isSending || isStopping || isAgentRunActive}
         onSelect={setStagedResumeSession}
       />
     ) : undefined;
@@ -1166,7 +1246,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         onSend: handleSend,
         onQueue: handleQueueMessage,
         onCancelQueue: handleCancelQueue,
-        onStop: stopExecution,
+        onStop: handleStop,
         onPasteFiles: uploadFiles,
       }}
       actionPolicy={runtimeActionPolicy}
@@ -1220,7 +1300,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           : undefined
       }
       approvalMode={
-        pendingApproval && !pendingApproval.questions
+        pendingApproval?.kind === 'approval'
           ? {
               isActive: true,
               onApprove: handleApprove,
@@ -1233,7 +1313,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           : undefined
       }
       askQuestionMode={
-        pendingApproval?.questions
+        pendingApproval?.kind === 'input'
           ? {
               isActive: true,
               questions: pendingApproval.questions,

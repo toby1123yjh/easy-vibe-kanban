@@ -1,52 +1,53 @@
 import { useMutation } from '@tanstack/react-query';
-import { approvalsApi } from '@/shared/lib/api';
 import type { QuestionAnswer } from 'shared/types';
+import {
+  canonicalAgentControls,
+  serializeCanonicalInputAnswers,
+} from '../canonicalAgentControls';
 
 interface ApproveParams {
   approvalId: string;
-  executionProcessId: string;
+  agentRunId: string;
 }
 
 interface DenyParams extends ApproveParams {
   reason?: string;
 }
 
-interface AnswerParams extends ApproveParams {
+interface AnswerParams {
+  agentRunId: string;
+  inputId: string;
   answers: QuestionAnswer[];
 }
 
 export function useApprovalMutation() {
   const approveMutation = useMutation({
-    mutationFn: ({ approvalId, executionProcessId }: ApproveParams) =>
-      approvalsApi.respond(approvalId, {
-        execution_process_id: executionProcessId,
-        status: { status: 'approved' },
-      }),
+    mutationFn: ({ approvalId, agentRunId }: ApproveParams) =>
+      canonicalAgentControls.approve(agentRunId, approvalId),
     onError: (err) => {
       console.error('Failed to approve:', err);
     },
   });
 
   const denyMutation = useMutation({
-    mutationFn: ({ approvalId, executionProcessId, reason }: DenyParams) =>
-      approvalsApi.respond(approvalId, {
-        execution_process_id: executionProcessId,
-        status: {
-          status: 'denied',
-          reason: reason || 'User denied this request.',
-        },
-      }),
+    mutationFn: ({ approvalId, agentRunId, reason }: DenyParams) =>
+      canonicalAgentControls.deny(
+        agentRunId,
+        approvalId,
+        reason || 'User denied this request.'
+      ),
     onError: (err) => {
       console.error('Failed to deny:', err);
     },
   });
 
   const answerMutation = useMutation({
-    mutationFn: ({ approvalId, executionProcessId, answers }: AnswerParams) =>
-      approvalsApi.respond(approvalId, {
-        execution_process_id: executionProcessId,
-        status: { status: 'answered', answers },
-      }),
+    mutationFn: ({ agentRunId, inputId, answers }: AnswerParams) =>
+      canonicalAgentControls.submitInput(
+        agentRunId,
+        inputId,
+        serializeCanonicalInputAnswers(answers)
+      ),
     onError: (err) => {
       console.error('Failed to answer:', err);
     },

@@ -15,7 +15,11 @@
 // module — we just swap the local definitions for re-exports of the
 // generated types.
 
-import type { ExecutorConfig, Workspace } from 'shared/types';
+import {
+  AgentRunStatus,
+  type ExecutorConfig,
+  type Workspace,
+} from 'shared/types';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 
 // ── Mirror of Rust types (see comment above) ────────────────────────
@@ -28,11 +32,47 @@ export type ArenaLifecycleStatus =
   | 'closed'
   | 'adopted'
   | 'implementation_started';
-export type ExecutionProcessStatus =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'killed';
+
+export const ACTIVE_ARENA_AGENT_RUN_STATUSES: ReadonlySet<AgentRunStatus> =
+  new Set([
+    AgentRunStatus.pending,
+    AgentRunStatus.starting,
+    AgentRunStatus.running,
+    AgentRunStatus.awaiting_input,
+    AgentRunStatus.awaiting_approval,
+    AgentRunStatus.cancelling,
+  ]);
+
+export const TERMINAL_ARENA_AGENT_RUN_STATUSES: ReadonlySet<AgentRunStatus> =
+  new Set([
+    AgentRunStatus.succeeded,
+    AgentRunStatus.failed,
+    AgentRunStatus.cancelled,
+    AgentRunStatus.crashed,
+    AgentRunStatus.audit_failed,
+  ]);
+
+export function isActiveArenaAgentRunStatus(
+  status: AgentRunStatus | null | undefined
+): boolean {
+  return status !== null && status !== undefined
+    ? ACTIVE_ARENA_AGENT_RUN_STATUSES.has(status)
+    : false;
+}
+
+export function isTerminalArenaAgentRunStatus(
+  status: AgentRunStatus | null | undefined
+): boolean {
+  return status !== null && status !== undefined
+    ? TERMINAL_ARENA_AGENT_RUN_STATUSES.has(status)
+    : false;
+}
+
+export function isSuccessfulArenaAgentRunStatus(
+  status: AgentRunStatus | null | undefined
+): boolean {
+  return status === AgentRunStatus.succeeded;
+}
 
 export interface ArenaGroup {
   id: string;
@@ -59,7 +99,7 @@ export interface ArenaWorkspaceSummary {
   arena_status: ArenaStatus;
   executor: string | null;
   variant: string | null;
-  latest_execution_status: ExecutionProcessStatus | null;
+  latest_agent_run_status: AgentRunStatus | null;
   has_uncommitted_changes: boolean | null;
 }
 

@@ -1,12 +1,25 @@
+use std::sync::Arc;
+
 use anyhow::{self, Error as AnyhowError};
 use axum::Router;
 use deployment::{Deployment, DeploymentError};
 use server::{
-    DeploymentImpl, middleware::origin::validate_origin, routes,
-    routes::scheduled_tasks::spawn_scheduled_task_loop, runtime::relay_registration,
-    workflow_runtime::runner::recover_stale_workflow_runs,
+    DeploymentImpl,
+    middleware::origin::validate_origin,
+    routes,
+    routes::{
+        scheduled_tasks::spawn_scheduled_task_loop,
+        sessions::setup_gate::{reconcile_setup_launch_gates, spawn_setup_launch_gate_watcher},
+    },
+    runtime::relay_registration,
+    workflow_runtime::runner::{
+        DeploymentAgentRunReconciliationBoundary, recover_stale_workflow_runs_with_boundary,
+    },
 };
-use services::services::container::ContainerService;
+use services::services::{
+    agent_runtime::AgentRunCommandService, container::ContainerService,
+    orchestration::OrchestrationService,
+};
 use sqlx::Error as SqlxError;
 use strip_ansi_escapes::strip;
 use thiserror::Error;
@@ -73,20 +86,47 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     let deployment = DeploymentImpl::new(shutdown_token.clone()).await?;
     deployment.update_sentry_scope().await?;
-    deployment
-        .container()
-        .cleanup_orphan_executions()
+    // Deployment construction reconciles the durable process owner before
+    // returning. Replay commands only after that attachment pass completes;
+    // a missing in-memory watcher is not evidence that a provider exited.
+    let command_reconciliation =
+        AgentRunCommandService::new(&deployment.db().pool, deployment.agent_run_port())
+            .reconcile_startup()
+            .await
+            .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(
+        recovered_inflight = command_reconciliation.recovered_inflight,
+        delivered = command_reconciliation.delivered,
+        failed = command_reconciliation.failed,
+        "Reconciled durable direct AgentRun commands"
+    );
+    spawn_setup_launch_gate_watcher(deployment.clone());
+    let setup_gate_count = reconcile_setup_launch_gates(&deployment)
         .await
-        .map_err(DeploymentError::from)?;
-    recover_stale_workflow_runs(&deployment.db().pool)
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(setup_gate_count, "Reconciled durable setup launch gates");
+    let orchestration = OrchestrationService::new(
+        deployment.db().pool.clone(),
+        Arc::new(deployment.agent_run_port().clone()),
+    );
+    let reconciliation = orchestration
+        .reconcile_startup()
+        .await
+        .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    tracing::info!(
+        recovered_outbox_deliveries = reconciliation.recovered_outbox_deliveries,
+        recovered_inbox_claims = reconciliation.recovered_inbox_claims,
+        recovered_leases = reconciliation.recovered_leases,
+        reconciled_runs = reconciliation.reconciled_runs,
+        unreachable_agent_runs = reconciliation.unreachable_agent_runs,
+        delivery_failures = reconciliation.delivery_failures,
+        "Reconciled durable AgentRun orchestration state"
+    );
+    let workflow_boundary = DeploymentAgentRunReconciliationBoundary::new(deployment.clone());
+    recover_stale_workflow_runs_with_boundary(&deployment.db().pool, &workflow_boundary)
         .await
         .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
     spawn_scheduled_task_loop(deployment.clone());
-    deployment
-        .container()
-        .backfill_before_head_commits()
-        .await
-        .map_err(DeploymentError::from)?;
     deployment
         .container()
         .backfill_repo_names()

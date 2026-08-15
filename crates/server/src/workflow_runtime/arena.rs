@@ -1,22 +1,63 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use db::models::{
     arena_group::{ArenaGroup, ArenaGroupError, ArenaMode, ArenaStatus, CreateArenaGroup},
     requests::WorkspaceRepoInput,
-    workspace::{CreateWorkspace, Workspace, WorkspaceError},
+    session::{CreateSession, Session},
+    workspace::{CreateWorkspace, Workspace, WorkspaceError, WorkspaceKind},
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::profile::{ExecutorConfig, ExecutorConfigs};
+use executors::{
+    executors::{BaseCodingAgent, provider_adapter::DirectProvider},
+    profile::{ExecutorConfig, ExecutorConfigs},
+    provider_policy::direct_provider_capability_snapshot,
+    runtime::{
+        AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentRunIntent,
+        AgentRunPortCommand, AgentRunPortCommandEnvelope, AgentRunRequestEnvelope, AgentRunStatus,
+        AgentRuntimeMessageRole, CanonicalMessage, EachDownstreamExecution,
+        ORCHESTRATION_COMMAND_SCHEMA_VERSION, ORCHESTRATION_PLAN_SCHEMA_VERSION,
+        OrchestrationFailurePolicy, OrchestrationJoinPolicy, OrchestrationPlanNode,
+        OrchestrationPlanSnapshot, OrchestrationProductKind, OrchestrationRetryPolicy,
+        RemainingUpstreamsPolicy, RunAttemptMode, RunAttemptRequest, RunState, WorkspaceMode,
+        WorkspaceReference,
+    },
+};
 use serde_json::Value;
-use services::services::container::ContainerService;
+use services::services::{container::ContainerService, orchestration::OrchestrationService};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{DeploymentImpl, error::ApiError};
 
 const WORKFLOW_ARENA_MIN_ATTEMPTS: usize = 2;
+
+#[derive(Debug, Clone)]
+struct PreparedArenaAttempt {
+    attempt_id: Option<String>,
+    display_name: Option<String>,
+    branch_name: String,
+    prompt: String,
+    executor_config: ExecutorConfig,
+}
+
+#[derive(Debug, Clone)]
+struct ArenaCandidateLaunch {
+    workspace: Workspace,
+    workspace_path: String,
+    node_key: String,
+    prompt: String,
+    executor_config: ExecutorConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArenaCandidateRuntime {
+    orchestration_run_id: Uuid,
+    agent_run_id: Uuid,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArenaNodeAttemptRequest {
@@ -142,6 +183,7 @@ async fn create_deployment_arena(
             "Workflow arena prompt must not be empty.".to_string(),
         ));
     }
+    let attempts = prepare_arena_attempts(request.attempts.clone()).await?;
 
     let pool = &deployment.db().pool;
     let project_id = issue_project_id(pool, request.issue_id).await?;
@@ -178,19 +220,35 @@ async fn create_deployment_arena(
     )
     .await?;
 
-    for (idx, attempt) in request.attempts.into_iter().enumerate() {
-        spawn_workflow_arena_attempt(
-            deployment,
-            pool,
-            &group,
-            project_id,
-            request.issue_id,
-            &main_workspace,
-            &base_repos,
-            attempt,
-            idx,
-        )
-        .await?;
+    let creation_result = async {
+        let mut candidates = Vec::with_capacity(attempts.len());
+        for (idx, attempt) in attempts.into_iter().enumerate() {
+            candidates.push(
+                create_workflow_arena_candidate(
+                    deployment,
+                    pool,
+                    &group,
+                    project_id,
+                    request.issue_id,
+                    &main_workspace,
+                    &base_repos,
+                    attempt,
+                    idx,
+                )
+                .await?,
+            );
+        }
+        launch_arena_candidates(deployment, &request, &group, &candidates).await
+    }
+    .await;
+    if let Err(error) = creation_result {
+        if let Err(cleanup_error) = cleanup_failed_workflow_arena(pool, group.id).await {
+            tracing::warn!(
+                arena_group_id = %group.id,
+                "failed to clean up partially-created workflow arena: {cleanup_error:#}"
+            );
+        }
+        return Err(error);
     }
 
     deployment
@@ -210,6 +268,31 @@ async fn create_deployment_arena(
     })
 }
 
+async fn prepare_arena_attempts(
+    attempts: Vec<ArenaNodeAttemptRequest>,
+) -> Result<Vec<PreparedArenaAttempt>, ApiError> {
+    let mut prepared = Vec::with_capacity(attempts.len());
+    for (attempt_index, attempt) in attempts.into_iter().enumerate() {
+        let prompt = attempt.prompt.trim().to_string();
+        if prompt.is_empty() {
+            return Err(ApiError::BadRequest(format!(
+                "Workflow arena attempt {} prompt must not be empty.",
+                attempt_index + 1
+            )));
+        }
+        let executor_config = executor_config_from_value(attempt.executor_config).await?;
+        validate_canonical_executor_config(&executor_config)?;
+        prepared.push(PreparedArenaAttempt {
+            attempt_id: attempt.attempt_id,
+            display_name: attempt.display_name,
+            branch_name: attempt.branch_name,
+            prompt,
+            executor_config,
+        });
+    }
+    Ok(prepared)
+}
+
 async fn issue_project_id(pool: &SqlitePool, issue_id: Uuid) -> Result<Uuid, ApiError> {
     sqlx::query_scalar::<_, Uuid>("SELECT project_id FROM local_issues WHERE id = ?")
         .bind(issue_id)
@@ -219,7 +302,7 @@ async fn issue_project_id(pool: &SqlitePool, issue_id: Uuid) -> Result<Uuid, Api
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn spawn_workflow_arena_attempt(
+async fn create_workflow_arena_candidate(
     deployment: &DeploymentImpl,
     pool: &SqlitePool,
     group: &ArenaGroup,
@@ -227,24 +310,15 @@ async fn spawn_workflow_arena_attempt(
     issue_id: Uuid,
     main_workspace: &Workspace,
     base_repos: &[WorkspaceRepo],
-    attempt: ArenaNodeAttemptRequest,
+    attempt: PreparedArenaAttempt,
     attempt_index: usize,
-) -> Result<(), ApiError> {
-    let prompt = attempt.prompt.trim().to_string();
-    if prompt.is_empty() {
-        return Err(ApiError::BadRequest(format!(
-            "Workflow arena attempt {} prompt must not be empty.",
-            attempt_index + 1
-        )));
-    }
-
+) -> Result<ArenaCandidateLaunch, ApiError> {
     let workspace_name = attempt.display_name.clone().unwrap_or_else(|| {
         attempt
             .attempt_id
             .clone()
             .unwrap_or_else(|| format!("Arena Candidate {}", attempt_index + 1))
     });
-    let executor_config = executor_config_from_value(attempt.executor_config).await?;
     let workspace_id = Uuid::new_v4();
     let workspace = Workspace::create(
         pool,
@@ -276,12 +350,228 @@ async fn spawn_workflow_arena_attempt(
     Workspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
     insert_workspace_link(pool, workspace.id, project_id, issue_id).await?;
 
-    deployment
+    let workspace_path = deployment
         .container()
-        .start_workspace(&workspace, executor_config, prompt)
+        .ensure_container_exists(&workspace)
         .await?;
 
-    Ok(())
+    Ok(ArenaCandidateLaunch {
+        workspace,
+        workspace_path,
+        node_key: format!("candidate:{}", workspace_id),
+        prompt: attempt.prompt,
+        executor_config: attempt.executor_config,
+    })
+}
+
+async fn launch_arena_candidates(
+    deployment: &DeploymentImpl,
+    request: &ArenaNodeRequest,
+    group: &ArenaGroup,
+    candidates: &[ArenaCandidateLaunch],
+) -> Result<Uuid, ApiError> {
+    let pool = &deployment.db().pool;
+    let orchestration_run_id = stable_arena_identity(
+        request.run_id,
+        group.id,
+        0,
+        &format!("{}:orchestration", request.node_id),
+    );
+    let plan = OrchestrationPlanSnapshot {
+        schema_version: ORCHESTRATION_PLAN_SCHEMA_VERSION,
+        plan_id: stable_arena_identity(orchestration_run_id, group.id, 0, "plan"),
+        source_definition_id: group.id,
+        source_definition_version: arena_plan_version(request, candidates)?,
+        product_kind: OrchestrationProductKind::Arena,
+        workspace_mode: WorkspaceMode::IsolatedWorktree,
+        nodes: candidates
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| {
+                let provider = direct_provider_for_agent(candidate.executor_config.executor)?;
+                Ok(OrchestrationPlanNode {
+                    node_key: candidate.node_key.clone(),
+                    stable_order: u32::try_from(index).unwrap_or(u32::MAX),
+                    dependencies: Vec::new(),
+                    join: OrchestrationJoinPolicy::All,
+                    failure_policy: OrchestrationFailurePolicy::AllowPartial,
+                    remaining_upstreams: RemainingUpstreamsPolicy::Continue,
+                    each_downstream_execution: EachDownstreamExecution::Parallel,
+                    retry: OrchestrationRetryPolicy::default(),
+                    runtime_profile_id: Some(candidate.executor_config.profile_id().cache_key()),
+                    provider_id: Some(provider.id().to_string()),
+                    provider_config: Some(
+                        serde_json::to_value(&candidate.executor_config).map_err(|error| {
+                            ApiError::BadRequest(format!(
+                                "Cannot snapshot workflow arena candidate config: {error}"
+                            ))
+                        })?,
+                    ),
+                })
+            })
+            .collect::<Result<Vec<_>, ApiError>>()?,
+        created_at: Utc::now(),
+    };
+    let orchestration =
+        OrchestrationService::new(pool.clone(), Arc::new(deployment.agent_run_port().clone()));
+    let orchestration_run_id = orchestration
+        .start_run(
+            orchestration_run_id,
+            stable_arena_identity(orchestration_run_id, group.id, 0, "start-request"),
+            &format!(
+                "workflow-arena:{}:{}:{}:start",
+                request.run_id, request.node_id, group.id
+            ),
+            request.run_id,
+            &plan,
+        )
+        .await
+        .map_err(orchestration_api_error)?;
+
+    for candidate in candidates {
+        enqueue_arena_candidate(
+            &orchestration,
+            pool,
+            request,
+            orchestration_run_id,
+            candidate,
+        )
+        .await?;
+    }
+    while orchestration
+        .deliver_next()
+        .await
+        .map_err(orchestration_api_error)?
+    {}
+    Ok(orchestration_run_id)
+}
+
+async fn enqueue_arena_candidate<P>(
+    orchestration: &OrchestrationService<P>,
+    pool: &SqlitePool,
+    workflow_request: &ArenaNodeRequest,
+    orchestration_run_id: Uuid,
+    candidate: &ArenaCandidateLaunch,
+) -> Result<ArenaCandidateRuntime, ApiError>
+where
+    P: executors::runtime::AgentRunPort + 'static,
+{
+    let provider = direct_provider_for_agent(candidate.executor_config.executor)?;
+    let runtime_profile_id = candidate.executor_config.profile_id().cache_key();
+    let node_execution_id =
+        stable_arena_node_execution_id(orchestration_run_id, &candidate.node_key, 0);
+    let request_id =
+        stable_arena_identity(orchestration_run_id, node_execution_id, 0, "agent-request");
+    let agent_run_id =
+        stable_arena_identity(orchestration_run_id, node_execution_id, 0, "agent-run");
+    let turn_id = stable_arena_identity(orchestration_run_id, node_execution_id, 0, "turn");
+    let run_attempt_id =
+        stable_arena_identity(orchestration_run_id, node_execution_id, 0, "attempt-1");
+    let session_id = stable_arena_identity(orchestration_run_id, node_execution_id, 0, "session");
+    let session = match Session::find_by_id(pool, session_id).await? {
+        Some(session) => session,
+        None => {
+            Session::create(
+                pool,
+                &CreateSession {
+                    executor: Some(candidate.executor_config.executor.to_string()),
+                    name: candidate.workspace.name.clone(),
+                },
+                session_id,
+                candidate.workspace.id,
+            )
+            .await?
+        }
+    };
+    if session.workspace_id != candidate.workspace.id {
+        return Err(ApiError::Conflict(format!(
+            "Arena candidate session {session_id} belongs to workspace {} instead of {}",
+            session.workspace_id, candidate.workspace.id
+        )));
+    }
+
+    let workspace = WorkspaceReference {
+        workspace_id: candidate.workspace.id,
+        mode: match candidate.workspace.workspace_kind {
+            WorkspaceKind::DirectFolder => WorkspaceMode::SharedWorkspace,
+            WorkspaceKind::Worktree => WorkspaceMode::IsolatedWorktree,
+        },
+        path: candidate.workspace_path.clone(),
+    };
+    let created_at = Utc::now();
+    let idempotency_key = format!(
+        "workflow-arena:{}:{}:candidate:{}:create",
+        workflow_request.run_id, workflow_request.node_id, candidate.workspace.id
+    );
+    let run_request = AgentRunRequestEnvelope {
+        schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+        payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+        request_id,
+        idempotency_key: idempotency_key.clone(),
+        session_id,
+        agent_run_id,
+        turn_id,
+        correlation_id: workflow_request.run_id,
+        intent: AgentRunIntent::Initial,
+        runtime_profile_id: runtime_profile_id.clone(),
+        provider_id: provider.id().to_string(),
+        workspace: workspace.clone(),
+        input: CanonicalMessage {
+            message_id: stable_arena_identity(orchestration_run_id, node_execution_id, 0, "input"),
+            role: AgentRuntimeMessageRole::User,
+            content: candidate.prompt.clone(),
+        },
+        created_at,
+    };
+    let attempt = RunAttemptRequest {
+        schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+        payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+        request_id,
+        idempotency_key: format!("{idempotency_key}:attempt:1"),
+        session_id,
+        agent_run_id,
+        turn_id,
+        run_attempt_id,
+        attempt_number: 1,
+        correlation_id: workflow_request.run_id,
+        mode: RunAttemptMode::Launch,
+        transport: provider.transport(),
+        runtime_profile_id: runtime_profile_id.clone(),
+        provider_id: provider.id().to_string(),
+        workspace,
+        capability_snapshot: direct_provider_capability_snapshot(provider, runtime_profile_id),
+        executor_config: candidate.executor_config.clone(),
+        selected_skills: None,
+        reset_to_message_id: None,
+        provider_session: None,
+        created_at,
+    };
+    orchestration
+        .enqueue_command(AgentRunPortCommandEnvelope {
+            schema_version: ORCHESTRATION_COMMAND_SCHEMA_VERSION,
+            command_id: stable_arena_identity(
+                orchestration_run_id,
+                node_execution_id,
+                0,
+                "create-command",
+            ),
+            idempotency_key,
+            agent_run_id,
+            orchestration_run_id: Some(orchestration_run_id),
+            orchestration_node_execution_id: Some(node_execution_id),
+            correlation_id: workflow_request.run_id,
+            created_at,
+            command: AgentRunPortCommand::Create {
+                request: run_request,
+                attempt,
+            },
+        })
+        .await
+        .map_err(orchestration_api_error)?;
+    Ok(ArenaCandidateRuntime {
+        orchestration_run_id,
+        agent_run_id,
+    })
 }
 
 async fn executor_config_from_value(value: Option<Value>) -> Result<ExecutorConfig, ApiError> {
@@ -302,6 +592,97 @@ async fn executor_config_from_value(value: Option<Value>) -> Result<ExecutorConf
             ))
         })?;
     Ok(ExecutorConfig::from(profile_id))
+}
+
+fn validate_canonical_executor_config(config: &ExecutorConfig) -> Result<(), ApiError> {
+    direct_provider_for_agent(config.executor)?;
+    Ok(())
+}
+
+fn direct_provider_for_agent(agent: BaseCodingAgent) -> Result<DirectProvider, ApiError> {
+    match agent {
+        BaseCodingAgent::Gemini => Ok(DirectProvider::Gemini),
+        BaseCodingAgent::Codex => Ok(DirectProvider::Codex),
+        BaseCodingAgent::ClaudeCode => Ok(DirectProvider::ClaudeCode),
+        BaseCodingAgent::OhMyPi => Ok(DirectProvider::OhMyPi),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => Err(ApiError::BadRequest(
+            "QA mock is not a production Agent Runtime provider".to_string(),
+        )),
+    }
+}
+
+fn stable_arena_identity(
+    orchestration_run_id: Uuid,
+    node_execution_id: Uuid,
+    iteration: u32,
+    purpose: &str,
+) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(orchestration_run_id.as_bytes());
+    hasher.update(node_execution_id.as_bytes());
+    hasher.update(iteration.to_le_bytes());
+    hasher.update(purpose.as_bytes());
+    uuid_from_digest(hasher.finalize())
+}
+
+fn stable_arena_node_execution_id(
+    orchestration_run_id: Uuid,
+    node_key: &str,
+    iteration: u32,
+) -> Uuid {
+    let mut hasher = Sha256::new();
+    hasher.update(orchestration_run_id.as_bytes());
+    hasher.update(node_key.as_bytes());
+    hasher.update(iteration.to_le_bytes());
+    uuid_from_digest(hasher.finalize())
+}
+
+fn uuid_from_digest(digest: impl AsRef<[u8]>) -> Uuid {
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest.as_ref()[..16]);
+    Uuid::from_bytes(bytes)
+}
+
+fn arena_plan_version(
+    request: &ArenaNodeRequest,
+    candidates: &[ArenaCandidateLaunch],
+) -> Result<String, ApiError> {
+    let mut hasher = Sha256::new();
+    hasher.update(request.run_id.as_bytes());
+    hasher.update(request.node_id.as_bytes());
+    hasher.update(request.prompt.as_bytes());
+    for candidate in candidates {
+        hasher.update(candidate.workspace.id.as_bytes());
+        hasher.update(candidate.node_key.as_bytes());
+        hasher.update(candidate.prompt.as_bytes());
+        hasher.update(
+            serde_json::to_vec(&candidate.executor_config).map_err(|error| {
+                ApiError::BadRequest(format!(
+                    "Cannot snapshot workflow arena candidate config: {error}"
+                ))
+            })?,
+        );
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn orchestration_api_error(error: impl std::fmt::Display) -> ApiError {
+    ApiError::BadRequest(format!(
+        "Canonical arena orchestration rejected the operation: {error}"
+    ))
+}
+
+async fn cleanup_failed_workflow_arena(
+    pool: &SqlitePool,
+    arena_group_id: Uuid,
+) -> Result<(), ApiError> {
+    for workspace in Workspace::find_by_arena_group_id(pool, arena_group_id).await? {
+        Workspace::set_arena_status(pool, workspace.id, ArenaStatus::Archived).await?;
+        Workspace::set_archived(pool, workspace.id, true).await?;
+    }
+    ArenaGroup::delete(pool, arena_group_id).await?;
+    Ok(())
 }
 
 async fn insert_workspace_link(
@@ -410,14 +791,8 @@ async fn apply_deployment_arena_winner(
 
     mark_arena_winner(pool, request.arena_group_id, request.winner_workspace_id).await?;
 
-    let winner_summary = latest_workspace_summary_text(pool, request.winner_workspace_id)
-        .await?
-        .unwrap_or_else(|| {
-            format!(
-                "Selected arena winner workspace {}",
-                request.winner_workspace_id
-            )
-        });
+    let winner_state = arena_candidate_run_state(deployment, group.id, winner_workspace.id).await?;
+    let winner_summary = canonical_winner_summary(winner_workspace.id, &winner_state)?;
     let diff_summary = if changed_repos.is_empty() {
         "No file changes were applied from the winner workspace.".to_string()
     } else {
@@ -446,6 +821,83 @@ async fn apply_deployment_arena_winner(
         .await;
 
     Ok(ArenaWinnerExecution { output_text })
+}
+
+async fn arena_candidate_run_state(
+    deployment: &DeploymentImpl,
+    arena_group_id: Uuid,
+    workspace_id: Uuid,
+) -> Result<RunState, ApiError> {
+    let pool = &deployment.db().pool;
+    let product_kind = serde_json::to_value(OrchestrationProductKind::Arena)
+        .expect("orchestration product kind should serialize")
+        .as_str()
+        .expect("orchestration product kind should serialize as a string")
+        .to_string();
+    let identity: Option<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT links.orchestration_run_id, links.agent_run_id
+        FROM orchestration_runs runs
+        JOIN orchestration_agent_run_links links
+          ON links.orchestration_run_id = runs.id
+        JOIN agent_runs agent_runs
+          ON agent_runs.id = links.agent_run_id
+        WHERE runs.product_kind = ?
+          AND runs.source_definition_id = ?
+          AND agent_runs.workspace_id = ?
+        ORDER BY runs.created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(product_kind)
+    .bind(arena_group_id)
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await?;
+    let (orchestration_run_id, agent_run_id) = identity.ok_or_else(|| {
+        ApiError::Conflict(format!(
+            "Arena candidate workspace {workspace_id} has no canonical AgentRun identity"
+        ))
+    })?;
+    let orchestration =
+        OrchestrationService::new(pool.clone(), Arc::new(deployment.agent_run_port().clone()));
+    orchestration
+        .reconcile_run(orchestration_run_id, orchestration_run_id)
+        .await
+        .map_err(orchestration_api_error)?;
+    orchestration
+        .query_agent_run(agent_run_id)
+        .await
+        .map_err(orchestration_api_error)
+}
+
+fn canonical_winner_summary(
+    winner_workspace_id: Uuid,
+    state: &RunState,
+) -> Result<String, ApiError> {
+    match state.status {
+        AgentRunStatus::Succeeded => Ok(state
+            .terminal_output
+            .as_ref()
+            .map(|output| output.content.clone())
+            .unwrap_or_else(|| format!("Selected arena winner workspace {winner_workspace_id}"))),
+        AgentRunStatus::Pending
+        | AgentRunStatus::Starting
+        | AgentRunStatus::Running
+        | AgentRunStatus::AwaitingInput
+        | AgentRunStatus::AwaitingApproval
+        | AgentRunStatus::Cancelling => Err(ApiError::Conflict(format!(
+            "Arena candidate workspace {winner_workspace_id} is not terminal (canonical status: {:?})",
+            state.status
+        ))),
+        AgentRunStatus::Failed
+        | AgentRunStatus::Cancelled
+        | AgentRunStatus::Crashed
+        | AgentRunStatus::AuditFailed => Err(ApiError::Conflict(format!(
+            "Arena candidate workspace {winner_workspace_id} cannot be selected (canonical status: {:?})",
+            state.status
+        ))),
+    }
 }
 
 async fn mark_arena_winner(
@@ -477,23 +929,18 @@ async fn mark_arena_winner(
     Ok(())
 }
 
-async fn latest_workspace_summary_text(
-    pool: &SqlitePool,
-    workspace_id: Uuid,
-) -> Result<Option<String>, ApiError> {
-    Ok(sqlx::query_scalar::<_, String>(
-        r#"
-        SELECT cat.summary
-        FROM coding_agent_turns cat
-        JOIN execution_processes ep ON ep.id = cat.execution_process_id
-        JOIN sessions s ON s.id = ep.session_id
-        WHERE s.workspace_id = ?
-          AND cat.summary IS NOT NULL
-        ORDER BY ep.created_at DESC, cat.updated_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_arena_config_accepts_frozen_executor_overrides() {
+        let mut config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        config.model_id = Some("openai/gpt-5.6-codex".to_string());
+        config.agent_id = Some("implementation".to_string());
+        config.reasoning_id = Some("high".to_string());
+
+        validate_canonical_executor_config(&config)
+            .expect("RunAttemptRequest now represents all executor overrides");
+    }
 }

@@ -100,9 +100,6 @@ export function useSessionSend({
             selected_skills: selectedSkills,
             executor_config: executorConfig,
             resume_session_id: options.resumeSessionId || undefined,
-            retry_process_id: null,
-            force_when_dirty: null,
-            perform_git_reset: null,
           });
           return true;
         } catch (e: unknown) {

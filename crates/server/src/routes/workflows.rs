@@ -18,6 +18,7 @@ use db::models::{
     workspace_repo::CreateWorkspaceRepo,
 };
 use deployment::Deployment;
+use executors::runtime::ProjectionStatus;
 use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -39,13 +40,15 @@ use crate::{
             NoopWorkflowArenaCreator, WorkflowArenaCreator,
         },
         runner::{
-            DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller, WorkflowAgentExecutor,
-            WorkflowRunStartRequest, WorkflowWorkspaceRequest, WorkflowWorkspaceResolver,
-            approve_human_node_with_arena, cancel_workflow_run_runtime, get_workflow_run_response,
-            reconcile_workflow_run_with_arena, reject_human_node, retry_workflow_node_with_arena,
-            select_arena_winner_with_arena, select_condition_branch_with_arena,
-            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_repos,
-            trigger_workflow_run_with_arena, workflow_event_history,
+            DeploymentAgentRunReconciliationBoundary, DeploymentWorkflowAgentExecutor,
+            DeploymentWorkflowRunCanceller, WorkflowAgentExecutor, WorkflowRunStartRequest,
+            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_with_arena,
+            cancel_workflow_run_runtime, get_workflow_run_response,
+            reconcile_workflow_run_with_arena_and_boundary, reject_human_node,
+            retry_workflow_node_with_arena, select_arena_winner_with_arena,
+            select_condition_branch_with_arena, subscribe_workflow_events,
+            trigger_workflow_run_for_attempt_with_repos, trigger_workflow_run_with_arena,
+            workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
     },
@@ -144,6 +147,7 @@ pub struct WorkflowAttemptListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkflowRunResponse {
     pub id: Uuid,
+    pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
@@ -174,6 +178,9 @@ pub struct WorkflowNodeExecutionResponse {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub orchestration_node_execution_id: Option<Uuid>,
+    pub agent_run_id: Option<Uuid>,
+    pub projection_status: Option<ProjectionStatus>,
     pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,
@@ -192,7 +199,7 @@ pub enum WorkflowRuntimeHealth {
     Ok,
     Starting,
     Slow,
-    ProcessMissing,
+    ProjectionDegraded,
     Unknown,
 }
 
@@ -205,8 +212,10 @@ pub enum WorkflowNodeWorkStatus {
     Running,
     AwaitingHuman,
     AwaitingArena,
+    Cancelling,
     Succeeded,
     Failed,
+    Cancelled,
     Skipped,
 }
 
@@ -220,7 +229,9 @@ pub struct WorkflowNodeWorkView {
     pub starting_child_count: i32,
     pub active_execution_id: Option<Uuid>,
     pub active_session_id: Option<Uuid>,
-    pub execution_process_id: Option<Uuid>,
+    pub orchestration_node_execution_id: Option<Uuid>,
+    pub active_agent_run_id: Option<Uuid>,
+    pub projection_status: Option<ProjectionStatus>,
     pub active_started_at: Option<DateTime<Utc>>,
     pub active_elapsed_ms: Option<i32>,
     pub active_slow: bool,
@@ -275,6 +286,7 @@ pub struct FallbackNodeExecutionsQuery {
 #[derive(Debug, Clone, Serialize)]
 struct WorkflowRunFallbackRow {
     pub id: Uuid,
+    pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
     pub issue_id: Uuid,
@@ -301,6 +313,9 @@ struct NodeExecutionFallbackRow {
     pub input_text: Option<String>,
     pub output_text: Option<String>,
     pub session_id: Option<Uuid>,
+    pub orchestration_node_execution_id: Option<Uuid>,
+    pub agent_run_id: Option<Uuid>,
+    pub projection_status: Option<ProjectionStatus>,
     pub execution_process_id: Option<Uuid>,
     pub arena_group_id: Option<Uuid>,
     pub tokens_used: Option<i64>,
@@ -1432,6 +1447,7 @@ fn workflow_attempt_from_row(
 fn workflow_run_from_row(row: &SqliteRow) -> Result<WorkflowRunFallbackRow, WorkflowRouteError> {
     Ok(WorkflowRunFallbackRow {
         id: row.try_get("id")?,
+        orchestration_run_id: row.try_get("orchestration_run_id")?,
         workflow_id: row.try_get("workflow_id")?,
         attempt_id: row.try_get("attempt_id")?,
         issue_id: row.try_get("issue_id")?,
@@ -1461,6 +1477,9 @@ fn node_execution_from_row(
         input_text: row.try_get("input_text")?,
         output_text: row.try_get("output_text")?,
         session_id: row.try_get("session_id")?,
+        orchestration_node_execution_id: row.try_get("orchestration_node_execution_id")?,
+        agent_run_id: row.try_get("agent_run_id")?,
+        projection_status: row.try_get("agent_projection_status")?,
         execution_process_id: row.try_get("execution_process_id")?,
         arena_group_id: row.try_get("arena_group_id")?,
         tokens_used: row.try_get("tokens_used")?,
@@ -1479,7 +1498,7 @@ async fn workflow_run_rows(
     workflow_id: Option<Uuid>,
 ) -> Result<Vec<WorkflowRunFallbackRow>, ApiError> {
     let select = r#"
-        SELECT id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text,
+        SELECT id, orchestration_run_id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text,
                output_text, status, started_at, finished_at, error_text, created_at, updated_at
         FROM workflow_runs
     "#;
@@ -1528,23 +1547,27 @@ async fn node_execution_rows(
     run_id: Option<Uuid>,
 ) -> Result<Vec<NodeExecutionFallbackRow>, ApiError> {
     let select = r#"
-        SELECT id, run_id, node_id, node_type, iteration, status, input_text, output_text,
-               session_id, execution_process_id, arena_group_id, tokens_used, cost_estimate,
-               started_at, finished_at, error_text, created_at, updated_at
-        FROM node_executions
+        SELECT ne.id, ne.run_id, ne.node_id, ne.node_type, ne.iteration, ne.status,
+               ne.input_text, ne.output_text, ne.session_id,
+               ne.orchestration_node_execution_id, ne.agent_run_id,
+               ars.projection_status AS agent_projection_status,
+               ne.execution_process_id, ne.arena_group_id, ne.tokens_used, ne.cost_estimate,
+               ne.started_at, ne.finished_at, ne.error_text, ne.created_at, ne.updated_at
+        FROM node_executions ne
+        LEFT JOIN agent_run_state ars ON ars.agent_run_id = ne.agent_run_id
     "#;
 
     let rows = match run_id {
         Some(run_id) => {
             sqlx::query(&format!(
-                "{select} WHERE run_id = ? ORDER BY iteration ASC, created_at ASC"
+                "{select} WHERE ne.run_id = ? ORDER BY ne.iteration ASC, ne.created_at ASC"
             ))
             .bind(run_id)
             .fetch_all(pool)
             .await?
         }
         None => {
-            sqlx::query(&format!("{select} ORDER BY created_at ASC"))
+            sqlx::query(&format!("{select} ORDER BY ne.created_at ASC"))
                 .fetch_all(pool)
                 .await?
         }
@@ -1572,6 +1595,7 @@ fn workflow_run_status_from_str(value: &str) -> Result<WorkflowRunStatus, Workfl
         "running" => Ok(WorkflowRunStatus::Running),
         "awaiting_human" => Ok(WorkflowRunStatus::AwaitingHuman),
         "awaiting_arena" => Ok(WorkflowRunStatus::AwaitingArena),
+        "cancelling" => Ok(WorkflowRunStatus::Cancelling),
         "succeeded" => Ok(WorkflowRunStatus::Succeeded),
         "failed" => Ok(WorkflowRunStatus::Failed),
         "canceled" => Ok(WorkflowRunStatus::Canceled),
@@ -1590,6 +1614,7 @@ fn workflow_attempt_status_from_str(
         "running" => Ok(WorkflowAttemptStatus::Running),
         "awaiting_human" => Ok(WorkflowAttemptStatus::AwaitingHuman),
         "awaiting_arena" => Ok(WorkflowAttemptStatus::AwaitingArena),
+        "cancelling" => Ok(WorkflowAttemptStatus::Cancelling),
         "succeeded" => Ok(WorkflowAttemptStatus::Succeeded),
         "failed" => Ok(WorkflowAttemptStatus::Failed),
         "canceled" => Ok(WorkflowAttemptStatus::Canceled),
@@ -1606,6 +1631,7 @@ fn workflow_attempt_status_value(status: WorkflowAttemptStatus) -> &'static str 
         WorkflowAttemptStatus::Running => "running",
         WorkflowAttemptStatus::AwaitingHuman => "awaiting_human",
         WorkflowAttemptStatus::AwaitingArena => "awaiting_arena",
+        WorkflowAttemptStatus::Cancelling => "cancelling",
         WorkflowAttemptStatus::Succeeded => "succeeded",
         WorkflowAttemptStatus::Failed => "failed",
         WorkflowAttemptStatus::Canceled => "canceled",
@@ -1618,6 +1644,7 @@ fn workflow_attempt_status_from_run(status: WorkflowRunStatus) -> WorkflowAttemp
         WorkflowRunStatus::Running => WorkflowAttemptStatus::Running,
         WorkflowRunStatus::AwaitingHuman => WorkflowAttemptStatus::AwaitingHuman,
         WorkflowRunStatus::AwaitingArena => WorkflowAttemptStatus::AwaitingArena,
+        WorkflowRunStatus::Cancelling => WorkflowAttemptStatus::Cancelling,
         WorkflowRunStatus::Succeeded => WorkflowAttemptStatus::Succeeded,
         WorkflowRunStatus::Failed => WorkflowAttemptStatus::Failed,
         WorkflowRunStatus::Canceled => WorkflowAttemptStatus::Canceled,
@@ -1630,8 +1657,10 @@ fn node_execution_status_from_str(value: &str) -> Result<NodeExecutionStatus, Wo
         "running" => Ok(NodeExecutionStatus::Running),
         "awaiting_human" => Ok(NodeExecutionStatus::AwaitingHuman),
         "awaiting_arena" => Ok(NodeExecutionStatus::AwaitingArena),
+        "cancelling" => Ok(NodeExecutionStatus::Cancelling),
         "succeeded" => Ok(NodeExecutionStatus::Succeeded),
         "failed" => Ok(NodeExecutionStatus::Failed),
+        "cancelled" => Ok(NodeExecutionStatus::Cancelled),
         "skipped" => Ok(NodeExecutionStatus::Skipped),
         other => Err(WorkflowRouteError::BadRequest(format!(
             "Unknown node execution status `{other}`"
@@ -1776,7 +1805,9 @@ fn build_workflow_node_work_view(
         starting_child_count: executions
             .iter()
             .filter(|node| {
-                node.status == NodeExecutionStatus::Running && node.execution_process_id.is_none()
+                node.status == NodeExecutionStatus::Running
+                    && matches!(node.node_type.as_str(), "agent" | "condition")
+                    && node.agent_run_id.is_none()
             })
             .count() as i32,
         active_execution_id: if is_active || is_waiting {
@@ -1785,7 +1816,9 @@ fn build_workflow_node_work_view(
             None
         },
         active_session_id: current.session_id,
-        execution_process_id: current.execution_process_id,
+        orchestration_node_execution_id: current.orchestration_node_execution_id,
+        active_agent_run_id: current.agent_run_id,
+        projection_status: current.projection_status,
         active_started_at: if is_active || is_waiting {
             current.started_at
         } else {
@@ -1813,14 +1846,19 @@ fn build_workflow_node_work_view(
 fn workflow_node_work_status(node: &WorkflowNodeExecutionResponse) -> WorkflowNodeWorkStatus {
     match node.status {
         NodeExecutionStatus::Pending => WorkflowNodeWorkStatus::Pending,
-        NodeExecutionStatus::Running if node.execution_process_id.is_none() => {
+        NodeExecutionStatus::Running
+            if matches!(node.node_type.as_str(), "agent" | "condition")
+                && node.agent_run_id.is_none() =>
+        {
             WorkflowNodeWorkStatus::Starting
         }
         NodeExecutionStatus::Running => WorkflowNodeWorkStatus::Running,
         NodeExecutionStatus::AwaitingHuman => WorkflowNodeWorkStatus::AwaitingHuman,
         NodeExecutionStatus::AwaitingArena => WorkflowNodeWorkStatus::AwaitingArena,
+        NodeExecutionStatus::Cancelling => WorkflowNodeWorkStatus::Cancelling,
         NodeExecutionStatus::Succeeded => WorkflowNodeWorkStatus::Succeeded,
         NodeExecutionStatus::Failed => WorkflowNodeWorkStatus::Failed,
+        NodeExecutionStatus::Cancelled => WorkflowNodeWorkStatus::Cancelled,
         NodeExecutionStatus::Skipped => WorkflowNodeWorkStatus::Skipped,
     }
 }
@@ -1830,15 +1868,23 @@ fn workflow_runtime_health(
     status: WorkflowNodeWorkStatus,
     active_slow: bool,
 ) -> WorkflowRuntimeHealth {
+    if matches!(
+        node.projection_status,
+        Some(ProjectionStatus::ProjectionDegraded | ProjectionStatus::Rebuilding)
+    ) {
+        return WorkflowRuntimeHealth::ProjectionDegraded;
+    }
     match status {
-        WorkflowNodeWorkStatus::Starting if active_slow => WorkflowRuntimeHealth::ProcessMissing,
+        WorkflowNodeWorkStatus::Starting if active_slow => WorkflowRuntimeHealth::Unknown,
         WorkflowNodeWorkStatus::Starting => WorkflowRuntimeHealth::Starting,
         WorkflowNodeWorkStatus::Running if active_slow => WorkflowRuntimeHealth::Slow,
         WorkflowNodeWorkStatus::Running
         | WorkflowNodeWorkStatus::AwaitingHuman
         | WorkflowNodeWorkStatus::AwaitingArena
+        | WorkflowNodeWorkStatus::Cancelling
         | WorkflowNodeWorkStatus::Succeeded
         | WorkflowNodeWorkStatus::Failed
+        | WorkflowNodeWorkStatus::Cancelled
         | WorkflowNodeWorkStatus::Skipped => WorkflowRuntimeHealth::Ok,
         WorkflowNodeWorkStatus::Pending if node.started_at.is_none() => {
             WorkflowRuntimeHealth::Unknown
@@ -1878,11 +1924,13 @@ async fn get_workflow_run(
 ) -> Result<ResponseJson<WorkflowRunResponse>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = reconcile_workflow_run_with_arena(
+    let boundary = DeploymentAgentRunReconciliationBoundary::new(deployment.clone());
+    let run = reconcile_workflow_run_with_arena_and_boundary(
         &deployment.db().pool,
         run_id,
         &agent_executor,
         &arena_creator,
+        &boundary,
     )
     .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;
@@ -1909,11 +1957,13 @@ async fn workflow_run_events(
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, BoxError>>>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = reconcile_workflow_run_with_arena(
+    let boundary = DeploymentAgentRunReconciliationBoundary::new(deployment.clone());
+    let run = reconcile_workflow_run_with_arena_and_boundary(
         &deployment.db().pool,
         run_id,
         &agent_executor,
         &arena_creator,
+        &boundary,
     )
     .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;
@@ -2114,6 +2164,9 @@ mod tests {
             input_text: None,
             output_text: None,
             session_id: None,
+            orchestration_node_execution_id: None,
+            agent_run_id: None,
+            projection_status: None,
             execution_process_id: None,
             arena_group_id: None,
             tokens_used: None,
@@ -2138,7 +2191,9 @@ mod tests {
             "2026-06-25T00:05:00Z",
         );
         running.session_id = Some(Uuid::from_u128(2));
-        running.execution_process_id = Some(Uuid::from_u128(3));
+        running.orchestration_node_execution_id = Some(Uuid::from_u128(3));
+        running.agent_run_id = Some(Uuid::from_u128(4));
+        running.projection_status = Some(ProjectionStatus::Current);
         running.started_at = Some(ts("2026-06-25T00:05:00Z"));
 
         let view = build_workflow_run_runtime_view(
@@ -2157,11 +2212,15 @@ mod tests {
         assert_eq!(work.runtime_health, WorkflowRuntimeHealth::Slow);
         assert!(work.can_open_session);
         assert_eq!(work.active_session_id, Some(Uuid::from_u128(2)));
-        assert_eq!(work.execution_process_id, Some(Uuid::from_u128(3)));
+        assert_eq!(
+            work.orchestration_node_execution_id,
+            Some(Uuid::from_u128(3))
+        );
+        assert_eq!(work.active_agent_run_id, Some(Uuid::from_u128(4)));
     }
 
     #[test]
-    fn runtime_view_distinguishes_starting_child_from_missing_process() {
+    fn runtime_view_distinguishes_starting_child_from_degraded_projection() {
         let mut starting = node(
             1,
             "agent-starting",
@@ -2180,6 +2239,8 @@ mod tests {
             "2026-06-25T00:00:00Z",
         );
         missing.started_at = Some(ts("2026-06-25T00:00:00Z"));
+        missing.agent_run_id = Some(Uuid::from_u128(9));
+        missing.projection_status = Some(ProjectionStatus::ProjectionDegraded);
 
         let view = build_workflow_run_runtime_view(
             Uuid::from_u128(100),
@@ -2204,10 +2265,10 @@ mod tests {
             .iter()
             .find(|work| work.node_id == "agent-missing-process")
             .unwrap();
-        assert_eq!(missing.status, WorkflowNodeWorkStatus::Starting);
+        assert_eq!(missing.status, WorkflowNodeWorkStatus::Running);
         assert_eq!(
             missing.runtime_health,
-            WorkflowRuntimeHealth::ProcessMissing
+            WorkflowRuntimeHealth::ProjectionDegraded
         );
         assert!(missing.active_slow);
     }

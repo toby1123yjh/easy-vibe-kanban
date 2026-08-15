@@ -1,5 +1,6 @@
 import { cn } from '../lib/cn';
 import { useTranslation } from 'react-i18next';
+import type { AgentRunStatus } from 'shared/types';
 import {
   GitPullRequestIcon,
   DotsThreeIcon,
@@ -42,7 +43,7 @@ export interface WorkspaceWithStats {
   hasRunningDevServer?: boolean;
   hasUnseenActivity?: boolean;
   latestProcessCompletedAt?: string;
-  latestProcessStatus?: 'running' | 'completed' | 'failed' | 'killed';
+  latestProcessStatus?: AgentRunStatus;
 }
 
 export interface IssueWorkspaceCardProps {
@@ -127,7 +128,8 @@ export function IssueWorkspaceCard({
   const hasUnseenActivity = workspace.hasUnseenActivity ?? false;
   const isFailed =
     workspace.latestProcessStatus === 'failed' ||
-    workspace.latestProcessStatus === 'killed';
+    workspace.latestProcessStatus === 'crashed' ||
+    workspace.latestProcessStatus === 'audit_failed';
   const hasLiveStatusIndicator =
     hasRunningDevServer ||
     isFailed ||

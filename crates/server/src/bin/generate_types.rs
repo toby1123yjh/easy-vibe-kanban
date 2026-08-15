@@ -184,7 +184,6 @@ fn generate_types_content() -> String {
         server::routes::sessions::NativeSessionPreviewEntry::decl(),
         server::routes::sessions::NativeAgentSessionPreview::decl(),
         server::routes::sessions::CreateFollowUpAttempt::decl(),
-        server::routes::sessions::ResetProcessRequest::decl(),
         server::routes::workspaces::git::ChangeTargetBranchRequest::decl(),
         server::routes::workspaces::git::ChangeTargetBranchResponse::decl(),
         server::routes::workspaces::repos::AddWorkspaceRepoRequest::decl(),
@@ -303,24 +302,14 @@ fn generate_types_content() -> String {
         executors::executors::claude::ClaudeEffort::decl(),
         executors::executors::claude::ClaudeCode::decl(),
         executors::executors::gemini::Gemini::decl(),
-        executors::executors::amp::Amp::decl(),
+        executors::executors::oh_my_pi::OhMyPi::decl(),
         executors::executors::codex::Codex::decl(),
         executors::executors::codex::SandboxMode::decl(),
         executors::executors::codex::AskForApproval::decl(),
         executors::executors::codex::ReasoningEffort::decl(),
         executors::executors::codex::ReasoningSummary::decl(),
         executors::executors::codex::ReasoningSummaryFormat::decl(),
-        executors::executors::cursor::CursorAgent::decl(),
-        executors::executors::copilot::Copilot::decl(),
-        executors::executors::opencode::Opencode::decl(),
-        executors::executors::qwen::QwenCode::decl(),
-        executors::executors::droid::Droid::decl(),
-        executors::executors::droid::Autonomy::decl(),
-        executors::executors::droid::ReasoningEffortLevel::decl(),
         executors::executors::AppendPrompt::decl(),
-        executors::actions::coding_agent_initial::CodingAgentInitialRequest::decl(),
-        executors::actions::coding_agent_follow_up::CodingAgentFollowUpRequest::decl(),
-        executors::actions::review::ReviewRequest::decl(),
         executors::actions::review::RepoReviewContext::decl(),
         executors::logs::CommandExitStatus::decl(),
         executors::logs::CommandRunResult::decl(),
@@ -352,6 +341,56 @@ fn generate_types_content() -> String {
         executors::runtime::AgentRuntimeError::decl(),
         executors::runtime::AgentRuntimeErrorKind::decl(),
         executors::runtime::AgentRuntimeLaunchPhase::decl(),
+        executors::runtime::AgentRuntimeMessageRole::decl(),
+        executors::runtime::AgentRuntimeToolStatus::decl(),
+        executors::runtime::AgentRunIntent::decl(),
+        executors::runtime::RunAttemptMode::decl(),
+        executors::runtime::WorkspaceMode::decl(),
+        executors::runtime::WorkspaceReference::decl(),
+        executors::runtime::AgentCapability::decl(),
+        executors::runtime::CapabilityState::decl(),
+        executors::runtime::CapabilitySource::decl(),
+        executors::runtime::CapabilitySnapshotEntry::decl(),
+        executors::runtime::CapabilitySnapshot::decl(),
+        executors::runtime::ProviderSessionReference::decl(),
+        executors::runtime::CanonicalMessage::decl(),
+        executors::runtime::AgentRunRequestEnvelope::decl(),
+        executors::runtime::AgentTransportKind::decl(),
+        executors::runtime::RunAttemptRequest::decl(),
+        executors::runtime::NativeAuditReference::decl(),
+        executors::runtime::AgentEventPayload::decl(),
+        executors::runtime::AgentEventEnvelope::decl(),
+        executors::runtime::AgentRunStatus::decl(),
+        executors::runtime::ProjectionStatus::decl(),
+        executors::runtime::RunState::decl(),
+        executors::runtime::AgentRunPortSnapshot::decl(),
+        services::services::agent_runtime::AgentEventCursor::decl(),
+        services::services::agent_runtime::AgentRunSummary::decl(),
+        services::services::agent_runtime::AgentRunHistoryPage::decl(),
+        services::services::agent_runtime::AgentRunStats::decl(),
+        server::routes::agent_runs::AgentRunControlIdentity::decl(),
+        server::routes::agent_runs::CancelAgentRunRequest::decl(),
+        server::routes::agent_runs::SubmitAgentRunInputRequest::decl(),
+        server::routes::agent_runs::ResolveAgentRunApprovalRequest::decl(),
+        server::routes::agent_runs::RetryAgentRunRequest::decl(),
+        executors::runtime::OrchestrationProductKind::decl(),
+        executors::runtime::OrchestrationFailurePolicy::decl(),
+        executors::runtime::OrchestrationJoinPolicy::decl(),
+        executors::runtime::RemainingUpstreamsPolicy::decl(),
+        executors::runtime::EachDownstreamExecution::decl(),
+        executors::runtime::RetryBackoffKind::decl(),
+        executors::runtime::OrchestrationRetryPolicy::decl(),
+        executors::runtime::OrchestrationPlanNode::decl(),
+        executors::runtime::OrchestrationPlanSnapshot::decl(),
+        executors::runtime::UpstreamSourceReference::decl(),
+        executors::runtime::UpstreamHandoff::decl(),
+        executors::runtime::AgentRunPortCommandEnvelope::decl(),
+        executors::runtime::AgentRunPortCommand::decl(),
+        executors::runtime::OrchestrationRunStatus::decl(),
+        executors::runtime::OrchestrationNodeStatus::decl(),
+        executors::runtime::OrchestrationEventPayload::decl(),
+        executors::runtime::OrchestrationEventEnvelope::decl(),
+        executors::runtime::OrchestrationState::decl(),
         serde_json::Value::decl(),
         relay_protocol::RelayWsMessageType::decl(),
         relay_webrtc::DataChannelMessage::decl(),
@@ -412,10 +451,6 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
     println!("Generating JSON schemas…");
     let schemas: HashMap<&str, String> = HashMap::from([
         (
-            "amp",
-            generate_json_schema::<executors::executors::amp::Amp>()?,
-        ),
-        (
             "claude_code",
             generate_json_schema::<executors::executors::claude::ClaudeCode>()?,
         ),
@@ -424,28 +459,12 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
             generate_json_schema::<executors::executors::gemini::Gemini>()?,
         ),
         (
+            "oh_my_pi",
+            generate_json_schema::<executors::executors::oh_my_pi::OhMyPi>()?,
+        ),
+        (
             "codex",
             generate_json_schema::<executors::executors::codex::Codex>()?,
-        ),
-        (
-            "cursor_agent",
-            generate_json_schema::<executors::executors::cursor::CursorAgent>()?,
-        ),
-        (
-            "opencode",
-            generate_json_schema::<executors::executors::opencode::Opencode>()?,
-        ),
-        (
-            "qwen_code",
-            generate_json_schema::<executors::executors::qwen::QwenCode>()?,
-        ),
-        (
-            "copilot",
-            generate_json_schema::<executors::executors::copilot::Copilot>()?,
-        ),
-        (
-            "droid",
-            generate_json_schema::<executors::executors::droid::Droid>()?,
         ),
     ]);
     println!(
@@ -471,6 +490,42 @@ fn write_schemas(
 }
 
 fn schemas_up_to_date(schemas_path: &Path, schemas: &HashMap<&str, String>) -> bool {
+    let expected_files = schemas
+        .keys()
+        .map(|name| format!("{name}.json"))
+        .collect::<std::collections::HashSet<_>>();
+    let actual_files = match fs::read_dir(schemas_path) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.ends_with(".json"))
+            .collect::<std::collections::HashSet<_>>(),
+        Err(error) => {
+            eprintln!(
+                "❌ Unable to read generated schema directory {}: {error}",
+                schemas_path.display()
+            );
+            return false;
+        }
+    };
+
+    if actual_files != expected_files {
+        let mut unexpected = actual_files
+            .difference(&expected_files)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut missing = expected_files
+            .difference(&actual_files)
+            .cloned()
+            .collect::<Vec<_>>();
+        unexpected.sort();
+        missing.sort();
+        eprintln!(
+            "❌ Generated executor schema set is stale (unexpected: {unexpected:?}, missing: {missing:?})."
+        );
+        return false;
+    }
+
     for (name, expected_content) in schemas {
         let schema_file = schemas_path.join(format!("{}.json", name));
         let current_content = fs::read_to_string(&schema_file).unwrap_or_default();

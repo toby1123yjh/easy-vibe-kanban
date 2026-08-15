@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useCallback, useMemo, useRef } from 'react';
+import type { AgentRunStatus } from 'shared/types';
 import {
   PlusIcon,
   ArrowLeftIcon,
@@ -31,7 +32,7 @@ export interface WorkspacesSidebarWorkspace {
   hasRunningDevServer?: boolean;
   hasUnseenActivity?: boolean;
   latestProcessCompletedAt?: string;
-  latestProcessStatus?: 'running' | 'completed' | 'failed' | 'killed';
+  latestProcessStatus?: AgentRunStatus;
   prStatus?: 'open' | 'merged' | 'closed' | 'unknown';
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AgentRunStatus } from 'shared/types';
 import { buildTaskAttempts } from './taskAttempt';
 
 describe('task attempt view model', () => {
@@ -11,7 +12,7 @@ describe('task attempt view model', () => {
           name: 'Codex try',
           archived: false,
           updatedAt: '2026-05-14T01:00:00Z',
-          latestProcessStatus: 'completed',
+          latestProcessStatus: AgentRunStatus.succeeded,
           filesChanged: 2,
           linesAdded: 10,
           linesRemoved: 1,
@@ -63,7 +64,7 @@ describe('task attempt view model', () => {
           name: 'Workflow backing workspace',
           archived: false,
           updatedAt: '2026-05-14T03:00:00Z',
-          latestProcessStatus: 'running',
+          latestProcessStatus: AgentRunStatus.running,
           filesChanged: 0,
           linesAdded: 0,
           linesRemoved: 0,
@@ -77,7 +78,7 @@ describe('task attempt view model', () => {
           name: 'Manual attempt',
           archived: false,
           updatedAt: '2026-05-14T02:00:00Z',
-          latestProcessStatus: 'completed',
+          latestProcessStatus: AgentRunStatus.succeeded,
           filesChanged: 1,
           linesAdded: 2,
           linesRemoved: 0,
@@ -105,6 +106,67 @@ describe('task attempt view model', () => {
     expect(attempts.map((attempt) => attempt.id)).toEqual([
       'workflow-attempt-1',
       'single-agent-workspace-1',
+    ]);
+  });
+
+  it('projects canonical waiting, failure, and cancellation states', () => {
+    const attempts = buildTaskAttempts({
+      workspaceAttempts: [
+        {
+          id: 'waiting-workspace',
+          localWorkspaceId: 'waiting-workspace',
+          name: 'Waiting agent',
+          archived: false,
+          updatedAt: '2026-05-14T03:00:00Z',
+          latestProcessStatus: AgentRunStatus.awaiting_approval,
+          filesChanged: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          prs: [],
+          owner: null,
+          isOwnedByCurrentUser: true,
+        },
+        {
+          id: 'crashed-workspace',
+          localWorkspaceId: 'crashed-workspace',
+          name: 'Crashed agent',
+          archived: false,
+          updatedAt: '2026-05-14T02:00:00Z',
+          latestProcessStatus: AgentRunStatus.crashed,
+          filesChanged: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          prs: [],
+          owner: null,
+          isOwnedByCurrentUser: true,
+        },
+        {
+          id: 'cancelled-workspace',
+          localWorkspaceId: 'cancelled-workspace',
+          name: 'Cancelled agent',
+          archived: false,
+          updatedAt: '2026-05-14T01:00:00Z',
+          latestProcessStatus: AgentRunStatus.cancelled,
+          filesChanged: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          prs: [],
+          owner: null,
+          isOwnedByCurrentUser: true,
+        },
+      ],
+      workflowAttempts: [],
+    });
+
+    expect(
+      attempts.map(({ statusLabel, statusTone }) => ({
+        statusLabel,
+        statusTone,
+      }))
+    ).toEqual([
+      { statusLabel: 'Waiting for approval', statusTone: 'waiting' },
+      { statusLabel: 'Failed', statusTone: 'failed' },
+      { statusLabel: 'Canceled', statusTone: 'canceled' },
     ]);
   });
 });

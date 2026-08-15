@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AgentRunLifecycle,
-  AgentRuntimeErrorKind,
-  BaseCodingAgent,
-  ExecutionProcessStatus,
-  type ExecutionProcess,
-} from 'shared/types';
+import { ExecutionProcessStatus, type ExecutionProcess } from 'shared/types';
 import {
   getExecutionProcessLifecycle,
   getExecutionProcessRuntimeDisplay,
@@ -16,14 +10,13 @@ import {
 const baseProcess = {
   id: 'process-1',
   session_id: 'session-1',
-  run_reason: 'codingagent',
+  run_reason: 'setupscript',
   executor_action: {
     typ: {
-      type: 'CodingAgentInitialRequest',
-      prompt: 'Implement feature',
-      executor_config: {
-        executor: BaseCodingAgent.CODEX,
-      },
+      type: 'ScriptRequest',
+      script: 'echo test',
+      language: 'Bash',
+      context: 'SetupScript',
       working_dir: null,
     },
     next_action: null,
@@ -45,54 +38,30 @@ function makeProcess(overrides: Partial<ExecutionProcess>): ExecutionProcess {
 }
 
 describe('execution process runtime helpers', () => {
-  it('prefers normalized waiting lifecycle for active state', () => {
+  it('uses process status for active state', () => {
     const process = makeProcess({
-      agent_runtime_lifecycle: AgentRunLifecycle.waiting_approval,
-      status: ExecutionProcessStatus.running,
-    });
-
-    expect(getExecutionProcessLifecycle(process)).toBe('waiting_approval');
-    expect(isExecutionProcessActive(process)).toBe(true);
-    expect(getExecutionProcessRuntimeDisplay(process)).toMatchObject({
-      label: 'waiting for approval',
-      source: 'agent_runtime',
-      tone: 'warning',
-    });
-  });
-
-  it('treats crashed runtime lifecycle as failed-like with error details', () => {
-    const process = makeProcess({
-      agent_runtime_lifecycle: AgentRunLifecycle.crashed,
-      agent_runtime_error: {
-        kind: AgentRuntimeErrorKind.process_crashed,
-        message: 'Codex exited before responding',
-        provider: 'codex',
-        exit_code: 2,
-      },
       status: ExecutionProcessStatus.running,
     });
 
     const display = getExecutionProcessRuntimeDisplay(process);
 
-    expect(isExecutionProcessActive(process)).toBe(false);
-    expect(isExecutionProcessFailedLike(process)).toBe(true);
-    expect(display.label).toBe('crashed');
-    expect(display.errorLabel).toContain('process crashed');
-    expect(display.errorLabel).toContain('Codex exited before responding');
+    expect(getExecutionProcessLifecycle(process)).toBe('running');
+    expect(isExecutionProcessActive(process)).toBe(true);
+    expect(display).toMatchObject({
+      label: 'running',
+      source: 'process_status',
+      tone: 'active',
+    });
   });
 
-  it('falls back to process status when runtime lifecycle is absent', () => {
+  it('treats failed process status as failed-like', () => {
     const process = makeProcess({
-      status: ExecutionProcessStatus.completed,
+      status: ExecutionProcessStatus.failed,
     });
 
-    expect(getExecutionProcessLifecycle(process)).toBe('completed');
+    expect(getExecutionProcessLifecycle(process)).toBe('failed');
     expect(isExecutionProcessActive(process)).toBe(false);
-    expect(getExecutionProcessRuntimeDisplay(process)).toMatchObject({
-      label: 'completed',
-      source: 'process_status',
-      tone: 'success',
-    });
+    expect(isExecutionProcessFailedLike(process)).toBe(true);
   });
 
   it('keeps killed fallback distinct from crashed', () => {

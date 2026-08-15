@@ -19,7 +19,7 @@ use services::services::container::ContainerService;
 use ts_rs::TS;
 use utils::response::ApiResponse;
 
-use super::{codex_setup, cursor_setup, gh_cli_setup::GhCliSetupError};
+use super::{codex_setup, gh_cli_setup::GhCliSetupError};
 use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -69,11 +69,13 @@ pub async fn run_agent_setup(
     let config = ExecutorConfigs::get_cached();
     let coding_agent = config.get_coding_agent_or_default(&executor_profile_id);
     match coding_agent {
-        CodingAgent::CursorAgent(_) => {
-            cursor_setup::run_cursor_setup(&deployment, &workspace).await?;
-        }
         CodingAgent::Codex(codex) => {
             codex_setup::run_codex_setup(&deployment, &workspace, &codex).await?;
+        }
+        // Oh My Pi does not expose a VK setup helper; callers must install and
+        // authenticate the native `omp` runtime independently.
+        CodingAgent::OhMyPi(_) => {
+            return Err(ApiError::Executor(ExecutorError::SetupHelperNotSupported));
         }
         _ => return Err(ApiError::Executor(ExecutorError::SetupHelperNotSupported)),
     }

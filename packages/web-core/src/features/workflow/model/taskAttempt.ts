@@ -121,6 +121,8 @@ export function workflowAttemptStatusLabel(
       return 'Waiting for human';
     case 'awaiting_arena':
       return 'Waiting for arena';
+    case 'cancelling':
+      return 'Cancelling';
     case 'succeeded':
       return 'Succeeded';
     case 'failed':
@@ -142,6 +144,7 @@ export function workflowAttemptStatusTone(
       return 'running';
     case 'awaiting_human':
     case 'awaiting_arena':
+    case 'cancelling':
       return 'waiting';
     case 'succeeded':
       return 'succeeded';
@@ -155,13 +158,23 @@ export function workflowAttemptStatusTone(
 function workspaceStatusLabel(workspace: WorkspaceWithStats): string {
   if (workspace.archived) return 'Archived';
   switch (workspace.latestProcessStatus) {
+    case 'pending':
+    case 'starting':
     case 'running':
       return 'Running';
-    case 'completed':
+    case 'awaiting_input':
+      return 'Waiting for input';
+    case 'awaiting_approval':
+      return 'Waiting for approval';
+    case 'cancelling':
+      return 'Cancelling';
+    case 'succeeded':
       return 'Completed';
     case 'failed':
+    case 'crashed':
+    case 'audit_failed':
       return 'Failed';
-    case 'killed':
+    case 'cancelled':
       return 'Canceled';
     default:
       return 'Active';
@@ -173,13 +186,21 @@ function workspaceStatusTone(
 ): TaskAttemptStatusTone {
   if (workspace.archived) return 'canceled';
   switch (workspace.latestProcessStatus) {
+    case 'pending':
+    case 'starting':
     case 'running':
       return 'running';
-    case 'completed':
+    case 'awaiting_input':
+    case 'awaiting_approval':
+    case 'cancelling':
+      return 'waiting';
+    case 'succeeded':
       return 'succeeded';
     case 'failed':
+    case 'crashed':
+    case 'audit_failed':
       return 'failed';
-    case 'killed':
+    case 'cancelled':
       return 'canceled';
     default:
       return 'neutral';

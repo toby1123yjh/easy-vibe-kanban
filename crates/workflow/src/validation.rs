@@ -257,16 +257,7 @@ fn is_known_executor(executor: &str) -> bool {
     let normalized = executor.trim().replace('-', "_").to_ascii_uppercase();
     matches!(
         normalized.as_str(),
-        "CLAUDE_CODE"
-            | "AMP"
-            | "GEMINI"
-            | "CODEX"
-            | "OPENCODE"
-            | "CURSOR"
-            | "CURSOR_AGENT"
-            | "QWEN_CODE"
-            | "COPILOT"
-            | "DROID"
+        "CLAUDE_CODE" | "GEMINI" | "CODEX" | "OH_MY_PI"
     )
 }
 

@@ -6,25 +6,22 @@ use std::{
 
 use anyhow::{Context, Result};
 use db::{
+    models::{execution_process::ExecutionProcess, execution_process_logs::ExecutionProcessLogs},
     DBService,
-    models::{
-        coding_agent_turn::CodingAgentTurn, execution_process::ExecutionProcess,
-        execution_process_logs::ExecutionProcessLogs,
-    },
 };
 use futures::{StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use sqlx::SqlitePool;
 use tokio::{
     io::AsyncWriteExt,
-    sync::{RwLock, broadcast},
+    sync::{broadcast, RwLock},
     task::JoinHandle,
 };
 use utils::{
     assets::prod_asset_dir_path,
     execution_logs::{
-        ExecutionLogWriter, process_log_file_path, process_log_file_path_in_root,
-        read_execution_log_file,
+        process_log_file_path, process_log_file_path_in_root, read_execution_log_file,
+        ExecutionLogWriter,
     },
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -301,7 +298,6 @@ pub async fn append_log_message(session_id: Uuid, execution_id: Uuid, msg: &LogM
 
 pub fn spawn_stream_raw_logs_to_storage(
     msg_stores: Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>,
-    db: DBService,
     execution_id: Uuid,
     session_id: Uuid,
 ) -> JoinHandle<()> {
@@ -352,38 +348,7 @@ pub fn spawn_stream_raw_logs_to_storage(
                             );
                         }
                     },
-                    LogMsg::SessionId(agent_session_id) => {
-                        if let Err(e) = CodingAgentTurn::update_agent_session_id(
-                            &db.pool,
-                            execution_id,
-                            agent_session_id,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "Failed to update agent_session_id {} for execution process {}: {}",
-                                agent_session_id,
-                                execution_id,
-                                e
-                            );
-                        }
-                    }
-                    LogMsg::MessageId(agent_message_id) => {
-                        if let Err(e) = CodingAgentTurn::update_agent_message_id(
-                            &db.pool,
-                            execution_id,
-                            agent_message_id,
-                        )
-                        .await
-                        {
-                            tracing::error!(
-                                "Failed to update agent_message_id {} for execution process {}: {}",
-                                agent_message_id,
-                                execution_id,
-                                e
-                            );
-                        }
-                    }
+                    LogMsg::SessionId(_) | LogMsg::MessageId(_) => continue,
                     LogMsg::Finished => {
                         break;
                     }

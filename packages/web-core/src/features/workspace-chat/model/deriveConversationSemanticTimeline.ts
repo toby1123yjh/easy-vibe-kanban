@@ -11,7 +11,9 @@ import type {
 } from '@/shared/hooks/useConversationHistory/types';
 import { isNativeHistoryBackfillEntry } from './nativeHistoryBackfill';
 
-export type ConversationSemanticProcessKind = 'agent' | 'script' | 'unknown';
+// Agent runs are projected from the canonical AgentRun stream. Execution
+// processes are retained here only for standalone script rendering.
+export type ConversationSemanticProcessKind = 'script' | 'unknown';
 
 export interface ConversationSemanticProcessItem {
   readonly executionProcessId: string;
@@ -32,24 +34,6 @@ export interface ConversationSemanticTimeline {
   readonly hasSetupScriptWithPrompt: boolean;
 }
 
-function extractPromptFromActionChain(
-  action: ExecutionProcessState['executionProcess']['executor_action'] | null
-): string | null {
-  let current = action;
-  while (current) {
-    const typ = current.typ;
-    if (
-      typ.type === 'CodingAgentInitialRequest' ||
-      typ.type === 'CodingAgentFollowUpRequest' ||
-      typ.type === 'ReviewRequest'
-    ) {
-      return typ.prompt;
-    }
-    current = current.next_action;
-  }
-  return null;
-}
-
 // This is the first semantic reshape after the raw source model.
 // It keeps process-level information but removes direct store traversal from later stages.
 
@@ -57,14 +41,6 @@ function toConversationSemanticProcessKind(
   executionProcess: ExecutionProcessState['executionProcess']
 ): ConversationSemanticProcessKind {
   const actionType = executionProcess.executor_action.typ.type;
-
-  if (
-    actionType === 'CodingAgentInitialRequest' ||
-    actionType === 'CodingAgentFollowUpRequest' ||
-    actionType === 'ReviewRequest'
-  ) {
-    return 'agent';
-  }
 
   if (actionType === 'ScriptRequest') {
     return 'script';
@@ -184,14 +160,8 @@ export function deriveConversationSemanticTimeline(
         process.executionProcess.executor_action.typ.type === 'ScriptRequest' &&
         process.executionProcess.executor_action.typ.context === 'SetupScript'
     ),
-    hasSetupScriptWithPrompt: processes.some(
-      (process) =>
-        process.executionProcess.executor_action.typ.type === 'ScriptRequest' &&
-        process.executionProcess.executor_action.typ.context ===
-          'SetupScript' &&
-        extractPromptFromActionChain(
-          process.executionProcess.executor_action
-        ) !== null
-    ),
+    // The initial prompt is now a canonical AgentRun message. Never infer it
+    // from an ExecutionProcess action chain.
+    hasSetupScriptWithPrompt: false,
   };
 }

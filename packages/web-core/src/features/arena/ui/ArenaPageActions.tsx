@@ -4,9 +4,10 @@ import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
 import { Textarea } from '@vibe/ui/components/Textarea';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
-import type {
-  ArenaGroupResponse,
-  ArenaWorkspaceSummary,
+import {
+  isActiveArenaAgentRunStatus,
+  type ArenaGroupResponse,
+  type ArenaWorkspaceSummary,
 } from '@/shared/lib/arenaApi';
 import { SynthesizeArenaDialog } from './SynthesizeArenaDialog';
 
@@ -45,8 +46,8 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
   const attemptWorkspaces = group.workspaces.filter(
     (workspace) => workspace.purpose === 'attempt'
   );
-  const isRunning = group.workspaces.some(
-    (workspace) => workspace.latest_execution_status === 'running'
+  const isRunning = group.workspaces.some((workspace) =>
+    isActiveArenaAgentRunStatus(workspace.latest_agent_run_status)
   );
   const isPending = message.isPending || startImplementation.isPending;
   const actionsDisabled =

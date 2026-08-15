@@ -622,24 +622,9 @@ html {
   .node-identity-gemini {
     --node-color-rgb: 139, 92, 246;
   } /* Gemini Blue-Violet */
-  .node-identity-qwen {
-    --node-color-rgb: 244, 63, 94;
-  } /* Qwen Red/Rose */
-  .node-identity-opencode {
-    --node-color-rgb: 6, 182, 212;
-  } /* OpenCode Cyan */
-  .node-identity-cursor {
-    --node-color-rgb: 59, 130, 246;
-  } /* Cursor Blue */
-  .node-identity-copilot {
-    --node-color-rgb: 34, 197, 94;
-  } /* Copilot Green */
-  .node-identity-amp {
-    --node-color-rgb: 245, 158, 11;
-  } /* AMP Amber */
-  .node-identity-droid {
-    --node-color-rgb: 132, 204, 22;
-  } /* Droid Lime */
+  .node-identity-oh-my-pi {
+    --node-color-rgb: 14, 165, 233;
+  } /* Oh My Pi Sky */
   .node-identity-default {
     --node-color-rgb: 14, 165, 233;
   } /* Default Sky */

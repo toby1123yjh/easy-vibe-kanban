@@ -12,8 +12,10 @@ pub enum NodeExecutionStatus {
     Running,
     AwaitingHuman,
     AwaitingArena,
+    Cancelling,
     Succeeded,
     Failed,
+    Cancelled,
     Skipped,
 }
 

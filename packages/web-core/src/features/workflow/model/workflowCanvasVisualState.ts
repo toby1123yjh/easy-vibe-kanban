@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 import type {
   NodeExecutionStatus,
   WorkflowNodeExecutionResponse,
+  WorkflowNodeWorkStatus,
 } from 'shared/types';
 import type {
   WorkflowGraph,
@@ -125,8 +126,8 @@ export function getWorkflowCanvasNodeStateLabel(
 }
 
 export function getWorkflowCanvasEdgeState(
-  sourceStatus: NodeExecutionStatus | undefined,
-  targetStatus?: NodeExecutionStatus
+  sourceStatus: NodeExecutionStatus | WorkflowNodeWorkStatus | undefined,
+  targetStatus?: NodeExecutionStatus | WorkflowNodeWorkStatus
 ): WorkflowCanvasEdgeState {
   if (sourceStatus === 'failed' || targetStatus === 'failed') return 'failed';
   if (sourceStatus === 'running' || targetStatus === 'running') {

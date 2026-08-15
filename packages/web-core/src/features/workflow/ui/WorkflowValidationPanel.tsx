@@ -200,10 +200,7 @@ function hasRouterExecutorConfig(config: unknown): boolean {
   const executor = (config as { executor?: unknown }).executor;
   if (typeof executor !== 'string') return false;
   const normalized = executor.trim().replaceAll('-', '_').toUpperCase();
-  return (
-    normalized === 'CURSOR' ||
-    Object.values(BaseCodingAgent).includes(normalized as BaseCodingAgent)
-  );
+  return Object.values(BaseCodingAgent).includes(normalized as BaseCodingAgent);
 }
 
 function validateConditionBranch(

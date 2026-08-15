@@ -154,7 +154,7 @@ export function ArenaConversationPane({
       sessionId={selectedSessionId}
     >
       <ApprovalFeedbackProvider>
-        <EntriesProvider key={entriesProviderKey}>
+        <EntriesProvider key={entriesProviderKey} sessionId={selectedSessionId}>
           <MessageEditProvider>
             <section className="flex min-h-0 min-w-[420px] flex-1 flex-col overflow-hidden rounded border border-zinc-200 bg-primary dark:border-zinc-800">
               <div className="border-b border-zinc-200 px-base py-half dark:border-zinc-800">

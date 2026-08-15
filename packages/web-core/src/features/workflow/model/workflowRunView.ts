@@ -5,11 +5,24 @@ import type {
   WorkflowRunResponse,
   WorkflowRunStatus,
 } from 'shared/types';
-import type {
-  ArenaGroupResponse,
-  ArenaWorkspaceSummary,
+import {
+  isSuccessfulArenaAgentRunStatus,
+  type ArenaGroupResponse,
+  type ArenaWorkspaceSummary,
 } from '@/shared/lib/arenaApi';
 import type { WorkflowGraph } from './workflowGraph';
+import {
+  getWorkflowNodeExecutionForWork,
+  getWorkflowNodeWork,
+  getWorkflowRuntimeView,
+  type WorkflowRuntimeProjection,
+} from './workflowRuntimeView';
+
+type CanonicalWorkflowNodeExecution = WorkflowNodeExecutionResponse & {
+  orchestration_node_execution_id?: string | null;
+  agent_run_id?: string | null;
+  projection_status?: import('shared/types').ProjectionStatus | null;
+};
 
 export function getWorkflowRunStatusLabel(status: WorkflowRunStatus): string {
   switch (status) {
@@ -27,6 +40,8 @@ export function getWorkflowRunStatusLabel(status: WorkflowRunStatus): string {
       return 'Failed';
     case 'canceled':
       return 'Canceled';
+    case 'cancelling':
+      return 'Cancelling';
   }
 }
 
@@ -58,7 +73,10 @@ export function getNodeStatusTone(status: NodeExecutionStatus): StatusTone {
       return 'danger';
     case 'awaiting_human':
     case 'awaiting_arena':
+    case 'cancelling':
       return 'warning';
+    case 'cancelled':
+      return 'neutral';
     case 'skipped':
       return 'neutral';
   }
@@ -93,11 +111,11 @@ export interface WorkflowRunDashboardSummary {
 
 export function buildWorkflowRunDashboardSummary(
   run: WorkflowRunResponse,
-  runtimeView?: WorkflowRunRuntimeView | null
+  runtimeView?: WorkflowRunRuntimeView | WorkflowRuntimeProjection | null
 ): WorkflowRunDashboardSummary {
   const nodes = run.nodes;
   const workItems = runtimeView?.node_work;
-  const totalSteps = workItems?.length ?? nodes.length;
+  const totalSteps = workItems?.length ?? 0;
 
   let completedSteps = 0;
   let skippedSteps = 0;
@@ -115,7 +133,8 @@ export function buildWorkflowRunDashboardSummary(
         skippedSteps++;
       } else if (
         work.status === 'awaiting_human' ||
-        work.status === 'awaiting_arena'
+        work.status === 'awaiting_arena' ||
+        work.status === 'cancelling'
       ) {
         waitingSteps++;
       } else if (work.status === 'failed') {
@@ -125,22 +144,17 @@ export function buildWorkflowRunDashboardSummary(
       }
     }
   } else {
-    for (const node of nodes) {
-      if (node.status === 'succeeded') {
-        completedSteps++;
-      } else if (node.status === 'skipped') {
-        skippedSteps++;
-      } else if (
-        node.status === 'awaiting_human' ||
-        node.status === 'awaiting_arena'
-      ) {
-        waitingSteps++;
-      } else if (node.status === 'failed') {
-        failedSteps++;
-      } else if (node.status === 'running') {
-        runningSteps++;
-      }
-    }
+    return {
+      totalSteps: 0,
+      completedSteps: 0,
+      skippedSteps: 0,
+      waitingSteps: 0,
+      failedSteps: 0,
+      runningSteps: 0,
+      progressPercent: 0,
+      totalTokens: 0,
+      totalCostEstimate: 0,
+    };
   }
 
   for (const node of nodes) {
@@ -190,28 +204,18 @@ export function formatWorkflowDuration(
   return `${seconds}s`;
 }
 
-type WorkflowNodeExecutionWithProcess = WorkflowNodeExecutionResponse & {
-  execution_process_id?: string | null;
-};
-
 export interface AgentSessionRow {
   runId: string;
   runLabel: string;
   nodeId: string;
   sessionId: string | null;
-  executionProcessId: string | null;
+  orchestrationNodeExecutionId: string | null;
+  agentRunId: string | null;
+  projectionStatus: import('shared/types').ProjectionStatus | null;
   statusLabel: string;
   startedLabel: string;
   durationLabel: string;
   outputPreview: string;
-}
-
-export function getNodeExecutionProcessId(
-  node: WorkflowNodeExecutionResponse
-): string | null {
-  return (
-    (node as WorkflowNodeExecutionWithProcess).execution_process_id ?? null
-  );
 }
 
 export function buildWorkspaceSessionHref(
@@ -235,19 +239,34 @@ export function buildAgentSessionRows(
 ): AgentSessionRow[] {
   if (!nodeId) return [];
 
-  return run.nodes
-    .filter((node) => node.node_id === nodeId && node.node_type === 'agent')
-    .map((node) => ({
-      runId: run.id,
-      runLabel: run.id,
-      nodeId: node.node_id,
-      sessionId: node.session_id,
-      executionProcessId: getNodeExecutionProcessId(node),
-      statusLabel: getNodeStatusLabel(node.status),
-      startedLabel: node.started_at ?? 'Not started',
-      durationLabel: formatWorkflowDuration(node.started_at, node.finished_at),
-      outputPreview: node.output_text ?? 'No output yet',
-    }));
+  const runtimeView = getWorkflowRuntimeView(run);
+  const rows = runtimeView.node_work
+    .filter((work) => work.node_id === nodeId && work.node_type === 'agent')
+    .map((work) => {
+      const node = getWorkflowNodeExecutionForWork(run, work);
+      if (!node) return null;
+      const canonicalNode = node as CanonicalWorkflowNodeExecution;
+      return {
+        runId: run.id,
+        runLabel: run.id,
+        nodeId: work.node_id,
+        sessionId: work.active_session_id,
+        orchestrationNodeExecutionId:
+          canonicalNode.orchestration_node_execution_id ?? null,
+        agentRunId:
+          canonicalNode.agent_run_id ?? work.active_agent_run_id ?? null,
+        projectionStatus:
+          canonicalNode.projection_status ?? work.projection_status ?? null,
+        statusLabel: getNodeStatusLabel(node.status),
+        startedLabel: node.started_at ?? 'Not started',
+        durationLabel: formatWorkflowDuration(
+          node.started_at,
+          node.finished_at
+        ),
+        outputPreview: node.output_text ?? 'No output yet',
+      } satisfies AgentSessionRow;
+    });
+  return rows.filter((row): row is AgentSessionRow => row !== null);
 }
 
 export interface WorkflowNodeDebugView {
@@ -258,7 +277,8 @@ export interface WorkflowNodeDebugView {
   outputText: string | null;
   errorText: string | null;
   sessionId: string | null;
-  executionProcessId: string | null;
+  orchestrationNodeExecutionId: string | null;
+  agentRunId: string | null;
   upstreamOutputs: Array<{ nodeId: string; outputText: string }>;
 }
 
@@ -272,15 +292,16 @@ export function buildWorkflowNodeDebugView({
   run: WorkflowRunResponse;
 }): WorkflowNodeDebugView | null {
   const graphNode = graph.nodes.find((node) => node.id === nodeId);
-  const execution = run.nodes.find((node) => node.node_id === nodeId);
+  const runtimeView = getWorkflowRuntimeView(run);
+  const work = getWorkflowNodeWork(runtimeView, nodeId);
+  const execution = getWorkflowNodeExecutionForWork(run, work);
   if (!graphNode || !execution) return null;
 
   const upstreamOutputs = graph.edges
     .filter((edge) => edge.target === nodeId)
     .map((edge) => {
-      const upstream = run.nodes.find(
-        (candidate) => candidate.node_id === edge.source
-      );
+      const upstreamWork = getWorkflowNodeWork(runtimeView, edge.source);
+      const upstream = getWorkflowNodeExecutionForWork(run, upstreamWork);
       return upstream?.output_text
         ? { nodeId: edge.source, outputText: upstream.output_text }
         : null;
@@ -297,7 +318,11 @@ export function buildWorkflowNodeDebugView({
     outputText: execution.output_text,
     errorText: execution.error_text,
     sessionId: execution.session_id,
-    executionProcessId: getNodeExecutionProcessId(execution),
+    orchestrationNodeExecutionId:
+      (execution as CanonicalWorkflowNodeExecution)
+        .orchestration_node_execution_id ?? null,
+    agentRunId:
+      (execution as CanonicalWorkflowNodeExecution).agent_run_id ?? null,
     upstreamOutputs,
   };
 }
@@ -340,8 +365,9 @@ export function buildArenaWinnerOptions(
       const isPromoted =
         group.promoted_workspace_id === workspace.workspace_id ||
         workspace.arena_status === 'promoted';
-      const executionStatus = workspace.latest_execution_status;
-      const isExecutionFinished = executionStatus === 'completed';
+      const agentRunStatus = workspace.latest_agent_run_status;
+      const isExecutionFinished =
+        isSuccessfulArenaAgentRunStatus(agentRunStatus);
       const isSelectable =
         !groupAlreadyPromoted &&
         workspace.arena_status === 'active' &&
@@ -353,7 +379,7 @@ export function buildArenaWinnerOptions(
         branch: workspace.branch,
         executorLabel: arenaWinnerExecutorLabel(workspace),
         arenaStatusLabel: formatStatus(workspace.arena_status, 'unknown'),
-        executionStatusLabel: formatStatus(executionStatus, 'not started'),
+        executionStatusLabel: formatStatus(agentRunStatus, 'not started'),
         hasUncommittedChanges: workspace.has_uncommitted_changes,
         isSelectable,
         isPromoted,

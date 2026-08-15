@@ -67,7 +67,7 @@ export function WorkflowAgentSessionsList({
 
             return (
               <div
-                key={`${row.runId}-${row.nodeId}-${row.sessionId ?? 'pending'}-${row.executionProcessId ?? 'process'}`}
+                key={`${row.runId}-${row.nodeId}-${row.agentRunId ?? row.orchestrationNodeExecutionId ?? 'pending'}`}
                 className="border-b border-secondary/70 p-3 last:border-b-0"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -89,10 +89,17 @@ export function WorkflowAgentSessionsList({
                         })}
                       </span>
                       <span>
-                        {t('workflow.agentSessions.process', {
-                          id: shortId(row.executionProcessId, emptyIdLabel),
+                        {t('workflow.agentSessions.agentRun', {
+                          id: shortId(row.agentRunId, emptyIdLabel),
                         })}
                       </span>
+                      {row.projectionStatus ? (
+                        <span className="text-warning">
+                          {t('workflow.agentSessions.projection', {
+                            status: row.projectionStatus,
+                          })}
+                        </span>
+                      ) : null}
                       <span>
                         {formatSessionStartedLabel(row.startedLabel, t)} /{' '}
                         {formatSessionDurationLabel(row.durationLabel, t)}

@@ -65,26 +65,12 @@ export function getVariantOptions(
 }
 
 /**
- * Extract full ExecutorConfig from an ExecutorAction chain.
- * Traverses the action chain to find the first coding agent request.
+ * Agent actions are launched through canonical AgentRuns. ExecutorAction is
+ * retained only for standalone scripts, so it never carries an Agent config.
  */
 export function executorConfigFromAction(
-  action: ExecutorAction | null
+  _action: ExecutorAction | null
 ): ExecutorConfig | null {
-  let curr: ExecutorAction | null = action;
-  while (curr) {
-    const typ = curr.typ;
-    switch (typ.type) {
-      case 'CodingAgentInitialRequest':
-      case 'CodingAgentFollowUpRequest':
-      case 'ReviewRequest':
-        return typ.executor_config;
-      case 'ScriptRequest':
-      default:
-        curr = curr.next_action;
-        continue;
-    }
-  }
   return null;
 }
 

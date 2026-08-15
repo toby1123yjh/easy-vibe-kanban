@@ -57,9 +57,6 @@ export function useMessageEditRetry(
       await sessionsApi.followUp(sessionId, {
         prompt: message,
         executor_config: executorConfig,
-        retry_process_id: executionProcessId,
-        force_when_dirty: modalResult.forceWhenDirty ?? false,
-        perform_git_reset: modalResult.performGitReset ?? true,
       });
     },
     onSuccess: () => {

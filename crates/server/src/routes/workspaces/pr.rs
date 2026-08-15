@@ -8,8 +8,7 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_process::ExecutionProcessRunReason,
     merge::{Merge, MergeStatus},
     pull_request::PullRequest,
     repo::{Repo, RepoError},
@@ -18,9 +17,9 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::actions::{
-    ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
-    coding_agent_initial::CodingAgentInitialRequest,
+use executors::{
+    profile::{ExecutorConfig, ExecutorConfigs},
+    runtime::{AgentRunRequestEnvelope, RunAttemptRequest},
 };
 use git::{GitCliError, GitRemote, GitServiceError};
 use git_host::{
@@ -31,12 +30,13 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     config::DEFAULT_PR_DESCRIPTION_PROMPT, container::ContainerService, remote_sync,
 };
+use sqlx::{SqlitePool, types::Json as SqlxJson};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 use workspace_manager::WorkspaceManager;
 
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{DeploymentImpl, error::ApiError, routes::sessions};
 
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct CreatePrApiRequest {
@@ -93,6 +93,58 @@ pub struct GetPrCommentsQuery {
     pub repo_id: Uuid,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct CanonicalAgentProfileContext {
+    run_request_envelope: SqlxJson<AgentRunRequestEnvelope>,
+    attempt_request_envelope: SqlxJson<RunAttemptRequest>,
+}
+
+fn resolve_canonical_executor_config(
+    context: CanonicalAgentProfileContext,
+    profiles: &ExecutorConfigs,
+) -> Result<ExecutorConfig, ApiError> {
+    let request = context.run_request_envelope.0;
+    let attempt = context.attempt_request_envelope.0;
+    attempt.validate_for_run(&request).map_err(|error| {
+        ApiError::BadRequest(format!(
+            "Latest canonical AgentRun profile is inconsistent: {error}"
+        ))
+    })?;
+
+    let profile_id = attempt.executor_config.profile_id();
+    profiles.get_coding_agent(&profile_id).ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "Canonical runtime profile {profile_id} is not available"
+        ))
+    })?;
+
+    Ok(attempt.executor_config)
+}
+
+async fn latest_canonical_executor_config(
+    pool: &SqlitePool,
+    session_id: Uuid,
+) -> Result<Option<ExecutorConfig>, ApiError> {
+    let context = sqlx::query_as::<_, CanonicalAgentProfileContext>(
+        r#"
+        SELECT run.request_envelope AS run_request_envelope,
+               attempt.request_envelope AS attempt_request_envelope
+        FROM agent_runs run
+        JOIN agent_run_attempts attempt ON attempt.agent_run_id = run.id
+        WHERE run.session_id = ?
+        ORDER BY run.created_at DESC, run.id DESC, attempt.attempt_number DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await?;
+
+    context
+        .map(|context| resolve_canonical_executor_config(context, &ExecutorConfigs::get_cached()))
+        .transpose()
+}
+
 async fn trigger_pr_description_follow_up(
     deployment: &DeploymentImpl,
     workspace: &Workspace,
@@ -131,59 +183,24 @@ async fn trigger_pr_description_follow_up(
             }
         };
 
-    // Get executor profile from the latest coding agent process in this session
-    let Some(executor_profile_id) =
-        ExecutionProcess::latest_executor_profile_for_session(&deployment.db().pool, session.id)
-            .await?
-    else {
-        tracing::warn!(
-            "No executor profile found for session {}, skipping PR description follow-up",
-            session.id
-        );
-        return Ok(());
-    };
+    let executor_config = latest_canonical_executor_config(&deployment.db().pool, session.id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::BadRequest(format!(
+                "Session {} has no canonical AgentRun profile for PR description generation",
+                session.id
+            ))
+        })?;
 
-    // Get latest agent turn if one exists (for coding agent continuity)
-    let latest_session_info =
-        CodingAgentTurn::find_latest_session_info(&deployment.db().pool, session.id).await?;
-
-    let working_dir = session
-        .agent_working_dir
-        .as_ref()
-        .filter(|dir| !dir.is_empty())
-        .cloned();
-
-    // Build the action type (follow-up if session exists, otherwise initial)
-    let action_type = if let Some(info) = latest_session_info {
-        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt,
-            selected_skills: None,
-            session_id: info.session_id,
-            reset_to_message_id: None,
-            executor_config: executors::profile::ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir: working_dir.clone(),
-            transcript_backfill: None,
-        })
-    } else {
-        ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt,
-            selected_skills: None,
-            executor_config: executors::profile::ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir,
-        })
-    };
-
-    let action = ExecutorAction::new(action_type, None);
-
-    deployment
-        .container()
-        .start_execution(
-            workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
+    sessions::start_coding_agent_execution_for_session(
+        deployment,
+        session,
+        prompt,
+        None,
+        executor_config,
+        None,
+    )
+    .await?;
 
     Ok(())
 }
@@ -851,4 +868,130 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/", post(create_pr))
         .route("/attach", post(attach_existing_pr))
         .route("/comments", get(get_pr_comments))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use executors::{
+        executors::{BaseCodingAgent, provider_adapter::DirectProvider},
+        profile::{ExecutorConfig, ExecutorConfigs},
+        provider_policy::direct_provider_capability_snapshot,
+        runtime::{
+            AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentRunIntent,
+            AgentRunRequestEnvelope, AgentRuntimeMessageRole, CanonicalMessage, RunAttemptMode,
+            RunAttemptRequest, WorkspaceMode, WorkspaceReference,
+        },
+    };
+    use sqlx::types::Json as SqlxJson;
+    use uuid::Uuid;
+
+    use super::{CanonicalAgentProfileContext, resolve_canonical_executor_config};
+    use crate::error::ApiError;
+
+    fn canonical_profile_context(executor_config: ExecutorConfig) -> CanonicalAgentProfileContext {
+        let provider = DirectProvider::from_base_agent(executor_config.executor).unwrap();
+        let runtime_profile_id = executor_config.profile_id().cache_key();
+        let session_id = Uuid::new_v4();
+        let agent_run_id = Uuid::new_v4();
+        let turn_id = Uuid::new_v4();
+        let request_id = Uuid::new_v4();
+        let correlation_id = Uuid::new_v4();
+        let created_at = Utc::now();
+        let workspace = WorkspaceReference {
+            workspace_id: Uuid::new_v4(),
+            mode: WorkspaceMode::IsolatedWorktree,
+            path: "C:/workspace".to_string(),
+        };
+        let request = AgentRunRequestEnvelope {
+            schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+            payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+            request_id,
+            idempotency_key: format!("session:{session_id}:pr-description"),
+            session_id,
+            agent_run_id,
+            turn_id,
+            correlation_id,
+            intent: AgentRunIntent::Initial,
+            runtime_profile_id: runtime_profile_id.clone(),
+            provider_id: provider.id().to_string(),
+            workspace: workspace.clone(),
+            input: CanonicalMessage {
+                message_id: Uuid::new_v4(),
+                role: AgentRuntimeMessageRole::User,
+                content: "Implement the change".to_string(),
+            },
+            created_at,
+        };
+        let attempt = RunAttemptRequest {
+            schema_version: AGENT_REQUEST_SCHEMA_VERSION,
+            payload_version: AGENT_REQUEST_PAYLOAD_VERSION,
+            request_id,
+            idempotency_key: format!("session:{session_id}:pr-description:attempt:1"),
+            session_id,
+            agent_run_id,
+            turn_id,
+            run_attempt_id: Uuid::new_v4(),
+            attempt_number: 1,
+            correlation_id,
+            mode: RunAttemptMode::Launch,
+            transport: provider.transport(),
+            runtime_profile_id: runtime_profile_id.clone(),
+            provider_id: provider.id().to_string(),
+            workspace,
+            capability_snapshot: direct_provider_capability_snapshot(provider, runtime_profile_id),
+            executor_config,
+            selected_skills: None,
+            reset_to_message_id: None,
+            provider_session: None,
+            created_at,
+        };
+
+        CanonicalAgentProfileContext {
+            run_request_envelope: SqlxJson(request),
+            attempt_request_envelope: SqlxJson(attempt),
+        }
+    }
+
+    #[test]
+    fn canonical_profile_resolution_preserves_recorded_overrides() {
+        let mut expected = ExecutorConfig::new(BaseCodingAgent::Codex);
+        expected.model_id = Some("gpt-5.4".to_string());
+        expected.reasoning_id = Some("high".to_string());
+
+        let resolved = resolve_canonical_executor_config(
+            canonical_profile_context(expected.clone()),
+            &ExecutorConfigs::from_defaults(),
+        )
+        .unwrap();
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn canonical_profile_resolution_rejects_inconsistent_context() {
+        let mut context = canonical_profile_context(ExecutorConfig::new(BaseCodingAgent::Codex));
+        context.attempt_request_envelope.0.provider_id = "gemini".to_string();
+
+        let error = resolve_canonical_executor_config(context, &ExecutorConfigs::from_defaults())
+            .unwrap_err();
+
+        assert!(matches!(error, ApiError::BadRequest(message) if message.contains("inconsistent")));
+    }
+
+    #[test]
+    fn canonical_profile_resolution_fails_closed_when_profile_is_unavailable() {
+        let mut config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        config.variant = Some("MISSING_PR_DESCRIPTION_PROFILE".to_string());
+
+        let error = resolve_canonical_executor_config(
+            canonical_profile_context(config),
+            &ExecutorConfigs::from_defaults(),
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(error, ApiError::BadRequest(message) if message.contains("not available"))
+        );
+    }
 }

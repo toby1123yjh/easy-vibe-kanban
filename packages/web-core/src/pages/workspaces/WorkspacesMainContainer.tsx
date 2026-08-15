@@ -95,15 +95,9 @@ function ChatBoxWithDiffStats({
  * so it can read the shared pending-approval hook. Question approvals are
  * handled by the composer's askQuestion mode and skipped here.
  */
-function MobileApprovalBannerContainer({
-  workspaceId,
-  onView,
-}: {
-  workspaceId: string;
-  onView: () => void;
-}) {
-  const pending = useWorkspacePendingApproval(workspaceId);
-  if (!pending || pending.isQuestion) return null;
+function MobileApprovalBannerContainer({ onView }: { onView: () => void }) {
+  const pending = useWorkspacePendingApproval();
+  if (!pending || pending.kind === 'input') return null;
   return <MobileApprovalBanner toolName={pending.toolName} onView={onView} />;
 }
 
@@ -265,10 +259,7 @@ export const WorkspacesMainContainer = forwardRef<
   const isMobile = useIsMobile();
   const approvalBannerContent =
     isMobile && workspaceWithSession ? (
-      <MobileApprovalBannerContainer
-        workspaceId={workspaceWithSession.id}
-        onView={handleScrollToBottom}
-      />
+      <MobileApprovalBannerContainer onView={handleScrollToBottom} />
     ) : null;
 
   useImperativeHandle(
@@ -283,7 +274,7 @@ export const WorkspacesMainContainer = forwardRef<
 
   return (
     <ApprovalFeedbackProvider>
-      <EntriesProvider key={entriesProviderKey}>
+      <EntriesProvider key={entriesProviderKey} sessionId={selectedSessionId}>
         <MessageEditProvider>
           <WorkspacesMain
             workspaceWithSession={

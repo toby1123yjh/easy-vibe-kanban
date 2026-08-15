@@ -9,6 +9,7 @@ import {
   DotsThreeIcon,
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
+import type { AgentRunStatus } from 'shared/types';
 import { cn } from '../lib/cn';
 import { RunningDots } from './RunningDots';
 
@@ -40,7 +41,7 @@ export interface WorkspaceSummaryProps {
   hasRunningDevServer?: boolean;
   hasUnseenActivity?: boolean;
   latestProcessCompletedAt?: string;
-  latestProcessStatus?: 'running' | 'completed' | 'failed' | 'killed';
+  latestProcessStatus?: AgentRunStatus;
   prStatus?: 'open' | 'merged' | 'closed' | 'unknown';
   onClick?: () => void;
   className?: string;
@@ -74,7 +75,9 @@ export function WorkspaceSummary({
   const { t } = useTranslation('common');
   const hasChanges = filesChanged !== undefined && filesChanged > 0;
   const isFailed =
-    latestProcessStatus === 'failed' || latestProcessStatus === 'killed';
+    latestProcessStatus === 'failed' ||
+    latestProcessStatus === 'crashed' ||
+    latestProcessStatus === 'audit_failed';
 
   const handleOpenCommandBar = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -130,7 +133,7 @@ export function WorkspaceSummary({
               />
             )}
 
-            {/* Failed/killed status (only when not running) */}
+            {/* Failed AgentRun status (only when not running) */}
             {!isRunning && isFailed && (
               <TriangleIcon
                 className="size-icon-xs text-error shrink-0"

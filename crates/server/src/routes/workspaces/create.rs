@@ -2,11 +2,12 @@ use std::{collections::HashMap, path::Path};
 
 use axum::{Json, extract::State, response::Json as ResponseJson};
 use db::models::{
-    execution_process::ExecutionProcessView,
+    execution_process::ExecutionProcessRunReason,
     requests::{
         CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, CreateWorkspaceApiRequest,
         CreateWorkspaceMode,
     },
+    session::{CreateSession, Session},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
@@ -20,7 +21,7 @@ use crate::{
     error::ApiError,
     routes::{
         filesystem::validate_directory_path,
-        sessions::native_resume_transcript_backfill,
+        sessions,
         workspaces::{
             attachments::{ImportedIssueAttachment, import_issue_attachments_from_remote},
             links::link_workspace_to_issue,
@@ -422,22 +423,101 @@ pub async fn create_and_start_workspace(
         .await?;
     }
 
-    let native_transcript_backfill = native_resume_transcript_backfill(
-        &executor_config.executor.to_string(),
-        resume_session_id.as_deref(),
-    );
+    deployment.container().create(&workspace).await?;
+    let workspace = Workspace::find_by_id(&deployment.db().pool, workspace.id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Created workspace was not found".to_string()))?;
+    let session = Session::create(
+        &deployment.db().pool,
+        &CreateSession {
+            executor: Some(executor_config.executor.to_string()),
+            name: None,
+        },
+        Uuid::new_v4(),
+        workspace.id,
+    )
+    .await?;
+    let workspace_repos =
+        WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, workspace.id).await?;
+    let repos_with_setup = if workspace.is_direct_folder() {
+        Vec::new()
+    } else {
+        workspace_repos
+            .iter()
+            .filter(|repo| repo.setup_script.is_some())
+            .collect::<Vec<_>>()
+    };
 
-    let execution_process = deployment
-        .container()
-        .start_workspace_with_selected_skills_and_transcript_backfill(
-            &workspace,
-            executor_config.clone(),
+    let agent_run = if repos_with_setup.is_empty() {
+        sessions::start_coding_agent_execution_for_session(
+            &deployment,
+            session,
             workspace_prompt,
             selected_skills,
+            executor_config.clone(),
             resume_session_id,
-            native_transcript_backfill,
+        )
+        .await?
+    } else if repos_with_setup
+        .iter()
+        .all(|repo| repo.parallel_setup_script)
+    {
+        for repo in repos_with_setup {
+            if let Some(setup_action) = deployment
+                .container()
+                .setup_actions_for_repos(std::slice::from_ref(repo))
+                && let Err(error) = deployment
+                    .container()
+                    .start_execution(
+                        &workspace,
+                        &session,
+                        &setup_action,
+                        &ExecutionProcessRunReason::SetupScript,
+                    )
+                    .await
+            {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    repo_id = %repo.id,
+                    "failed to start parallel workspace setup script: {error:#}"
+                );
+            }
+        }
+        sessions::start_coding_agent_execution_for_session(
+            &deployment,
+            session,
+            workspace_prompt,
+            selected_skills,
+            executor_config.clone(),
+            resume_session_id,
+        )
+        .await?
+    } else {
+        let setup_action = deployment
+            .container()
+            .setup_actions_for_repos(&workspace_repos)
+            .ok_or_else(|| {
+                ApiError::BadRequest(
+                    "Workspace setup configuration did not produce a setup action".to_string(),
+                )
+            })?;
+        let reserved = sessions::reserve_coding_agent_execution_for_session(
+            &deployment,
+            session,
+            workspace_prompt,
+            selected_skills,
+            executor_config.clone(),
+            resume_session_id,
         )
         .await?;
+        sessions::setup_gate::start_reserved_after_setup(
+            &deployment,
+            reserved.agent_run_id,
+            &setup_action,
+        )
+        .await?;
+        reserved
+    };
 
     deployment
         .track_if_analytics_allowed(
@@ -453,7 +533,7 @@ pub async fn create_and_start_workspace(
     Ok(ResponseJson(ApiResponse::success(
         CreateAndStartWorkspaceResponse {
             workspace,
-            execution_process: ExecutionProcessView::from_process(execution_process),
+            agent_run,
         },
     )))
 }
