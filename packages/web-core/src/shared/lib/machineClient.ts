@@ -1,10 +1,21 @@
 import type {
+  AgentToolInventory,
+  AgentToolLocator,
+  AgentToolOperationError,
+  AgentToolRevealResponse,
+  AgentTool,
+  CopyAgentToolRequest,
+  CopyAgentToolResponse,
+  CreateAgentToolRequest,
   Config,
   GetMcpServerResponse,
   GitBranch,
   McpServerQuery,
   Repo,
   UpdateMcpServersBody,
+  UpdateAgentToolRequest,
+  RemoveAgentToolRequest,
+  ToggleAgentToolRequest,
   UpdateRepo,
   UserSystemInfo,
 } from 'shared/types';
@@ -49,6 +60,13 @@ export interface MachineClient {
     query: McpServerQuery,
     data: UpdateMcpServersBody
   ) => Promise<void>;
+  listAgentTools: (projectPath?: string) => Promise<AgentToolInventory>;
+  createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentTool>;
+  updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentTool>;
+  removeAgentTool: (data: RemoveAgentToolRequest) => Promise<void>;
+  toggleAgentTool: (data: ToggleAgentToolRequest) => Promise<AgentTool>;
+  copyAgentTool: (data: CopyAgentToolRequest) => Promise<CopyAgentToolResponse>;
+  revealAgentTool: (data: AgentToolLocator) => Promise<AgentToolRevealResponse>;
 }
 
 function getMachineRequestOptions(
@@ -184,5 +202,55 @@ export function createMachineClient(
         )
       );
     },
+    listAgentTools: async (projectPath) => {
+      const params = new URLSearchParams();
+      if (projectPath) params.set('project_path', projectPath);
+      const query = params.size ? `?${params.toString()}` : '';
+      return handleApiResponse<AgentToolInventory, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, `/api/agent-tools${query}`)
+      );
+    },
+    createAgentTool: async (data) =>
+      handleApiResponse<AgentTool, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    updateAgentTool: async (data) =>
+      handleApiResponse<AgentTool, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools', {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        })
+      ),
+    removeAgentTool: async (data) =>
+      handleApiResponse<void, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools/remove', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    toggleAgentTool: async (data) =>
+      handleApiResponse<AgentTool, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools/toggle', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    copyAgentTool: async (data) =>
+      handleApiResponse<CopyAgentToolResponse, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools/copy', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    revealAgentTool: async (data) =>
+      handleApiResponse<AgentToolRevealResponse, AgentToolOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-tools/reveal', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
   };
 }

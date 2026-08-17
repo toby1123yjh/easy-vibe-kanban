@@ -23,6 +23,8 @@
         "agentsDesc": "编码代理配置",
         "mcp": "MCP 服务器",
         "mcpDesc": "模型上下文协议服务器",
+        "agent-tools": "Agent 工具",
+        "agent-toolsDesc": "原生 MCP 服务器和技能",
         "organizations": "组织设置",
         "organizationsDesc": "管理组织成员和权限",
         "remote-projects": "项目",

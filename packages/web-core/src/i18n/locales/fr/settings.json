@@ -23,6 +23,8 @@
         "agentsDesc": "Configurations des agents de codage",
         "mcp": "Serveurs MCP",
         "mcpDesc": "Serveurs Model Context Protocol",
+        "agent-tools": "Agent Tools",
+        "agent-toolsDesc": "Native MCP servers and Skills",
         "organizations": "Paramètres de l'organisation",
         "organizationsDesc": "Gérer les membres et les permissions de l'organisation",
         "remote-projects": "Projets",

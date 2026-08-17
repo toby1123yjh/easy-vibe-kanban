@@ -733,6 +733,56 @@ export type SelectedSkill = { name: string, path: string, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
+export type AgentToolProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi";
+
+export type AgentToolKind = "mcp_server" | "skill";
+
+export type AgentToolScope = "user" | "project";
+
+export type AgentToolState = "not_installed" | "enabled" | "disabled" | "error" | "unsupported";
+
+export type AgentToolCapabilities = { editable: boolean, removable: boolean, toggleable: boolean, exportable: boolean, installable: boolean, };
+
+export type McpTransport = "stdio" | "http";
+
+export type McpServerDefinition = { transport: McpTransport, command?: string | null, args: Array<string>, cwd?: string | null, env: { [key in string]?: string }, url?: string | null, headers: { [key in string]?: string }, source_metadata: JsonValue, };
+
+export type SkillFile = { path: string, content_base64: string, };
+
+export type SkillDefinition = { description: string | null, files: Array<SkillFile>, };
+
+export type AgentToolDefinition = { "type": "mcp_server", "data": McpServerDefinition } | { "type": "skill", "data": SkillDefinition };
+
+export type AgentTool = { provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, native_path: string, state: AgentToolState, capabilities: AgentToolCapabilities, revision: string, definition: AgentToolDefinition, error?: string | null, };
+
+export type AgentToolProviderError = { provider: AgentToolProvider, message: string, };
+
+export type AgentToolProviderInventory = { provider: AgentToolProvider, installed: boolean, items: Array<AgentTool>, limitations: Array<string>, errors: Array<string>, };
+
+export type AgentToolInventory = { providers: Array<AgentToolProviderInventory>, errors: Array<AgentToolProviderError>, };
+
+export type AgentToolLocator = { provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, native_path?: string | null, project_path?: string | null, };
+
+export type CreateAgentToolRequest = { target: AgentToolLocator, definition: AgentToolDefinition, replace: boolean, expected_revision?: string | null, };
+
+export type UpdateAgentToolRequest = { target: AgentToolLocator, expected_revision: string, definition: AgentToolDefinition, };
+
+export type RemoveAgentToolRequest = { target: AgentToolLocator, expected_revision: string, };
+
+export type ToggleAgentToolRequest = { target: AgentToolLocator, expected_revision: string, enabled: boolean, };
+
+export type CopyAgentToolRequest = { source: AgentToolLocator, expected_revision: string, target_provider: AgentToolProvider, target_scope: AgentToolScope, target_project_path?: string | null, target_name?: string | null, replace: boolean, target_expected_revision?: string | null, };
+
+export type CopyAgentToolResponse = { item: AgentTool, source_metadata: JsonValue, warnings: Array<string>, };
+
+export type AgentToolErrorCode = "invalid_request" | "invalid_configuration" | "not_found" | "collision" | "stale_revision" | "unsupported" | "unsafe_path" | "io" | "verification_failed";
+
+export type AgentToolOperationError = { code: AgentToolErrorCode, message: string, provider?: AgentToolProvider | null, name?: string | null, };
+
+export type AgentToolDiscoveryQuery = { project_path: string | null, };
+
+export type AgentToolRevealResponse = { native_path: string, };
+
 export type ExecutorActionType = { "type": "ScriptRequest" } & ScriptRequest;
 
 export type ExecutorConfig = { 

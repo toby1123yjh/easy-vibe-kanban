@@ -5,7 +5,10 @@
 //! this module. Native bytes are decoded once here, then mapped to canonical
 //! events. Consumers must not parse provider output themselves.
 
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -222,6 +225,22 @@ impl DirectProvider {
             Self::ClaudeCode => "claude_code",
             Self::OhMyPi => "oh_my_pi",
         }
+    }
+
+    /// Construct this adapter's native Tool Manager. Provider path and
+    /// encoding decisions remain owned by the direct adapter boundary.
+    pub fn tool_manager(
+        self,
+        home_dir: PathBuf,
+        project_path: Option<PathBuf>,
+        disabled_root: PathBuf,
+    ) -> crate::agent_tools::ProviderToolManager {
+        crate::agent_tools::ProviderToolManager::new(
+            self.into(),
+            home_dir,
+            project_path,
+            disabled_root,
+        )
     }
 
     pub const fn from_base_agent(agent: crate::executors::BaseCodingAgent) -> Option<Self> {
@@ -1535,11 +1554,14 @@ mod tests {
             let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("fixtures/native-audit")
                 .join(provider.id());
-            let bundle = crate::runtime::AuditBundle::read(&directory)
-                .unwrap_or_else(|error| panic!("failed to read {} fixture: {error}", provider.id()));
+            let bundle = crate::runtime::AuditBundle::read(&directory).unwrap_or_else(|error| {
+                panic!("failed to read {} fixture: {error}", provider.id())
+            });
             let replay = bundle
                 .replay_fixture(&provider.mapper())
-                .unwrap_or_else(|error| panic!("failed to replay {} fixture: {error}", provider.id()));
+                .unwrap_or_else(|error| {
+                    panic!("failed to replay {} fixture: {error}", provider.id())
+                });
 
             assert_eq!(bundle.manifest().provider_id, provider.id());
             assert_eq!(replay.provider_events.len(), 3);

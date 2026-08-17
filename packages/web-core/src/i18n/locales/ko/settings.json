@@ -23,6 +23,8 @@
         "agentsDesc": "코딩 에이전트 구성",
         "mcp": "MCP 서버",
         "mcpDesc": "Model Context Protocol 서버",
+        "agent-tools": "Agent Tools",
+        "agent-toolsDesc": "Native MCP servers and Skills",
         "organizations": "Organization Settings",
         "organizationsDesc": "Manage organization members and permissions",
         "remote-projects": "프로젝트",

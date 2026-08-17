@@ -183,7 +183,7 @@ impl OhMyPi {
     }
 
     pub fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
-        dirs::home_dir().map(|home| home.join(".omp").join("settings.json"))
+        dirs::home_dir().map(|home| home.join(".omp").join("agent").join("mcp.json"))
     }
 
     pub fn get_availability_info(&self) -> AvailabilityInfo {

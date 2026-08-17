@@ -117,7 +117,7 @@ async fn write_jsonc_preserving_comments(
     Ok(())
 }
 
-fn update_jsonc_content(current_content: &str, new_config: &Value) -> String {
+pub(crate) fn update_jsonc_content(current_content: &str, new_config: &Value) -> String {
     let root = CstRootNode::parse(current_content, &ParseOptions::default())
         .unwrap_or_else(|_| CstRootNode::parse("{}", &ParseOptions::default()).unwrap());
 

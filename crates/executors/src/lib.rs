@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod agent_tools;
 pub mod approvals;
 pub mod command;
 pub mod env;

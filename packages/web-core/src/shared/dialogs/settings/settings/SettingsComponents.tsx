@@ -293,12 +293,14 @@ export function SettingsSelect<T extends string>({
 
 // SettingsInput - A text input field
 export function SettingsInput({
+  id,
   value,
   onChange,
   placeholder,
   error,
   disabled,
 }: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -307,6 +309,7 @@ export function SettingsInput({
 }) {
   return (
     <input
+      id={id}
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}

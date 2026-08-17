@@ -23,6 +23,8 @@
         "agentsDesc": "コーディングエージェントの設定",
         "mcp": "MCPサーバー",
         "mcpDesc": "モデルコンテキストプロトコルサーバー",
+        "agent-tools": "エージェントツール",
+        "agent-toolsDesc": "ネイティブ MCP サーバーとスキル",
         "organizations": "Organization Settings",
         "organizationsDesc": "Manage organization members and permissions",
         "remote-projects": "プロジェクト",
