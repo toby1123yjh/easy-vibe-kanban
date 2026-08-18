@@ -34,6 +34,7 @@ import { useSettingsDirty } from './SettingsDirtyContext';
 import { useSettingsMachineClient } from './SettingsHostContext';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { getExecutorVariantKeys } from '@/shared/lib/executor';
+import { AgentConfigurationSettingsPanel } from './AgentConfigurationSettingsPanel';
 
 type ExecutorsMap = Record<string, Record<string, Record<string, unknown>>>;
 
@@ -382,7 +383,11 @@ export function AgentsSettingsSection() {
 
   if (profilesLoading) {
     return (
-      <div className="flex items-center justify-center py-8 gap-2">
+      <div
+        className="flex items-center justify-center py-8 gap-2"
+        role="status"
+        aria-live="polite"
+      >
         <SpinnerIcon
           className="size-icon-lg animate-spin text-brand"
           weight="bold"
@@ -399,7 +404,10 @@ export function AgentsSettingsSection() {
     <>
       {/* Status messages */}
       {!!profilesError && (
-        <div className="bg-error/10 border border-error/50 rounded-sm p-4 text-error mb-4">
+        <div
+          className="bg-error/10 border border-error/50 rounded-sm p-4 text-error mb-4"
+          role="alert"
+        >
           {profilesError instanceof Error
             ? profilesError.message
             : String(profilesError)}
@@ -407,13 +415,20 @@ export function AgentsSettingsSection() {
       )}
 
       {profilesSuccess && (
-        <div className="bg-success/10 border border-success/50 rounded-sm p-4 text-success font-medium mb-4">
+        <div
+          className="bg-success/10 border border-success/50 rounded-sm p-4 text-success font-medium mb-4"
+          role="status"
+          aria-live="polite"
+        >
           {t('settings.agents.save.success')}
         </div>
       )}
 
       {saveError && (
-        <div className="bg-error/10 border border-error/50 rounded-sm p-4 text-error mb-4">
+        <div
+          className="bg-error/10 border border-error/50 rounded-sm p-4 text-error mb-4"
+          role="alert"
+        >
           {saveError}
         </div>
       )}
@@ -633,6 +648,14 @@ export function AgentsSettingsSection() {
                   )
                 }
                 disabled={profilesSaving}
+              />
+              <AgentConfigurationSettingsPanel
+                executor={selectedExecutorType}
+                variant={
+                  selectedConfiguration === 'DEFAULT'
+                    ? null
+                    : selectedConfiguration
+                }
               />
             </div>
           )}

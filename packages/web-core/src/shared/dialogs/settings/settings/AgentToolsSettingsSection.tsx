@@ -114,7 +114,11 @@ function promptSkillDefinition(
   };
 }
 
-export function AgentToolsSettingsSection() {
+export function AgentToolsSettingsSection({
+  provider,
+}: {
+  provider?: AgentToolProvider;
+} = {}) {
   const machineClient = useSettingsMachineClient();
   const [inventory, setInventory] = useState<AgentToolInventory | null>(null);
   const [kind, setKind] = useState<AgentToolKind>('mcp_server');
@@ -161,7 +165,7 @@ export function AgentToolsSettingsSection() {
 
   const inventories = useMemo(
     () =>
-      PROVIDERS.map(
+      (provider ? [provider] : PROVIDERS).map(
         (provider) =>
           inventory?.providers.find((entry) => entry.provider === provider) ?? {
             provider,
@@ -171,7 +175,7 @@ export function AgentToolsSettingsSection() {
             errors: [],
           }
       ),
-    [inventory]
+    [inventory, provider]
   );
   const installedProviders = useMemo(
     () =>
@@ -201,11 +205,14 @@ export function AgentToolsSettingsSection() {
       setError('No supported Agent provider is installed.');
       return;
     }
-    const provider = window.prompt(
-      `Provider (${installedProviders.join(', ')})`,
-      installedProviders[0]
-    ) as AgentToolProvider | null;
-    if (!provider || !installedProviders.includes(provider)) return;
+    const selectedProvider =
+      provider ??
+      (window.prompt(
+        `Provider (${installedProviders.join(', ')})`,
+        installedProviders[0]
+      ) as AgentToolProvider | null);
+    if (!selectedProvider || !installedProviders.includes(selectedProvider))
+      return;
     const scope = window.prompt(
       'Scope (user or project)',
       'user'
@@ -237,10 +244,10 @@ export function AgentToolsSettingsSection() {
       return;
     }
     if (!definition) return;
-    await run(`add:${provider}:${name}`, () =>
+    await run(`add:${selectedProvider}:${name}`, () =>
       machineClient.createAgentTool({
         target: {
-          provider,
+          provider: selectedProvider,
           scope,
           kind,
           name,

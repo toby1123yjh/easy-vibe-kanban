@@ -243,6 +243,17 @@ impl DirectProvider {
         )
     }
 
+    /// Construct this adapter's native Settings Manager. Provider paths,
+    /// schema descriptors, precedence, and native encodings stay behind the
+    /// direct-provider boundary.
+    pub fn settings_manager(
+        self,
+        home_dir: PathBuf,
+        project_path: Option<PathBuf>,
+    ) -> crate::agent_settings::ProviderSettingsManager {
+        crate::agent_settings::ProviderSettingsManager::new(self.into(), home_dir, project_path)
+    }
+
     pub const fn from_base_agent(agent: crate::executors::BaseCodingAgent) -> Option<Self> {
         match agent {
             crate::executors::BaseCodingAgent::Gemini => Some(Self::Gemini),

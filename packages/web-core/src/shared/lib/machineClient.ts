@@ -1,4 +1,11 @@
 import type {
+  AgentSettingOperationError,
+  AgentSettingsDiscoveryQuery,
+  AgentSettingsInventory,
+  AgentSettingsProfilesQuery,
+  ApplyConfigProfileRequest,
+  ApplyNativeFileRequest,
+  ApplySettingsRequest,
   AgentToolInventory,
   AgentToolLocator,
   AgentToolOperationError,
@@ -6,12 +13,23 @@ import type {
   AgentTool,
   CopyAgentToolRequest,
   CopyAgentToolResponse,
+  CopyProfilePreviewRequest,
+  ConfigProfile,
   CreateAgentToolRequest,
+  DeleteConfigProfileRequest,
+  DuplicateConfigProfileRequest,
   Config,
   GetMcpServerResponse,
   GitBranch,
   McpServerQuery,
+  NativeFilePatch,
+  ProfileApplyPreviewRequest,
+  ProfileCopyPreview,
   Repo,
+  SaveConfigProfileRequest,
+  SettingsDiff,
+  SettingsPatch,
+  SettingsSnapshot,
   UpdateMcpServersBody,
   UpdateAgentToolRequest,
   RemoveAgentToolRequest,
@@ -67,6 +85,60 @@ export interface MachineClient {
   toggleAgentTool: (data: ToggleAgentToolRequest) => Promise<AgentTool>;
   copyAgentTool: (data: CopyAgentToolRequest) => Promise<CopyAgentToolResponse>;
   revealAgentTool: (data: AgentToolLocator) => Promise<AgentToolRevealResponse>;
+  discoverAgentSettings: (
+    query?: Partial<AgentSettingsDiscoveryQuery>
+  ) => Promise<AgentSettingsInventory>;
+  diffAgentSettings: (data: SettingsPatch) => Promise<SettingsDiff>;
+  applyAgentSettings: (data: ApplySettingsRequest) => Promise<SettingsSnapshot>;
+  diffAgentSettingsNativeFile: (data: NativeFilePatch) => Promise<SettingsDiff>;
+  applyAgentSettingsNativeFile: (
+    data: ApplyNativeFileRequest
+  ) => Promise<SettingsSnapshot>;
+  listAgentSettingsProfiles: (
+    query?: Partial<AgentSettingsProfilesQuery>
+  ) => Promise<ConfigProfile[]>;
+  saveAgentSettingsProfile: (
+    data: SaveConfigProfileRequest
+  ) => Promise<ConfigProfile>;
+  deleteAgentSettingsProfile: (
+    data: DeleteConfigProfileRequest
+  ) => Promise<void>;
+  duplicateAgentSettingsProfile: (
+    data: DuplicateConfigProfileRequest
+  ) => Promise<ConfigProfile>;
+  previewAgentSettingsProfileCopy: (
+    data: CopyProfilePreviewRequest
+  ) => Promise<ProfileCopyPreview>;
+  previewAgentSettingsProfileApply: (
+    data: ProfileApplyPreviewRequest
+  ) => Promise<SettingsDiff>;
+  applyAgentSettingsProfile: (
+    data: ApplyConfigProfileRequest
+  ) => Promise<SettingsSnapshot>;
+}
+
+export function formatAgentSettingOperationError(error: unknown): string {
+  const detail =
+    error && typeof error === 'object' && 'error_data' in error
+      ? (error as { error_data?: AgentSettingOperationError }).error_data
+      : undefined;
+  if (detail) {
+    const context = [
+      detail.setting_key ? `Setting ${detail.setting_key}` : null,
+      detail.file_id ? `File ${detail.file_id}` : null,
+    ].filter(Boolean);
+    return [
+      `${detail.message} (${detail.code})`,
+      context.length ? context.join(', ') : null,
+      detail.recovery,
+    ]
+      .filter(Boolean)
+      .join(' — ');
+  }
+
+  return error instanceof Error
+    ? error.message
+    : 'Agent settings operation failed';
 }
 
 function getMachineRequestOptions(
@@ -251,6 +323,146 @@ export function createMachineClient(
           method: 'POST',
           body: JSON.stringify(data),
         })
+      ),
+    discoverAgentSettings: async (query = {}) => {
+      const params = new URLSearchParams();
+      if (query.provider) params.set('provider', query.provider);
+      if (query.project_path) params.set('project_path', query.project_path);
+      const suffix = params.size ? `?${params.toString()}` : '';
+      return handleApiResponse<
+        AgentSettingsInventory,
+        AgentSettingOperationError
+      >(
+        await makeMachineRequest(
+          runtime,
+          target,
+          `/api/agent-settings${suffix}`,
+          { cache: 'no-store' }
+        )
+      );
+    },
+    diffAgentSettings: async (data) =>
+      handleApiResponse<SettingsDiff, AgentSettingOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-settings/diff', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    applyAgentSettings: async (data) =>
+      handleApiResponse<SettingsSnapshot, AgentSettingOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-settings/apply', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    diffAgentSettingsNativeFile: async (data) =>
+      handleApiResponse<SettingsDiff, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/native-file/diff',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    applyAgentSettingsNativeFile: async (data) =>
+      handleApiResponse<SettingsSnapshot, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/native-file/apply',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    listAgentSettingsProfiles: async (query = {}) => {
+      const params = new URLSearchParams();
+      if (query.provider) params.set('provider', query.provider);
+      const suffix = params.size ? `?${params.toString()}` : '';
+      return handleApiResponse<ConfigProfile[], AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          `/api/agent-settings/profiles${suffix}`,
+          { cache: 'no-store' }
+        )
+      );
+    },
+    saveAgentSettingsProfile: async (data) =>
+      handleApiResponse<ConfigProfile, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    deleteAgentSettingsProfile: async (data) =>
+      handleApiResponse<void, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/delete',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    duplicateAgentSettingsProfile: async (data) =>
+      handleApiResponse<ConfigProfile, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/duplicate',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    previewAgentSettingsProfileCopy: async (data) =>
+      handleApiResponse<ProfileCopyPreview, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/copy-preview',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    previewAgentSettingsProfileApply: async (data) =>
+      handleApiResponse<SettingsDiff, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/apply-preview',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    applyAgentSettingsProfile: async (data) =>
+      handleApiResponse<SettingsSnapshot, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/apply',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
       ),
   };
 }

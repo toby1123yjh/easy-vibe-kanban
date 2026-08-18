@@ -733,6 +733,90 @@ export type SelectedSkill = { name: string, path: string, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
+export enum AgentSettingsProvider { codex = "codex", claude_code = "claude_code", gemini = "gemini", oh_my_pi = "oh_my_pi" }
+
+export enum SettingScope { user = "user", project = "project" }
+
+export enum SettingSection { general = "general", permissions_sandbox = "permissions_sandbox", instructions = "instructions", environment = "environment", provider_settings = "provider_settings" }
+
+export enum SettingValueType { string = "string", boolean = "boolean", number = "number", string_list = "string_list", string_map = "string_map", json = "json" }
+
+export enum SettingControl { text = "text", textarea = "textarea", toggle = "toggle", select = "select", number = "number", string_list = "string_list", key_value = "key_value", json = "json" }
+
+export enum SettingActivation { immediate = "immediate", next_session = "next_session", explicit_restart = "explicit_restart" }
+
+export enum NativeConfigFormat { toml = "toml", json = "json", jsonc = "jsonc", yaml = "yaml", dotenv = "dotenv", text = "text", opaque = "opaque" }
+
+export enum NativeParseStatus { missing = "missing", parsed = "parsed", invalid = "invalid", unsupported = "unsupported" }
+
+export type SettingKey = { namespace: string, name: string, };
+
+export type SettingOption = { value: JsonValue, label: string, description?: string | null, };
+
+export type SettingValidation = { minimum?: number | null, maximum?: number | null, pattern?: string | null, max_length?: number | null, };
+
+export type SettingCapabilities = { readable: boolean, writable: boolean, resettable: boolean, profile_storable: boolean, run_override: boolean, };
+
+export type NativeSettingLocation = { file_id: string, scope: SettingScope, native_path: Array<string>, };
+
+export type SettingDescriptor = { key: SettingKey, section: SettingSection, label: string, description: string, value_type: SettingValueType, control: SettingControl, options: Array<SettingOption>, validation: SettingValidation, supported_scopes: Array<SettingScope>, capabilities: SettingCapabilities, native_locations: Array<NativeSettingLocation>, activation: SettingActivation, };
+
+export type SettingsCapabilities = { readable: boolean, native_writable: boolean, profile_storage: boolean, per_run_overrides: boolean, raw_editable: boolean, };
+
+export type NativeConfigFile = { id: string, path: string, format: NativeConfigFormat, scope: SettingScope, exists: boolean, parse_status: NativeParseStatus, revision?: string | null, writable: boolean, raw_editable: boolean, raw_content?: string | null, error?: string | null, };
+
+export type SettingSourceValue = { source: string, scope: SettingScope, file_id: string, value: JsonValue, revision: string, };
+
+export type EffectiveSetting = { key: SettingKey, sources: Array<SettingSourceValue>, effective_value?: JsonValue | null, effective_source?: string | null, warnings: Array<string>, };
+
+export type UnknownNativeNode = { file_id: string, native_path: string, value: JsonValue, };
+
+export type AgentSettingIssue = { message: string, file_id?: string | null, setting_key?: string | null, recovery: string, };
+
+export type SettingsSnapshot = { provider: AgentSettingsProvider, installed: boolean, provider_version?: string | null, executable_path?: string | null, schema_revision: string, capabilities: SettingsCapabilities, descriptors: Array<SettingDescriptor>, native_files: Array<NativeConfigFile>, effective_settings: Array<EffectiveSetting>, unknown_native_nodes: Array<UnknownNativeNode>, limitations: Array<string>, errors: Array<AgentSettingIssue>, };
+
+export type AgentSettingsProviderError = { provider: AgentSettingsProvider, message: string, };
+
+export type AgentSettingsInventory = { providers: Array<SettingsSnapshot>, errors: Array<AgentSettingsProviderError>, };
+
+export type SettingOperation = { "type": "set", "data": { key: SettingKey, scope: SettingScope, value: JsonValue, } } | { "type": "unset", "data": { key: SettingKey, scope: SettingScope, } };
+
+export type SettingsPatch = { provider: AgentSettingsProvider, project_path?: string | null, expected_file_revisions: { [key in string]?: string }, operations: Array<SettingOperation>, };
+
+export type NativeFileDiff = { file_id: string, path: string, before: string, after: string, changed: boolean, };
+
+export type SettingsDiff = { provider: AgentSettingsProvider, files: Array<NativeFileDiff>, warnings: Array<string>, };
+
+export type ApplySettingsRequest = { patch: SettingsPatch, confirmed: boolean, };
+
+export type NativeFilePatch = { provider: AgentSettingsProvider, project_path?: string | null, file_id: string, expected_revision: string, content: string, };
+
+export type ApplyNativeFileRequest = { patch: NativeFilePatch, confirmed: boolean, };
+
+export type ConfigProfile = { id: string, provider: AgentSettingsProvider, executor_profile: ExecutorProfileId, name: string, schema_version: number, setting_overrides: { [key in string]?: JsonValue }, provider_extensions: { [key in string]?: JsonValue }, environment: { [key in string]?: string }, custom_args: Array<string>, updated_at: string, };
+
+export type SaveConfigProfileRequest = { profile: ConfigProfile, };
+
+export type DeleteConfigProfileRequest = { id: string, };
+
+export type DuplicateConfigProfileRequest = { id: string, name: string, };
+
+export type CopyProfilePreviewRequest = { id: string, target_provider: AgentSettingsProvider, target_executor_profile: ExecutorProfileId, target_name: string, };
+
+export type ProfileCopyPreview = { profile: ConfigProfile, compatible_keys: Array<string>, skipped_keys: Array<string>, warnings: Array<string>, };
+
+export type ProfileApplyPreviewRequest = { id: string, project_path?: string | null, scope: SettingScope, expected_file_revisions: { [key in string]?: string }, };
+
+export type ApplyConfigProfileRequest = { preview: ProfileApplyPreviewRequest, confirmed: boolean, };
+
+export enum AgentSettingErrorCode { invalid_request = "invalid_request", invalid_configuration = "invalid_configuration", not_found = "not_found", stale_revision = "stale_revision", unsupported = "unsupported", unsafe_path = "unsafe_path", validation_failed = "validation_failed", io = "io", rollback_failed = "rollback_failed", verification_failed = "verification_failed" }
+
+export type AgentSettingOperationError = { code: AgentSettingErrorCode, message: string, provider?: AgentSettingsProvider | null, file_id?: string | null, setting_key?: string | null, recovery: string, };
+
+export type AgentSettingsDiscoveryQuery = { provider: AgentSettingsProvider | null, project_path: string | null, };
+
+export type AgentSettingsProfilesQuery = { provider: AgentSettingsProvider | null, };
+
 export type AgentToolProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi";
 
 export type AgentToolKind = "mcp_server" | "skill";
