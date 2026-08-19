@@ -14,6 +14,7 @@ use uuid::Uuid;
 const REGISTRY_VERSION: u32 = 1;
 const REGISTRY_FILE_NAME: &str = "agent-process-registry.json";
 const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(2);
+const OS_PROCESS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct RegisteredAgentProcess {
@@ -123,6 +124,10 @@ impl AgentProcessReconciliationReport {
 impl AgentProcessCleanupReport {
     pub(crate) fn is_empty(self) -> bool {
         self.attempted == 0 && self.removed == 0 && self.survivors == 0
+    }
+
+    pub(crate) fn confirms_runtime_absent(self) -> bool {
+        self.attempted > 0 && self.removed == self.attempted && self.survivors == 0
     }
 }
 
@@ -492,7 +497,8 @@ async fn terminate_os_process_tree(
     tokio::time::sleep(TERMINATION_GRACE_PERIOD).await;
 
     match run_taskkill(process.pid, true).await? {
-        SignalDelivery::Missing | SignalDelivery::Sent => Ok(ProcessTermination::Terminated),
+        SignalDelivery::Missing => Ok(ProcessTermination::Terminated),
+        SignalDelivery::Sent => wait_for_windows_pid_exit(process.pid).await,
     }
 }
 
@@ -550,18 +556,19 @@ async fn run_taskkill(pid: u32, force: bool) -> io::Result<SignalDelivery> {
         command.arg("/F");
     }
 
-    let output = command.output().await?;
+    let output = tokio::time::timeout(OS_PROCESS_COMMAND_TIMEOUT, command.output())
+        .await
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("taskkill timed out for pid {pid}"),
+            )
+        })??;
     if output.status.success() {
         return Ok(SignalDelivery::Sent);
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_lowercase();
-    let combined = format!("{stdout}\n{stderr}");
-    if combined.contains("not found")
-        || combined.contains("no running instance")
-        || combined.contains("not running")
-    {
+    if observe_windows_pid(pid).await? == RegisteredProcessPresence::Exited {
         return Ok(SignalDelivery::Missing);
     }
 
@@ -629,26 +636,69 @@ async fn observe_os_process(
 async fn observe_os_process(
     process: &RegisteredAgentProcess,
 ) -> io::Result<RegisteredProcessPresence> {
-    let output = tokio::process::Command::new("tasklist")
-        .args([
-            "/FI",
-            &format!("PID eq {}", process.pid),
-            "/FO",
-            "CSV",
-            "/NH",
-        ])
-        .output()
-        .await?;
+    observe_windows_pid(process.pid).await
+}
+
+#[cfg(windows)]
+async fn observe_windows_pid(pid: u32) -> io::Result<RegisteredProcessPresence> {
+    let output = tokio::time::timeout(
+        OS_PROCESS_COMMAND_TIMEOUT,
+        tokio::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output(),
+    )
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("tasklist timed out for pid {pid}"),
+        )
+    })??;
     if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
-        if stdout.contains("no tasks") || stdout.trim().is_empty() {
-            Ok(RegisteredProcessPresence::Exited)
-        } else {
+        if tasklist_reports_pid(&output.stdout, pid) {
             Ok(RegisteredProcessPresence::Alive)
+        } else {
+            Ok(RegisteredProcessPresence::Exited)
         }
     } else {
         Ok(RegisteredProcessPresence::Unreachable)
     }
+}
+
+#[cfg(windows)]
+async fn wait_for_windows_pid_exit(pid: u32) -> io::Result<ProcessTermination> {
+    tokio::time::timeout(TERMINATION_GRACE_PERIOD, async {
+        loop {
+            match observe_windows_pid(pid).await? {
+                RegisteredProcessPresence::Exited => return Ok(ProcessTermination::Terminated),
+                RegisteredProcessPresence::Alive => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                RegisteredProcessPresence::Unreachable => {
+                    return Err(io::Error::other(
+                        "process tree could not be observed after forced taskkill",
+                    ));
+                }
+            }
+        }
+    })
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "process tree survived graceful and forced taskkill",
+        )
+    })?
+}
+
+#[cfg(windows)]
+fn tasklist_reports_pid(output: &[u8], pid: u32) -> bool {
+    let expected = pid.to_string();
+    String::from_utf8_lossy(output).lines().any(|line| {
+        line.strip_prefix('"')
+            .and_then(|line| line.split("\",\"").nth(1))
+            .is_some_and(|value| value == expected)
+    })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -728,20 +778,24 @@ mod tests {
             .await
             .expect("register second");
 
-        assert!(registry
-            .remove_runtime(first.runtime_id)
-            .await
-            .expect("remove first"));
+        assert!(
+            registry
+                .remove_runtime(first.runtime_id)
+                .await
+                .expect("remove first")
+        );
 
         let loaded = registry
             .load_registry_locked()
             .await
             .expect("load registry");
         assert_eq!(loaded.processes, vec![second]);
-        assert!(!registry
-            .remove_runtime(first.runtime_id)
-            .await
-            .expect("remove already removed"));
+        assert!(
+            !registry
+                .remove_runtime(first.runtime_id)
+                .await
+                .expect("remove already removed")
+        );
     }
 
     #[tokio::test]
@@ -808,10 +862,12 @@ mod tests {
         assert_eq!(loaded.processes, vec![valid.clone()]);
         assert!(loaded.needs_rewrite);
 
-        assert!(!registry
-            .remove_runtime(Uuid::new_v4())
-            .await
-            .expect("rewrite registry"));
+        assert!(
+            !registry
+                .remove_runtime(Uuid::new_v4())
+                .await
+                .expect("rewrite registry")
+        );
 
         let rewritten = registry
             .load_registry_locked()
@@ -914,5 +970,46 @@ mod tests {
             .await
             .expect("load registry");
         assert_eq!(loaded.processes, vec![untouched]);
+    }
+
+    #[test]
+    fn cleanup_report_only_confirms_absence_after_owned_process_removal() {
+        assert!(
+            AgentProcessCleanupReport {
+                attempted: 1,
+                removed: 1,
+                survivors: 0,
+            }
+            .confirms_runtime_absent()
+        );
+        assert!(!AgentProcessCleanupReport::default().confirms_runtime_absent());
+        assert!(
+            !AgentProcessCleanupReport {
+                attempted: 1,
+                removed: 0,
+                survivors: 1,
+            }
+            .confirms_runtime_absent()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tasklist_pid_detection_does_not_depend_on_localized_missing_text() {
+        let present = br#""agent.exe","4242","Console","1","10,000 K""#;
+        let present_with_comma = br#""agent,worker.exe","4242","Console","1","10,000 K""#;
+        assert!(tasklist_reports_pid(present, 4242));
+        assert!(tasklist_reports_pid(present_with_comma, 4242));
+        assert!(!tasklist_reports_pid(present, 42));
+        assert!(!tasklist_reports_pid(
+            "INFO: No tasks are running which match the specified criteria.".as_bytes(),
+            4242
+        ));
+        assert!(!tasklist_reports_pid(
+            &[
+                0xe4, 0xbf, 0xa1, 0xe6, 0x81, 0xaf, b':', b' ', 0xe6, 0x97, 0xa0
+            ],
+            4242
+        ));
     }
 }

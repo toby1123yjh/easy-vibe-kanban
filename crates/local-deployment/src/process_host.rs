@@ -13,6 +13,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use chrono::{DateTime, Utc};
@@ -43,6 +44,14 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::transport::{TransportError, read_json_frame, write_json_frame};
+
+const HOST_ATTACH_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+const HOST_CONTROL_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const HOST_CANCEL_COMMAND_TIMEOUT: Duration = Duration::from_secs(25);
+const HOST_LAUNCH_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+const HOST_CANCEL_RESULT_TIMEOUT: Duration = Duration::from_secs(20);
+const PROCESS_OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(3);
+const HOST_TERMINAL_ACK_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct HostBootstrap {
@@ -427,7 +436,7 @@ impl SharedHost {
     }
 
     async fn append_terminal(
-        &self,
+        self: &Arc<Self>,
         status: AgentRunStatus,
         error: Option<AgentRuntimeError>,
         exit_code: Option<i64>,
@@ -444,6 +453,11 @@ impl SharedHost {
         .await;
         self.terminal.store(true, Ordering::Release);
         self.runtime.write().await.process_commands = None;
+        let host = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(HOST_TERMINAL_ACK_GRACE_PERIOD).await;
+            host.shutdown.notify_one();
+        });
     }
 }
 
@@ -537,10 +551,21 @@ async fn handle_connection(
                     {
                         Some("provider process command channel is closed".to_string())
                     } else {
-                        match result_rx.await {
-                            Ok(Ok(())) => None,
-                            Ok(Err(error)) => Some(error),
-                            Err(_) => Some("provider process command result was lost".to_string()),
+                        let result_timeout = if cancel {
+                            HOST_CANCEL_RESULT_TIMEOUT
+                        } else {
+                            HOST_CONTROL_COMMAND_TIMEOUT
+                        };
+                        match tokio::time::timeout(result_timeout, result_rx).await {
+                            Ok(Ok(Ok(()))) => None,
+                            Ok(Ok(Err(error))) => Some(error),
+                            Ok(Err(_)) => {
+                                Some("provider process command result was lost".to_string())
+                            }
+                            Err(_) => Some(
+                                "provider process command did not converge before its deadline"
+                                    .to_string(),
+                            ),
                         }
                     }
                 }
@@ -566,7 +591,7 @@ async fn handle_connection(
     };
     write_json_frame(&mut stream, &response).await?;
     if shutdown {
-        host.shutdown.notify_waiters();
+        host.shutdown.notify_one();
     }
     Ok(())
 }
@@ -693,6 +718,8 @@ async fn monitor_process(
 ) {
     let mut stdout_closed = false;
     let mut stderr_closed = false;
+    let mut cancel_result = None;
+    let mut cancellation_requested = false;
     let mut exit_signal: Pin<
         Box<
             dyn Future<Output = Result<ExecutorExitResult, tokio::sync::oneshot::error::RecvError>>
@@ -704,7 +731,7 @@ async fn monitor_process(
             Result<ExecutorExitResult, tokio::sync::oneshot::error::RecvError>,
         >()),
     };
-    let cause = loop {
+    let mut cause = loop {
         tokio::select! {
             status = child.wait() => {
                 break match status {
@@ -772,20 +799,15 @@ async fn monitor_process(
                     }
                 }
                 if cancel {
+                    cancellation_requested = true;
                     if let Some(cancellation) = cancellation.as_ref() {
                         cancellation.cancel();
                     }
+                    cancel_result = Some(result);
                     let kill_result = utils::process::kill_process_group(&mut child).await;
                     match kill_result {
-                        Ok(()) => {
-                            let _ = result.send(Ok(()));
-                            break ExitCause::Cancelled;
-                        }
-                        Err(error) => {
-                            let message = error.to_string();
-                            let _ = result.send(Err(message.clone()));
-                            break ExitCause::WaitFailure(message);
-                        }
+                        Ok(()) => break ExitCause::Cancelled,
+                        Err(error) => break ExitCause::WaitFailure(error.to_string()),
                     }
                 }
                 let _ = result.send(Ok(()));
@@ -793,29 +815,55 @@ async fn monitor_process(
         }
     };
 
-    if !matches!(cause, ExitCause::Process { .. } | ExitCause::Cancelled) {
-        let _ = utils::process::kill_process_group(&mut child).await;
+    if !cancellation_requested
+        && !matches!(cause, ExitCause::Process { .. } | ExitCause::Cancelled)
+        && let Err(error) = utils::process::kill_process_group(&mut child).await
+    {
+        cause = ExitCause::WaitFailure(error.to_string());
     }
-    if !matches!(cause, ExitCause::Process { .. }) {
-        let _ = child.wait().await;
-    }
-    while !(stdout_closed && stderr_closed) {
-        match notices.recv().await {
-            Some(OutputNotice::StdoutClosed) => stdout_closed = true,
-            Some(OutputNotice::StderrClosed) => stderr_closed = true,
-            Some(OutputNotice::Mapped(event, native_ref)) => {
-                host.append_event(HostEventPayload::Mapped { event, native_ref })
-                    .await;
+
+    let drain_result = tokio::time::timeout(PROCESS_OUTPUT_DRAIN_TIMEOUT, async {
+        while !(stdout_closed && stderr_closed) {
+            match notices.recv().await {
+                Some(OutputNotice::StdoutClosed) => stdout_closed = true,
+                Some(OutputNotice::StderrClosed) => stderr_closed = true,
+                Some(OutputNotice::Mapped(event, native_ref)) => {
+                    host.append_event(HostEventPayload::Mapped { event, native_ref })
+                        .await;
+                }
+                Some(OutputNotice::AuditFailure(error)) => {
+                    return Some(ExitCause::AuditFailure(error));
+                }
+                Some(OutputNotice::ProtocolFailure(error)) => {
+                    return Some(ExitCause::ProtocolFailure(error));
+                }
+                Some(OutputNotice::ProviderTerminal(_)) => {}
+                None => break,
             }
-            Some(_) => {}
-            None => break,
+        }
+        None
+    })
+    .await;
+    match drain_result {
+        Ok(Some(post_exit_cause)) => cause = post_exit_cause,
+        Ok(None) => {}
+        Err(_) => {
+            cause = ExitCause::AuditFailure(
+                "provider output streams did not close before the audit drain deadline".to_string(),
+            );
         }
     }
 
     let (status, error, exit_code) = terminal_from_exit(cause, provider);
+    let cancel_error = error.as_ref().map(|error| error.message.clone());
     let manifest = {
         let mut writer = writer.lock().await;
-        match writer.close_with_status(NativeAuditIntegrityStatus::Complete) {
+        let close_result = if status == AgentRunStatus::AuditFailed {
+            writer.fail_closed()
+        } else {
+            writer.close_with_status(NativeAuditIntegrityStatus::Complete)
+        };
+        match close_result {
             Ok(manifest) => manifest,
             Err(error) => match writer.fail_closed() {
                 Ok(manifest) => {
@@ -832,10 +880,16 @@ async fn monitor_process(
                         manifest,
                     )
                     .await;
+                    if let Some(result) = cancel_result {
+                        let _ = result.send(Err(error.to_string()));
+                    }
                     return;
                 }
                 Err(final_error) => {
                     tracing::error!(%final_error, "process host could not finalize Native Audit");
+                    if let Some(result) = cancel_result {
+                        let _ = result.send(Err(final_error.to_string()));
+                    }
                     return;
                 }
             },
@@ -843,6 +897,15 @@ async fn monitor_process(
     };
     host.append_terminal(status, error, exit_code, manifest)
         .await;
+    if let Some(result) = cancel_result {
+        let acknowledgement = if status == AgentRunStatus::Cancelled {
+            Ok(())
+        } else {
+            Err(cancel_error
+                .unwrap_or_else(|| format!("cancellation converged to terminal status {status:?}")))
+        };
+        let _ = result.send(acknowledgement);
+    }
 }
 
 fn terminal_from_exit(
@@ -931,16 +994,77 @@ pub(crate) async fn send_host_command(
     auth_token: &str,
     command: HostCommand,
 ) -> Result<HostResponse, TransportError> {
-    let mut stream = TcpStream::connect(endpoint)
+    let timeout = match &command {
+        HostCommand::Launch(_) => HOST_LAUNCH_COMMAND_TIMEOUT,
+        HostCommand::Control { cancel: true, .. } => HOST_CANCEL_COMMAND_TIMEOUT,
+        HostCommand::Control { cancel: false, .. } => HOST_CONTROL_COMMAND_TIMEOUT,
+        HostCommand::Attach { .. } | HostCommand::AckTerminal { .. } => HOST_ATTACH_COMMAND_TIMEOUT,
+    };
+    send_host_command_with_timeout(endpoint, auth_token, command, timeout).await
+}
+
+async fn send_host_command_with_timeout(
+    endpoint: &str,
+    auth_token: &str,
+    command: HostCommand,
+    timeout: Duration,
+) -> Result<HostResponse, TransportError> {
+    tokio::time::timeout(timeout, async {
+        let mut stream = TcpStream::connect(endpoint)
+            .await
+            .map_err(|error| TransportError::TemporarilyUnavailable(error.to_string()))?;
+        write_json_frame(
+            &mut stream,
+            &AuthenticatedHostCommand {
+                auth_token: auth_token.to_string(),
+                command,
+            },
+        )
+        .await?;
+        read_json_frame(&mut stream).await
+    })
+    .await
+    .map_err(|_| {
+        TransportError::TemporarilyUnavailable(format!(
+            "process-host command timed out after {} ms",
+            timeout.as_millis()
+        ))
+    })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn host_command_response_read_is_bounded() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let endpoint = listener.local_addr().expect("local address").to_string();
+        let server = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.expect("accept");
+            std::future::pending::<()>().await;
+        });
+
+        let error = send_host_command_with_timeout(
+            &endpoint,
+            "test-auth-token",
+            HostCommand::Attach { after_sequence: 0 },
+            Duration::from_millis(25),
+        )
         .await
-        .map_err(|error| TransportError::TemporarilyUnavailable(error.to_string()))?;
-    write_json_frame(
-        &mut stream,
-        &AuthenticatedHostCommand {
-            auth_token: auth_token.to_string(),
-            command,
-        },
-    )
-    .await?;
-    read_json_frame(&mut stream).await
+        .expect_err("host that never responds must time out");
+
+        assert!(matches!(error, TransportError::TemporarilyUnavailable(_)));
+        assert!(error.to_string().contains("timed out"));
+        server.abort();
+    }
+
+    #[test]
+    fn cancellation_has_a_larger_protocol_budget_than_attach() {
+        assert!(HOST_CANCEL_COMMAND_TIMEOUT > HOST_ATTACH_COMMAND_TIMEOUT);
+        assert!(HOST_CANCEL_COMMAND_TIMEOUT > HOST_CANCEL_RESULT_TIMEOUT);
+        assert!(HOST_CANCEL_RESULT_TIMEOUT > PROCESS_OUTPUT_DRAIN_TIMEOUT);
+        assert!(HOST_CANCEL_COMMAND_TIMEOUT > PROCESS_OUTPUT_DRAIN_TIMEOUT);
+        assert!(HOST_TERMINAL_ACK_GRACE_PERIOD > HOST_CANCEL_COMMAND_TIMEOUT);
+    }
 }
