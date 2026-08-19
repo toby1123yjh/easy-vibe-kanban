@@ -289,7 +289,9 @@ impl DirectProvider {
             },
             Self::Codex => DirectAdapterVersions {
                 executable: "codex",
-                runtime: Some("0.144.1"),
+                // The runtime version is reported by app-server initialize;
+                // static adapter metadata must not claim a required release.
+                runtime: None,
                 protocol: Some("rust-v0.144.1"),
                 adapter: "codex-adapter-v1",
                 mapper: "codex-mapper-v1",
@@ -1262,11 +1264,15 @@ mod tests {
     }
 
     #[test]
-    fn all_four_versions_are_frozen_and_distinct() {
+    fn all_four_versions_use_local_executables() {
         let versions = DirectProvider::ALL.map(DirectProvider::versions);
-        assert_eq!(versions[1].runtime, Some("0.144.1"));
+
+        assert_eq!(
+            versions.map(|version| version.executable),
+            ["gemini", "codex", "claude", "omp"]
+        );
+        assert!(versions.iter().all(|version| version.runtime.is_none()));
         assert_eq!(versions[1].protocol, Some("rust-v0.144.1"));
-        assert_eq!(versions[3].executable, "omp");
         assert!(
             versions
                 .windows(2)

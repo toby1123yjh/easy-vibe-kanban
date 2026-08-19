@@ -5,10 +5,14 @@ icon: https://www.vibekanban.com/images/logos/openai-logo.svg
 ---
 
 <Steps>
-<Step title="Run OpenAI Codex">
+<Step title="Install OpenAI Codex">
   ```bash
-  npx -y @openai/codex
+  npm install --global @openai/codex
   ```
+
+  Vibe Kanban launches the `codex app-server` command from your PATH. Keep
+  the CLI updated independently; Vibe Kanban does not bundle or pin a Codex
+  runtime version.
 </Step>
 
 <Step title="Follow the login instructions">

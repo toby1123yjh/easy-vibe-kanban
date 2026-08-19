@@ -189,7 +189,7 @@ $env:APPDATA\bloop\vibe-kanban\data
 
 从 `0.1.44-toby.4` 开始，如果 Codex agent 在初始化阶段失败，`LaunchError` 会额外写入 `Codex launch context`，其中包含实际启动的可执行文件、参数、工作目录、Codex 配置文件路径、模型和 provider。看到类似 `'openai' 不是内部或外部命令` 时，优先对照这段上下文判断是 Vibe Kanban 启动命令问题，还是 Codex 配置/MCP 子进程里的命令问题。
 
-从 `0.1.44-toby.5` 开始，默认 Codex 启动命令改为显式 bin 形式：`npx -y --package @openai/codex@0.132.0 codex app-server`。这可以避免 Windows 嵌套 NPX 环境下 npm 推断 bin 名称时走到错误的 `openai` 命令。
+历史记录：从 `0.1.44-toby.5` 开始，旧版本曾将 Codex 启动命令写成显式 bin 形式：`npx -y --package @openai/codex@0.132.0 codex app-server`。当前默认行为是直接使用用户 PATH 中的 `codex app-server`，不再固定或捆绑 Codex npm 版本。
 
 如果前端只显示类似 `Failed to create Project` 或 `Failed to create Issue`，优先打开浏览器开发者工具的 Network 面板，看失败请求的 HTTP 状态码。`415 Unsupported Media Type` 通常表示请求缺少 JSON `Content-Type`；`403 Forbidden` 通常表示当前页面端口不是后端允许的同源地址，常见于手动用 Vite dev server 代理到已运行的生产后端。
 

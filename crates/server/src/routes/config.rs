@@ -578,8 +578,8 @@ pub struct AgentGarageEntry {
 }
 
 /// Aggregate discovery for every known agent: availability, capabilities, and
-/// the bundled version when shipped. Backs the Agent Garage overview so the UI
-/// can render install/login status and capability-driven controls in one call.
+/// runtime diagnostics. Backs the Agent Garage overview so the UI can render
+/// install/login status and capability-driven controls in one call.
 async fn get_agent_garage(
     State(_deployment): State<DeploymentImpl>,
 ) -> ResponseJson<ApiResponse<Vec<AgentGarageEntry>>> {
@@ -596,7 +596,8 @@ async fn get_agent_garage(
                 executor: *base,
                 availability: availability.clone(),
                 capabilities,
-                bundled_version: bundled_version_for(*base),
+                // V1 runtimes always resolve the user's locally installed CLI.
+                bundled_version: None,
                 policy: Some(AgentProviderPolicy::for_agent(*base, &agent, availability)),
             }
         })
@@ -604,17 +605,6 @@ async fn get_agent_garage(
 
     entries.sort_by_key(|entry| entry.executor.to_string());
     ResponseJson(ApiResponse::success(entries))
-}
-
-/// Bundled (pin & ship) version for the agents the npx wrapper ships, if any.
-fn bundled_version_for(executor: BaseCodingAgent) -> Option<String> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => executors::executors::bundled::bundled_claude_version(),
-        BaseCodingAgent::Codex => executors::executors::bundled::bundled_codex_version(),
-        // Oh My Pi is resolved from PATH and is not shipped by the npx wrapper.
-        BaseCodingAgent::OhMyPi => None,
-        _ => None,
-    }
 }
 
 #[derive(Debug, Deserialize, TS)]

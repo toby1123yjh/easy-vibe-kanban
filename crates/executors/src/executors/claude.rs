@@ -62,9 +62,7 @@ fn base_command(claude_code_router: bool) -> String {
     if claude_code_router {
         "ccr code".to_string()
     } else {
-        // Prefer the agent pinned by the npx wrapper over the PATH lookup so the
-        // spawned Claude Code version is the one this build was tested against.
-        super::bundled::bundled_claude_command().unwrap_or_else(|| "claude".to_string())
+        "claude".to_string()
     }
 }
 
@@ -794,14 +792,6 @@ impl StandardCodingAgentExecutor for ClaudeCode {
 }
 
 impl ClaudeCode {
-    /// True when the spawned binary is the one bundled by the npx wrapper
-    /// (no user override, no claude-code-router redirection).
-    fn uses_bundled_claude(&self) -> bool {
-        self.cmd.base_command_override.is_none()
-            && !self.claude_code_router.unwrap_or(false)
-            && super::bundled::bundled_claude_command().is_some()
-    }
-
     async fn spawn_internal(
         &self,
         current_dir: &Path,
@@ -821,12 +811,6 @@ impl ClaudeCode {
             .current_dir(current_dir)
             .env("NPM_CONFIG_LOGLEVEL", "error")
             .args(&args);
-
-        // The bundled binary lives in the npx cache; self-updating in place
-        // would silently break the pinned version.
-        if self.uses_bundled_claude() {
-            command.env("DISABLE_AUTOUPDATER", "1");
-        }
 
         env.clone()
             .with_profile(&self.cmd)

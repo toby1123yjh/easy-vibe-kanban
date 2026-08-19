@@ -5,10 +5,14 @@ icon: https://www.vibekanban.com/images/logos/gemini-logo.svg
 ---
 
 <Steps>
-<Step title="Run Gemini CLI">
+<Step title="Install Gemini CLI">
   ```bash
-  npx -y @google/gemini-cli
+  npm install --global @google/gemini-cli
   ```
+
+  Vibe Kanban launches the `gemini` command from your PATH. Keep the CLI
+  updated independently; Vibe Kanban does not bundle or pin a Gemini CLI
+  runtime version.
 </Step>
 
 <Step title="Follow the login instructions">

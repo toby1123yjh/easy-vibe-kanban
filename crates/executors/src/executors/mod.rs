@@ -28,7 +28,6 @@ use crate::{
 };
 
 pub mod acp;
-pub mod bundled;
 pub mod claude;
 pub mod codex;
 pub mod gemini;
@@ -188,7 +187,6 @@ impl CodingAgent {
             Self::QaMock(_) => vec![], // QA mock doesn't need special capabilities
         }
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

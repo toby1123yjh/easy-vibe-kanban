@@ -139,7 +139,11 @@ impl AppServerClient {
         let response = self
             .send_request::<InitializeResponse>(request, "initialize")
             .await?;
-        ensure_codex_version(&response.user_agent)?;
+        // `app-server` is a JSON-RPC integration boundary. The CLI version
+        // reported in the initialize response is useful audit information,
+        // but it is not a compatibility gate. Runtime compatibility is
+        // established by the handshake and the methods/capabilities we use.
+        observe_codex_version(&response.user_agent);
         self.send_message(&ClientNotification::Initialized).await
     }
 
@@ -1277,29 +1281,17 @@ impl LogWriter {
     }
 }
 
-/// The Codex version this build is tested against. Must match the
-/// `codex-app-server-protocol` tag pinned in `crates/executors/Cargo.toml`
-/// and the `@openai/codex` version pinned in `npx-cli/package.json`.
-const EXPECTED_CODEX_VERSION: &str = "0.144.1";
-
-/// Reject a running app-server that does not exactly match the protocol this
-/// build targets. The bundled CLI follows this version by construction; users
-/// opting into a system Codex must install the same stable release.
-fn ensure_codex_version(user_agent: &str) -> Result<(), ExecutorError> {
-    let expected = crate::executors::bundled::bundled_codex_version()
-        .unwrap_or_else(|| EXPECTED_CODEX_VERSION.to_string());
-    let Some(actual) = extract_semver(user_agent) else {
-        return Err(ExecutorError::Io(io::Error::other(format!(
-            "could not parse Codex version from app-server user agent `{user_agent}`; expected {expected}"
-        ))));
-    };
-    if actual != expected {
-        return Err(ExecutorError::Io(io::Error::other(format!(
-            "Codex app-server version mismatch: running {actual}, but this build requires {expected}"
-        ))));
+/// Record the runtime version without turning it into a hard compatibility
+/// requirement. The protocol crate used to compile this adapter is a build
+/// dependency; it must not force users to install that exact CLI release.
+fn observe_codex_version(user_agent: &str) {
+    match extract_semver(user_agent) {
+        Some(version) => tracing::debug!(codex_version = %version, "connected to Codex app-server"),
+        None => tracing::debug!(
+            user_agent = %user_agent,
+            "connected to Codex app-server without a parsed version"
+        ),
     }
-    tracing::debug!("codex app-server version {actual} matches expected {expected}");
-    Ok(())
 }
 
 /// Extracts the first `x.y.z`-shaped token from a user-agent string such as
@@ -1328,9 +1320,8 @@ mod version_check_tests {
     use super::{
         AppServerClient, ExecutorExitResult, JsonRpcControlFlow, LogWriter, ReasoningEffortUpdate,
         TurnStatus, build_thread_settings_update_params, build_turn_start_params,
-        ensure_codex_version, ensure_resumed_thread_id, extract_semver,
-        parse_turn_completed_params, reasoning_update_from_thread_settings,
-        turn_completion_control_flow,
+        ensure_resumed_thread_id, extract_semver, parse_turn_completed_params,
+        reasoning_update_from_thread_settings, turn_completion_control_flow,
     };
 
     #[test]
@@ -1398,11 +1389,13 @@ mod version_check_tests {
     }
 
     #[test]
-    fn codex_version_must_match_exactly() {
-        assert!(ensure_codex_version("codex/0.144.1").is_ok());
-        assert!(ensure_codex_version("codex/0.144.0").is_err());
-        assert!(ensure_codex_version("codex/0.145.0").is_err());
-        assert!(ensure_codex_version("unknown").is_err());
+    fn runtime_version_is_observation_only() {
+        // Newer and older local CLIs are not rejected here. The app-server
+        // handshake and subsequent JSON-RPC calls are the compatibility
+        // boundary; this parser is only for diagnostics/audit metadata.
+        assert_eq!(extract_semver("codex/0.147.0"), Some("0.147.0".to_string()));
+        assert_eq!(extract_semver("codex/0.144.1"), Some("0.144.1".to_string()));
+        assert_eq!(extract_semver("unknown"), None);
     }
 
     #[test]

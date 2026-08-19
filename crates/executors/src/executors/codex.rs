@@ -630,11 +630,13 @@ impl Codex {
         "memories.use_memories=false",
     ];
 
-    /// Prefers the Codex pinned by the npx wrapper so the binary version
-    /// matches the `codex-app-server-protocol` crate this build links against.
+    /// Resolve the user's locally installed Codex executable from PATH.
+    ///
+    /// The app-server protocol crate is a compile-time type dependency; it
+    /// does not authorize replacing the user's runtime with a pinned npm
+    /// binary. Explicit command overrides remain supported by `CmdOverrides`.
     pub fn base_command() -> String {
-        super::bundled::bundled_codex_command()
-            .unwrap_or_else(|| Self::DEFAULT_BASE_COMMAND.to_string())
+        Self::DEFAULT_BASE_COMMAND.to_string()
     }
 
     fn launch_context(&self, program_path: &Path, args: &[String], current_dir: &Path) -> String {
@@ -1289,6 +1291,11 @@ mod tests {
         .into_iter()
         .map(str::to_string)
         .collect()
+    }
+
+    #[test]
+    fn app_server_uses_the_users_local_codex_command() {
+        assert_eq!(Codex::base_command(), Codex::DEFAULT_BASE_COMMAND);
     }
 
     #[test]

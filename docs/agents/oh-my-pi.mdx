@@ -10,8 +10,12 @@ separate from the canonical conversation timeline.
 <Steps>
 <Step title="Install Oh My Pi">
   ```bash
-  npx -y @oh-my-pi/pi-coding-agent
+  npm install --global @oh-my-pi/pi-coding-agent
   ```
+
+  This installs the `omp` executable that Vibe Kanban launches from your PATH.
+  Keep Oh My Pi updated independently; Vibe Kanban does not bundle or pin its
+  runtime version.
 </Step>
 
 <Step title="Follow the login instructions">
