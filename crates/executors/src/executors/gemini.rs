@@ -8,9 +8,10 @@ use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
 pub use super::acp::AcpAgentHarness;
+pub mod command_adapter;
 use crate::{
     approvals::ExecutorApprovalService,
-    command::{CmdOverrides, CommandBuildError, CommandBuilder, apply_overrides},
+    command::{CmdOverrides, CommandBuildError, CommandBuilder},
     env::ExecutionEnv,
     executor_discovery::ExecutorDiscoveredOptions,
     executors::{
@@ -167,20 +168,7 @@ impl Gemini {
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new("gemini");
-
-        if let Some(model) = &self.model {
-            builder = builder.extend_params(["--model", model.as_str()]);
-        }
-
-        if self.yolo.unwrap_or(false) {
-            builder = builder.extend_params(["--yolo"]);
-            builder = builder.extend_params(["--allowed-tools", "run_shell_command"]);
-        }
-
-        builder = builder.extend_params(["--experimental-acp"]);
-
-        apply_overrides(builder, &self.cmd)
+        command_adapter::GeminiCommandAdapter::new(self).build()
     }
 }
 

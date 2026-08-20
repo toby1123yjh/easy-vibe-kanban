@@ -211,9 +211,18 @@ impl JsonRpcPeer {
     where
         T: Serialize + Sync,
     {
-        let raw = serde_json::to_string(message)
+        self.send_with_raw(message).await.map(|_| ())
+    }
+
+    pub async fn send_with_raw<T>(&self, message: &T) -> Result<Vec<u8>, ExecutorError>
+    where
+        T: Serialize + Sync,
+    {
+        let mut raw = serde_json::to_vec(message)
             .map_err(|err| ExecutorError::Io(io::Error::other(err.to_string())))?;
-        self.send_raw(&raw).await
+        raw.push(b'\n');
+        self.send_raw(&raw).await?;
+        Ok(raw)
     }
 
     pub async fn request<R, T>(
@@ -227,18 +236,34 @@ impl JsonRpcPeer {
         R: DeserializeOwned + Debug,
         T: Serialize + Sync,
     {
-        let receiver = self.register(request_id).await;
-        self.send(message).await?;
-        await_response(receiver, label, cancel).await
+        self.request_with_raw(request_id, message, label, cancel)
+            .await
+            .map(|(response, _)| response)
     }
 
-    async fn send_raw(&self, payload: &str) -> Result<(), ExecutorError> {
+    pub async fn request_with_raw<R, T>(
+        &self,
+        request_id: RequestId,
+        message: &T,
+        label: &str,
+        cancel: CancellationToken,
+    ) -> Result<(R, Vec<u8>), ExecutorError>
+    where
+        R: DeserializeOwned + Debug,
+        T: Serialize + Sync,
+    {
+        let receiver = self.register(request_id).await;
+        let mut raw = serde_json::to_vec(message)
+            .map_err(|err| ExecutorError::Io(io::Error::other(err.to_string())))?;
+        raw.push(b'\n');
+        self.send_raw(&raw).await?;
+        let response = await_response(receiver, label, cancel).await?;
+        Ok((response, raw))
+    }
+
+    async fn send_raw(&self, payload: &[u8]) -> Result<(), ExecutorError> {
         let mut guard = self.stdin.lock().await;
-        guard
-            .write_all(payload.as_bytes())
-            .await
-            .map_err(ExecutorError::Io)?;
-        guard.write_all(b"\n").await.map_err(ExecutorError::Io)?;
+        guard.write_all(payload).await.map_err(ExecutorError::Io)?;
         guard.flush().await.map_err(ExecutorError::Io)?;
         Ok(())
     }

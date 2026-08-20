@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     env,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
@@ -82,21 +82,47 @@ use self::{
     jsonrpc::{ExitSignalSender, JsonRpcPeer},
     normalize_logs::{Error, normalize_logs},
 };
+
+pub mod command_adapter;
 use crate::{
     actions::SelectedSkill,
     approvals::ExecutorApprovalService,
-    command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
+    command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts},
     env::{ExecutionEnv, RepoContext},
     executor_discovery::{CodexSkillDescription, CodexSkillLoadError, ExecutorDiscoveredOptions},
     executors::{
-        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, ExecutorExitResult,
-        SpawnedChild, StandardCodingAgentExecutor,
+        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorControl, ExecutorError,
+        ExecutorExitResult, SpawnedChild, StandardCodingAgentExecutor,
     },
     logs::utils::patch,
     model_selector::{ModelInfo, ModelSelectorConfig, PermissionPolicy, ReasoningOption},
     profile::ExecutorConfig,
     stdout_dup::create_stdout_pipe_writer,
 };
+
+#[derive(Debug)]
+struct DeferredCodexControl {
+    client: Arc<OnceLock<Arc<AppServerClient>>>,
+}
+
+#[async_trait]
+impl ExecutorControl for DeferredCodexControl {
+    async fn send(
+        &self,
+        control: crate::executors::provider_adapter::DirectControl,
+    ) -> Result<Vec<u8>, ExecutorError> {
+        for _ in 0..100 {
+            if let Some(client) = self.client.get() {
+                return client.send_direct_control(control).await;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Err(ExecutorError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Codex app-server control peer was not initialized",
+        )))
+    }
+}
 
 /// Sandbox policy modes for Codex
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema, AsRefStr)]
@@ -683,17 +709,7 @@ impl Codex {
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder = CommandBuilder::new(Self::base_command());
-        builder = builder
-            .extend_params(["app-server"])
-            .extend_params(Self::DISABLE_NATIVE_MEMORY_ARGS);
-        if self.oss.unwrap_or(false) {
-            builder = builder.extend_params(["--oss"]);
-        }
-
-        // Profile parameters are applied last so an advanced user can
-        // explicitly opt back into native memory for this executor profile.
-        apply_overrides(builder, &self.cmd)
+        command_adapter::CodexCommandAdapter::new(self).build()
     }
 
     async fn discover_skills(
@@ -1031,6 +1047,10 @@ impl Codex {
         let commit_reminder = env.commit_reminder;
         let commit_reminder_prompt = env.commit_reminder_prompt.clone();
         let cancel_for_task = cancel.clone();
+        let client_slot = Arc::new(OnceLock::new());
+        let control = Arc::new(DeferredCodexControl {
+            client: client_slot.clone(),
+        });
 
         tokio::spawn(async move {
             let exit_signal_tx = ExitSignalSender::new(exit_signal_tx);
@@ -1056,6 +1076,10 @@ impl Codex {
                 cancel_for_task,
             );
             client.connect(rpc_peer);
+            // Do not expose the control peer until it owns a connected RPC
+            // transport.  The process host can send cancellation immediately
+            // after launch, before the initialization request has completed.
+            let _ = client_slot.set(client.clone());
 
             let result = async {
                 client.initialize().await?;
@@ -1100,6 +1124,7 @@ impl Codex {
             child,
             exit_signal: Some(exit_signal_rx),
             cancel: Some(cancel),
+            control: Some(control),
         })
     }
 }

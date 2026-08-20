@@ -22,9 +22,10 @@ use executors::{
     approvals::NoopExecutorApprovalService,
     env::{ExecutionEnv, RepoContext},
     executors::{
-        CancellationToken, ExecutorExitResult,
+        CancellationToken, ExecutorControl, ExecutorExitResult,
         provider_adapter::{
-            DirectIntent, DirectProvider, DirectProviderLaunchRequest, launch_direct_provider,
+            DirectControl, DirectIntent, DirectProvider, DirectProviderLaunchRequest,
+            launch_direct_provider,
         },
     },
     profile::ExecutorConfig,
@@ -130,6 +131,7 @@ pub(crate) enum HostCommand {
     },
     Control {
         bytes: Vec<u8>,
+        control: Option<DirectControl>,
         cancel: bool,
         after_sequence: u64,
     },
@@ -217,6 +219,7 @@ struct SharedHost {
 enum ProcessCommand {
     Control {
         bytes: Vec<u8>,
+        control: Option<DirectControl>,
         cancel: bool,
         result: oneshot::Sender<Result<(), String>>,
     },
@@ -389,6 +392,7 @@ impl SharedHost {
                 return Ok(());
             }
         };
+        let control = spawned.control;
         let stdin = spawned.child.inner().stdin.take();
         let writer = Arc::new(Mutex::new(writer));
 
@@ -426,6 +430,7 @@ impl SharedHost {
                 stdin,
                 spawned.cancel,
                 spawned.exit_signal,
+                control,
                 writer,
                 notices_rx,
                 commands_rx,
@@ -533,6 +538,7 @@ async fn handle_connection(
         HostCommand::Attach { after_sequence } => host.response_after(after_sequence).await,
         HostCommand::Control {
             bytes,
+            control,
             cancel,
             after_sequence,
         } => {
@@ -543,6 +549,7 @@ async fn handle_connection(
                     if sender
                         .send(ProcessCommand::Control {
                             bytes,
+                            control,
                             cancel,
                             result: result_tx,
                         })
@@ -712,6 +719,7 @@ async fn monitor_process(
     mut stdin: Option<tokio::process::ChildStdin>,
     cancellation: Option<CancellationToken>,
     exit_signal: Option<executors::executors::ExecutorExitSignal>,
+    control: Option<Arc<dyn ExecutorControl>>,
     writer: Arc<Mutex<NativeAuditWriter>>,
     mut notices: mpsc::UnboundedReceiver<OutputNotice>,
     mut commands: mpsc::Receiver<ProcessCommand>,
@@ -765,37 +773,69 @@ async fn monitor_process(
                 }
             }
             command = commands.recv() => {
-                let Some(ProcessCommand::Control { bytes, cancel, result }) = command else {
+                let Some(ProcessCommand::Control { bytes, control: direct_control, cancel, result }) = command else {
                     continue;
                 };
-                let audit_result = {
-                    let mut writer = writer.lock().await;
-                    writer.append_native_input(
-                        NativeAuditChannel::Stdin,
-                        "application/x-ndjson",
-                        correlation_id,
-                        &bytes,
-                    )
-                };
-                if let Err(error) = audit_result {
-                    let message = error.to_string();
-                    let _ = result.send(Err(message.clone()));
-                    break ExitCause::AuditFailure(message);
-                }
-                if !bytes.is_empty() {
-                    if let Some(stdin) = stdin.as_mut()
-                        && let Err(error) = stdin.write_all(&bytes).await.and_then(|_| Ok(()))
-                    {
-                        let message = error.to_string();
-                        let _ = result.send(Err(message.clone()));
-                        break ExitCause::ProtocolFailure(message);
+                let sent_bytes = if let Some(control_peer) = control.as_ref() {
+                    match direct_control {
+                        Some(direct_control) => control_peer
+                            .send(direct_control)
+                            .await
+                            .map_err(|error| error.to_string()),
+                        None if !cancel => {
+                            Err("provider control payload is missing".to_string())
+                        }
+                        None => Ok(Vec::new()),
                     }
-                    if let Some(stdin) = stdin.as_mut()
-                        && let Err(error) = stdin.flush().await
-                    {
+                } else if !bytes.is_empty() {
+                    if let Some(stdin) = stdin.as_mut() {
+                        let write_result = stdin.write_all(&bytes).await;
+                        let write_result = match write_result {
+                            Ok(()) => stdin.flush().await,
+                            Err(error) => Err(error),
+                        };
+                        write_result
+                            .map(|_| bytes)
+                            .map_err(|error| error.to_string())
+                    } else if !cancel {
+                        Err("provider stdin is owned by its protocol adapter".to_string())
+                    } else {
+                        Ok(Vec::new())
+                    }
+                } else {
+                    Ok(Vec::new())
+                };
+                let sent_bytes = match sent_bytes {
+                    Ok(sent_bytes) => sent_bytes,
+                    Err(message) => {
+                        if !cancel {
+                            let _ = result.send(Err(message.clone()));
+                            break ExitCause::ProtocolFailure(message);
+                        }
+                        // Cancellation is still authoritative when the
+                        // provider-native interrupt is unavailable (for
+                        // example before Codex has established its thread).
+                        // Continue to token/process cleanup instead of
+                        // turning a recoverable control race into a protocol
+                        // failure.
+                        tracing::warn!(%message, "provider-native cancellation was unavailable; using process cleanup");
+                        Vec::new()
+                    }
+                };
+                if !sent_bytes.is_empty() {
+                    let audit_result = {
+                        let mut writer = writer.lock().await;
+                        writer.append_native_input(
+                            NativeAuditChannel::Stdin,
+                            "application/x-ndjson",
+                            correlation_id,
+                            &sent_bytes,
+                        )
+                    };
+                    if let Err(error) = audit_result {
                         let message = error.to_string();
                         let _ = result.send(Err(message.clone()));
-                        break ExitCause::ProtocolFailure(message);
+                        break ExitCause::AuditFailure(message);
                     }
                 }
                 if cancel {

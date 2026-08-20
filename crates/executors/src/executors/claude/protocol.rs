@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -20,9 +23,51 @@ use crate::{
 };
 
 /// Handles bidirectional control protocol communication
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
+    interrupt_sent: Arc<AtomicBool>,
+}
+
+#[async_trait::async_trait]
+impl crate::executors::ExecutorControl for ProtocolPeer {
+    async fn send(
+        &self,
+        control: crate::executors::provider_adapter::DirectControl,
+    ) -> Result<Vec<u8>, ExecutorError> {
+        use crate::executors::provider_adapter::DirectControl;
+
+        match control {
+            DirectControl::Cancel => self.send_interrupt_once().await,
+            DirectControl::Steer { text } => self.send_user_message_bytes(text).await,
+            DirectControl::Approve {
+                request_id,
+                approved,
+                reason,
+            } => {
+                let response = if approved {
+                    serde_json::json!({
+                        "behavior": "allow",
+                        "updatedInput": {}
+                    })
+                } else {
+                    serde_json::json!({
+                        "behavior": "deny",
+                        "message": reason.unwrap_or_else(|| "Denied by user".to_string())
+                    })
+                };
+                self.send_json_bytes(&ControlResponseMessage::new(ControlResponseType::Success {
+                    request_id,
+                    response: Some(response),
+                }))
+                .await
+            }
+            DirectControl::Input { .. } => Err(ExecutorError::Io(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Claude Code does not expose a separate host input response",
+            ))),
+        }
+    }
 }
 
 impl ProtocolPeer {
@@ -34,6 +79,7 @@ impl ProtocolPeer {
     ) -> Self {
         let peer = Self {
             stdin: Arc::new(Mutex::new(stdin)),
+            interrupt_sent: Arc::new(AtomicBool::new(false)),
         };
 
         let reader_peer = peer.clone();
@@ -54,16 +100,16 @@ impl ProtocolPeer {
     ) -> Result<(), ExecutorError> {
         let mut reader = BufReader::new(stdout);
         let mut buffer = String::new();
-        let mut interrupt_sent = false;
+        let mut cancellation_observed = false;
 
         loop {
             buffer.clear();
             tokio::select! {
                 biased;
-                _ = cancel.cancelled(), if !interrupt_sent => {
-                    interrupt_sent = true;
+                _ = cancel.cancelled(), if !cancellation_observed => {
+                    cancellation_observed = true;
                     tracing::info!("Cancellation received in read_loop, sending interrupt to Claude");
-                    if let Err(e) = self.interrupt().await {
+                    if let Err(e) = self.send_interrupt_once().await {
                         tracing::warn!("Failed to send interrupt to Claude: {e}");
                     }
                     // Continue the loop to read Claude's response (it should send a result)
@@ -187,17 +233,47 @@ impl ProtocolPeer {
     }
 
     async fn send_json<T: serde::Serialize>(&self, message: &T) -> Result<(), ExecutorError> {
+        self.send_json_bytes(message).await.map(|_| ())
+    }
+
+    async fn send_json_bytes<T: serde::Serialize>(
+        &self,
+        message: &T,
+    ) -> Result<Vec<u8>, ExecutorError> {
         let json = serde_json::to_string(message)?;
+        let mut bytes = json.into_bytes();
+        bytes.push(b'\n');
         let mut stdin = self.stdin.lock().await;
-        stdin.write_all(json.as_bytes()).await?;
-        stdin.write_all(b"\n").await?;
+        stdin.write_all(&bytes).await?;
         stdin.flush().await?;
-        Ok(())
+        Ok(bytes)
+    }
+
+    async fn send_interrupt_once(&self) -> Result<Vec<u8>, ExecutorError> {
+        if self
+            .interrupt_sent
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Ok(Vec::new());
+        }
+
+        let result = self
+            .send_json_bytes(&SDKControlRequest::new(SDKControlRequestType::Interrupt {}))
+            .await;
+        if result.is_err() {
+            self.interrupt_sent.store(false, Ordering::Release);
+        }
+        result
     }
 
     pub async fn send_user_message(&self, content: String) -> Result<(), ExecutorError> {
+        self.send_user_message_bytes(content).await.map(|_| ())
+    }
+
+    async fn send_user_message_bytes(&self, content: String) -> Result<Vec<u8>, ExecutorError> {
         let message = Message::new_user(content);
-        self.send_json(&message).await
+        self.send_json_bytes(&message).await
     }
 
     pub async fn initialize(&self, hooks: Option<serde_json::Value>) -> Result<(), ExecutorError> {
@@ -207,8 +283,7 @@ impl ProtocolPeer {
         .await
     }
     pub async fn interrupt(&self) -> Result<(), ExecutorError> {
-        self.send_json(&SDKControlRequest::new(SDKControlRequestType::Interrupt {}))
-            .await
+        self.send_interrupt_once().await.map(|_| ())
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) -> Result<(), ExecutorError> {

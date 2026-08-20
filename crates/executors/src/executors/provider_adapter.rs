@@ -12,14 +12,13 @@ use std::{
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
     actions::SelectedSkill,
     approvals::ExecutorApprovalService,
-    command::{CmdOverrides, CommandBuildError, CommandBuilder, apply_overrides},
     env::ExecutionEnv,
     executors::{CodingAgent, ExecutorError, SpawnedChild},
     profile::{ExecutorConfig, ExecutorConfigs},
@@ -324,41 +323,6 @@ impl DirectProvider {
         }
     }
 
-    pub fn command(
-        self,
-        intent: DirectIntent,
-        session_id: Option<&str>,
-        overrides: &CmdOverrides,
-    ) -> Result<CommandBuilder, CommandBuildError> {
-        let versions = self.versions();
-        let mut builder = CommandBuilder::new(versions.executable);
-        match self {
-            Self::Gemini => {
-                builder = builder.extend_params(["--experimental-acp"]);
-            }
-            Self::Codex => {
-                builder = builder.extend_params(["app-server"]);
-            }
-            Self::ClaudeCode => {
-                builder = builder.extend_params(["-p"]);
-                if matches!(intent, DirectIntent::FollowUp | DirectIntent::Review)
-                    && let Some(session_id) = session_id
-                {
-                    builder = builder.extend_params(["--resume", session_id]);
-                }
-                builder = builder.extend_params([
-                    "--verbose",
-                    "--output-format=stream-json",
-                    "--input-format=stream-json",
-                ]);
-            }
-            // Oh My Pi's RPC request is written to stdin after launch.  The
-            // session id is deliberately not smuggled into command arguments.
-            Self::OhMyPi => builder = builder.extend_params(["--mode", "rpc"]),
-        }
-        apply_overrides(builder, overrides)
-    }
-
     pub fn capabilities(self, runtime_profile_id: impl Into<String>) -> CapabilitySnapshot {
         let versions = self.versions();
         let states = match self {
@@ -475,7 +439,7 @@ impl DirectProvider {
                 ),
                 (
                     crate::runtime::AgentCapability::Approval,
-                    CapabilityState::Native,
+                    CapabilityState::Unsupported,
                 ),
                 (
                     crate::runtime::AgentCapability::Images,
@@ -575,85 +539,13 @@ pub fn encode_control(
     if let Some(capability) = control.capability() {
         require_capability(provider, snapshot, capability, false)?;
     }
-    let request = match (provider, control) {
-        (DirectProvider::Gemini, DirectControl::Cancel) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/cancel","params":{}})
-        }
-        (DirectProvider::Codex, DirectControl::Cancel) => {
-            serde_json::json!({"method":"turn/interrupt","params":{}})
-        }
-        (DirectProvider::ClaudeCode, DirectControl::Cancel) => {
-            serde_json::json!({"type":"control_request","request":{"subtype":"interrupt"}})
-        }
-        (DirectProvider::OhMyPi, DirectControl::Cancel) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/abort","params":{}})
-        }
-        (
-            DirectProvider::Gemini,
-            DirectControl::Approve {
-                request_id,
-                approved,
-                reason,
-            },
-        ) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/request_permission/response","params":{"request_id":request_id,"approved":approved,"reason":reason}})
-        }
-        (
-            DirectProvider::Codex,
-            DirectControl::Approve {
-                request_id,
-                approved,
-                reason,
-            },
-        ) => {
-            serde_json::json!({"method":"approval/respond","params":{"request_id":request_id,"approved":approved,"reason":reason}})
-        }
-        (
-            DirectProvider::ClaudeCode,
-            DirectControl::Approve {
-                request_id,
-                approved,
-                reason,
-            },
-        ) => {
-            serde_json::json!({"type":"control_response","response":{"request_id":request_id,"approved":approved,"reason":reason}})
-        }
-        (
-            DirectProvider::OhMyPi,
-            DirectControl::Approve {
-                request_id,
-                approved,
-                reason,
-            },
-        ) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"permission/respond","params":{"request_id":request_id,"approved":approved,"reason":reason}})
-        }
-        (DirectProvider::Gemini, DirectControl::Input { request_id, text }) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/input","params":{"request_id":request_id,"text":text}})
-        }
-        (DirectProvider::Codex, DirectControl::Input { request_id, text }) => {
-            serde_json::json!({"method":"user-input/respond","params":{"request_id":request_id,"text":text}})
-        }
-        (DirectProvider::ClaudeCode, DirectControl::Input { request_id, text }) => {
-            serde_json::json!({"type":"control_response","response":{"request_id":request_id,"answer":text}})
-        }
-        (DirectProvider::OhMyPi, DirectControl::Input { request_id, text }) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"input/respond","params":{"request_id":request_id,"text":text}})
-        }
-        (DirectProvider::Gemini, DirectControl::Steer { text }) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/prompt","params":{"prompt":text}})
-        }
-        (DirectProvider::Codex, DirectControl::Steer { text }) => {
-            serde_json::json!({"method":"turn/steer","params":{"input":[{"type":"text","text":text}]}})
-        }
-        (DirectProvider::ClaudeCode, DirectControl::Steer { text }) => {
-            serde_json::json!({"type":"user","message":{"role":"user","content":text}})
-        }
-        (DirectProvider::OhMyPi, DirectControl::Steer { text }) => {
-            serde_json::json!({"jsonrpc":"2.0","method":"session/steer","params":{"text":text}})
-        }
-    };
-    encode_stdio_rpc(&request).map_err(DirectControlError::Json)
+    match provider {
+        DirectProvider::Gemini => super::gemini::command_adapter::encode_control(control),
+        DirectProvider::Codex => super::codex::command_adapter::encode_control(control),
+        DirectProvider::ClaudeCode => super::claude::command_adapter::encode_control(control),
+        DirectProvider::OhMyPi => super::oh_my_pi::command_adapter::encode_control(control),
+    }
+    .map_err(DirectControlError::Json)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1166,26 +1058,6 @@ fn event_id(run_attempt_id: Uuid, sequence: u64) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
-/// Build the request written to Oh My Pi's stdio RPC transport.
-pub fn oh_my_pi_rpc_request(
-    method: &str,
-    id: u64,
-    prompt: Option<&str>,
-    session_id: Option<&str>,
-) -> Value {
-    let mut params = Map::new();
-    if let Some(prompt) = prompt {
-        params.insert("prompt".to_string(), Value::String(prompt.to_string()));
-    }
-    if let Some(session_id) = session_id {
-        params.insert(
-            "session_id".to_string(),
-            Value::String(session_id.to_string()),
-        );
-    }
-    serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
-}
-
 /// Serialize one NDJSON request without appending a second frame or accepting
 /// an embedded SDK.  Callers write the returned bytes directly to `omp` stdin.
 pub fn encode_stdio_rpc(request: &Value) -> Result<Vec<u8>, serde_json::Error> {
@@ -1459,17 +1331,25 @@ mod tests {
 
     #[test]
     fn omp_rpc_is_ndjson_and_external() {
-        let request = oh_my_pi_rpc_request("session/start", 1, Some("hello"), None);
+        let request = super::super::oh_my_pi::command_adapter::session_request("hello", None);
         let bytes = encode_stdio_rpc(&request).unwrap();
         assert_eq!(bytes.last(), Some(&b'\n'));
-        assert!(String::from_utf8(bytes).unwrap().contains("session/start"));
+        assert!(
+            String::from_utf8(bytes)
+                .unwrap()
+                .contains("\"type\":\"prompt\"")
+        );
         assert_eq!(DirectProvider::OhMyPi.versions().executable, "omp");
     }
 
     #[test]
     fn controls_are_provider_native_and_fail_closed_on_unknown_capability() {
         let snapshot = DirectProvider::Gemini.capabilities("default");
-        let bytes = encode_control(
+        assert_eq!(
+            snapshot.resolve(crate::runtime::AgentCapability::Approval),
+            CapabilityState::Native
+        );
+        let error = encode_control(
             DirectProvider::Gemini,
             &snapshot,
             DirectControl::Approve {
@@ -1478,12 +1358,8 @@ mod tests {
                 reason: None,
             },
         )
-        .unwrap();
-        assert!(
-            String::from_utf8(bytes)
-                .unwrap()
-                .contains("request_permission/response")
-        );
+        .expect_err("ACP approvals must be routed through the active connection");
+        assert!(matches!(error, DirectControlError::Json(_)));
 
         let mut unknown = DirectProvider::Gemini.capabilities("default");
         unknown
@@ -1500,6 +1376,26 @@ mod tests {
         assert!(matches!(
             error,
             DirectControlError::Capability(CapabilityGateError::Unresolved { .. })
+        ));
+
+        let omp_snapshot = DirectProvider::OhMyPi.capabilities("default");
+        assert_eq!(
+            omp_snapshot.resolve(crate::runtime::AgentCapability::Approval),
+            CapabilityState::Unsupported
+        );
+        let error = encode_control(
+            DirectProvider::OhMyPi,
+            &omp_snapshot,
+            DirectControl::Approve {
+                request_id: "a1".to_string(),
+                approved: true,
+                reason: None,
+            },
+        )
+        .expect_err("Oh My Pi approval is not exposed by its RPC adapter");
+        assert!(matches!(
+            error,
+            DirectControlError::Capability(CapabilityGateError::Unsupported { .. })
         ));
     }
 

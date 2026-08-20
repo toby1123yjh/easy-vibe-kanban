@@ -3,26 +3,48 @@
 //! V1 intentionally launches the real `omp` executable and speaks its stdio
 //! RPC NDJSON protocol.  No Node SDK or in-process package is linked here.
 
-use std::{path::Path, process::Stdio};
+use std::{path::Path, process::Stdio, sync::Arc};
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncWriteExt, process::Command};
+use tokio::{
+    io::AsyncWriteExt,
+    process::{ChildStdin, Command},
+    sync::Mutex,
+};
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 use workspace_utils::command_ext::GroupSpawnNoWindowExt;
+
+pub mod command_adapter;
 
 use crate::{
     command::{CmdOverrides, CommandBuildError, CommandBuilder},
     env::ExecutionEnv,
     executors::{
-        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, SpawnedChild,
-        StandardCodingAgentExecutor,
-        provider_adapter::{DirectIntent, DirectProvider, encode_stdio_rpc, oh_my_pi_rpc_request},
+        AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorControl, ExecutorError,
+        SpawnedChild, StandardCodingAgentExecutor,
+        provider_adapter::{DirectControl, DirectIntent, DirectProvider, encode_stdio_rpc},
     },
     profile::ExecutorConfig,
 };
+
+#[derive(Debug)]
+struct OhMyPiControl {
+    stdin: Mutex<ChildStdin>,
+}
+
+#[async_trait]
+impl ExecutorControl for OhMyPiControl {
+    async fn send(&self, control: DirectControl) -> Result<Vec<u8>, ExecutorError> {
+        let bytes = command_adapter::encode_control(control)?;
+        let mut stdin = self.stdin.lock().await;
+        stdin.write_all(&bytes).await?;
+        stdin.flush().await?;
+        Ok(bytes)
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema, Default)]
 pub struct OhMyPi {
@@ -42,7 +64,7 @@ impl OhMyPi {
         &self,
         intent: DirectIntent,
     ) -> Result<CommandBuilder, CommandBuildError> {
-        DirectProvider::OhMyPi.command(intent, None, &self.cmd)
+        command_adapter::OhMyPiCommandAdapter::new(self).build(intent, None)
     }
 
     pub fn provider(&self) -> DirectProvider {
@@ -132,18 +154,14 @@ impl OhMyPi {
         session_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut builder = DirectProvider::OhMyPi.command(
+        let builder = command_adapter::OhMyPiCommandAdapter::new(self).build(
             if session_id.is_some() {
                 DirectIntent::FollowUp
             } else {
                 DirectIntent::Initial
             },
             session_id,
-            &self.cmd,
         )?;
-        if let Some(model) = self.model.as_deref() {
-            builder = builder.extend_params(["--model", model]);
-        }
         let (program, args) = builder.build_initial()?.into_resolved().await?;
         let mut command = Command::new(program);
         command
@@ -158,14 +176,8 @@ impl OhMyPi {
             .apply_to_command(&mut command);
 
         let mut child = command.group_spawn_no_window()?;
-        let request = oh_my_pi_rpc_request(
-            if session_id.is_some() {
-                "session/resume"
-            } else {
-                "session/start"
-            },
-            1,
-            Some(&self.append_prompt.combine_prompt(prompt)),
+        let request = command_adapter::session_request(
+            &self.append_prompt.combine_prompt(prompt),
             session_id,
         );
         if let Some(stdin) = child.inner().stdin.as_mut() {
@@ -173,12 +185,19 @@ impl OhMyPi {
             stdin.flush().await?;
         }
 
+        let stdin = child.inner().stdin.take().ok_or_else(|| {
+            ExecutorError::Io(std::io::Error::other("Oh My Pi missing stdin control pipe"))
+        })?;
+
         // The supervisor owns cancellation and process-tree cleanup.  Keeping
         // a token on the returned child makes the control boundary explicit.
         Ok(SpawnedChild {
             child,
             exit_signal: None,
             cancel: Some(CancellationToken::new()),
+            control: Some(Arc::new(OhMyPiControl {
+                stdin: Mutex::new(stdin),
+            })),
         })
     }
 

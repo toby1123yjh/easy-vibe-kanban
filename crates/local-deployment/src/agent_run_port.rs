@@ -887,29 +887,22 @@ impl LocalAgentRunPort {
         Ok((frame, reference))
     }
 
-    async fn append_control_audit(
+    async fn require_audit_writer(
         &self,
         attempt: &RunAttemptRequest,
-        payload: &[u8],
     ) -> Result<(), AgentRunPortError> {
-        // For a durable process-host attachment, the host is the sole Native
-        // Audit owner and appends this frame immediately before writing stdin.
-        // The parent still invokes this gate so controls never bypass the
-        // audit-first boundary; the host-owned path is intentionally a no-op
-        // here to avoid duplicating the frame in a second writer.
-        let mut writers = self.audit_writers.lock().await;
-        let writer = writers.get_mut(&attempt.run_attempt_id).ok_or_else(|| {
-            AgentRunPortError::Unavailable("Native Audit writer is not attached".to_string())
-        })?;
-        writer
-            .append_native_input(
-                NativeAuditChannel::Stdin,
-                "application/x-ndjson",
-                attempt.correlation_id,
-                payload,
-            )
-            .map(|_| ())
-            .map_err(port_audit)
+        if self
+            .audit_writers
+            .lock()
+            .await
+            .contains_key(&attempt.run_attempt_id)
+        {
+            Ok(())
+        } else {
+            Err(AgentRunPortError::Unavailable(
+                "Native Audit writer is not attached".to_string(),
+            ))
+        }
     }
 
     async fn finalize_audit(&self, attempt: &RunAttemptRequest) -> Result<(), AgentRunPortError> {
@@ -2409,6 +2402,7 @@ impl LocalAgentRunPort {
         &self,
         attempt: &RunAttemptRequest,
         bytes: &[u8],
+        direct_control: DirectControl,
     ) -> Result<(), AgentRunPortError> {
         if let Some((endpoint, token)) = self.load_host_attachment(attempt).await? {
             let after_sequence = self.load_host_cursor(attempt).await?;
@@ -2417,6 +2411,7 @@ impl LocalAgentRunPort {
                 &token,
                 HostCommand::Control {
                     bytes: bytes.to_vec(),
+                    control: Some(direct_control),
                     cancel: false,
                     after_sequence,
                 },
@@ -2454,6 +2449,7 @@ impl LocalAgentRunPort {
                 &token,
                 HostCommand::Control {
                     bytes: control,
+                    control: Some(DirectControl::Cancel),
                     cancel: true,
                     after_sequence,
                 },
@@ -2497,7 +2493,10 @@ impl LocalAgentRunPort {
                 )
                 .await;
         }
-        if let Err(error) = self.append_control_audit(attempt, &control).await {
+        // No provider bytes were written without a durable host attachment.
+        // Keep the fail-closed writer check, but do not record a synthetic
+        // stdin frame that could be mistaken for an actual provider input.
+        if let Err(error) = self.require_audit_writer(attempt).await {
             let message = error.to_string();
             self.terminalize_failure(
                 request,
@@ -2883,7 +2882,15 @@ impl AgentRunPort for LocalAgentRunPort {
                     Some(command.command_id),
                 )
                 .await?;
-                self.write_attached_control(&attempt, &bytes).await?;
+                self.write_attached_control(
+                    &attempt,
+                    &bytes,
+                    DirectControl::Input {
+                        request_id: input_id.clone(),
+                        text: content.clone(),
+                    },
+                )
+                .await?;
                 self.append_event(
                     &request,
                     &attempt,
@@ -2919,7 +2926,16 @@ impl AgentRunPort for LocalAgentRunPort {
                     },
                 )
                 .map_err(|error| AgentRunPortError::Rejected(error.to_string()))?;
-                self.write_attached_control(&attempt, &bytes).await?;
+                self.write_attached_control(
+                    &attempt,
+                    &bytes,
+                    DirectControl::Approve {
+                        request_id: approval_id.clone(),
+                        approved: *approved,
+                        reason: reason.clone(),
+                    },
+                )
+                .await?;
                 self.append_event(
                     &request,
                     &attempt,

@@ -299,6 +299,21 @@ Runtime Profile 提供静态基线，Adapter 可以结合 executable/protocol �
 
 ### Provider Adapter
 
+#### Provider-owned CommandAdapter
+
+The command surface is intentionally split by provider. Gemini, Codex, Claude
+Code, and Oh My Pi each own a `CommandAdapter` next to their executor. The
+adapter owns the provider's launch arguments, native command discovery/catalog,
+initial/follow-up/resume shape, and native control encoding. The runtime only
+routes the provider, gates capabilities, supervises the process, and persists
+canonical/native audit records.
+
+There is no central `ProviderCommandManager`, unified command CRUD model, or
+cross-provider command inventory. Shared code is limited to low-level command
+parsing/overrides, the provider-neutral `DirectControl` request vocabulary,
+and newline-delimited JSON serialization. Provider slash-command parsers and
+discovery helpers remain in their provider directory.
+
 负责 provider-specific 行为。以下方法名只表达职责，不是预定的 trait：
 
 ```text

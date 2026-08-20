@@ -13,9 +13,9 @@ use tokio::{
 };
 use workspace_utils::command_ext::GroupSpawnNoWindowExt;
 
-use super::{ClaudeCode, ClaudeJson, ClaudePlugin, base_command};
+use super::{ClaudeCode, ClaudeJson, ClaudePlugin};
 use crate::{
-    command::{CommandBuildError, CommandBuilder, apply_overrides},
+    command::{CommandBuildError, CommandBuilder},
     env::{ExecutionEnv, RepoContext},
     executor_discovery::CodexSkillDescription,
     executors::{
@@ -231,20 +231,7 @@ impl ClaudeCode {
     async fn build_slash_commands_discovery_command_builder(
         &self,
     ) -> Result<CommandBuilder, CommandBuildError> {
-        let mut builder =
-            CommandBuilder::new(base_command(self.claude_code_router.unwrap_or(false)))
-                .params(["-p"]);
-
-        builder = builder.extend_params([
-            "--verbose",
-            "--output-format=stream-json",
-            "--max-turns",
-            "1",
-            "--",
-            "/",
-        ]);
-
-        apply_overrides(builder, &self.cmd)
+        super::command_adapter::ClaudeCodeCommandAdapter::new(self).build_discovery_probe()
     }
 
     async fn discover_available_command_and_plugins(

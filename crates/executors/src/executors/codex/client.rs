@@ -27,7 +27,8 @@ use codex_app_server_protocol::{
     ThreadResumeParams, ThreadResumeResponse, ThreadSettingsUpdateParams,
     ThreadSettingsUpdateResponse, ThreadStartParams, ThreadStartResponse,
     ToolRequestUserInputAnswer, ToolRequestUserInputQuestion, ToolRequestUserInputResponse,
-    TurnCompletedNotification, TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
+    TurnCompletedNotification, TurnInterruptParams, TurnStartParams, TurnStartResponse, TurnStatus,
+    TurnSteerParams, TurnSteerResponse, UserInput,
 };
 use codex_protocol::{
     config_types::{CollaborationMode, ModeKind, Settings},
@@ -47,7 +48,10 @@ use super::jsonrpc::{JsonRpcCallbacks, JsonRpcControlFlow, JsonRpcPeer};
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     env::RepoContext,
-    executors::{ExecutorError, ExecutorExitResult, codex::normalize_logs::Approval},
+    executors::{
+        ExecutorControl, ExecutorError, ExecutorExitResult, codex::normalize_logs::Approval,
+        provider_adapter::DirectControl,
+    },
 };
 
 struct PendingPlan {
@@ -59,6 +63,7 @@ pub struct AppServerClient {
     log_writer: LogWriter,
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
     thread_id: Mutex<Option<String>>,
+    turn_id: Arc<Mutex<Option<String>>>,
     pending_feedback: Mutex<VecDeque<String>>,
     auto_approve: bool,
     plan_mode: bool,
@@ -70,6 +75,14 @@ pub struct AppServerClient {
     commit_reminder_prompt: String,
     commit_reminder_sent: AtomicBool,
     cancel: CancellationToken,
+}
+
+impl std::fmt::Debug for AppServerClient {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AppServerClient")
+            .finish_non_exhaustive()
+    }
 }
 
 impl AppServerClient {
@@ -95,6 +108,7 @@ impl AppServerClient {
             reasoning_effort: StdMutex::new(reasoning_effort),
             pending_plan: Mutex::new(None),
             thread_id: Mutex::new(None),
+            turn_id: Arc::new(Mutex::new(None)),
             pending_feedback: Mutex::new(VecDeque::new()),
             repo_context,
             commit_reminder,
@@ -185,7 +199,72 @@ impl AppServerClient {
             request_id: self.next_request_id(),
             params: build_turn_start_params(thread_id, input, collaboration_mode, effort),
         };
-        self.send_request(request, "turn/start").await
+        let response: TurnStartResponse = self.send_request(request, "turn/start").await?;
+        *self.turn_id.lock().await = Some(response.turn.id.clone());
+        Ok(response)
+    }
+
+    pub async fn send_direct_control(
+        &self,
+        control: DirectControl,
+    ) -> Result<Vec<u8>, ExecutorError> {
+        match control {
+            DirectControl::Cancel => {
+                let thread_id = self.thread_id.lock().await.clone().ok_or_else(|| {
+                    ExecutorError::Io(io::Error::other("Codex has no active thread"))
+                })?;
+                let turn_id = self.turn_id.lock().await.clone().ok_or_else(|| {
+                    ExecutorError::Io(io::Error::other("Codex has no active turn"))
+                })?;
+                let request = ClientRequest::TurnInterrupt {
+                    request_id: self.next_request_id(),
+                    params: TurnInterruptParams { thread_id, turn_id },
+                };
+                // Cancellation is authoritative at the host boundary.  The
+                // interrupt frame only needs to be written successfully; the
+                // process host kills the process immediately afterwards and
+                // must not wait for an app-server acknowledgement.
+                self.rpc().send_with_raw(&request).await
+            }
+            DirectControl::Steer { text } => {
+                let thread_id = self.thread_id.lock().await.clone().ok_or_else(|| {
+                    ExecutorError::Io(io::Error::other("Codex has no active thread"))
+                })?;
+                let expected_turn_id = self.turn_id.lock().await.clone().ok_or_else(|| {
+                    ExecutorError::Io(io::Error::other("Codex has no active turn"))
+                })?;
+                let request = ClientRequest::TurnSteer {
+                    request_id: self.next_request_id(),
+                    params: TurnSteerParams {
+                        thread_id,
+                        client_user_message_id: None,
+                        input: vec![UserInput::Text {
+                            text,
+                            text_elements: vec![],
+                        }],
+                        responsesapi_client_metadata: None,
+                        additional_context: None,
+                        expected_turn_id,
+                    },
+                };
+                let (_, raw) = self
+                    .rpc()
+                    .request_with_raw::<TurnSteerResponse, _>(
+                        request_id(&request),
+                        &request,
+                        "turn/steer",
+                        self.cancel.clone(),
+                    )
+                    .await?;
+                Ok(raw)
+            }
+            DirectControl::Approve { .. } | DirectControl::Input { .. } => {
+                Err(ExecutorError::Io(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "Codex approval/input responses must use the original server request id",
+                )))
+            }
+        }
     }
 
     fn collaboration_mode_with_reasoning(
@@ -947,6 +1026,7 @@ impl AppServerClient {
     ) {
         let peer = self.rpc().clone();
         let cancel = self.cancel.clone();
+        let turn_id = self.turn_id.clone();
         let effort = self.current_reasoning_effort();
         let request = ClientRequest::TurnStart {
             request_id: peer.next_request_id(),
@@ -961,7 +1041,7 @@ impl AppServerClient {
             ),
         };
         tokio::spawn(async move {
-            if let Err(err) = peer
+            match peer
                 .request::<TurnStartResponse, _>(
                     request_id(&request),
                     &request,
@@ -970,7 +1050,10 @@ impl AppServerClient {
                 )
                 .await
             {
-                tracing::error!("failed to send user message: {err}");
+                Ok(response) => {
+                    *turn_id.lock().await = Some(response.turn.id);
+                }
+                Err(err) => tracing::error!("failed to send user message: {err}"),
             }
         });
     }
@@ -1038,6 +1121,12 @@ fn turn_completion_control_flow(status: &TurnStatus, keep_alive: bool) -> JsonRp
     }
 }
 
+fn clear_completed_turn(active_turn_id: &mut Option<String>, completed_turn_id: &str) {
+    if active_turn_id.as_deref() == Some(completed_turn_id) {
+        *active_turn_id = None;
+    }
+}
+
 fn parse_turn_completed_params(
     params: Option<&Value>,
 ) -> Result<TurnCompletedNotification, ExecutorError> {
@@ -1048,6 +1137,13 @@ fn parse_turn_completed_params(
         ))
     })?;
     serde_json::from_value(params.clone()).map_err(ExecutorError::from)
+}
+
+#[async_trait]
+impl ExecutorControl for AppServerClient {
+    async fn send(&self, control: DirectControl) -> Result<Vec<u8>, ExecutorError> {
+        self.send_direct_control(control).await
+    }
 }
 
 #[async_trait]
@@ -1114,6 +1210,10 @@ impl JsonRpcCallbacks for AppServerClient {
         // V2 turn completion detection
         if method == "turn/completed" {
             let completed = parse_turn_completed_params(notification.params.as_ref())?;
+            {
+                let mut turn_id = self.turn_id.lock().await;
+                clear_completed_turn(&mut turn_id, &completed.turn.id);
+            }
 
             match completed.turn.status {
                 TurnStatus::Failed => {
@@ -1320,8 +1420,9 @@ mod version_check_tests {
     use super::{
         AppServerClient, ExecutorExitResult, JsonRpcControlFlow, LogWriter, ReasoningEffortUpdate,
         TurnStatus, build_thread_settings_update_params, build_turn_start_params,
-        ensure_resumed_thread_id, extract_semver, parse_turn_completed_params,
-        reasoning_update_from_thread_settings, turn_completion_control_flow,
+        clear_completed_turn, ensure_resumed_thread_id, extract_semver,
+        parse_turn_completed_params, reasoning_update_from_thread_settings,
+        turn_completion_control_flow,
     };
 
     #[test]
@@ -1350,6 +1451,16 @@ mod version_check_tests {
             turn_completion_control_flow(&TurnStatus::Completed, true),
             JsonRpcControlFlow::Continue
         ));
+    }
+
+    #[test]
+    fn completed_turn_only_clears_the_matching_active_turn() {
+        let mut active = Some("turn-1".to_string());
+        clear_completed_turn(&mut active, "turn-2");
+        assert_eq!(active.as_deref(), Some("turn-1"));
+
+        clear_completed_turn(&mut active, "turn-1");
+        assert_eq!(active, None);
     }
 
     #[test]

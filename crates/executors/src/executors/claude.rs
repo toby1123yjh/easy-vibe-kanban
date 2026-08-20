@@ -1,5 +1,6 @@
 // SDK submodules
 pub mod client;
+pub mod command_adapter;
 pub mod protocol;
 pub mod slash_commands;
 pub mod types;
@@ -35,7 +36,7 @@ use self::{
 };
 use crate::{
     approvals::ExecutorApprovalService,
-    command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
+    command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts},
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, BaseCodingAgent, ExecutorError, SpawnedChild,
@@ -212,23 +213,17 @@ impl ClaudeCode {
         reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let command_builder = self.build_command_builder().await?;
-        let command_parts = match intent {
-            super::provider_adapter::DirectIntent::Initial => command_builder.build_initial()?,
-            super::provider_adapter::DirectIntent::FollowUp
-            | super::provider_adapter::DirectIntent::Resume
-            | super::provider_adapter::DirectIntent::Review => {
-                if let Some(session_id) = session_id {
-                    let mut args = vec!["--resume".to_string(), session_id.to_string()];
-                    if let Some(message_id) = reset_to_message_id {
-                        args.extend(["--resume-session-at".to_string(), message_id.to_string()]);
-                    }
-                    command_builder.build_follow_up(&args)?
-                } else {
-                    command_builder.build_initial()?
-                }
-            }
+        let supports_effort = if self.effort.is_some() {
+            self.supports_effort_flag_or_false().await
+        } else {
+            false
         };
+        let command_parts = command_adapter::ClaudeCodeCommandAdapter::new(self).build_for_intent(
+            supports_effort,
+            intent,
+            session_id,
+            reset_to_message_id,
+        )?;
         self.spawn_internal(current_dir, prompt, command_parts, env)
             .await
     }
@@ -237,58 +232,7 @@ impl ClaudeCode {
         &self,
         supports_effort: bool,
     ) -> Result<CommandBuilder, CommandBuildError> {
-        if self.cmd.base_command_override.is_some() && self.claude_code_router.unwrap_or(false) {
-            tracing::warn!(
-                "base_command_override is set, this will override the claude_code_router setting"
-            );
-        }
-
-        let mut builder =
-            CommandBuilder::new(base_command(self.claude_code_router.unwrap_or(false)))
-                .params(["-p"]);
-
-        let plan = self.plan.unwrap_or(false);
-        let approvals = self.approvals.unwrap_or(false);
-        if plan && approvals {
-            tracing::warn!("Both plan and approvals are enabled. Plan will take precedence.");
-        }
-        if plan || approvals {
-            // Enable bypass at startup, otherwise we cannot change to it after exiting plan mode
-            builder = builder.extend_params(["--permission-prompt-tool=stdio"]);
-            builder = builder.extend_params([format!(
-                "--permission-mode={}",
-                PermissionMode::BypassPermissions
-            )]);
-        } else {
-            builder = builder.extend_params(["--disallowedTools=AskUserQuestion"]);
-        }
-        if self.dangerously_skip_permissions.unwrap_or(false) {
-            builder = builder.extend_params(["--dangerously-skip-permissions"]);
-        }
-        if let Some(model) = &self.model {
-            builder = builder.extend_params(["--model", model]);
-        }
-        if let Some(effort) = &self.effort {
-            if supports_effort {
-                builder = builder.extend_params(["--effort", effort.as_ref()]);
-            } else {
-                tracing::warn!(
-                    "Claude Code binary does not advertise --effort; omitting configured effort"
-                );
-            }
-        }
-        if let Some(agent) = &self.agent {
-            builder = builder.extend_params(["--agent", agent]);
-        }
-        builder = builder.extend_params([
-            "--verbose",
-            "--output-format=stream-json",
-            "--input-format=stream-json",
-            "--include-partial-messages",
-            "--replay-user-messages",
-        ]);
-
-        apply_overrides(builder, &self.cmd)
+        command_adapter::ClaudeCodeCommandAdapter::new(self).build_runtime(supports_effort)
     }
 
     async fn build_command_builder(&self) -> Result<CommandBuilder, ExecutorError> {
@@ -302,12 +246,7 @@ impl ClaudeCode {
     }
 
     async fn supports_effort_flag(&self) -> Result<bool, ExecutorError> {
-        let mut builder =
-            CommandBuilder::new(base_command(self.claude_code_router.unwrap_or(false)))
-                .extend_params(["--help"]);
-        if let Some(base) = &self.cmd.base_command_override {
-            builder = builder.override_base(base.clone());
-        }
+        let builder = command_adapter::ClaudeCodeCommandAdapter::new(self).build_effort_probe()?;
 
         let command_parts = builder.build_initial()?;
         let (program_path, args) = command_parts.into_resolved().await?;
@@ -838,24 +777,21 @@ impl ClaudeCode {
         // Create cancellation token for graceful shutdown
         let cancel = CancellationToken::new();
 
-        // Spawn task to handle the SDK client with control protocol
-        let prompt_clone = combined_prompt.clone();
-        let approvals_clone = self.approvals_service.clone();
-        let repo_context = env.repo_context.clone();
-        let commit_reminder_prompt = env.commit_reminder_prompt.clone();
-        let cancel_for_task = cancel.clone();
-        tokio::spawn(async move {
-            let log_writer = LogWriter::new(new_stdout);
-            let client = ClaudeAgentClient::new(
-                log_writer.clone(),
-                approvals_clone,
-                repo_context,
-                commit_reminder_prompt,
-                cancel_for_task.clone(),
-            );
-            let protocol_peer =
-                ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel_for_task);
+        let log_writer = LogWriter::new(new_stdout);
+        let client = ClaudeAgentClient::new(
+            log_writer.clone(),
+            self.approvals_service.clone(),
+            env.repo_context.clone(),
+            env.commit_reminder_prompt.clone(),
+            cancel.clone(),
+        );
+        let protocol_peer =
+            ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel.clone());
+        let control = Arc::new(protocol_peer.clone());
 
+        // Spawn task to initialize the SDK client and send the first message.
+        let prompt_clone = combined_prompt.clone();
+        tokio::spawn(async move {
             // Initialize control protocol
             if let Err(e) = protocol_peer.initialize(hooks).await {
                 tracing::error!("Failed to initialize control protocol: {e}");
@@ -882,6 +818,7 @@ impl ClaudeCode {
             child,
             exit_signal: None,
             cancel: Some(cancel),
+            control: Some(control),
         })
     }
 }

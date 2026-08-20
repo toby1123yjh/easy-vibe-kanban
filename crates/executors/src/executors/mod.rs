@@ -333,6 +333,17 @@ pub type ExecutorExitSignal = tokio::sync::oneshot::Receiver<ExecutorExitResult>
 /// When cancelled, the executor should attempt to cancel gracefully before being killed.
 pub type CancellationToken = tokio_util::sync::CancellationToken;
 
+/// Provider-owned control channel for a live executor process.
+/// Providers that take ownership of child stdin while wiring a typed protocol
+/// expose that protocol peer here so the host never writes a second stream.
+#[async_trait]
+pub trait ExecutorControl: Send + Sync + std::fmt::Debug {
+    async fn send(
+        &self,
+        control: crate::executors::provider_adapter::DirectControl,
+    ) -> Result<Vec<u8>, ExecutorError>;
+}
+
 #[derive(Debug)]
 pub struct SpawnedChild {
     pub child: AsyncGroupChild,
@@ -340,6 +351,8 @@ pub struct SpawnedChild {
     pub exit_signal: Option<ExecutorExitSignal>,
     /// Container → Executor: signals when container wants to cancel the execution
     pub cancel: Option<CancellationToken>,
+    /// Provider-owned native control peer.
+    pub control: Option<Arc<dyn ExecutorControl>>,
 }
 
 impl From<AsyncGroupChild> for SpawnedChild {
@@ -348,6 +361,7 @@ impl From<AsyncGroupChild> for SpawnedChild {
             child,
             exit_signal: None,
             cancel: None,
+            control: None,
         }
     }
 }
