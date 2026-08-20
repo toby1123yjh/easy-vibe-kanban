@@ -30,7 +30,7 @@ export type CreateTag = { tag_name: string, content: string, };
 
 export type UpdateTag = { tag_name: string | null, content: string | null, };
 
-export type DraftFollowUpData = { message: string, executor_config: ExecutorConfig, };
+export type DraftFollowUpData = { message: string, executor_config: ExecutorConfig, selected_skills?: Array<SelectedSkill> | null, };
 
 export type DraftWorkspaceData = { message: string, repos: Array<DraftWorkspaceRepo>, directory_path: string | null, executor_config: ExecutorConfig | null, linked_issue: DraftWorkspaceLinkedIssue | null, attachments: Array<DraftWorkspaceAttachment>, };
 
@@ -481,11 +481,13 @@ export type RefreshRelaySigningSessionResponse = { signing_session_id: string, }
 
 export type ResumableAgentSession = { agent_session_id: string, title: string, last_used_at: string, };
 
+export type NativeSessionDiscoveryState = "supported" | "unsupported";
+
 export type NativeSessionPreviewEntry = { role: string, content: string, timestamp?: string, };
 
 export type NativeAgentSessionPreview = { agent_session_id: string, title: string, last_used_at?: string, entries: Array<NativeSessionPreviewEntry>, truncated: boolean, turn_limit: number, };
 
-export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, resume_session_id?: string, };
+export type CreateFollowUpAttempt = { prompt: string, selected_skills?: Array<SelectedSkill>, executor_config: ExecutorConfig, resume_session_id?: string, resume_scope_path?: string, };
 
 export type ChangeTargetBranchRequest = { repo_id: string, new_target_branch: string, };
 
@@ -589,7 +591,7 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_n
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type CreateAndStartWorkspaceRequest = { mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, resume_session_id?: string, attachment_ids: Array<string> | null, };
+export type CreateAndStartWorkspaceRequest = { mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, resume_session_id?: string, resume_scope_path?: string, attachment_ids: Array<string> | null, };
 
 export type CreateAndStartWorkspaceResponse = { workspace: Workspace, agent_run: AgentRunPortSnapshot, };
 

@@ -1229,7 +1229,44 @@ impl AgentProviderSessionRecord {
         reference: &ProviderSessionReference,
     ) -> Result<(), AgentRuntimePersistenceError> {
         reference.validate_current()?;
-        let reference_json = serde_json::to_string(reference)?;
+        let existing = sqlx::query_as::<_, AgentProviderSessionRecord>(
+            r#"
+            SELECT id, session_id, schema_version, provider_id, runtime_profile_id,
+                   provider_session_id, session_reference, observed_at, created_at, updated_at
+            FROM agent_provider_sessions
+            WHERE session_id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(existing) = &existing {
+            if existing.provider_id != reference.provider_id
+                || existing.provider_session_id != reference.provider_session_id
+                || existing.runtime_profile_id != reference.runtime_profile_id
+            {
+                return Err(AgentRuntimePersistenceError::IdentityConflict {
+                    entity: "provider session",
+                    key: format!(
+                        "{}:{}:{}",
+                        reference.provider_id,
+                        reference.runtime_profile_id,
+                        reference.provider_session_id
+                    ),
+                });
+            }
+        }
+
+        let mut stored_reference = reference.clone();
+        if let Some(existing) = existing {
+            stored_reference.metadata = merge_provider_session_metadata(
+                existing.session_reference.0.metadata,
+                stored_reference.metadata,
+            );
+        }
+        let reference_json = serde_json::to_string(&stored_reference)?;
         sqlx::query(
             r#"
             INSERT INTO agent_provider_sessions (
@@ -1247,13 +1284,59 @@ impl AgentProviderSessionRecord {
         .bind(session_id)
         .bind(i64::from(reference.schema_version))
         .bind(&reference.provider_id)
-        .bind(&reference.runtime_profile_id)
-        .bind(&reference.provider_session_id)
+        .bind(&stored_reference.runtime_profile_id)
+        .bind(&stored_reference.provider_session_id)
         .bind(reference_json)
-        .bind(reference.observed_at)
+        .bind(stored_reference.observed_at)
         .execute(pool)
         .await?;
         Ok(())
+    }
+}
+
+fn merge_provider_session_metadata(
+    existing: Option<serde_json::Value>,
+    incoming: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    match (existing, incoming) {
+        (None, incoming) => incoming,
+        (existing, None) => existing,
+        (Some(existing), Some(incoming)) => {
+            let Some(mut existing_object) = existing.as_object().cloned() else {
+                return Some(existing);
+            };
+            let Some(incoming_object) = incoming.as_object() else {
+                return Some(existing);
+            };
+            let durable_source = existing_object.get("source").cloned();
+
+            for (key, value) in incoming_object {
+                existing_object.insert(key.clone(), value.clone());
+            }
+
+            // Native adoption metadata is the durable provenance. Provider
+            // frames may add observation details, but must not erase the
+            // identity/profile/scope fields that make the binding immutable.
+            if durable_source
+                .as_ref()
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|source| source == "native_adopted")
+            {
+                for key in [
+                    "source",
+                    "profile_fingerprint",
+                    "profile_context",
+                    "scope_path",
+                    "native_source_scope_path",
+                ] {
+                    if let Some(value) = existing.get(key) {
+                        existing_object.insert(key.to_string(), value.clone());
+                    }
+                }
+            }
+
+            Some(serde_json::Value::Object(existing_object))
+        }
     }
 }
 
@@ -1728,6 +1811,30 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(registry_status, "reserved");
+    }
+
+    #[test]
+    fn native_adoption_metadata_keeps_immutable_identity_fields_on_observation() {
+        let merged = merge_provider_session_metadata(
+            Some(serde_json::json!({
+                "source": "native_adopted",
+                "profile_fingerprint": "sha256:adopted",
+                "profile_context": {"model_id": "gpt-5"},
+                "scope_path": "C:/vk-worktree",
+            })),
+            Some(serde_json::json!({
+                "source": "provider_observed",
+                "profile_fingerprint": "sha256:overwritten",
+                "scope_path": "C:/native-source",
+                "native_session_title": "Observed title",
+            })),
+        )
+        .expect("merged metadata");
+
+        assert_eq!(merged["source"], "native_adopted");
+        assert_eq!(merged["profile_fingerprint"], "sha256:adopted");
+        assert_eq!(merged["scope_path"], "C:/vk-worktree");
+        assert_eq!(merged["native_session_title"], "Observed title");
     }
 
     #[tokio::test]

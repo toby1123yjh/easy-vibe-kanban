@@ -20,6 +20,33 @@ const PREVIEW_MAX_ENTRIES_PER_TURN: usize = 4;
 pub const DEFAULT_NATIVE_SESSION_PREVIEW_TURNS: usize = 20;
 pub const MAX_NATIVE_SESSION_PREVIEW_TURNS: usize = 50;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum NativeSessionDiscoveryState {
+    Supported,
+    Unsupported,
+}
+
+pub fn native_history_discovery_supported(executor: &str) -> bool {
+    matches!(
+        executor
+            .trim()
+            .replace('-', "_")
+            .to_ascii_uppercase()
+            .as_str(),
+        "CODEX" | "CLAUDE_CODE"
+    )
+}
+
+pub fn native_session_discovery_state(executor: &str) -> NativeSessionDiscoveryState {
+    if native_history_discovery_supported(executor) {
+        NativeSessionDiscoveryState::Supported
+    } else {
+        NativeSessionDiscoveryState::Unsupported
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NativeSessionPreviewEntry {
     pub role: String,

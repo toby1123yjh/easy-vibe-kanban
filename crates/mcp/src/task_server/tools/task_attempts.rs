@@ -193,6 +193,7 @@ impl McpServer {
             prompt: workspace_prompt,
             selected_skills: None,
             resume_session_id: None,
+            resume_scope_path: None,
             attachment_ids: None,
         };
 

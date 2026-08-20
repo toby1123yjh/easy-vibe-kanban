@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi } from '@/shared/lib/api';
-import type { ExecutorConfig, QueueStatus } from 'shared/types';
+import type { ExecutorConfig, QueueStatus, SelectedSkill } from 'shared/types';
 
 interface UseSessionQueueInteractionOptions {
   /** Session ID for queue operations */
@@ -20,7 +20,8 @@ interface UseSessionQueueInteractionResult {
   /** Queue a message for later execution */
   queueMessage: (
     message: string,
-    executorConfig: ExecutorConfig
+    executorConfig: ExecutorConfig,
+    selectedSkills?: SelectedSkill[]
   ) => Promise<void>;
   /** Cancel the queued message */
   cancelQueue: () => Promise<void>;
@@ -60,13 +61,16 @@ export function useSessionQueueInteraction({
     mutationFn: ({
       message,
       executorConfig,
+      selectedSkills,
     }: {
       message: string;
       executorConfig: ExecutorConfig;
+      selectedSkills?: SelectedSkill[];
     }) =>
       queueApi.queue(sessionId!, {
         message,
         executor_config: executorConfig,
+        selected_skills: selectedSkills,
       }),
     onSuccess: (status) => {
       queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
@@ -82,11 +86,16 @@ export function useSessionQueueInteraction({
   });
 
   const queueMessage = useCallback(
-    async (message: string, executorConfig: ExecutorConfig) => {
+    async (
+      message: string,
+      executorConfig: ExecutorConfig,
+      selectedSkills?: SelectedSkill[]
+    ) => {
       if (!sessionId) return;
       await queueMutation.mutateAsync({
         message,
         executorConfig,
+        selectedSkills,
       });
     },
     [sessionId, queueMutation]

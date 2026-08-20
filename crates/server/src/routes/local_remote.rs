@@ -2265,6 +2265,7 @@ async fn start_arena_workspace(
             None,
             executor_config,
             None,
+            None,
         )
         .await?;
     } else if repos_with_setup
@@ -2299,6 +2300,7 @@ async fn start_arena_workspace(
             None,
             executor_config,
             None,
+            None,
         )
         .await?;
     } else if let Some(setup_action) = deployment.container().setup_actions_for_repos(&repos) {
@@ -2308,6 +2310,7 @@ async fn start_arena_workspace(
             prompt,
             None,
             executor_config,
+            None,
             None,
         )
         .await?;
@@ -2869,6 +2872,7 @@ async fn start_arena_follow_up(
         prompt,
         None,
         executor_config,
+        None,
         None,
     )
     .await?;

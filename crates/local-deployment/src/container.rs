@@ -1026,20 +1026,27 @@ impl LocalContainerService {
                 ))
             })?;
         let runtime_profile_id = executor_profile_id.cache_key();
-        let provider_session = sqlx::query_scalar::<_, Json<ProviderSessionReference>>(
+        let provider_session = sqlx::query_as::<_, (String, Json<ProviderSessionReference>)>(
             r#"
-            SELECT session_reference
+            SELECT runtime_profile_id, session_reference
             FROM agent_provider_sessions
-            WHERE session_id = ? AND provider_id = ? AND runtime_profile_id = ?
+            WHERE session_id = ? AND provider_id = ?
             LIMIT 1
             "#,
         )
         .bind(session.id)
         .bind(provider.id())
-        .bind(&runtime_profile_id)
         .fetch_optional(&self.db.pool)
         .await?
-        .map(|reference| reference.0);
+        .map(|(bound_profile_id, reference)| {
+            if bound_profile_id != runtime_profile_id {
+                return Err(ContainerError::Other(anyhow!(
+                    "Session is bound to runtime profile {bound_profile_id}; create a new VK session for {runtime_profile_id}"
+                )));
+            }
+            Ok(reference.0)
+        })
+        .transpose()?;
         let workspace_path = self.ensure_container_exists(&workspace).await?;
         let (request, attempt) = build_queued_agent_run_requests(
             session.id,
@@ -1138,7 +1145,7 @@ fn build_queued_agent_run_requests(
         workspace,
         capability_snapshot,
         executor_config: queued_data.executor_config.clone(),
-        selected_skills: None,
+        selected_skills: queued_data.selected_skills.clone(),
         reset_to_message_id: None,
         provider_session,
         created_at,
@@ -1904,6 +1911,7 @@ mod tests {
         DraftFollowUpData {
             message: "Continue the canonical task".to_string(),
             executor_config,
+            selected_skills: None,
         }
     }
 

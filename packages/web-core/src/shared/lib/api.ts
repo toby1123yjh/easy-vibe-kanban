@@ -108,6 +108,7 @@ import {
   ProfileResponse,
   AgentGarageEntry,
   ResumableAgentSession,
+  NativeSessionDiscoveryState,
 } from 'shared/types';
 import type { Project as RemoteProject } from 'shared/remote-types';
 import type { WorkspaceWithSession } from '@/shared/types/attempt';
@@ -390,6 +391,16 @@ export const sessionsApi = {
       `/api/sessions/resumable?${query.toString()}`
     );
     return handleApiResponse<ResumableAgentSession[]>(response);
+  },
+
+  getResumableDiscoveryState: async (params: {
+    executor: BaseCodingAgent;
+  }): Promise<NativeSessionDiscoveryState> => {
+    const query = new URLSearchParams({ executor: params.executor });
+    const response = await makeRequest(
+      `/api/sessions/resumable-status?${query.toString()}`
+    );
+    return handleApiResponse<NativeSessionDiscoveryState>(response);
   },
 
   getNativePreview: async (params: {

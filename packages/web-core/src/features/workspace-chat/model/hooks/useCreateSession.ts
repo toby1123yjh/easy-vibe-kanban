@@ -15,6 +15,7 @@ interface CreateSessionParams {
   selectedSkills?: SelectedSkill[];
   executorConfig: ExecutorConfig;
   resumeSessionId?: string | null;
+  resumeScopePath?: string | null;
 }
 
 /**
@@ -32,6 +33,7 @@ export function useCreateSession() {
       selectedSkills = [],
       executorConfig,
       resumeSessionId,
+      resumeScopePath,
     }: CreateSessionParams): Promise<Session> => {
       const session = await sessionsApi.create({
         workspace_id: workspaceId,
@@ -42,6 +44,7 @@ export function useCreateSession() {
         selected_skills: selectedSkills,
         executor_config: executorConfig,
         resume_session_id: resumeSessionId || undefined,
+        resume_scope_path: resumeScopePath || undefined,
       };
       await sessionsApi.followUp(session.id, body);
 

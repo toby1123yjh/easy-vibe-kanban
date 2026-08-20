@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use db::models::{
+    agent_runtime::{AgentProviderSessionRecord, AgentRuntimePersistenceError},
     session::{Session, SessionError},
     workspace::{Workspace, WorkspaceKind},
 };
@@ -16,6 +19,8 @@ use executors::{
         RunAttemptMode, RunAttemptRequest, WorkspaceMode, WorkspaceReference,
     },
 };
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use sqlx::{SqlitePool, types::Json};
 use uuid::Uuid;
 
@@ -141,6 +146,203 @@ pub(super) fn explicit_provider_session(
             provider_session_id: session_id.to_string(),
             observed_at,
             metadata: Some(serde_json::json!({ "source": "explicit_native_resume" })),
+        })
+}
+
+pub(super) fn native_adoption_reference(
+    mut reference: ProviderSessionReference,
+    executor_config: &ExecutorConfig,
+    selected_skills: Option<&Vec<SelectedSkill>>,
+    runtime_scope_path: &Path,
+    native_source_scope_path: Option<&Path>,
+) -> ProviderSessionReference {
+    let profile_context = native_adoption_profile_context(executor_config, selected_skills);
+    let profile_fingerprint = native_adoption_profile_fingerprint(&profile_context);
+    reference.metadata = Some(serde_json::json!({
+        "source": "native_adopted",
+        "profile_fingerprint": profile_fingerprint,
+        "profile_context": profile_context,
+        "scope_path": runtime_scope_path.to_string_lossy().to_string(),
+        "native_source_scope_path": native_source_scope_path
+            .map(|path| path.to_string_lossy().to_string()),
+    }));
+    reference
+}
+
+fn native_adoption_profile_context(
+    executor_config: &ExecutorConfig,
+    selected_skills: Option<&Vec<SelectedSkill>>,
+) -> Value {
+    let mut skills = selected_skills.cloned().unwrap_or_default();
+    skills.sort_by(|left, right| {
+        left.name.cmp(&right.name).then_with(|| {
+            left.path
+                .to_string_lossy()
+                .cmp(&right.path.to_string_lossy())
+        })
+    });
+    serde_json::json!({
+        "executor_config": executor_config,
+        "selected_skills": skills,
+    })
+}
+
+fn native_adoption_profile_fingerprint(profile_context: &Value) -> String {
+    format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(profile_context).expect("profile context serializes"))
+    )
+}
+
+fn provider_session_source(reference: &ProviderSessionReference) -> Option<&str> {
+    reference
+        .metadata
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|metadata| metadata.get("source"))
+        .and_then(Value::as_str)
+}
+
+pub(super) fn validate_native_resume_identity(
+    provider: DirectProvider,
+    provider_session_id: &str,
+    scope_path: &Path,
+) -> Result<(), ApiError> {
+    if !super::native_history::native_history_discovery_supported(provider.id()) {
+        // Gemini and Oh My Pi do not currently expose a trustworthy local
+        // history reader. Their adapters remain authoritative for explicit
+        // resume IDs, so only the non-empty scope requirement is enforced here.
+        return Ok(());
+    }
+
+    let preview = super::native_history::get_native_agent_session_preview(
+        provider.id(),
+        provider_session_id,
+        1,
+        &[scope_path.to_path_buf()],
+        false,
+    );
+    if preview.is_none() {
+        return Err(ApiError::BadRequest(format!(
+            "Native session {provider_session_id:?} was not found in the selected {} working directory",
+            provider.id()
+        )));
+    }
+    Ok(())
+}
+
+pub(super) async fn validate_session_provider_binding(
+    pool: &SqlitePool,
+    session_id: Uuid,
+    provider: DirectProvider,
+    runtime_profile_id: &str,
+    requested: Option<&ProviderSessionReference>,
+    executor_config: &ExecutorConfig,
+    selected_skills: Option<&Vec<SelectedSkill>>,
+    requested_runtime_scope_path: Option<&Path>,
+) -> Result<(), ApiError> {
+    let existing = sqlx::query_as::<_, (String, Json<ProviderSessionReference>)>(
+        r#"
+        SELECT provider_id, session_reference
+        FROM agent_provider_sessions
+        WHERE session_id = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await?
+    .map(|(provider_id, reference)| (provider_id, reference.0));
+
+    if let Some((existing_provider_id, existing)) = existing {
+        if existing_provider_id != provider.id() {
+            return Err(ApiError::BadRequest(format!(
+                "Session is bound to provider {existing_provider_id}; it cannot switch to {}",
+                provider.id()
+            )));
+        }
+        if existing.runtime_profile_id != runtime_profile_id {
+            return Err(ApiError::BadRequest(format!(
+                "Session is bound to runtime profile {}; create a new VK session for {}",
+                existing.runtime_profile_id, runtime_profile_id
+            )));
+        }
+        if let Some(requested) = requested
+            && existing.provider_session_id != requested.provider_session_id
+        {
+            return Err(ApiError::BadRequest(format!(
+                "Session is already bound to native session {}; it cannot switch to {}",
+                existing.provider_session_id, requested.provider_session_id
+            )));
+        }
+        if provider_session_source(&existing) == Some("native_adopted") {
+            let expected_scope = existing
+                .metadata
+                .as_ref()
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("scope_path"))
+                .and_then(Value::as_str);
+            if let Some(requested_runtime_scope_path) = requested_runtime_scope_path
+                && expected_scope != Some(requested_runtime_scope_path.to_string_lossy().as_ref())
+            {
+                return Err(ApiError::BadRequest(
+                    "Native session working directory changed; create a new VK session".to_string(),
+                ));
+            }
+
+            let expected = existing
+                .metadata
+                .as_ref()
+                .and_then(Value::as_object)
+                .and_then(|metadata| metadata.get("profile_fingerprint"))
+                .and_then(Value::as_str);
+            let actual_context = native_adoption_profile_context(executor_config, selected_skills);
+            let actual = native_adoption_profile_fingerprint(&actual_context);
+            if expected != Some(actual.as_str()) {
+                return Err(ApiError::BadRequest(
+                    "Native session runtime profile changed; create a new VK session".to_string(),
+                ));
+            }
+        }
+    }
+
+    if let Some(requested) = requested {
+        let owner = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT session_id
+            FROM agent_provider_sessions
+            WHERE provider_id = ? AND provider_session_id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(provider.id())
+        .bind(&requested.provider_session_id)
+        .fetch_optional(pool)
+        .await?;
+        if owner.is_some_and(|owner| owner != session_id) {
+            return Err(ApiError::BadRequest(format!(
+                "Native session {} is already adopted by another VK session",
+                requested.provider_session_id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub(super) async fn bind_provider_session(
+    pool: &SqlitePool,
+    session_id: Uuid,
+    reference: &ProviderSessionReference,
+) -> Result<(), ApiError> {
+    AgentProviderSessionRecord::upsert(pool, Uuid::new_v4(), session_id, reference)
+        .await
+        .map_err(|error| match error {
+            AgentRuntimePersistenceError::Database(error) => ApiError::Database(error),
+            AgentRuntimePersistenceError::IdentityConflict { key, .. } => {
+                ApiError::BadRequest(format!("Native session binding conflict: {key}"))
+            }
+            other => ApiError::BadRequest(format!("Failed to bind native session: {other}")),
         })
 }
 
@@ -277,13 +479,19 @@ pub(super) fn agent_run_port_error(error: AgentRunPortError) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use executors::{
+        actions::SelectedSkill,
         executors::{BaseCodingAgent, provider_adapter::DirectProvider},
         profile::ExecutorConfig,
         runtime::{AgentRunIntent, RunAttemptMode},
     };
 
-    use super::{direct_provider, explicit_provider_session};
+    use super::{
+        direct_provider, explicit_provider_session, native_adoption_profile_context,
+        native_adoption_profile_fingerprint, native_adoption_reference,
+    };
 
     async fn active_run_test_pool() -> sqlx::SqlitePool {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -297,6 +505,29 @@ mod tests {
         .execute(&pool)
         .await
         .expect("create test agent_runs table");
+        pool
+    }
+
+    async fn provider_binding_test_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+        sqlx::query(
+            r#"
+            CREATE TABLE agent_provider_sessions (
+                session_id BLOB NOT NULL,
+                provider_id TEXT NOT NULL,
+                runtime_profile_id TEXT NOT NULL,
+                provider_session_id TEXT NOT NULL,
+                session_reference TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create provider binding table");
         pool
     }
 
@@ -344,6 +575,162 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn native_adoption_reference_records_provenance_and_profile_context() {
+        let config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        let skills = vec![SelectedSkill {
+            name: "review".to_string(),
+            path: PathBuf::from(".codex/skills/review"),
+        }];
+        let reference = native_adoption_reference(
+            explicit_provider_session(
+                DirectProvider::Codex,
+                &config.profile_id().cache_key(),
+                Some("native-session"),
+                chrono::Utc::now(),
+            )
+            .unwrap(),
+            &config,
+            Some(&skills),
+            std::path::Path::new("C:\\workspace"),
+            Some(std::path::Path::new("C:\\source")),
+        );
+
+        let metadata = reference.metadata.expect("adoption metadata");
+        assert_eq!(metadata["source"], "native_adopted");
+        assert!(metadata["profile_fingerprint"].as_str().is_some());
+        assert_eq!(metadata["scope_path"], "C:\\workspace");
+        assert_eq!(metadata["native_source_scope_path"], "C:\\source");
+    }
+
+    #[test]
+    fn native_adoption_profile_fingerprint_is_independent_of_skill_order() {
+        let config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        let first = vec![
+            SelectedSkill {
+                name: "zeta".to_string(),
+                path: PathBuf::from(".codex/skills/zeta"),
+            },
+            SelectedSkill {
+                name: "alpha".to_string(),
+                path: PathBuf::from(".codex/skills/alpha"),
+            },
+        ];
+        let second = vec![first[1].clone(), first[0].clone()];
+        assert_eq!(
+            native_adoption_profile_fingerprint(&native_adoption_profile_context(
+                &config,
+                Some(&first)
+            )),
+            native_adoption_profile_fingerprint(&native_adoption_profile_context(
+                &config,
+                Some(&second)
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn native_adoption_binding_rejects_provider_profile_scope_and_id_changes() {
+        let pool = provider_binding_test_pool().await;
+        let session_id = uuid::Uuid::new_v4();
+        let config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        let skills = vec![SelectedSkill {
+            name: "review".to_string(),
+            path: PathBuf::from(".codex/skills/review"),
+        }];
+        let reference = native_adoption_reference(
+            explicit_provider_session(
+                DirectProvider::Codex,
+                &config.profile_id().cache_key(),
+                Some("native-session"),
+                chrono::Utc::now(),
+            )
+            .unwrap(),
+            &config,
+            Some(&skills),
+            std::path::Path::new("C:/vk-worktree"),
+            Some(std::path::Path::new("C:/native-source")),
+        );
+        sqlx::query(
+            "INSERT INTO agent_provider_sessions (session_id, provider_id, runtime_profile_id, provider_session_id, session_reference) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(session_id)
+        .bind("codex")
+        .bind(&reference.runtime_profile_id)
+        .bind(&reference.provider_session_id)
+        .bind(serde_json::to_string(&reference).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(
+            super::validate_session_provider_binding(
+                &pool,
+                session_id,
+                DirectProvider::Codex,
+                &config.profile_id().cache_key(),
+                Some(&reference),
+                &config,
+                Some(&skills),
+                Some(std::path::Path::new("C:/vk-worktree")),
+            )
+            .await
+            .is_ok()
+        );
+
+        let scope_error = super::validate_session_provider_binding(
+            &pool,
+            session_id,
+            DirectProvider::Codex,
+            &config.profile_id().cache_key(),
+            Some(&reference),
+            &config,
+            Some(&skills),
+            Some(std::path::Path::new("C:/other-worktree")),
+        )
+        .await
+        .expect_err("scope changes must fail");
+        assert!(
+            scope_error
+                .to_string()
+                .contains("working directory changed")
+        );
+
+        let mut changed_config = config.clone();
+        changed_config.model_id = Some("different-model".to_string());
+        let profile_error = super::validate_session_provider_binding(
+            &pool,
+            session_id,
+            DirectProvider::Codex,
+            &config.profile_id().cache_key(),
+            Some(&reference),
+            &changed_config,
+            Some(&skills),
+            Some(std::path::Path::new("C:/vk-worktree")),
+        )
+        .await
+        .expect_err("profile changes must fail");
+        assert!(
+            profile_error
+                .to_string()
+                .contains("runtime profile changed")
+        );
+
+        let provider_error = super::validate_session_provider_binding(
+            &pool,
+            session_id,
+            DirectProvider::ClaudeCode,
+            "CLAUDE_CODE",
+            None,
+            &ExecutorConfig::new(BaseCodingAgent::ClaudeCode),
+            None,
+            Some(std::path::Path::new("C:/vk-worktree")),
+        )
+        .await
+        .expect_err("provider changes must fail");
+        assert!(provider_error.to_string().contains("cannot switch"));
     }
 
     #[test]

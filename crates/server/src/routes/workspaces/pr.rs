@@ -199,6 +199,7 @@ async fn trigger_pr_description_follow_up(
         None,
         executor_config,
         None,
+        None,
     )
     .await?;
 

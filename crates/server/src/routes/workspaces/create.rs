@@ -317,6 +317,7 @@ pub async fn create_and_start_workspace(
         prompt,
         selected_skills,
         resume_session_id,
+        resume_scope_path,
         attachment_ids,
     } = payload;
 
@@ -329,6 +330,11 @@ pub async fn create_and_start_workspace(
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned);
+    let resume_scope_path = resume_scope_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
         .map(ToOwned::to_owned);
 
     let managed_workspace = match mode {
@@ -455,7 +461,8 @@ pub async fn create_and_start_workspace(
             workspace_prompt,
             selected_skills,
             executor_config.clone(),
-            resume_session_id,
+            resume_session_id.clone(),
+            resume_scope_path.clone(),
         )
         .await?
     } else if repos_with_setup
@@ -489,7 +496,8 @@ pub async fn create_and_start_workspace(
             workspace_prompt,
             selected_skills,
             executor_config.clone(),
-            resume_session_id,
+            resume_session_id.clone(),
+            resume_scope_path.clone(),
         )
         .await?
     } else {
@@ -508,6 +516,7 @@ pub async fn create_and_start_workspace(
             selected_skills,
             executor_config.clone(),
             resume_session_id,
+            resume_scope_path,
         )
         .await?;
         sessions::setup_gate::start_reserved_after_setup(

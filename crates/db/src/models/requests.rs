@@ -55,6 +55,9 @@ pub struct CreateAndStartWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub resume_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resume_scope_path: Option<String>,
     pub attachment_ids: Option<Vec<Uuid>>,
 }
 

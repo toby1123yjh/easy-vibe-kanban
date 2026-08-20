@@ -88,6 +88,14 @@ export function AgentSessionResumePicker({
     staleTime: 30_000,
   });
 
+  const { data: discoveryState } = useQuery({
+    queryKey: ['agent-session-resume-state', executor],
+    queryFn: () =>
+      sessionsApi.getResumableDiscoveryState({ executor: executor! }),
+    enabled: open && Boolean(executor),
+    staleTime: 60_000,
+  });
+
   const sessions = useMemo(() => data ?? [], [data]);
   useEffect(() => {
     if (!open) return;
@@ -179,13 +187,25 @@ export function AgentSessionResumePicker({
           </DropdownMenuItem>
         )}
 
-        {!isLoading && !isError && sessions.length === 0 && (
+        {discoveryState === 'unsupported' && (
           <DropdownMenuItem disabled>
-            {t('agentSessionResume.empty', {
-              defaultValue: 'No recent sessions',
+            {t('agentSessionResume.unsupported', {
+              defaultValue:
+                'Native session discovery is not available for this agent',
             })}
           </DropdownMenuItem>
         )}
+
+        {!isLoading &&
+          !isError &&
+          discoveryState !== 'unsupported' &&
+          sessions.length === 0 && (
+            <DropdownMenuItem disabled>
+              {t('agentSessionResume.empty', {
+                defaultValue: 'No recent sessions',
+              })}
+            </DropdownMenuItem>
+          )}
 
         {!isLoading &&
           !isError &&

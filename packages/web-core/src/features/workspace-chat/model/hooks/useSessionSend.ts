@@ -21,7 +21,10 @@ interface UseSessionSendResult {
   send: (
     message: string,
     selectedSkills?: SelectedSkill[],
-    options?: { resumeSessionId?: string | null }
+    options?: {
+      resumeSessionId?: string | null;
+      resumeScopePath?: string | null;
+    }
   ) => Promise<boolean>;
   /** Whether a send operation is in progress */
   isSending: boolean;
@@ -56,7 +59,10 @@ export function useSessionSend({
     async (
       message: string,
       selectedSkills: SelectedSkill[] = [],
-      options: { resumeSessionId?: string | null } = {}
+      options: {
+        resumeSessionId?: string | null;
+        resumeScopePath?: string | null;
+      } = {}
     ): Promise<boolean> => {
       const trimmed = message.trim();
       if (!trimmed) return false;
@@ -80,6 +86,7 @@ export function useSessionSend({
             selectedSkills,
             executorConfig,
             resumeSessionId: options.resumeSessionId,
+            resumeScopePath: options.resumeScopePath,
           });
           onSelectSession?.(session.id);
           return true;
@@ -100,6 +107,7 @@ export function useSessionSend({
             selected_skills: selectedSkills,
             executor_config: executorConfig,
             resume_session_id: options.resumeSessionId || undefined,
+            resume_scope_path: options.resumeScopePath || undefined,
           });
           return true;
         } catch (e: unknown) {

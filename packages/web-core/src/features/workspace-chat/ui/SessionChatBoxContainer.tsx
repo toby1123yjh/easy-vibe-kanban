@@ -573,6 +573,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     const success = await send(prompt, isSlashCommand ? [] : selectedSkills, {
       resumeSessionId: stagedResumeSession?.agent_session_id,
+      resumeScopePath: resumeScopePath,
     });
     if (success) {
       cancelDebouncedSave();
@@ -635,10 +636,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     cancelDebouncedSave();
     await saveToScratch(localMessage, executorConfig);
-    await queueMessage(prompt, executorConfig);
+    await queueMessage(prompt, executorConfig, selectedSkills);
 
     // Clear local state after queueing (same as handleSend)
     setLocalMessage('');
+    setSelectedSkills([]);
     clearUploadedAttachments();
     reviewContext?.clearComments();
   }, [

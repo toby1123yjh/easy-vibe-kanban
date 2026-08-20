@@ -4,7 +4,7 @@ pub mod queue;
 pub mod review;
 pub mod setup_gate;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axum::{
     Extension, Json, Router,
@@ -30,7 +30,9 @@ use executors::{
     profile::ExecutorConfig,
     runtime::{AgentRunIntent, AgentRunPortSnapshot, RunAttemptMode},
 };
-pub use native_history::{NativeAgentSessionPreview, NativeSessionPreviewEntry};
+pub use native_history::{
+    NativeAgentSessionPreview, NativeSessionDiscoveryState, NativeSessionPreviewEntry,
+};
 use serde::Deserialize;
 use services::services::container::ContainerService;
 use ts_rs::TS;
@@ -132,6 +134,14 @@ pub async fn get_resumable_agent_sessions(
     Ok(ResponseJson(ApiResponse::success(sessions)))
 }
 
+pub async fn get_native_session_discovery_state(
+    Query(query): Query<ResumableAgentSessionQuery>,
+) -> Result<ResponseJson<ApiResponse<NativeSessionDiscoveryState>>, ApiError> {
+    Ok(ResponseJson(ApiResponse::success(
+        native_history::native_session_discovery_state(query.executor.trim()),
+    )))
+}
+
 pub async fn get_native_agent_session_preview(
     Query(query): Query<NativeAgentSessionPreviewQuery>,
 ) -> Result<ResponseJson<ApiResponse<Option<NativeAgentSessionPreview>>>, ApiError> {
@@ -214,6 +224,31 @@ pub struct CreateFollowUpAttempt {
     #[serde(default)]
     #[ts(optional)]
     pub resume_session_id: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub resume_scope_path: Option<String>,
+}
+
+pub(crate) async fn validate_queued_follow_up_profile(
+    pool: &sqlx::SqlitePool,
+    session: &Session,
+    executor_config: &ExecutorConfig,
+    selected_skills: Option<&Vec<SelectedSkill>>,
+) -> Result<(), ApiError> {
+    agent_run::validate_session_executor(pool, session, executor_config).await?;
+    let provider = agent_run::direct_provider(executor_config)?;
+    let runtime_profile_id = executor_config.profile_id().cache_key();
+    agent_run::validate_session_provider_binding(
+        pool,
+        session.id,
+        provider,
+        &runtime_profile_id,
+        None,
+        executor_config,
+        selected_skills,
+        None,
+    )
+    .await
 }
 
 pub async fn follow_up(
@@ -228,6 +263,7 @@ pub async fn follow_up(
         payload.selected_skills,
         payload.executor_config,
         payload.resume_session_id,
+        payload.resume_scope_path,
     )
     .await?;
 
@@ -241,6 +277,7 @@ pub async fn start_coding_agent_execution_for_session(
     selected_skills: Option<Vec<SelectedSkill>>,
     executor_config: ExecutorConfig,
     resume_session_id: Option<String>,
+    resume_scope_path: Option<String>,
 ) -> Result<AgentRunPortSnapshot, ApiError> {
     prepare_coding_agent_execution_for_session(
         deployment,
@@ -249,6 +286,7 @@ pub async fn start_coding_agent_execution_for_session(
         selected_skills,
         executor_config,
         resume_session_id,
+        resume_scope_path,
         agent_run::AgentRunDispatch::Immediate,
     )
     .await
@@ -261,6 +299,7 @@ pub(crate) async fn reserve_coding_agent_execution_for_session(
     selected_skills: Option<Vec<SelectedSkill>>,
     executor_config: ExecutorConfig,
     resume_session_id: Option<String>,
+    resume_scope_path: Option<String>,
 ) -> Result<AgentRunPortSnapshot, ApiError> {
     prepare_coding_agent_execution_for_session(
         deployment,
@@ -269,6 +308,7 @@ pub(crate) async fn reserve_coding_agent_execution_for_session(
         selected_skills,
         executor_config,
         resume_session_id,
+        resume_scope_path,
         agent_run::AgentRunDispatch::Reserved,
     )
     .await
@@ -281,6 +321,7 @@ async fn prepare_coding_agent_execution_for_session(
     selected_skills: Option<Vec<SelectedSkill>>,
     executor_config: ExecutorConfig,
     resume_session_id: Option<String>,
+    resume_scope_path: Option<String>,
     dispatch: agent_run::AgentRunDispatch,
 ) -> Result<AgentRunPortSnapshot, ApiError> {
     let pool = &deployment.db().pool;
@@ -308,12 +349,50 @@ async fn prepare_coding_agent_execution_for_session(
     agent_run::validate_session_executor(pool, &session, &executor_config).await?;
     let provider = agent_run::direct_provider(&executor_config)?;
     let runtime_profile_id = executor_config.profile_id().cache_key();
+    let resume_scope_path = resume_scope_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
+    let has_explicit_resume = resume_session_id
+        .as_deref()
+        .is_some_and(|session_id| !session_id.trim().is_empty());
+    if has_explicit_resume && resume_scope_path.is_none() {
+        return Err(ApiError::BadRequest(
+            "Native session adoption requires the exact working directory scope".to_string(),
+        ));
+    }
+    if let (Some(session_id), Some(scope_path)) =
+        (resume_session_id.as_deref(), resume_scope_path.as_deref())
+    {
+        agent_run::validate_native_resume_identity(provider, session_id, scope_path)?;
+    }
     let explicit_provider_session = agent_run::explicit_provider_session(
         provider,
         &runtime_profile_id,
         resume_session_id.as_deref(),
         Utc::now(),
-    );
+    )
+    .map(|reference| {
+        agent_run::native_adoption_reference(
+            reference,
+            &executor_config,
+            selected_skills.as_ref(),
+            Path::new(&workspace_path),
+            resume_scope_path.as_deref(),
+        )
+    });
+    agent_run::validate_session_provider_binding(
+        pool,
+        session.id,
+        provider,
+        &runtime_profile_id,
+        explicit_provider_session.as_ref(),
+        &executor_config,
+        selected_skills.as_ref(),
+        Some(Path::new(&workspace_path)),
+    )
+    .await?;
     let provider_session = match explicit_provider_session {
         Some(reference) => Some(reference),
         None => {
@@ -321,6 +400,12 @@ async fn prepare_coding_agent_execution_for_session(
                 .await?
         }
     };
+
+    if has_explicit_resume {
+        if let Some(reference) = provider_session.as_ref() {
+            agent_run::bind_provider_session(pool, session.id, reference).await?;
+        }
+    }
 
     let mut prompt = prompt;
     if is_open_design_arena_workspace(pool, workspace.id).await? {
@@ -484,6 +569,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let sessions_router = Router::new()
         .route("/", get(get_sessions).post(create_session))
         .route("/resumable", get(get_resumable_agent_sessions))
+        .route("/resumable-status", get(get_native_session_discovery_state))
         .route("/native-preview", get(get_native_agent_session_preview))
         .nest("/{session_id}", session_id_router)
         .nest("/{session_id}/queue", queue::router(deployment));

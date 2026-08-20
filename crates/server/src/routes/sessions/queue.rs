@@ -4,7 +4,7 @@ use axum::{
 };
 use db::models::{scratch::DraftFollowUpData, session::Session};
 use deployment::Deployment;
-use executors::profile::ExecutorConfig;
+use executors::{actions::SelectedSkill, profile::ExecutorConfig};
 use serde::Deserialize;
 use services::services::queued_message::QueueStatus;
 use ts_rs::TS;
@@ -17,6 +17,8 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_session_middleware
 struct QueueMessageRequest {
     pub message: String,
     pub executor_config: ExecutorConfig,
+    #[serde(default)]
+    pub selected_skills: Option<Vec<SelectedSkill>>,
 }
 
 /// Queue a follow-up message to be executed when the current execution finishes
@@ -25,9 +27,18 @@ async fn queue_message(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
+    super::validate_queued_follow_up_profile(
+        &deployment.db().pool,
+        &session,
+        &payload.executor_config,
+        payload.selected_skills.as_ref(),
+    )
+    .await?;
+
     let data = DraftFollowUpData {
         message: payload.message,
         executor_config: payload.executor_config,
+        selected_skills: payload.selected_skills,
     };
 
     let queued = deployment

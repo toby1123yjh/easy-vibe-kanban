@@ -23,6 +23,8 @@ pub struct DraftFollowUpData {
     pub message: String,
     #[serde(alias = "executor_profile_id", alias = "config")]
     pub executor_config: ExecutorConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_skills: Option<Vec<executors::actions::SelectedSkill>>,
 }
 
 /// Data for preview settings scratch (URL override and screen size)

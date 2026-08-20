@@ -425,6 +425,7 @@ export function CreateChatBoxContainer({
           ? selectedSkills
           : undefined,
       resume_session_id: stagedResumeSession?.agent_session_id,
+      resume_scope_path: resumeScopePath,
       attachment_ids: getAttachmentIds(),
     };
     const linkToIssue = linkedIssue
@@ -477,6 +478,7 @@ export function CreateChatBoxContainer({
     directFolderPath,
     selectedRepo,
     selectedTargetBranch,
+    resumeScopePath,
     createWorkspace,
     onWorkspaceCreated,
     getAttachmentIds,
