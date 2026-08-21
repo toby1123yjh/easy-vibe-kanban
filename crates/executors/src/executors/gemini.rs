@@ -101,7 +101,6 @@ impl Gemini {
                 self.spawn_initial_direct(current_dir, prompt, env).await
             }
             super::provider_adapter::DirectIntent::FollowUp
-            | super::provider_adapter::DirectIntent::Resume
             | super::provider_adapter::DirectIntent::Review => {
                 if let Some(session_id) = session_id {
                     self.spawn_follow_up_direct(current_dir, prompt, session_id, env)
@@ -109,6 +108,15 @@ impl Gemini {
                 } else {
                     self.spawn_initial_direct(current_dir, prompt, env).await
                 }
+            }
+            super::provider_adapter::DirectIntent::Resume => {
+                let session_id = session_id.ok_or_else(|| {
+                    ExecutorError::FollowUpNotSupported(
+                        "Gemini native resume requires a provider session".to_string(),
+                    )
+                })?;
+                self.spawn_native_resume_direct(current_dir, prompt, session_id, env)
+                    .await
             }
         }
     }
@@ -156,6 +164,34 @@ impl Gemini {
         };
         harness
             .spawn_follow_up_with_command(
+                current_dir,
+                combined_prompt,
+                session_id,
+                gemini_command,
+                env,
+                &self.cmd,
+                approvals,
+            )
+            .await
+    }
+
+    async fn spawn_native_resume_direct(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        session_id: &str,
+        env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let harness = AcpAgentHarness::new();
+        let combined_prompt = self.append_prompt.combine_prompt(prompt);
+        let gemini_command = self.build_command_builder()?.build_initial()?;
+        let approvals = if self.yolo.unwrap_or(false) {
+            None
+        } else {
+            self.approvals.clone()
+        };
+        harness
+            .spawn_native_resume_with_command(
                 current_dir,
                 combined_prompt,
                 session_id,

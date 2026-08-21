@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
 use agent_client_protocol::{self as acp};
 use async_trait::async_trait;
@@ -19,6 +22,8 @@ pub struct AcpClient {
     approvals: Option<Arc<dyn ExecutorApprovalService>>,
     feedback_queue: Arc<Mutex<Vec<String>>>,
     cancel: CancellationToken,
+    events_enabled: Arc<AtomicBool>,
+    suppressed_events: Arc<AtomicU64>,
 }
 
 impl AcpClient {
@@ -33,6 +38,8 @@ impl AcpClient {
             approvals,
             feedback_queue: Arc::new(Mutex::new(Vec::new())),
             cancel,
+            events_enabled: Arc::new(AtomicBool::new(true)),
+            suppressed_events: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -40,8 +47,30 @@ impl AcpClient {
         self.send_event(AcpEvent::User(prompt.to_string()));
     }
 
+    /// Suppress provider events while an ACP native session replays its
+    /// historical transcript. Suppressed events are counted so the harness can
+    /// wait for a quiet replay boundary before forwarding the VK prompt.
+    pub fn suppress_events(&self) {
+        self.events_enabled.store(false, Ordering::Release);
+    }
+
+    pub fn suppressed_event_count(&self) -> u64 {
+        self.suppressed_events.load(Ordering::Acquire)
+    }
+
+    /// Open the canonical event stream and record the first VK-owned prompt as
+    /// one ordered operation. Native history is never emitted as VK events.
+    pub fn enable_events_and_record_user_prompt(&self, prompt: &str) {
+        self.events_enabled.store(true, Ordering::Release);
+        self.record_user_prompt_event(prompt);
+    }
+
     /// Send an event to the event channel
     fn send_event(&self, event: AcpEvent) {
+        if !self.events_enabled.load(Ordering::Acquire) {
+            self.suppressed_events.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         if let Err(e) = self.event_tx.send(event) {
             warn!("Failed to send ACP event: {}", e);
         }
@@ -60,6 +89,28 @@ impl AcpClient {
     pub async fn drain_feedback(&self) -> Vec<String> {
         let mut q = self.feedback_queue.lock().await;
         q.drain(..).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executors::acp::AcpEvent;
+
+    #[tokio::test]
+    async fn native_replay_gate_drops_events_until_enabled() {
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+        let client = AcpClient::new(event_tx, None, CancellationToken::new());
+
+        client.suppress_events();
+        client.record_user_prompt_event("adoption prompt");
+        assert_eq!(client.suppressed_event_count(), 1);
+        assert!(event_rx.try_recv().is_err());
+
+        client.enable_events_and_record_user_prompt("adoption prompt");
+        assert!(
+            matches!(event_rx.recv().await, Some(AcpEvent::User(prompt)) if prompt == "adoption prompt")
+        );
     }
 }
 

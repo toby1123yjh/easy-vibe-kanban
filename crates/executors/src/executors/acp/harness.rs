@@ -3,6 +3,7 @@ use std::{
     process::Stdio,
     rc::Rc,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use agent_client_protocol as proto;
@@ -40,6 +41,34 @@ impl AcpPromptLoopOutcome {
         match self {
             Self::Completed => ExecutorExitResult::Success,
             Self::Cancelled | Self::Failed => ExecutorExitResult::Failure,
+        }
+    }
+}
+
+/// `session/load` may acknowledge before an ACP provider's history replay has
+/// finished. Because ACP has no replay-complete notification, hold provider
+/// events behind the client gate until the attempted notification count stays
+/// unchanged for a short quiescence window. This keeps the pre-adoption
+/// transcript out of VK's canonical event stream while allowing the first VK
+/// prompt and all subsequent output through.
+async fn wait_for_native_replay_quiescence(client: &AcpClient, cancel: &CancellationToken) -> bool {
+    const SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
+    const QUIET_WINDOW: Duration = Duration::from_millis(100);
+
+    let mut last_count = client.suppressed_event_count();
+    let mut quiet_since = Instant::now();
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return false,
+            _ = tokio::time::sleep(SAMPLE_INTERVAL) => {}
+        }
+        let count = client.suppressed_event_count();
+        if count != last_count {
+            last_count = count;
+            quiet_since = Instant::now();
+        } else if quiet_since.elapsed() >= QUIET_WINDOW {
+            return true;
         }
     }
 }
@@ -138,6 +167,7 @@ impl AcpAgentHarness {
             self.mode.clone(),
             approvals,
             cancel.clone(),
+            false,
         )
         .await?;
 
@@ -192,6 +222,64 @@ impl AcpAgentHarness {
             self.mode.clone(),
             approvals,
             cancel.clone(),
+            false,
+        )
+        .await?;
+
+        Ok(SpawnedChild {
+            child,
+            exit_signal: Some(exit_rx),
+            cancel: Some(cancel),
+            control: None,
+        })
+    }
+
+    /// Resume a provider-owned ACP session without forking it or synthesizing
+    /// a prompt from VK's local history. The provider's native session id is
+    /// kept as the ACP session id for the lifetime of the run.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn spawn_native_resume_with_command(
+        &self,
+        current_dir: &Path,
+        prompt: String,
+        session_id: &str,
+        command_parts: CommandParts,
+        env: &ExecutionEnv,
+        cmd_overrides: &CmdOverrides,
+        approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        let (program_path, args) = command_parts.into_resolved().await?;
+        let mut command = Command::new(program_path);
+        command
+            .kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(current_dir)
+            .env("NPM_CONFIG_LOGLEVEL", "error")
+            .env("NODE_NO_WARNINGS", "1")
+            .args(&args);
+
+        env.clone()
+            .with_profile(cmd_overrides)
+            .apply_to_command(&mut command);
+
+        let mut child = command.group_spawn_no_window()?;
+        let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
+        let cancel = CancellationToken::new();
+
+        Self::bootstrap_acp_connection(
+            &mut child,
+            current_dir.to_path_buf(),
+            Some(session_id.to_string()),
+            prompt,
+            Some(exit_tx),
+            self.session_namespace.clone(),
+            self.model.clone(),
+            self.mode.clone(),
+            approvals,
+            cancel.clone(),
+            true,
         )
         .await?;
 
@@ -215,6 +303,7 @@ impl AcpAgentHarness {
         mode: Option<String>,
         approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
         cancel: CancellationToken,
+        native_resume: bool,
     ) -> Result<(), ExecutorError> {
         // Take child's stdio for ACP wiring
         let orig_stdout = child.inner().stdout.take().ok_or_else(|| {
@@ -324,6 +413,10 @@ impl AcpAgentHarness {
                             Ok(sm) => sm,
                             Err(e) => {
                                 error!("Failed to create session manager: {}", e);
+                                if let Some(tx) = exit_signal_tx.take() {
+                                    let _ = tx.send(ExecutorExitResult::Failure);
+                                }
+                                let _ = shutdown_tx.send(true);
                                 return;
                             }
                         };
@@ -334,7 +427,11 @@ impl AcpAgentHarness {
                             AcpClient::new(event_tx.clone(), approvals.clone(), cancel.clone());
                         let client_feedback_handle = client.clone();
 
-                        client.record_user_prompt_event(&prompt);
+                        if native_resume {
+                            client.suppress_events();
+                        } else {
+                            client.record_user_prompt_event(&prompt);
+                        }
 
                         // Set up connection
                         let (conn, io_fut) =
@@ -349,55 +446,124 @@ impl AcpAgentHarness {
                         });
 
                         // Initialize
-                        let _ = conn
+                        if let Err(e) = conn
                             .initialize(proto::InitializeRequest::new(proto::ProtocolVersion::V1))
-                            .await;
+                            .await
+                        {
+                            error!("Failed to initialize ACP connection: {}", e);
+                            if let Some(tx) = exit_signal_tx.take() {
+                                let _ = tx.send(ExecutorExitResult::Failure);
+                            }
+                            let _ = shutdown_tx.send(true);
+                            return;
+                        }
 
-                        // Handle session creation/forking
-                        let (acp_session_id, display_session_id, prompt_to_send) =
-                            if let Some(existing) = existing_session {
-                                // Fork existing session
-                                let new_ui_id = uuid::Uuid::new_v4().to_string();
-                                let _ = session_manager.fork_session(&existing, &new_ui_id);
-
-                                let history = session_manager.read_session_raw(&new_ui_id).ok();
-                                let meta =
-                                    history.map(|h| serde_json::json!({ "history_jsonl": h }));
-
-                                let mut req = proto::NewSessionRequest::new(cwd.clone());
-                                if let Some(m) = meta
-                                    && let Some(obj) = m.as_object()
-                                {
-                                    req = req.meta(obj.clone());
+                        // Handle provider-native loading, VK-owned forking, or
+                        // creation. Native loading deliberately never reads or
+                        // writes VK's prior transcript.
+                        let (acp_session_id, display_session_id, prompt_to_send) = if native_resume
+                        {
+                            let Some(existing) = existing_session else {
+                                error!("Native ACP resume requires a provider session id");
+                                if let Some(tx) = exit_signal_tx.take() {
+                                    let _ = tx.send(ExecutorExitResult::Failure);
                                 }
-                                match conn.new_session(req).await {
-                                    Ok(resp) => {
-                                        let resume_prompt = session_manager
-                                            .generate_resume_prompt(&new_ui_id, &prompt)
-                                            .unwrap_or_else(|_| prompt.clone());
-                                        (resp.session_id.0.to_string(), new_ui_id, resume_prompt)
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to create session: {}", e);
-                                        return;
-                                    }
-                                }
-                            } else {
-                                // New session
-                                match conn
-                                    .new_session(proto::NewSessionRequest::new(cwd.clone()))
-                                    .await
-                                {
-                                    Ok(resp) => {
-                                        let sid = resp.session_id.0.to_string();
-                                        (sid.clone(), sid, prompt)
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to create session: {}", e);
-                                        return;
-                                    }
-                                }
+                                let _ = shutdown_tx.send(true);
+                                return;
                             };
+                            let native_id = existing.clone();
+                            match conn
+                                .load_session(proto::LoadSessionRequest::new(
+                                    proto::SessionId::new(native_id.clone()),
+                                    cwd.clone(),
+                                ))
+                                .await
+                            {
+                                Ok(_) => {
+                                    // ACP session/load is allowed to return
+                                    // before the provider finishes streaming
+                                    // history. Keep the event gate closed and
+                                    // wait for a quiet boundary before the
+                                    // first VK-owned prompt is forwarded.
+                                    if !wait_for_native_replay_quiescence(
+                                        &client_feedback_handle,
+                                        &cancel,
+                                    )
+                                    .await
+                                    {
+                                        if let Some(tx) = exit_signal_tx.take() {
+                                            let _ = tx.send(ExecutorExitResult::Failure);
+                                        }
+                                        let _ = shutdown_tx.send(true);
+                                        return;
+                                    }
+                                    (native_id.clone(), native_id, prompt.clone())
+                                }
+                                Err(e) => {
+                                    error!("Failed to load native ACP session: {}", e);
+                                    let _ = log_tx.send(
+                                        AcpEvent::Error(format!(
+                                            "Failed to load native ACP session: {e}"
+                                        ))
+                                        .to_string(),
+                                    );
+                                    if let Some(tx) = exit_signal_tx.take() {
+                                        let _ = tx.send(ExecutorExitResult::Failure);
+                                    }
+                                    let _ = shutdown_tx.send(true);
+                                    return;
+                                }
+                            }
+                        } else if let Some(existing) = existing_session {
+                            // Fork existing session
+                            let new_ui_id = uuid::Uuid::new_v4().to_string();
+                            let _ = session_manager.fork_session(&existing, &new_ui_id);
+
+                            let history = session_manager.read_session_raw(&new_ui_id).ok();
+                            let meta = history.map(|h| serde_json::json!({ "history_jsonl": h }));
+
+                            let mut req = proto::NewSessionRequest::new(cwd.clone());
+                            if let Some(m) = meta
+                                && let Some(obj) = m.as_object()
+                            {
+                                req = req.meta(obj.clone());
+                            }
+                            match conn.new_session(req).await {
+                                Ok(resp) => {
+                                    let resume_prompt = session_manager
+                                        .generate_resume_prompt(&new_ui_id, &prompt)
+                                        .unwrap_or_else(|_| prompt.clone());
+                                    (resp.session_id.0.to_string(), new_ui_id, resume_prompt)
+                                }
+                                Err(e) => {
+                                    error!("Failed to create session: {}", e);
+                                    if let Some(tx) = exit_signal_tx.take() {
+                                        let _ = tx.send(ExecutorExitResult::Failure);
+                                    }
+                                    let _ = shutdown_tx.send(true);
+                                    return;
+                                }
+                            }
+                        } else {
+                            // New session
+                            match conn
+                                .new_session(proto::NewSessionRequest::new(cwd.clone()))
+                                .await
+                            {
+                                Ok(resp) => {
+                                    let sid = resp.session_id.0.to_string();
+                                    (sid.clone(), sid, prompt.clone())
+                                }
+                                Err(e) => {
+                                    error!("Failed to create session: {}", e);
+                                    if let Some(tx) = exit_signal_tx.take() {
+                                        let _ = tx.send(ExecutorExitResult::Failure);
+                                    }
+                                    let _ = shutdown_tx.send(true);
+                                    return;
+                                }
+                            }
+                        };
 
                         // Emit session ID
                         let _ = log_tx
@@ -477,12 +643,24 @@ impl AcpAgentHarness {
 
                         let mut current_req = Some(initial_req);
                         let mut prompt_outcome = AcpPromptLoopOutcome::Completed;
+                        let mut native_prompt_recorded = false;
 
                         while let Some(req) = current_req.take() {
                             if cancel.is_cancelled() {
                                 tracing::debug!("ACP executor cancelled, stopping prompt loop");
                                 prompt_outcome = AcpPromptLoopOutcome::Cancelled;
                                 break;
+                            }
+
+                            // Open the canonical stream only once the replay
+                            // gate has settled and the first VK prompt is
+                            // about to be sent. This minimizes the race where
+                            // a provider emits a delayed history notification
+                            // between `session/load` and `prompt`.
+                            if native_resume && !native_prompt_recorded {
+                                client_feedback_handle
+                                    .enable_events_and_record_user_prompt(&prompt);
+                                native_prompt_recorded = true;
                             }
 
                             tracing::trace!(?req, "sending ACP prompt request");

@@ -146,15 +146,21 @@ fn validate_direct_launch(request: &DirectProviderLaunchRequest<'_>) -> Result<(
                 request.provider.id()
             ))
         })?;
-        if session.provider_id != request.provider.id()
-            || session.runtime_profile_id != profile_id
-            || session.provider_session_id.trim().is_empty()
+        if session.provider_id != request.provider.id() || session.runtime_profile_id != profile_id
         {
             return Err(ExecutorError::FollowUpNotSupported(format!(
                 "provider session does not match {} profile {profile_id}",
                 request.provider.id()
             )));
         }
+        validate_native_session_id(request.provider, &session.provider_session_id).map_err(
+            |error| {
+                ExecutorError::FollowUpNotSupported(format!(
+                    "invalid provider session for {}: {error}",
+                    request.provider.id()
+                ))
+            },
+        )?;
     }
 
     match request.intent {
@@ -202,6 +208,37 @@ fn profile_provider_mismatch(
         provider.id(),
         executor_config.profile_id()
     ))
+}
+
+/// Validate an opaque provider-native session identifier before it is persisted
+/// or handed to a provider process. Session IDs are intentionally not parsed
+/// as UUIDs (providers choose their own format), but control characters and
+/// option-like values would be ambiguous on the wire or alter CLI parsing.
+/// Provider adapters remain authoritative for the actual existence check.
+pub fn validate_native_session_id(
+    provider: DirectProvider,
+    session_id: &str,
+) -> Result<(), String> {
+    let trimmed = session_id.trim();
+    if trimmed != session_id {
+        return Err("native session id cannot have leading or trailing whitespace".to_string());
+    }
+    let session_id = trimmed;
+    if session_id.is_empty() {
+        return Err("native session id cannot be blank".to_string());
+    }
+    if session_id.chars().any(char::is_control) {
+        return Err("native session id contains control characters".to_string());
+    }
+    if matches!(provider, DirectProvider::Gemini | DirectProvider::OhMyPi)
+        && session_id.starts_with('-')
+    {
+        return Err(format!(
+            "{} native session id cannot start with '-'",
+            provider.id()
+        ));
+    }
+    Ok(())
 }
 
 /// The only provider products included in the V1 adapter gate.
@@ -1206,6 +1243,13 @@ mod tests {
         )
         .expect_err("session from another profile must not launch");
         assert!(matches!(error, ExecutorError::FollowUpNotSupported(_)));
+    }
+
+    #[test]
+    fn native_session_ids_reject_ambiguous_whitespace_and_option_values() {
+        assert!(validate_native_session_id(DirectProvider::Gemini, " session ").is_err());
+        assert!(validate_native_session_id(DirectProvider::OhMyPi, "-resume").is_err());
+        assert!(validate_native_session_id(DirectProvider::Codex, "thread-1").is_ok());
     }
 
     #[test]

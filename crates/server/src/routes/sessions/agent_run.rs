@@ -208,11 +208,18 @@ pub(super) fn validate_native_resume_identity(
     provider_session_id: &str,
     scope_path: &Path,
 ) -> Result<(), ApiError> {
-    if !super::native_history::native_history_discovery_supported(provider.id()) {
-        // Gemini and Oh My Pi do not currently expose a trustworthy local
-        // history reader. Their adapters remain authoritative for explicit
-        // resume IDs, so only the non-empty scope requirement is enforced here.
-        return Ok(());
+    let provider_uses_authoritative_resume =
+        matches!(provider, DirectProvider::Gemini | DirectProvider::OhMyPi);
+    let provider_session_id = provider_session_id.trim();
+    executors::executors::provider_adapter::validate_native_session_id(
+        provider,
+        provider_session_id,
+    )
+    .map_err(ApiError::BadRequest)?;
+    if scope_path.as_os_str().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Native session adoption requires a non-empty working directory scope".to_string(),
+        ));
     }
 
     let preview = super::native_history::get_native_agent_session_preview(
@@ -223,6 +230,13 @@ pub(super) fn validate_native_resume_identity(
         false,
     );
     if preview.is_none() {
+        if provider_uses_authoritative_resume {
+            // Gemini and Oh My Pi can resume an explicit native id even when
+            // their local history directory is unavailable to VK. The native
+            // adapter/CLI is authoritative for whether that id exists; do not
+            // reject it or silently substitute VK history here.
+            return Ok(());
+        }
         return Err(ApiError::BadRequest(format!(
             "Native session {provider_session_id:?} was not found in the selected {} working directory",
             provider.id()
@@ -491,6 +505,7 @@ mod tests {
     use super::{
         direct_provider, explicit_provider_session, native_adoption_profile_context,
         native_adoption_profile_fingerprint, native_adoption_reference,
+        validate_native_resume_identity,
     };
 
     async fn active_run_test_pool() -> sqlx::SqlitePool {
@@ -737,6 +752,36 @@ mod tests {
     fn canonical_initial_and_resume_modes_remain_distinct() {
         assert_ne!(AgentRunIntent::Initial, AgentRunIntent::FollowUp);
         assert_ne!(RunAttemptMode::Launch, RunAttemptMode::Resume);
+    }
+
+    #[test]
+    fn explicit_gemini_and_omp_resume_ids_remain_provider_authoritative() {
+        let scope = std::path::Path::new("C:/native-source");
+        for provider in [DirectProvider::Gemini, DirectProvider::OhMyPi] {
+            assert!(
+                validate_native_resume_identity(
+                    provider,
+                    "provider-owned-id-that-is-not-locally-readable",
+                    scope,
+                )
+                .is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn codex_and_claude_resume_ids_still_require_discoverable_history() {
+        let scope = std::path::Path::new("C:/native-source");
+        for provider in [DirectProvider::Codex, DirectProvider::ClaudeCode] {
+            assert!(
+                validate_native_resume_identity(
+                    provider,
+                    "definitely-not-a-local-session-id",
+                    scope,
+                )
+                .is_err()
+            );
+        }
     }
 
     #[tokio::test]

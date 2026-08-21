@@ -17,6 +17,8 @@ const SESSION_FILE_METADATA_LINES: usize = 100;
 const TITLE_MAX_CHARS: usize = 100;
 const PREVIEW_ENTRY_MAX_CHARS: usize = 1_200;
 const PREVIEW_MAX_ENTRIES_PER_TURN: usize = 4;
+const GEMINI_MAX_PROJECT_DIRS: usize = 100;
+const OMP_MAX_SESSION_DIRS: usize = 100;
 pub const DEFAULT_NATIVE_SESSION_PREVIEW_TURNS: usize = 20;
 pub const MAX_NATIVE_SESSION_PREVIEW_TURNS: usize = 50;
 
@@ -35,7 +37,7 @@ pub fn native_history_discovery_supported(executor: &str) -> bool {
             .replace('-', "_")
             .to_ascii_uppercase()
             .as_str(),
-        "CODEX" | "CLAUDE_CODE"
+        "CODEX" | "CLAUDE_CODE" | "GEMINI" | "OH_MY_PI"
     )
 }
 
@@ -131,6 +133,8 @@ pub fn list_native_resumable_agent_sessions(
     let drafts = match normalized_executor.as_str() {
         "CODEX" => list_codex_sessions(),
         "CLAUDE_CODE" => list_claude_sessions(),
+        "GEMINI" => list_gemini_sessions(),
+        "OH_MY_PI" => list_oh_my_pi_sessions(),
         _ => return Vec::new(),
     };
 
@@ -159,6 +163,14 @@ pub fn get_native_agent_session_preview(
         "CLAUDE_CODE" => (
             list_claude_sessions(),
             read_claude_preview_entries(session_id),
+        ),
+        "GEMINI" => (
+            list_gemini_sessions(),
+            read_gemini_preview_entries(session_id),
+        ),
+        "OH_MY_PI" => (
+            list_oh_my_pi_sessions(),
+            read_oh_my_pi_preview_entries(session_id),
         ),
         _ => return None,
     };
@@ -670,6 +682,314 @@ fn claude_preview_entry_from_value(value: &Value) -> Option<NativeSessionPreview
     })
 }
 
+// Gemini and Oh My Pi keep provider-owned JSONL transcripts. These readers are
+// deliberately separate from the Codex/Claude readers: the formats are not a
+// shared transcript contract and malformed/foreign files must fail closed.
+fn list_gemini_sessions() -> HashMap<String, NativeSessionDraft> {
+    let Some(root) = home_dir().map(|home| home.join(".gemini").join("tmp")) else {
+        return HashMap::new();
+    };
+    list_gemini_sessions_from_root(&root)
+}
+
+fn list_gemini_sessions_from_root(root: &Path) -> HashMap<String, NativeSessionDraft> {
+    let mut drafts = HashMap::new();
+    let Ok(entries) = fs::read_dir(root) else {
+        return drafts;
+    };
+
+    for project in entries
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_dir())
+                .map(|_| entry.path())
+        })
+        .take(GEMINI_MAX_PROJECT_DIRS)
+    {
+        let Some(cwd) = read_project_root(&project) else {
+            continue;
+        };
+        read_gemini_project_files(&project.join("chats"), &cwd, &mut drafts);
+    }
+
+    drafts
+}
+
+fn read_project_root(project_dir: &Path) -> Option<PathBuf> {
+    let root = fs::read_to_string(project_dir.join(".project_root")).ok()?;
+    let root = root.trim();
+    (!root.is_empty()).then(|| PathBuf::from(root))
+}
+
+fn read_gemini_project_files(
+    chats_dir: &Path,
+    cwd: &Path,
+    drafts: &mut HashMap<String, NativeSessionDraft>,
+) {
+    for (path, modified_at) in collect_jsonl_files(chats_dir, 1)
+        .into_iter()
+        .take(MAX_NATIVE_SCAN_FILES)
+    {
+        let values = read_jsonl_values(&path, Some(SESSION_FILE_METADATA_LINES));
+        let Some(header) = values.first() else {
+            continue;
+        };
+        let Some(session_id) = string_field(header, "sessionId")
+            .or_else(|| string_field(header, "session_id"))
+            .filter(|id| !id.trim().is_empty())
+        else {
+            continue;
+        };
+
+        let timestamp = datetime_field(header, "lastUpdated")
+            .or_else(|| datetime_field(header, "startTime"))
+            .or(Some(modified_at));
+        let title = values
+            .iter()
+            .filter_map(gemini_message_from_value)
+            .find_map(|(role, content, _)| {
+                (role == "user" && !is_gemini_synthetic_context(&content)).then_some(content)
+            });
+
+        update_draft(
+            drafts,
+            session_id,
+            timestamp,
+            title,
+            NativeTitleSource::SessionContent,
+            Some(cwd.to_path_buf()),
+        );
+    }
+}
+
+fn read_gemini_preview_entries(session_id: &str) -> Vec<NativeSessionPreviewEntry> {
+    let Some(root) = home_dir().map(|home| home.join(".gemini").join("tmp")) else {
+        return Vec::new();
+    };
+    let Some(path) = find_gemini_session_file(&root, session_id) else {
+        return Vec::new();
+    };
+    read_gemini_preview_entries_from_file(&path)
+}
+
+fn find_gemini_session_file(root: &Path, session_id: &str) -> Option<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return None;
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_dir())
+                .map(|_| entry.path())
+        })
+        .take(GEMINI_MAX_PROJECT_DIRS)
+        .filter_map(|project| read_project_root(&project).map(|_| project))
+        .flat_map(|project| collect_jsonl_files(&project.join("chats"), 1))
+        .take(MAX_NATIVE_SCAN_FILES)
+        .find_map(|(path, _)| {
+            read_jsonl_values(&path, Some(1))
+                .first()
+                .and_then(|header| {
+                    string_field(header, "sessionId").or_else(|| string_field(header, "session_id"))
+                })
+                .filter(|id| *id == session_id)
+                .map(|_| path)
+        })
+}
+
+fn read_gemini_preview_entries_from_file(path: &Path) -> Vec<NativeSessionPreviewEntry> {
+    read_jsonl_values(path, Some(20_000))
+        .into_iter()
+        .filter_map(|value| {
+            let (role, content, timestamp) = gemini_message_from_value(&value)?;
+            if is_gemini_synthetic_context(&content) {
+                return None;
+            }
+            Some(NativeSessionPreviewEntry {
+                role,
+                content: normalize_preview_content(content)?,
+                timestamp,
+            })
+        })
+        .collect()
+}
+
+fn gemini_message_from_value(value: &Value) -> Option<(String, String, Option<DateTime<Utc>>)> {
+    let role = string_field(value, "type")
+        .or_else(|| string_field(value, "role"))
+        .or_else(|| value.pointer("/message/role").and_then(Value::as_str))?;
+    let role = match role.trim().to_ascii_lowercase().as_str() {
+        "user" => "user",
+        "gemini" | "assistant" | "model" => "assistant",
+        _ => return None,
+    };
+    let content = value
+        .get("content")
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| message.get("content"))
+        })
+        .and_then(|content| text_from_content_value_with_separator(content, "\n"))?;
+    Some((
+        role.to_string(),
+        content,
+        datetime_field(value, "timestamp").or_else(|| datetime_field(value, "ts")),
+    ))
+}
+
+fn is_gemini_synthetic_context(content: &str) -> bool {
+    content.trim_start().starts_with("<session_context>")
+}
+
+fn list_oh_my_pi_sessions() -> HashMap<String, NativeSessionDraft> {
+    let Some(root) = oh_my_pi_sessions_root() else {
+        return HashMap::new();
+    };
+    list_oh_my_pi_sessions_from_root(&root)
+}
+
+fn oh_my_pi_sessions_root() -> Option<PathBuf> {
+    if let Some(agent_dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
+        return Some(expand_tilde_path(PathBuf::from(agent_dir)).join("sessions"));
+    }
+    if let Some(agent_dir) = std::env::var_os("OMP_AGENT_DIR") {
+        return Some(expand_tilde_path(PathBuf::from(agent_dir)).join("sessions"));
+    }
+    let home = home_dir()?;
+    let config_dir = std::env::var_os("PI_CONFIG_DIR")
+        .map(|path| expand_tilde_path(PathBuf::from(path)))
+        .unwrap_or_else(|| PathBuf::from(".omp"));
+    let profile = std::env::var("OMP_PROFILE")
+        .ok()
+        .or_else(|| std::env::var("PI_PROFILE").ok())
+        .and_then(|profile| normalize_omp_profile(&profile));
+
+    // Oh My Pi uses XDG data storage on Unix after the user migrates their
+    // profile. Only follow an XDG path when its app/profile root exists; this
+    // avoids inventing a new location for an unmigrated installation.
+    if cfg!(unix)
+        && let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME")
+    {
+        let mut root = PathBuf::from(xdg_data).join("omp");
+        if let Some(profile) = profile.as_deref() {
+            root = root.join("profiles").join(profile);
+        }
+        if root.exists() {
+            return Some(root.join("sessions"));
+        }
+    }
+
+    let mut root = home.join(config_dir);
+    if let Some(profile) = profile {
+        root = root.join("profiles").join(profile);
+    }
+    Some(root.join("agent").join("sessions"))
+}
+
+fn list_oh_my_pi_sessions_from_root(root: &Path) -> HashMap<String, NativeSessionDraft> {
+    let mut drafts = HashMap::new();
+    for (path, modified_at) in collect_jsonl_files(root, 2)
+        .into_iter()
+        .take(MAX_NATIVE_SCAN_FILES * OMP_MAX_SESSION_DIRS)
+    {
+        let values = read_jsonl_values(&path, Some(SESSION_FILE_METADATA_LINES));
+        let Some(header) = omp_session_header(&values) else {
+            continue;
+        };
+        let Some(session_id) = string_field(header, "id").filter(|id| !id.trim().is_empty()) else {
+            continue;
+        };
+        let cwd = string_field(header, "cwd").map(PathBuf::from);
+        let timestamp = datetime_field(header, "timestamp").or(Some(modified_at));
+        let title = string_field(header, "title")
+            .filter(|title| !title.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                values
+                    .iter()
+                    .filter_map(omp_message_from_value)
+                    .find_map(|(role, content, _)| (role == "user").then_some(content))
+            });
+        update_draft(
+            &mut drafts,
+            session_id,
+            timestamp,
+            title,
+            NativeTitleSource::ExplicitTitle,
+            cwd,
+        );
+    }
+    drafts
+}
+
+fn read_oh_my_pi_preview_entries(session_id: &str) -> Vec<NativeSessionPreviewEntry> {
+    let Some(root) = oh_my_pi_sessions_root() else {
+        return Vec::new();
+    };
+    let Some(path) = find_oh_my_pi_session_file(&root, session_id) else {
+        return Vec::new();
+    };
+    read_jsonl_values(&path, Some(20_000))
+        .into_iter()
+        .filter_map(|value| {
+            let (role, content, timestamp) = omp_message_from_value(&value)?;
+            Some(NativeSessionPreviewEntry {
+                role,
+                content: normalize_preview_content(content)?,
+                timestamp,
+            })
+        })
+        .collect()
+}
+
+fn find_oh_my_pi_session_file(root: &Path, session_id: &str) -> Option<PathBuf> {
+    collect_jsonl_files(root, 2)
+        .into_iter()
+        .take(MAX_NATIVE_SCAN_FILES * OMP_MAX_SESSION_DIRS)
+        .find_map(|(path, _)| {
+            let values = read_jsonl_values(&path, Some(2));
+            omp_session_header(&values)
+                .and_then(|header| string_field(header, "id"))
+                .filter(|id| *id == session_id)
+                .map(|_| path)
+        })
+}
+
+fn omp_session_header(values: &[Value]) -> Option<&Value> {
+    values
+        .iter()
+        .take(2)
+        .find(|value| string_field(value, "type") == Some("session"))
+}
+
+fn omp_message_from_value(value: &Value) -> Option<(String, String, Option<DateTime<Utc>>)> {
+    if string_field(value, "type") != Some("message") {
+        return None;
+    }
+    let message = value.get("message").unwrap_or(value);
+    let role = string_field(message, "role")?;
+    let role = match role.trim().to_ascii_lowercase().as_str() {
+        "user" => "user",
+        "assistant" => "assistant",
+        _ => return None,
+    };
+    let content = message
+        .get("content")
+        .and_then(|content| text_from_content_value_with_separator(content, "\n"))?;
+    Some((
+        role.to_string(),
+        content,
+        datetime_field(value, "timestamp").or_else(|| datetime_field(message, "timestamp")),
+    ))
+}
+
 fn update_draft(
     drafts: &mut HashMap<String, NativeSessionDraft>,
     session_id: &str,
@@ -838,7 +1158,16 @@ fn matches_workspace_scope(
     workspace_scope
         .iter()
         .map(|path| normalize_path_for_match(path))
-        .any(|scope| cwd.starts_with(&scope) || scope.starts_with(&cwd))
+        .any(|scope| is_equal_or_descendant(&cwd, &scope) || is_equal_or_descendant(&scope, &cwd))
+}
+
+fn is_equal_or_descendant(path: &str, ancestor: &str) -> bool {
+    if path == ancestor {
+        return true;
+    }
+
+    path.strip_prefix(ancestor)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn normalize_path_for_match(path: &Path) -> String {
@@ -846,6 +1175,80 @@ fn normalize_path_for_match(path: &Path) -> String {
         .replace('\\', "/")
         .trim_end_matches('/')
         .to_ascii_lowercase()
+}
+
+fn expand_tilde_path(path: PathBuf) -> PathBuf {
+    let Some(home) = home_dir() else {
+        return path;
+    };
+    let value = path.to_string_lossy();
+    if value == "~" {
+        return home;
+    }
+    if let Some(rest) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+    {
+        return home.join(rest);
+    }
+    path
+}
+
+fn normalize_omp_profile(value: &str) -> Option<String> {
+    let profile = value.trim();
+    if profile.is_empty() || profile == "default" {
+        return None;
+    }
+    let first_is_alphanumeric = profile
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric);
+    if profile == "."
+        || profile == ".."
+        || !first_is_alphanumeric
+        || profile.ends_with('.')
+        || !profile
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        || is_windows_reserved_profile_name(profile)
+    {
+        return None;
+    }
+    Some(profile.to_string())
+}
+
+fn is_windows_reserved_profile_name(profile: &str) -> bool {
+    let stem = profile
+        .split_once('.')
+        .map_or(profile, |(stem, _)| stem)
+        .to_ascii_uppercase();
+    matches!(
+        stem.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM0"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT0"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
 }
 
 fn collect_jsonl_files(root: &Path, max_depth: usize) -> Vec<(PathBuf, DateTime<Utc>)> {
@@ -1397,6 +1800,88 @@ mod tests {
     }
 
     #[test]
+    fn gemini_project_reader_requires_header_and_filters_synthetic_context() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("project");
+        let chats = project.join("chats");
+        fs::create_dir_all(&chats).expect("create chats dir");
+        fs::write(project.join(".project_root"), "C:/repo\n").expect("write project root");
+        let path = chats.join("session-1.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"sessionId\":\"gemini-1\",\"startTime\":\"2026-07-06T00:00:00Z\",\"lastUpdated\":\"2026-07-06T00:01:00Z\",\"kind\":\"main\"}\n",
+                "{\"type\":\"user\",\"content\":[{\"text\":\"<session_context>injected</session_context>\"}]}\n",
+                "{\"type\":\"user\",\"content\":[{\"text\":\"Implement the feature\"}]}\n",
+                "{\"type\":\"gemini\",\"content\":[{\"text\":\"Done\"}]}\n",
+                "{\"$set\":{\"lastUpdated\":\"2026-07-06T00:02:00Z\"}}\n",
+            ),
+        )
+        .expect("write gemini session");
+
+        let drafts = list_gemini_sessions_from_root(dir.path());
+        let draft = drafts.get("gemini-1").expect("gemini draft");
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+        assert_eq!(draft.title.as_deref(), Some("Implement the feature"));
+
+        let entries = read_gemini_preview_entries_from_file(&path);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].role, "user");
+        assert_eq!(entries[0].content, "Implement the feature");
+        assert_eq!(entries[1].role, "assistant");
+
+        let malformed = chats.join("foreign.jsonl");
+        fs::write(&malformed, "{\"type\":\"user\",\"content\":\"foreign\"}\n")
+            .expect("write malformed session");
+        assert_eq!(list_gemini_sessions_from_root(dir.path()).len(), 1);
+    }
+
+    #[test]
+    fn oh_my_pi_reader_uses_session_header_scope_and_preview() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let project = dir.path().join("-repo");
+        fs::create_dir_all(&project).expect("create project dir");
+        let path = project.join("2026-07-06T000000Z_native-1.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"session\",\"id\":\"native-1\",\"cwd\":\"C:/repo\",\"title\":\"Existing task\",\"timestamp\":\"2026-07-06T00:00:00Z\"}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Start\"}]}}\n",
+                "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Answer\"}]}}\n",
+            ),
+        )
+        .expect("write omp session");
+
+        let drafts = list_oh_my_pi_sessions_from_root(dir.path());
+        let draft = drafts.get("native-1").expect("omp draft");
+        assert_eq!(draft.cwd.as_deref(), Some(Path::new("C:/repo")));
+        assert_eq!(draft.title.as_deref(), Some("Existing task"));
+
+        let path = find_oh_my_pi_session_file(dir.path(), "native-1").expect("find omp session");
+        let entries = read_jsonl_values(&path, Some(20_000))
+            .into_iter()
+            .filter_map(|value| {
+                let (role, content, timestamp) = omp_message_from_value(&value)?;
+                Some(NativeSessionPreviewEntry {
+                    role,
+                    content: normalize_preview_content(content)?,
+                    timestamp,
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].content, "Start");
+        assert_eq!(entries[1].role, "assistant");
+
+        fs::write(
+            project.join("foreign.jsonl"),
+            "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"foreign\"}}\n",
+        )
+        .expect("write foreign file");
+        assert_eq!(list_oh_my_pi_sessions_from_root(dir.path()).len(), 1);
+    }
+
+    #[test]
     fn workspace_scope_matches_nested_paths_and_keeps_unknown_cwd() {
         let scope = vec![PathBuf::from("C:/repo")];
 
@@ -1412,6 +1897,42 @@ mod tests {
         ));
         assert!(matches_workspace_scope(None, &scope, true));
         assert!(!matches_workspace_scope(None, &scope, false));
+    }
+
+    #[test]
+    fn workspace_scope_requires_path_boundaries() {
+        let scope = vec![PathBuf::from("C:/repo")];
+
+        assert!(matches_workspace_scope(
+            Some(Path::new("C:/repo")),
+            &scope,
+            false
+        ));
+        assert!(!matches_workspace_scope(
+            Some(Path::new("C:/repo-child")),
+            &scope,
+            false
+        ));
+        assert!(!matches_workspace_scope(
+            Some(Path::new("C:/repo2/nested")),
+            &scope,
+            false
+        ));
+    }
+
+    #[test]
+    fn omp_profiles_follow_native_name_rules() {
+        assert_eq!(normalize_omp_profile("default"), None);
+        assert_eq!(
+            normalize_omp_profile(" work-profile_1 "),
+            Some("work-profile_1".into())
+        );
+        assert_eq!(normalize_omp_profile("../escape"), None);
+        assert_eq!(normalize_omp_profile("."), None);
+        assert_eq!(normalize_omp_profile("profile."), None);
+        assert_eq!(normalize_omp_profile("CON"), None);
+        assert_eq!(normalize_omp_profile("LPT1.json"), None);
+        assert_eq!(normalize_omp_profile("with space"), None);
     }
 
     #[test]
