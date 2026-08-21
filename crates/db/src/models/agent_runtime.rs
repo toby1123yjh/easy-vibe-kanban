@@ -931,12 +931,13 @@ impl AgentRunRecord {
 
         sqlx::query(
             r#"
-            INSERT INTO agent_process_registry (id, run_attempt_id, registry_status)
-            VALUES (?, ?, 'reserved')
+            INSERT INTO agent_process_registry (id, run_attempt_id, registry_status, updated_at)
+            VALUES (?, ?, 'reserved', ?)
             "#,
         )
         .bind(process_registry_id)
         .bind(attempt.run_attempt_id)
+        .bind(Utc::now())
         .execute(&mut *transaction)
         .await?;
 
@@ -1058,10 +1059,11 @@ impl AgentRunRecord {
         .await?;
 
         sqlx::query(
-            "INSERT INTO agent_process_registry (id, run_attempt_id, registry_status) VALUES (?, ?, 'reserved')",
+            "INSERT INTO agent_process_registry (id, run_attempt_id, registry_status, updated_at) VALUES (?, ?, 'reserved', ?)",
         )
         .bind(process_registry_id)
         .bind(attempt.run_attempt_id)
+        .bind(Utc::now())
         .execute(&mut *transaction)
         .await?;
 

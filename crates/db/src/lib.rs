@@ -17,7 +17,10 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
 
     loop {
         match migrator.run(pool).await {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                guard_agent_runtime_schema(pool).await?;
+                return Ok(());
+            }
             Err(MigrateError::VersionMismatch(version)) => {
                 if cfg!(debug_assertions) {
                     // return the error in debug mode to catch migration issues early
@@ -64,6 +67,180 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
             }
             Err(e) => return Err(e.into()),
         }
+    }
+}
+
+/// Verifies the minimum process-registry shape required to start Agent Runtime
+/// and repairs the one known safe drift: legacy databases without
+/// `agent_process_registry.updated_at`.
+///
+/// This deliberately is not a general schema-diff engine. Structural changes
+/// that need data conversion or constraint changes belong in a new forward
+/// migration and fail here before background runtime services can start.
+async fn guard_agent_runtime_schema(pool: &Pool<Sqlite>) -> Result<(), Error> {
+    let table_exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_process_registry'",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if table_exists.is_none() {
+        return Err(Error::Protocol(
+            "agent runtime schema guard failed: missing agent_process_registry table".to_owned(),
+        ));
+    }
+
+    let columns: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('agent_process_registry')")
+            .fetch_all(pool)
+            .await?;
+    let missing_required_columns = [
+        "id",
+        "run_attempt_id",
+        "registry_status",
+        "last_host_event_sequence",
+        "created_at",
+    ]
+    .into_iter()
+    .filter(|required| !columns.iter().any(|column| column == required))
+    .collect::<Vec<_>>();
+    if !missing_required_columns.is_empty() {
+        return Err(Error::Protocol(format!(
+            "agent runtime schema guard failed: agent_process_registry is missing required columns: {}",
+            missing_required_columns.join(", ")
+        )));
+    }
+
+    let has_updated_at = columns.iter().any(|column| column == "updated_at");
+    if !has_updated_at {
+        // SQLite does not allow a non-constant expression as the default of a
+        // column added with ALTER TABLE. Add it nullable, backfill existing
+        // rows, and have the persistence layer provide the value for future
+        // inserts.
+        sqlx::query("ALTER TABLE agent_process_registry ADD COLUMN updated_at TEXT")
+            .execute(pool)
+            .await?;
+    }
+
+    let result = sqlx::query(
+        "UPDATE agent_process_registry
+         SET updated_at = COALESCE(created_at, datetime('now', 'subsec'))
+         WHERE updated_at IS NULL",
+    )
+    .execute(pool)
+    .await?;
+
+    if !has_updated_at || result.rows_affected() > 0 {
+        tracing::warn!(
+            backfilled_rows = result.rows_affected(),
+            added_column = !has_updated_at,
+            "repaired legacy agent_process_registry schema"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::guard_agent_runtime_schema;
+
+    #[tokio::test]
+    async fn repairs_legacy_process_registry_updated_at_column() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+
+        sqlx::query(
+            "CREATE TABLE agent_process_registry (
+                id BLOB PRIMARY KEY,
+                run_attempt_id BLOB NOT NULL UNIQUE,
+                registry_status TEXT NOT NULL DEFAULT 'reserved',
+                last_host_event_sequence INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create legacy process registry");
+        sqlx::query(
+            "INSERT INTO agent_process_registry (id, run_attempt_id) VALUES (randomblob(16), randomblob(16))",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert legacy process registry");
+
+        guard_agent_runtime_schema(&pool)
+            .await
+            .expect("repair process registry schema");
+
+        let column_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('agent_process_registry') WHERE name = 'updated_at'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read repaired schema");
+        assert_eq!(column_count, 1);
+
+        let updated_at: Option<String> =
+            sqlx::query_scalar("SELECT updated_at FROM agent_process_registry")
+                .fetch_one(&pool)
+                .await
+                .expect("read backfilled timestamp");
+        assert!(updated_at.is_some());
+
+        // The compatibility repair is idempotent.
+        guard_agent_runtime_schema(&pool)
+            .await
+            .expect("repeat repair");
+    }
+
+    #[tokio::test]
+    async fn rejects_missing_process_registry_before_runtime_startup() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+
+        let error = guard_agent_runtime_schema(&pool)
+            .await
+            .expect_err("missing runtime table must fail startup");
+        assert!(
+            error
+                .to_string()
+                .contains("missing agent_process_registry table")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_process_registry_drift() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+
+        sqlx::query(
+            "CREATE TABLE agent_process_registry (
+                id BLOB PRIMARY KEY,
+                run_attempt_id BLOB NOT NULL UNIQUE,
+                registry_status TEXT NOT NULL DEFAULT 'reserved',
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create incompatible process registry");
+
+        let error = guard_agent_runtime_schema(&pool)
+            .await
+            .expect_err("unsupported schema drift must fail startup");
+        assert!(error.to_string().contains("last_host_event_sequence"));
     }
 }
 
