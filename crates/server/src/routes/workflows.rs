@@ -4,8 +4,9 @@ use api_types::{DeleteResponse, MutationResponse};
 use axum::{
     BoxError, Json, Router,
     extract::{Path, State},
+    http::StatusCode,
     response::{
-        Json as ResponseJson, Sse,
+        IntoResponse, Json as ResponseJson, Response, Sse,
         sse::{Event, KeepAlive},
     },
     routing::{get, post},
@@ -14,6 +15,7 @@ use chrono::{DateTime, Utc};
 use db::models::{
     scratch::DraftWorkspaceRepo,
     session::{CreateSession, Session},
+    task::{CreateTask, Task, TaskExecutionKind},
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
     workspace_repo::CreateWorkspaceRepo,
 };
@@ -25,6 +27,7 @@ use serde_json::{Value, json};
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use ts_rs::TS;
+use utils::response::ApiResponse;
 use uuid::Uuid;
 use workflow::{
     WorkflowGraph, graph::WorkflowNodeKind, templates::built_in_templates,
@@ -62,6 +65,8 @@ pub struct WorkflowTemplateResponse {
     pub name: String,
     pub description: Option<String>,
     pub graph_json: String,
+    #[ts(type = "number")]
+    pub revision: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -80,9 +85,40 @@ pub struct CreateWorkflowRequest {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct UpdateWorkflowRequest {
+    #[ts(type = "number")]
+    pub expected_revision: i64,
     pub name: Option<String>,
     pub description: Option<String>,
     pub graph_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct WorkflowRevisionConflict {
+    pub workflow_id: Uuid,
+    #[ts(type = "number")]
+    pub expected_revision: i64,
+    #[ts(type = "number")]
+    pub current_revision: i64,
+}
+
+#[derive(Debug, Error)]
+pub enum WorkflowUpdateError {
+    #[error(transparent)]
+    Api(#[from] ApiError),
+    #[error("workflow {0:?} changed while it was being edited")]
+    RevisionConflict(WorkflowRevisionConflict),
+}
+
+impl From<WorkflowUpdateError> for ApiError {
+    fn from(error: WorkflowUpdateError) -> Self {
+        match error {
+            WorkflowUpdateError::Api(error) => error,
+            WorkflowUpdateError::RevisionConflict(conflict) => ApiError::Conflict(format!(
+                "workflow {} revision changed from {} to {}",
+                conflict.workflow_id, conflict.expected_revision, conflict.current_revision
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -114,7 +150,7 @@ pub struct RunWorkflowAttemptRequest {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SelectArenaWinnerRequest {
-    pub workspace_id: Uuid,
+    pub candidate_id: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -171,6 +207,7 @@ pub struct WorkflowRunResponse {
 pub struct WorkflowNodeExecutionResponse {
     pub id: Uuid,
     pub run_id: Uuid,
+    pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,
     pub iteration: i64,
@@ -528,9 +565,19 @@ async fn update_workflow(
     State(deployment): State<DeploymentImpl>,
     Path(workflow_id): Path<Uuid>,
     Json(request): Json<UpdateWorkflowRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowTemplateResponse>>, ApiError> {
-    let data = update_workflow_template(&deployment.db().pool, workflow_id, request).await?;
-    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
+) -> Result<Response, ApiError> {
+    match update_workflow_template(&deployment.db().pool, workflow_id, request).await {
+        Ok(data) => Ok(ResponseJson(MutationResponse { data, txid: txid() }).into_response()),
+        Err(WorkflowUpdateError::RevisionConflict(conflict)) => Ok((
+            StatusCode::CONFLICT,
+            ResponseJson(ApiResponse::<
+                MutationResponse<WorkflowTemplateResponse>,
+                WorkflowRevisionConflict,
+            >::error_with_data(conflict)),
+        )
+            .into_response()),
+        Err(WorkflowUpdateError::Api(error)) => Err(error),
+    }
 }
 
 async fn delete_workflow(
@@ -550,7 +597,8 @@ pub async fn list_project_workflows(
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
+        SELECT id, source, project_id, name, description, graph_json, revision,
+               created_at, updated_at
         FROM workflows
         WHERE (
             (source = 'system' AND id IN (
@@ -630,35 +678,50 @@ pub async fn create_issue_workflow_attempt(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "Workflow attempt".to_string());
 
-    let workflow = create_project_workflow(
-        pool,
-        project_id,
-        CreateWorkflowRequest {
-            name: name.clone(),
-            description: Some(
-                "Issue-bound workflow attempt backing graph. Hidden from template lists."
-                    .to_string(),
-            ),
-            graph_json: request.graph_json,
+    let attempt_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let mut transaction = pool.begin().await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, ?, ?, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(&name)
+    .bind("Issue-bound workflow attempt backing graph. Hidden from template lists.")
+    .bind(request.graph_json)
+    .execute(&mut *transaction)
+    .await?;
+
+    Task::create(
+        &mut transaction,
+        &CreateTask {
+            id: attempt_id,
+            project_id,
+            issue_id,
+            parent_task_id: None,
+            title: name,
+            execution_kind: TaskExecutionKind::Workflow,
         },
     )
     .await?;
 
-    let attempt_id = Uuid::new_v4();
     sqlx::query(
         r#"
-        INSERT INTO workflow_attempts
-            (id, project_id, issue_id, workflow_id, name, status)
-        VALUES (?, ?, ?, ?, ?, 'draft')
+        INSERT INTO workflow_attempts (id, task_id, workflow_id, status)
+        VALUES (?, ?, ?, 'draft')
         "#,
     )
     .bind(attempt_id)
-    .bind(project_id)
-    .bind(issue_id)
-    .bind(workflow.id)
-    .bind(name)
-    .execute(pool)
+    .bind(attempt_id)
+    .bind(workflow_id)
+    .execute(&mut *transaction)
     .await?;
+
+    transaction.commit().await?;
 
     workflow_attempt_by_id(pool, attempt_id)
         .await?
@@ -678,7 +741,7 @@ where
     let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
         .map_err(ApiError::BadRequest)?;
     let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
-    let workspace_id = workspace_resolver
+    let workspace_id = match workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
             issue_id,
             run_id: attempt.id,
@@ -687,29 +750,69 @@ where
             repo_overrides,
             branch_name: main_workflow_branch_name(issue_id, attempt.id),
         })
+        .await
+    {
+        Ok(workspace_id) => workspace_id,
+        Err(error) => {
+            if let Err(cleanup_error) = delete_issue_workflow_attempt(pool, attempt.id).await {
+                tracing::warn!(
+                    workflow_attempt_id = %attempt.id,
+                    "failed to compensate Workflow attempt after workspace creation failed: {cleanup_error:#}"
+                );
+            }
+            return Err(error);
+        }
+    };
+
+    let resource_result = async {
+        let workflow = get_workflow_template(pool, attempt.workflow_id).await?;
+        let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
+            .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
+        if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
+            persist_workflow_graph(pool, attempt.workflow_id, workflow.revision, &graph)
+                .await
+                .map_err(ApiError::from)?;
+        }
+
+        update_workflow_attempt_runtime(
+            pool,
+            attempt.id,
+            None,
+            Some(workspace_id),
+            WorkflowAttemptStatus::Ready,
+        )
         .await?;
 
-    let workflow = get_workflow_template(pool, attempt.workflow_id).await?;
-    let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
-        .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
-    if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
-        persist_workflow_graph(pool, attempt.workflow_id, &graph).await?;
+        workflow_attempt_by_id(pool, attempt.id)
+            .await?
+            .ok_or_else(|| {
+                ApiError::BadRequest("Workflow attempt not found after resource bind".to_string())
+            })
     }
+    .await;
 
-    update_workflow_attempt_runtime(
-        pool,
-        attempt.id,
-        None,
-        Some(workspace_id),
-        WorkflowAttemptStatus::Ready,
-    )
-    .await?;
-
-    workflow_attempt_by_id(pool, attempt.id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::BadRequest("Workflow attempt not found after resource bind".to_string())
-        })
+    match resource_result {
+        Ok(attempt) => Ok(attempt),
+        Err(error) => {
+            if let Err(cleanup_error) = workspace_resolver
+                .cleanup_created_main_workspace(workspace_id)
+                .await
+            {
+                tracing::warn!(
+                    workflow_attempt_id = %attempt.id,
+                    %workspace_id,
+                    "failed to compensate Workflow workspace after resource initialization failed: {cleanup_error:#}"
+                );
+            }
+            if let Err(cleanup_error) = delete_issue_workflow_attempt(pool, attempt.id).await {
+                tracing::warn!(
+                    workflow_attempt_id = %attempt.id,
+                    "failed to compensate Workflow attempt after resource initialization failed: {cleanup_error:#}"
+                );
+            }
+            Err(error)
+        }
+    }
 }
 
 fn workflow_workspace_repo_overrides(
@@ -779,11 +882,13 @@ pub async fn list_workflow_attempts_for_project(
 
     let rows = sqlx::query(
         r#"
-        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
-               name, status, created_at, updated_at
-        FROM workflow_attempts
-        WHERE project_id = ?
-        ORDER BY updated_at DESC, created_at DESC
+        SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               attempt.latest_run_id, attempt.workspace_id, task.title AS name,
+               attempt.status, attempt.created_at, attempt.updated_at
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE task.project_id = ?
+        ORDER BY attempt.updated_at DESC, attempt.created_at DESC
         "#,
     )
     .bind(project_id)
@@ -799,27 +904,53 @@ pub async fn list_workflow_attempts_for_project(
 pub async fn persist_workflow_graph(
     pool: &SqlitePool,
     workflow_id: Uuid,
+    expected_revision: i64,
     graph: &WorkflowGraph,
-) -> Result<(), ApiError> {
+) -> Result<WorkflowTemplateResponse, WorkflowUpdateError> {
     validate_graph(graph)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph: {err}")))?;
     let graph_json = serde_json::to_string(graph)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
 
-    sqlx::query(
+    let row = sqlx::query(
         r#"
         UPDATE workflows
         SET graph_json = ?,
+            revision = revision + 1,
             updated_at = datetime('now', 'subsec')
-        WHERE id = ?
+        WHERE id = ? AND revision = ?
+        RETURNING id, source, project_id, name, description, graph_json,
+                  revision, created_at, updated_at
         "#,
     )
     .bind(graph_json)
     .bind(workflow_id)
-    .execute(pool)
-    .await?;
+    .bind(expected_revision)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::from)?;
 
-    Ok(())
+    match row {
+        Some(row) => workflow_template_from_row(&row)
+            .map_err(ApiError::from)
+            .map_err(WorkflowUpdateError::from),
+        None => {
+            let current_revision =
+                sqlx::query_scalar::<_, i64>("SELECT revision FROM workflows WHERE id = ?")
+                    .bind(workflow_id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(ApiError::from)?
+                    .ok_or_else(|| ApiError::BadRequest("Workflow not found".to_string()))?;
+            Err(WorkflowUpdateError::RevisionConflict(
+                WorkflowRevisionConflict {
+                    workflow_id,
+                    expected_revision,
+                    current_revision,
+                },
+            ))
+        }
+    }
 }
 
 pub async fn list_workflow_attempts_for_issue(
@@ -832,11 +963,13 @@ pub async fn list_workflow_attempts_for_issue(
 
     let rows = sqlx::query(
         r#"
-        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
-               name, status, created_at, updated_at
-        FROM workflow_attempts
-        WHERE project_id = ? AND issue_id = ?
-        ORDER BY updated_at DESC, created_at DESC
+        SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               attempt.latest_run_id, attempt.workspace_id, task.title AS name,
+               attempt.status, attempt.created_at, attempt.updated_at
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE task.project_id = ? AND task.issue_id = ?
+        ORDER BY attempt.updated_at DESC, attempt.created_at DESC
         "#,
     )
     .bind(project_id)
@@ -856,10 +989,12 @@ pub async fn workflow_attempt_by_id(
 ) -> Result<Option<WorkflowAttemptResponse>, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
-               name, status, created_at, updated_at
-        FROM workflow_attempts
-        WHERE id = ?
+        SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               attempt.latest_run_id, attempt.workspace_id, task.title AS name,
+               attempt.status, attempt.created_at, attempt.updated_at
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE attempt.id = ?
         "#,
     )
     .bind(attempt_id)
@@ -875,10 +1010,12 @@ pub async fn workflow_attempt_by_workflow_id(
 ) -> Result<Option<WorkflowAttemptResponse>, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, project_id, issue_id, workflow_id, latest_run_id, workspace_id,
-               name, status, created_at, updated_at
-        FROM workflow_attempts
-        WHERE workflow_id = ?
+        SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               attempt.latest_run_id, attempt.workspace_id, task.title AS name,
+               attempt.status, attempt.created_at, attempt.updated_at
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE attempt.workflow_id = ?
         "#,
     )
     .bind(workflow_id)
@@ -993,10 +1130,15 @@ pub async fn delete_issue_workflow_attempt(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM workflow_attempts WHERE id = ?")
-        .bind(attempt.id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        r#"
+        DELETE FROM tasks
+        WHERE id = (SELECT task_id FROM workflow_attempts WHERE id = ?)
+        "#,
+    )
+    .bind(attempt.id)
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query("DELETE FROM workflows WHERE id = ?")
         .bind(attempt.workflow_id)
@@ -1104,24 +1246,51 @@ pub async fn update_workflow_template(
     pool: &SqlitePool,
     workflow_id: Uuid,
     request: UpdateWorkflowRequest,
-) -> Result<WorkflowTemplateResponse, ApiError> {
+) -> Result<WorkflowTemplateResponse, WorkflowUpdateError> {
     ensure_system_workflows(pool).await?;
     let existing = workflow_by_id(pool, workflow_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow not found".to_string()))?;
 
     if existing.source == WorkflowSource::System {
-        return Err(ApiError::Forbidden(
-            "system workflow templates cannot be updated".to_string(),
-        ));
+        return Err(
+            ApiError::Forbidden("system workflow templates cannot be updated".to_string()).into(),
+        );
     }
 
+    let mut pending_sessions = Vec::new();
     let graph_json = if let Some(graph_json) = request.graph_json {
-        let graph = parse_graph_json(&graph_json)?;
+        let graph = parse_graph_json(&graph_json).map_err(ApiError::from)?;
         if let Some(workflow_attempt) = workflow_attempt_by_workflow_id(pool, workflow_id).await? {
             if let Some(workspace_id) = workflow_attempt.workspace_id {
                 let mut graph = graph;
-                ensure_agent_node_sessions(pool, workspace_id, &mut graph).await?;
+                let agent_working_dir = Session::resolve_agent_working_dir(pool, workspace_id)
+                    .await
+                    .map_err(ApiError::from)?;
+                for node in graph
+                    .nodes
+                    .iter_mut()
+                    .filter(|node| node.kind == WorkflowNodeKind::Agent)
+                {
+                    if node.data.session_id.is_some() {
+                        continue;
+                    }
+
+                    let session_id = Uuid::new_v4();
+                    let display_name = node
+                        .data
+                        .display_name
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or(node.id.as_str());
+                    pending_sessions.push((
+                        session_id,
+                        workspace_id,
+                        format!("Workflow {display_name}"),
+                        agent_working_dir.clone(),
+                    ));
+                    node.data.session_id = Some(session_id.to_string());
+                }
                 serde_json::to_string(&graph).map_err(|err| {
                     ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}"))
                 })?
@@ -1135,27 +1304,69 @@ pub async fn update_workflow_template(
         existing.graph_json
     };
 
-    sqlx::query(
+    let mut transaction = pool.begin().await.map_err(ApiError::from)?;
+    let row = sqlx::query(
         r#"
         UPDATE workflows
-        SET name = ?, description = ?, graph_json = ?, updated_at = datetime('now', 'subsec')
-        WHERE id = ?
+        SET name = ?, description = ?, graph_json = ?,
+            revision = revision + 1,
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ? AND revision = ?
+        RETURNING id, source, project_id, name, description, graph_json,
+                  revision, created_at, updated_at
         "#,
     )
     .bind(request.name.unwrap_or(existing.name))
     .bind(request.description.or(existing.description))
     .bind(graph_json)
     .bind(workflow_id)
-    .execute(pool)
-    .await?;
+    .bind(request.expected_revision)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::from)?;
+
+    let updated = match row {
+        Some(row) => workflow_template_from_row(&row).map_err(ApiError::from)?,
+        None => {
+            let current_revision =
+                sqlx::query_scalar::<_, i64>("SELECT revision FROM workflows WHERE id = ?")
+                    .bind(workflow_id)
+                    .fetch_optional(&mut *transaction)
+                    .await
+                    .map_err(ApiError::from)?
+                    .ok_or_else(|| ApiError::BadRequest("Workflow not found".to_string()))?;
+            return Err(WorkflowUpdateError::RevisionConflict(
+                WorkflowRevisionConflict {
+                    workflow_id,
+                    expected_revision: request.expected_revision,
+                    current_revision,
+                },
+            ));
+        }
+    };
+
+    for (session_id, workspace_id, name, agent_working_dir) in pending_sessions {
+        sqlx::query(
+            r#"
+            INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir)
+            VALUES (?, ?, ?, NULL, ?)
+            "#,
+        )
+        .bind(session_id)
+        .bind(workspace_id)
+        .bind(name)
+        .bind(agent_working_dir)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::from)?;
+    }
+    transaction.commit().await.map_err(ApiError::from)?;
 
     if let Some(workflow_attempt) = workflow_attempt_by_workflow_id(pool, workflow_id).await? {
         mark_workflow_attempt_ready(pool, workflow_attempt.id).await?;
     }
 
-    workflow_by_id(pool, workflow_id)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Workflow not found after update".to_string()))
+    Ok(updated)
 }
 
 pub async fn delete_workflow_template(
@@ -1216,7 +1427,8 @@ async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateRes
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
+        SELECT id, source, project_id, name, description, graph_json, revision,
+               created_at, updated_at
         FROM workflows
         WHERE (
             (source = 'system' AND id IN (
@@ -1254,7 +1466,8 @@ async fn workflow_by_id(
 ) -> Result<Option<WorkflowTemplateResponse>, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, created_at, updated_at
+        SELECT id, source, project_id, name, description, graph_json, revision,
+               created_at, updated_at
         FROM workflows
         WHERE id = ?
         "#,
@@ -1290,6 +1503,7 @@ async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
                 name = excluded.name,
                 description = excluded.description,
                 graph_json = excluded.graph_json,
+                revision = workflows.revision + 1,
                 updated_at = datetime('now', 'subsec')
             WHERE
                 workflows.source != excluded.source
@@ -1422,6 +1636,7 @@ fn workflow_template_from_row(
         name: row.try_get("name")?,
         description: row.try_get("description")?,
         graph_json: row.try_get("graph_json")?,
+        revision: row.try_get("revision")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -2075,7 +2290,7 @@ async fn select_arena_winner(
         &deployment.db().pool,
         run_id,
         &node_id,
-        request.workspace_id,
+        request.candidate_id,
         &agent_executor,
         &arena_creator,
         &winner_applier,
@@ -2157,6 +2372,7 @@ mod tests {
         WorkflowNodeExecutionResponse {
             id: Uuid::from_u128(id),
             run_id: Uuid::from_u128(100),
+            task_id: None,
             node_id: node_id.to_string(),
             node_type: node_type.to_string(),
             iteration,

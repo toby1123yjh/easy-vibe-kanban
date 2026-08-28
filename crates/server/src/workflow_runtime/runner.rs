@@ -10,7 +10,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use db::models::{
     orchestration::OrchestrationNodeExecutionRecord,
-    session::{CreateSession, Session},
+    session::{CreateSession, Session, SessionError},
+    task::{CreateTask, Task, TaskExecutionKind},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError, WorkspaceKind},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -37,7 +38,7 @@ use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
 use services::services::orchestration::{OrchestrationService, OrchestrationServiceError};
 use sha2::{Digest, Sha256};
-use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use sqlx::{Row, SqliteConnection, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -121,6 +122,8 @@ pub trait WorkflowWorkspaceResolver: Send + Sync {
         &self,
         request: WorkflowWorkspaceRequest,
     ) -> Result<Uuid, ApiError>;
+
+    async fn cleanup_created_main_workspace(&self, workspace_id: Uuid) -> Result<(), ApiError>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -903,10 +906,12 @@ where
         .await?;
 
     if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
-        persist_workflow_graph(pool, workflow_id, &graph).await?;
+        persist_workflow_graph(pool, workflow_id, workflow.revision, &graph)
+            .await
+            .map_err(ApiError::from)?;
     }
 
-    insert_workflow_run(
+    initialize_workflow_run(
         pool,
         run_id,
         workflow_id,
@@ -923,7 +928,6 @@ where
         .bind(run_id)
         .execute(pool)
         .await?;
-    initialize_node_executions(pool, run_id, &graph).await?;
     link_workflow_node_execution_identities(pool, run_id, orchestration_run_id).await?;
     drive_workflow_run(
         pool,
@@ -1404,7 +1408,7 @@ pub async fn select_arena_winner_with_arena<A, R, W>(
     pool: &SqlitePool,
     run_id: Uuid,
     node_id: &str,
-    winner_workspace_id: Uuid,
+    candidate_id: Uuid,
     agent_executor: &A,
     arena_creator: &R,
     winner_applier: &W,
@@ -1435,7 +1439,7 @@ where
             node_id: node_id.to_string(),
             arena_group_id,
             main_workspace_id: run.workspace_id,
-            winner_workspace_id,
+            candidate_id,
         })
         .await
     {
@@ -1455,7 +1459,7 @@ where
             .await?;
         }
         Err(err) => {
-            let message = format!("{err}; winner workspace: {winner_workspace_id}");
+            let message = format!("{err}; winner candidate: {candidate_id}");
             mark_node_failed(pool, run_id, node_id, 0, &message).await?;
             mark_pending_nodes_skipped(pool, run_id).await?;
             update_run_status(
@@ -1849,11 +1853,9 @@ struct RuntimeRun {
 async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT wr.workflow_id, wr.issue_id, wr.workspace_id, wr.input_text,
-               wr.graph_snapshot, w.graph_json
-        FROM workflow_runs wr
-        JOIN workflows w ON w.id = wr.workflow_id
-        WHERE wr.id = ?
+        SELECT issue_id, workspace_id, input_text, graph_snapshot
+        FROM workflow_runs
+        WHERE id = ?
         "#,
     )
     .bind(run_id)
@@ -1861,12 +1863,13 @@ async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun,
     .await?
     .ok_or_else(|| ApiError::BadRequest("Workflow run not found".to_string()))?;
 
-    // Production-created runs always have an immutable snapshot. The
-    // nullable fallback keeps minimal hand-written fixtures readable while
-    // they are outside the normal dispatch path.
-    let graph_json: String = row
+    let graph_json = row
         .try_get::<Option<String>, _>("graph_snapshot")?
-        .unwrap_or(row.try_get("graph_json")?);
+        .ok_or_else(|| {
+            ApiError::Conflict(format!(
+                "Workflow run {run_id} has no immutable graph snapshot"
+            ))
+        })?;
     let graph: WorkflowGraph = serde_json::from_str(&graph_json)
         .map_err(|err| ApiError::BadRequest(format!("Invalid workflow graph JSON: {err}")))?;
     validate_graph_for_run(&graph)
@@ -1882,7 +1885,14 @@ async fn load_runtime_run(pool: &SqlitePool, run_id: Uuid) -> Result<RuntimeRun,
     })
 }
 
-async fn insert_workflow_run(
+#[derive(Debug, Clone, Copy)]
+struct WorkflowTaskParent {
+    task_id: Uuid,
+    project_id: Uuid,
+    issue_id: Uuid,
+}
+
+async fn initialize_workflow_run(
     pool: &SqlitePool,
     run_id: Uuid,
     workflow_id: Uuid,
@@ -1894,6 +1904,7 @@ async fn insert_workflow_run(
     let graph_snapshot = serde_json::to_string(graph).map_err(|error| {
         ApiError::BadRequest(format!("Cannot snapshot workflow graph: {error}"))
     })?;
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         r#"
         INSERT INTO workflow_runs
@@ -1909,35 +1920,163 @@ async fn insert_workflow_run(
     .bind(&request.trigger_source)
     .bind(&request.input_text)
     .bind(graph_snapshot)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
+    let parent = workflow_task_parent(&mut transaction, attempt_id, request.issue_id).await?;
+    for node in &graph.nodes {
+        materialize_node_execution(&mut transaction, run_id, workspace_id, parent, node, 0).await?;
+    }
+
+    transaction.commit().await?;
     emit_run_status(run_id, WorkflowRunStatus::Running, None, None);
+    Ok(())
+}
+
+async fn workflow_task_parent(
+    connection: &mut SqliteConnection,
+    attempt_id: Option<Uuid>,
+    issue_id: Uuid,
+) -> Result<Option<WorkflowTaskParent>, ApiError> {
+    let Some(attempt_id) = attempt_id else {
+        return Ok(None);
+    };
+    let parent = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        r#"
+        SELECT task.id, task.project_id, task.issue_id
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE attempt.id = ? AND task.issue_id = ?
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(issue_id)
+    .fetch_optional(&mut *connection)
+    .await?
+    .ok_or_else(|| {
+        ApiError::BadRequest(
+            "Workflow attempt is missing its canonical Task or belongs to another Issue"
+                .to_string(),
+        )
+    })?;
+    Ok(Some(WorkflowTaskParent {
+        task_id: parent.0,
+        project_id: parent.1,
+        issue_id: parent.2,
+    }))
+}
+
+async fn materialize_node_execution(
+    connection: &mut SqliteConnection,
+    run_id: Uuid,
+    workspace_id: Uuid,
+    parent: Option<WorkflowTaskParent>,
+    node: &WorkflowNode,
+    iteration: i64,
+) -> Result<(), ApiError> {
+    let execution_id = Uuid::new_v4();
+    let source_session_id = if node.kind == WorkflowNodeKind::Agent {
+        node_session_id(node).map_err(ApiError::BadRequest)?
+    } else {
+        None
+    };
+    let (task_id, runtime_session_id) = match (node.kind.clone(), parent) {
+        (WorkflowNodeKind::Agent, Some(parent)) => {
+            let source_session_id = source_session_id.ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "Workflow Agent node `{}` has no source Session",
+                    node.id
+                ))
+            })?;
+            let runtime_session_id = Uuid::new_v4();
+            let inserted = sqlx::query(
+                r#"
+                INSERT INTO sessions (
+                    id, workspace_id, name, executor, agent_working_dir
+                )
+                SELECT ?, ?, name, executor, agent_working_dir
+                FROM sessions
+                WHERE id = ?
+                "#,
+            )
+            .bind(runtime_session_id)
+            .bind(workspace_id)
+            .bind(source_session_id)
+            .execute(&mut *connection)
+            .await?;
+            if inserted.rows_affected() != 1 {
+                return Err(ApiError::BadRequest(format!(
+                    "Workflow Agent node `{}` references a missing source Session",
+                    node.id
+                )));
+            }
+            Task::create(
+                connection,
+                &CreateTask {
+                    id: execution_id,
+                    project_id: parent.project_id,
+                    issue_id: parent.issue_id,
+                    parent_task_id: Some(parent.task_id),
+                    title: workflow_node_task_title(node),
+                    execution_kind: TaskExecutionKind::Agent,
+                },
+            )
+            .await
+            .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+            Task::bind_agent_session(connection, execution_id, runtime_session_id)
+                .await
+                .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+            (Some(execution_id), Some(runtime_session_id))
+        }
+        (WorkflowNodeKind::Arena, Some(parent)) => {
+            Task::create(
+                connection,
+                &CreateTask {
+                    id: execution_id,
+                    project_id: parent.project_id,
+                    issue_id: parent.issue_id,
+                    parent_task_id: Some(parent.task_id),
+                    title: workflow_node_task_title(node),
+                    execution_kind: TaskExecutionKind::Arena,
+                },
+            )
+            .await
+            .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+            (Some(execution_id), None)
+        }
+        (WorkflowNodeKind::Agent, None) => (None, source_session_id),
+        _ => (None, None),
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO node_executions (
+            id, run_id, task_id, node_id, node_type, iteration, status, session_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+        "#,
+    )
+    .bind(execution_id)
+    .bind(run_id)
+    .bind(task_id)
+    .bind(&node.id)
+    .bind(node_kind_value(&node.kind))
+    .bind(iteration)
+    .bind(runtime_session_id)
+    .execute(connection)
+    .await?;
 
     Ok(())
 }
 
-async fn initialize_node_executions(
-    pool: &SqlitePool,
-    run_id: Uuid,
-    graph: &WorkflowGraph,
-) -> Result<(), ApiError> {
-    for node in &graph.nodes {
-        sqlx::query(
-            r#"
-            INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
-            VALUES (?, ?, ?, ?, 0, 'pending')
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(run_id)
-        .bind(&node.id)
-        .bind(node_kind_value(&node.kind))
-        .execute(pool)
-        .await?;
-    }
-
-    Ok(())
+fn workflow_node_task_title(node: &WorkflowNode) -> String {
+    node.data
+        .display_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(node.id.as_str())
+        .trim()
+        .to_string()
 }
 
 async fn ensure_triggered_node_iterations(
@@ -2026,19 +2165,32 @@ async fn insert_node_execution(
     node: &WorkflowNode,
     iteration: i64,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"
-        INSERT INTO node_executions (id, run_id, node_id, node_type, iteration, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
+    let mut transaction = pool.begin().await?;
+    let (attempt_id, issue_id, workspace_id) =
+        sqlx::query_as::<_, (Option<Uuid>, Uuid, Option<Uuid>)>(
+            r#"
+        SELECT attempt_id, issue_id, workspace_id
+        FROM workflow_runs
+        WHERE id = ?
         "#,
+        )
+        .bind(run_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow run not found".to_string()))?;
+    let workspace_id = workspace_id
+        .ok_or_else(|| ApiError::BadRequest("Workflow run has no workspace".to_string()))?;
+    let parent = workflow_task_parent(&mut transaction, attempt_id, issue_id).await?;
+    materialize_node_execution(
+        &mut transaction,
+        run_id,
+        workspace_id,
+        parent,
+        node,
+        iteration,
     )
-    .bind(Uuid::new_v4())
-    .bind(run_id)
-    .bind(&node.id)
-    .bind(node_kind_value(&node.kind))
-    .bind(iteration)
-    .execute(pool)
     .await?;
+    transaction.commit().await?;
 
     // Every dynamically-created iteration gets its canonical orchestration
     // identity before it can be dispatched or observed.
@@ -2156,7 +2308,7 @@ where
     match node.kind {
         WorkflowNodeKind::Agent => {
             let prompt = render_agent_prompt(node, &context);
-            let session_id = node_session_id(node).map_err(ApiError::BadRequest)?;
+            let session_id = node_execution_session_id(pool, run_id, &node.id, iteration).await?;
             let (orchestration_run_id, orchestration_node_execution_id) =
                 canonical_node_identity(pool, run_id, &node.id, iteration).await?;
             mark_node_running(pool, run_id, &node.id, iteration, Some(&prompt)).await?;
@@ -2374,6 +2526,7 @@ where
                 .create_arena(ArenaNodeRequest {
                     run_id,
                     node_id: node.id.clone(),
+                    iteration,
                     issue_id,
                     main_workspace_id: workspace_id,
                     prompt: prompt.clone(),
@@ -2527,6 +2680,31 @@ where
             }
         }
     }
+}
+
+async fn node_execution_session_id(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    iteration: i64,
+) -> Result<Option<Uuid>, ApiError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT session_id
+        FROM node_executions
+        WHERE run_id = ? AND node_id = ? AND iteration = ?
+        "#,
+    )
+    .bind(run_id)
+    .bind(node_id)
+    .bind(iteration)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "Workflow node execution `{node_id}` iteration {iteration} was not found"
+        ))
+    })
 }
 
 async fn node_context(
@@ -3981,7 +4159,7 @@ async fn node_execution_responses(
 ) -> Result<Vec<WorkflowNodeExecutionResponse>, ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT ne.id, ne.run_id, ne.node_id, ne.node_type, ne.iteration, ne.status, ne.input_text, ne.output_text,
+        SELECT ne.id, ne.run_id, ne.task_id, ne.node_id, ne.node_type, ne.iteration, ne.status, ne.input_text, ne.output_text,
                ne.session_id, ne.orchestration_node_execution_id, ne.agent_run_id,
                ars.projection_status AS projection_status,
                ne.execution_process_id, ne.arena_group_id, ne.tokens_used, ne.cost_estimate,
@@ -4008,6 +4186,7 @@ fn node_execution_response_from_row(
     Ok(WorkflowNodeExecutionResponse {
         id: row.try_get("id")?,
         run_id: row.try_get("run_id")?,
+        task_id: row.try_get("task_id")?,
         node_id: row.try_get("node_id")?,
         node_type: row.try_get("node_type")?,
         iteration: row.try_get("iteration")?,

@@ -1795,7 +1795,7 @@ impl ContainerService for LocalContainerService {
 mod tests {
     use chrono::Utc;
     use db::models::{
-        arena_group::{ArenaLifecycleStatus, ArenaMode, ArenaStatus},
+        arena_group::{ArenaLifecycleStatus, ArenaMode},
         workspace::ContainerOwnership,
     };
     use executors::{
@@ -1815,16 +1815,19 @@ mod tests {
 
         for statement in [
             r#"
+            CREATE TABLE tasks (
+                id BLOB PRIMARY KEY
+            )
+            "#,
+            r#"
             CREATE TABLE arena_groups (
                 id BLOB PRIMARY KEY,
-                issue_id BLOB NOT NULL,
-                project_id BLOB NOT NULL,
+                task_id BLOB NOT NULL UNIQUE,
                 prompt TEXT NOT NULL,
                 base_branch TEXT NOT NULL,
                 mode TEXT NOT NULL,
                 lifecycle_status TEXT NOT NULL,
-                promoted_workspace_id BLOB,
-                implementation_workspace_id BLOB,
+                winner_candidate_id BLOB,
                 promoted_at TEXT,
                 closed_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
@@ -1833,8 +1836,18 @@ mod tests {
             "#,
             r#"
             CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY
+            )
+            "#,
+            r#"
+            CREATE TABLE arena_candidates (
                 id BLOB PRIMARY KEY,
-                arena_group_id BLOB
+                arena_group_id BLOB NOT NULL,
+                workspace_id BLOB NOT NULL UNIQUE,
+                purpose TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
             )
             "#,
         ] {
@@ -1853,16 +1866,22 @@ mod tests {
         lifecycle_status: ArenaLifecycleStatus,
     ) -> Uuid {
         let group_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO tasks (id) VALUES (?)")
+            .bind(task_id)
+            .execute(pool)
+            .await
+            .expect("insert Arena Task");
 
         sqlx::query(
             r#"INSERT INTO arena_groups
-                  (id, issue_id, project_id, prompt, base_branch, mode, lifecycle_status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+                  (id, task_id, prompt, base_branch, mode, lifecycle_status)
+               VALUES (?, ?, ?, ?, ?, ?)"#,
         )
         .bind(group_id)
-        .bind(Uuid::new_v4())
-        .bind(Uuid::new_v4())
+        .bind(task_id)
         .bind("Compare designs")
         .bind("main")
         .bind(mode)
@@ -1871,12 +1890,25 @@ mod tests {
         .await
         .expect("insert arena group");
 
-        sqlx::query("INSERT INTO workspaces (id, arena_group_id) VALUES (?, ?)")
+        sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
             .bind(workspace_id)
-            .bind(group_id)
             .execute(pool)
             .await
             .expect("insert workspace");
+
+        sqlx::query(
+            r#"
+            INSERT INTO arena_candidates
+                (id, arena_group_id, workspace_id, purpose, sort_order)
+            VALUES (?, ?, ?, 'attempt', 0)
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind(workspace_id)
+        .execute(pool)
+        .await
+        .expect("insert Arena candidate");
 
         workspace_id
     }
@@ -1885,7 +1917,6 @@ mod tests {
         let now = Utc::now();
         Workspace {
             id: Uuid::new_v4(),
-            task_id: None,
             container_ref: Some("C:\\runtime-workspace".to_string()),
             workspace_kind,
             container_ownership: ContainerOwnership::Managed,
@@ -1897,8 +1928,6 @@ mod tests {
             pinned: false,
             name: None,
             worktree_deleted: false,
-            arena_group_id: None,
-            arena_status: ArenaStatus::Active,
         }
     }
 

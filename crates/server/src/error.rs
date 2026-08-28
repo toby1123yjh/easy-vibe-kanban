@@ -6,7 +6,7 @@ use axum::{
 };
 use db::models::{
     arena_group::ArenaGroupError, execution_process::ExecutionProcessError, repo::RepoError,
-    scratch::ScratchError, session::SessionError, workspace::WorkspaceError,
+    scratch::ScratchError, session::SessionError, task::TaskError, workspace::WorkspaceError,
 };
 use deployment::{DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
 use executors::{command::CommandBuildError, executors::ExecutorError};
@@ -39,6 +39,8 @@ pub enum ApiError {
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
     Session(#[from] SessionError),
+    #[error(transparent)]
+    Task(#[from] TaskError),
     #[error(transparent)]
     ScratchError(#[from] ScratchError),
     #[error(transparent)]
@@ -335,6 +337,17 @@ impl IntoResponse for ApiError {
             }
 
             ApiError::Session(SessionError::Database(_)) => ErrorInfo::internal("SessionError"),
+            ApiError::Session(SessionError::Task(error)) => match error {
+                TaskError::Database(_) => ErrorInfo::internal("TaskError"),
+                TaskError::EmptyTitle => {
+                    ErrorInfo::bad_request("TaskError", "Task title must not be empty.")
+                }
+                TaskError::InvalidBinding { detail, .. } => {
+                    ErrorInfo::conflict("TaskError", detail.clone())
+                }
+                TaskError::InvalidRuntimeStatus { .. } => ErrorInfo::internal("TaskError"),
+                TaskError::NotFound { .. } => ErrorInfo::not_found("TaskError", "Task not found."),
+            },
             ApiError::Session(SessionError::NotFound) => {
                 ErrorInfo::not_found("SessionError", "Session not found.")
             }
@@ -350,6 +363,18 @@ impl IntoResponse for ApiError {
                     ),
                 )
             }
+
+            ApiError::Task(error) => match error {
+                TaskError::Database(_) => ErrorInfo::internal("TaskError"),
+                TaskError::EmptyTitle => {
+                    ErrorInfo::bad_request("TaskError", "Task title must not be empty.")
+                }
+                TaskError::InvalidBinding { detail, .. } => {
+                    ErrorInfo::conflict("TaskError", detail.clone())
+                }
+                TaskError::InvalidRuntimeStatus { .. } => ErrorInfo::internal("TaskError"),
+                TaskError::NotFound { .. } => ErrorInfo::not_found("TaskError", "Task not found."),
+            },
 
             ApiError::ScratchError(ScratchError::Database(_)) => {
                 ErrorInfo::internal("ScratchError")
@@ -580,9 +605,15 @@ impl From<ArenaGroupError> for ApiError {
         match err {
             ArenaGroupError::Database(db_err) => ApiError::Database(db_err),
             ArenaGroupError::NotFound => ApiError::BadRequest("Arena group not found".to_string()),
-            ArenaGroupError::AlreadyPromoted { group_id } => {
-                ApiError::Conflict(format!("Arena group {group_id} has already been promoted"))
+            ArenaGroupError::AlreadyHasWinner { group_id } => {
+                ApiError::Conflict(format!("Arena group {group_id} already has a winner"))
             }
+            ArenaGroupError::CandidateNotInGroup {
+                group_id,
+                candidate_id,
+            } => ApiError::BadRequest(format!(
+                "Arena candidate {candidate_id} does not belong to arena group {group_id}"
+            )),
             ArenaGroupError::WorkspaceNotInGroup {
                 group_id,
                 workspace_id,

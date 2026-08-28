@@ -237,9 +237,17 @@ impl WorkspaceRepo {
                SET target_branch = $1, updated_at = datetime('now')
                WHERE target_branch = $2
                  AND workspace_id IN (
-                     SELECT w.id FROM workspaces w
-                     JOIN tasks t ON w.task_id = t.id
-                     WHERE t.parent_workspace_id = $3
+                     SELECT child_session.workspace_id
+                     FROM agent_task_bindings parent_binding
+                     JOIN sessions parent_session
+                       ON parent_session.id = parent_binding.session_id
+                     JOIN tasks child_task
+                       ON child_task.parent_task_id = parent_binding.task_id
+                     JOIN agent_task_bindings child_binding
+                       ON child_binding.task_id = child_task.id
+                     JOIN sessions child_session
+                       ON child_session.id = child_binding.session_id
+                     WHERE parent_session.workspace_id = $3
                  )"#,
             new_branch,
             old_branch,

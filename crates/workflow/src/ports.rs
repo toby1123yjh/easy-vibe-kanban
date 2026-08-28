@@ -70,6 +70,6 @@ pub trait WorkflowDiffApplier {
         &self,
         run_id: &str,
         arena_group_id: &str,
-        winner_workspace_id: &str,
+        winner_candidate_id: &str,
     ) -> Result<(), Self::Error>;
 }

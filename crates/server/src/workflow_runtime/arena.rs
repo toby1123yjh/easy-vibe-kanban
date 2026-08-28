@@ -3,7 +3,10 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use chrono::Utc;
 use db::models::{
-    arena_group::{ArenaGroup, ArenaGroupError, ArenaMode, ArenaStatus, CreateArenaGroup},
+    arena_group::{
+        ArenaCandidate, ArenaCandidatePurpose, ArenaGroup, ArenaGroupError, ArenaLifecycleStatus,
+        ArenaMode, CreateArenaCandidate, CreateArenaGroup,
+    },
     requests::WorkspaceRepoInput,
     session::{CreateSession, Session},
     workspace::{CreateWorkspace, Workspace, WorkspaceError, WorkspaceKind},
@@ -72,6 +75,7 @@ pub struct ArenaNodeAttemptRequest {
 pub struct ArenaNodeRequest {
     pub run_id: Uuid,
     pub node_id: String,
+    pub iteration: i64,
     pub issue_id: Uuid,
     pub main_workspace_id: Uuid,
     pub prompt: String,
@@ -89,7 +93,7 @@ pub struct ArenaWinnerRequest {
     pub node_id: String,
     pub arena_group_id: Uuid,
     pub main_workspace_id: Uuid,
-    pub winner_workspace_id: Uuid,
+    pub candidate_id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,17 +212,61 @@ async fn create_deployment_arena(
         )));
     }
 
+    let task_id: Uuid = sqlx::query_scalar(
+        r#"
+        SELECT node.task_id
+        FROM node_executions node
+        JOIN tasks task ON task.id = node.task_id
+        JOIN workflow_runs run ON run.id = node.run_id
+        JOIN workflow_attempts attempt ON attempt.id = run.attempt_id
+        WHERE node.run_id = ?
+          AND node.node_id = ?
+          AND node.iteration = ?
+          AND task.parent_task_id = attempt.task_id
+          AND task.execution_kind = 'arena'
+        "#,
+    )
+    .bind(request.run_id)
+    .bind(&request.node_id)
+    .bind(request.iteration)
+    .fetch_one(pool)
+    .await?;
+    let group_id = Uuid::new_v4();
+    let mut transaction = pool.begin().await?;
     let group = ArenaGroup::create(
-        pool,
+        &mut transaction,
         &CreateArenaGroup {
-            issue_id: request.issue_id,
-            project_id,
+            id: group_id,
+            task_id,
             prompt: request.prompt.clone(),
             base_branch: main_workspace.branch.clone(),
             mode: ArenaMode::Implementation,
         },
     )
     .await?;
+    let binding = sqlx::query(
+        r#"
+        UPDATE node_executions
+        SET arena_group_id = ?,
+            updated_at = datetime('now', 'subsec')
+        WHERE run_id = ? AND node_id = ? AND iteration = ?
+          AND task_id = ? AND arena_group_id IS NULL
+        "#,
+    )
+    .bind(group.id)
+    .bind(request.run_id)
+    .bind(&request.node_id)
+    .bind(request.iteration)
+    .bind(task_id)
+    .execute(&mut *transaction)
+    .await?;
+    if binding.rows_affected() != 1 {
+        return Err(ApiError::Conflict(format!(
+            "Workflow Arena node `{}` iteration {} is missing or already materialized",
+            request.node_id, request.iteration
+        )));
+    }
+    transaction.commit().await?;
 
     let creation_result = async {
         let mut candidates = Vec::with_capacity(attempts.len());
@@ -306,8 +354,8 @@ async fn create_workflow_arena_candidate(
     deployment: &DeploymentImpl,
     pool: &SqlitePool,
     group: &ArenaGroup,
-    project_id: Uuid,
-    issue_id: Uuid,
+    _project_id: Uuid,
+    _issue_id: Uuid,
     main_workspace: &Workspace,
     base_repos: &[WorkspaceRepo],
     attempt: PreparedArenaAttempt,
@@ -346,9 +394,19 @@ async fn create_workflow_arena_candidate(
     }
 
     let workspace = managed_workspace.workspace.clone();
-    Workspace::set_arena_group_id(pool, workspace.id, Some(group.id)).await?;
-    Workspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
-    insert_workspace_link(pool, workspace.id, project_id, issue_id).await?;
+    let mut transaction = pool.begin().await?;
+    ArenaCandidate::create(
+        &mut transaction,
+        &CreateArenaCandidate {
+            id: Uuid::new_v4(),
+            arena_group_id: group.id,
+            workspace_id: workspace.id,
+            purpose: ArenaCandidatePurpose::Attempt,
+            sort_order: attempt_index as i64,
+        },
+    )
+    .await?;
+    transaction.commit().await?;
 
     let workspace_path = deployment
         .container()
@@ -677,34 +735,40 @@ async fn cleanup_failed_workflow_arena(
     pool: &SqlitePool,
     arena_group_id: Uuid,
 ) -> Result<(), ApiError> {
-    for workspace in Workspace::find_by_arena_group_id(pool, arena_group_id).await? {
-        Workspace::set_arena_status(pool, workspace.id, ArenaStatus::Archived).await?;
-        Workspace::set_archived(pool, workspace.id, true).await?;
-    }
-    ArenaGroup::delete(pool, arena_group_id).await?;
-    Ok(())
-}
-
-async fn insert_workspace_link(
-    pool: &SqlitePool,
-    workspace_id: Uuid,
-    project_id: Uuid,
-    issue_id: Uuid,
-) -> Result<(), ApiError> {
+    let mut transaction = pool.begin().await?;
     sqlx::query(
-        r#"INSERT INTO local_workspace_links
-               (workspace_id, project_id, issue_id)
-           VALUES (?, ?, ?)
-           ON CONFLICT(workspace_id) DO UPDATE
-               SET project_id = excluded.project_id,
-                   issue_id   = excluded.issue_id,
-                   updated_at = datetime('now', 'subsec')"#,
+        r#"
+        UPDATE workspaces
+        SET archived = TRUE,
+            updated_at = datetime('now', 'subsec')
+        WHERE id IN (
+            SELECT workspace_id
+            FROM arena_candidates
+            WHERE arena_group_id = ?
+        )
+        "#,
     )
-    .bind(workspace_id)
-    .bind(project_id)
-    .bind(issue_id)
-    .execute(pool)
+    .bind(arena_group_id)
+    .execute(&mut *transaction)
     .await?;
+    let closed = sqlx::query(
+        r#"
+        UPDATE arena_groups
+        SET lifecycle_status = 'closed',
+            closed_at = datetime('now', 'subsec'),
+            updated_at = datetime('now', 'subsec')
+        WHERE id = ?
+        "#,
+    )
+    .bind(arena_group_id)
+    .execute(&mut *transaction)
+    .await?;
+    if closed.rows_affected() != 1 {
+        return Err(ApiError::Conflict(format!(
+            "Workflow Arena group {arena_group_id} disappeared during failure cleanup"
+        )));
+    }
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -716,24 +780,31 @@ async fn apply_deployment_arena_winner(
     let group = ArenaGroup::find_by_id(pool, request.arena_group_id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    if group.promoted_workspace_id.is_some() {
-        return Err(ApiError::from(ArenaGroupError::AlreadyPromoted {
+    if group.winner_candidate_id.is_some() {
+        return Err(ApiError::from(ArenaGroupError::AlreadyHasWinner {
             group_id: group.id,
         }));
     }
     let main_workspace = Workspace::find_by_id(pool, request.main_workspace_id)
         .await?
         .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
-    let winner_workspace = Workspace::find_by_id(pool, request.winner_workspace_id)
+    let candidate = ArenaCandidate::find_by_id(pool, request.candidate_id)
         .await?
-        .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
-
-    if winner_workspace.arena_group_id != Some(request.arena_group_id) {
-        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
+        .ok_or_else(|| {
+            ApiError::from(ArenaGroupError::CandidateNotInGroup {
+                group_id: request.arena_group_id,
+                candidate_id: request.candidate_id,
+            })
+        })?;
+    if candidate.arena_group_id != request.arena_group_id {
+        return Err(ApiError::from(ArenaGroupError::CandidateNotInGroup {
             group_id: request.arena_group_id,
-            workspace_id: request.winner_workspace_id,
+            candidate_id: request.candidate_id,
         }));
     }
+    let winner_workspace = Workspace::find_by_id(pool, candidate.workspace_id)
+        .await?
+        .ok_or(ApiError::Workspace(WorkspaceError::WorkspaceNotFound))?;
 
     let main_root = deployment
         .container()
@@ -789,7 +860,7 @@ async fn apply_deployment_arena_winner(
         changed_repos.push(main_repo.repo.name.clone());
     }
 
-    mark_arena_winner(pool, request.arena_group_id, request.winner_workspace_id).await?;
+    mark_arena_winner(pool, request.arena_group_id, &candidate).await?;
 
     let winner_state = arena_candidate_run_state(deployment, group.id, winner_workspace.id).await?;
     let winner_summary = canonical_winner_summary(winner_workspace.id, &winner_state)?;
@@ -812,7 +883,8 @@ async fn apply_deployment_arena_winner(
             "workflow_arena_winner_applied",
             serde_json::json!({
                 "arena_group_id": request.arena_group_id.to_string(),
-                "winner_workspace_id": request.winner_workspace_id.to_string(),
+                "winner_candidate_id": request.candidate_id.to_string(),
+                "winner_workspace_id": winner_workspace.id.to_string(),
                 "run_id": request.run_id.to_string(),
                 "node_id": request.node_id,
                 "changed_files": changed_files,
@@ -903,26 +975,27 @@ fn canonical_winner_summary(
 async fn mark_arena_winner(
     pool: &SqlitePool,
     arena_group_id: Uuid,
-    winner_workspace_id: Uuid,
+    candidate: &ArenaCandidate,
 ) -> Result<(), ApiError> {
-    let siblings = Workspace::find_by_arena_group_id(pool, arena_group_id).await?;
-    if !siblings
-        .iter()
-        .any(|workspace| workspace.id == winner_workspace_id)
-    {
-        return Err(ApiError::from(ArenaGroupError::WorkspaceNotInGroup {
+    if candidate.arena_group_id != arena_group_id {
+        return Err(ApiError::from(ArenaGroupError::CandidateNotInGroup {
             group_id: arena_group_id,
-            workspace_id: winner_workspace_id,
+            candidate_id: candidate.id,
         }));
     }
+    let siblings = Workspace::find_by_arena_group_id(pool, arena_group_id).await?;
 
-    Workspace::set_arena_status(pool, winner_workspace_id, ArenaStatus::Promoted).await?;
-    ArenaGroup::set_promoted(pool, arena_group_id, winner_workspace_id).await?;
+    ArenaGroup::select_winner(
+        pool,
+        arena_group_id,
+        candidate.id,
+        ArenaLifecycleStatus::Adopted,
+    )
+    .await?;
     for sibling in siblings {
-        if sibling.id == winner_workspace_id {
+        if sibling.id == candidate.workspace_id {
             continue;
         }
-        Workspace::set_arena_status(pool, sibling.id, ArenaStatus::Archived).await?;
         Workspace::set_archived(pool, sibling.id, true).await?;
     }
 
@@ -931,6 +1004,8 @@ async fn mark_arena_winner(
 
 #[cfg(test)]
 mod tests {
+    use sqlx::sqlite::SqlitePoolOptions;
+
     use super::*;
 
     #[test]
@@ -942,5 +1017,131 @@ mod tests {
 
         validate_canonical_executor_config(&config)
             .expect("RunAttemptRequest now represents all executor overrides");
+    }
+
+    #[tokio::test]
+    async fn failed_workflow_arena_keeps_node_task_cardinality_and_closes_group() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+        for statement in [
+            r#"
+            CREATE TABLE tasks (
+                id BLOB PRIMARY KEY,
+                project_id BLOB NOT NULL,
+                issue_id BLOB NOT NULL
+            )
+            "#,
+            r#"
+            CREATE TABLE arena_groups (
+                id BLOB PRIMARY KEY,
+                task_id BLOB NOT NULL,
+                lifecycle_status TEXT NOT NULL DEFAULT 'open',
+                closed_at TEXT,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
+            CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY,
+                archived BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
+            CREATE TABLE arena_candidates (
+                id BLOB PRIMARY KEY,
+                arena_group_id BLOB NOT NULL,
+                workspace_id BLOB NOT NULL
+            )
+            "#,
+            r#"
+            CREATE TABLE node_executions (
+                id BLOB PRIMARY KEY,
+                task_id BLOB,
+                arena_group_id BLOB
+            )
+            "#,
+        ] {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .expect("create cleanup fixture table");
+        }
+
+        let task_id = Uuid::new_v4();
+        let group_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let node_execution_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO tasks (id, project_id, issue_id) VALUES (?, ?, ?)")
+            .bind(task_id)
+            .bind(Uuid::new_v4())
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .expect("insert Arena child Task");
+        sqlx::query("INSERT INTO arena_groups (id, task_id) VALUES (?, ?)")
+            .bind(group_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("insert ArenaGroup");
+        sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .expect("insert candidate workspace");
+        sqlx::query(
+            "INSERT INTO arena_candidates (id, arena_group_id, workspace_id) VALUES (?, ?, ?)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(group_id)
+        .bind(workspace_id)
+        .execute(&pool)
+        .await
+        .expect("insert Arena candidate");
+        sqlx::query("INSERT INTO node_executions (id, task_id, arena_group_id) VALUES (?, ?, ?)")
+            .bind(node_execution_id)
+            .bind(task_id)
+            .bind(group_id)
+            .execute(&pool)
+            .await
+            .expect("insert Arena NodeExecution");
+
+        cleanup_failed_workflow_arena(&pool, group_id)
+            .await
+            .expect("close failed Workflow Arena");
+
+        let node_binding: (Option<Uuid>, Option<Uuid>) =
+            sqlx::query_as("SELECT task_id, arena_group_id FROM node_executions WHERE id = ?")
+                .bind(node_execution_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load retained NodeExecution bindings");
+        let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE id = ?")
+            .bind(task_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count retained Arena child Task");
+        let group_status: (String, Option<String>) =
+            sqlx::query_as("SELECT lifecycle_status, closed_at FROM arena_groups WHERE id = ?")
+                .bind(group_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load closed ArenaGroup");
+        let workspace_archived: bool =
+            sqlx::query_scalar("SELECT archived FROM workspaces WHERE id = ?")
+                .bind(workspace_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load archived candidate workspace");
+
+        assert_eq!(node_binding, (Some(task_id), Some(group_id)));
+        assert_eq!(task_count, 1);
+        assert_eq!(group_status.0, "closed");
+        assert!(group_status.1.is_some());
+        assert!(workspace_archived);
     }
 }

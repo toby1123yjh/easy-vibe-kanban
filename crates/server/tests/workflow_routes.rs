@@ -12,11 +12,12 @@ use server::{
         SelectArenaWinnerRequest, TriggerWorkflowRequest, UpdateWorkflowRequest,
         WorkflowActionResponse, WorkflowAttemptListResponse, WorkflowAttemptResponse,
         WorkflowNodeExecutionResponse, WorkflowRunResponse, WorkflowTemplateListResponse,
-        WorkflowTemplateResponse, create_issue_workflow_attempt,
+        WorkflowTemplateResponse, WorkflowUpdateError, create_issue_workflow_attempt,
         create_issue_workflow_attempt_with_resources, create_project_workflow,
         delete_issue_workflow_attempt, delete_workflow_template, fallback_node_executions_payload,
-        fallback_workflow_runs_payload, fallback_workflows_payload, list_project_workflows,
-        run_workflow_attempt_runtime, sync_attempt_from_run, update_workflow_template,
+        fallback_workflow_runs_payload, fallback_workflows_payload, get_workflow_template,
+        list_project_workflows, run_workflow_attempt_runtime,
+        run_workflow_attempt_runtime_with_arena, sync_attempt_from_run, update_workflow_template,
         workflow_attempt_by_id, workflow_attempt_by_workflow_id,
     },
     workflow_runtime::{
@@ -46,6 +47,11 @@ async fn setup_workflow_pool() -> SqlitePool {
         .await
         .expect("connect in-memory sqlite");
 
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .expect("enable workflow test foreign keys");
+
     for statement in [
         r#"
         CREATE TABLE projects (
@@ -67,7 +73,6 @@ async fn setup_workflow_pool() -> SqlitePool {
         r#"
         CREATE TABLE workspaces (
             id BLOB PRIMARY KEY,
-            task_id BLOB,
             container_ref TEXT,
             workspace_kind TEXT NOT NULL DEFAULT 'worktree',
             container_ownership TEXT NOT NULL DEFAULT 'managed',
@@ -78,9 +83,22 @@ async fn setup_workflow_pool() -> SqlitePool {
             archived BOOLEAN NOT NULL DEFAULT FALSE,
             pinned BOOLEAN NOT NULL DEFAULT FALSE,
             name TEXT,
-            worktree_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-            arena_group_id BLOB,
-            arena_status TEXT NOT NULL DEFAULT 'active'
+            worktree_deleted BOOLEAN NOT NULL DEFAULT FALSE
+        )
+        "#,
+        r#"
+        CREATE TABLE tasks (
+            id             BLOB PRIMARY KEY,
+            project_id     BLOB NOT NULL,
+            issue_id       BLOB NOT NULL,
+            parent_task_id BLOB,
+            title          TEXT NOT NULL CHECK (length(trim(title)) > 0),
+            execution_kind TEXT NOT NULL CHECK (execution_kind IN ('agent','workflow','arena')),
+            created_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (issue_id) REFERENCES local_issues(id) ON DELETE CASCADE,
+            FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE CASCADE
         )
         "#,
         r#"
@@ -91,6 +109,7 @@ async fn setup_workflow_pool() -> SqlitePool {
             name        TEXT NOT NULL,
             description TEXT,
             graph_json  TEXT NOT NULL,
+            revision    INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
             created_at  TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             CHECK (
@@ -122,22 +141,22 @@ async fn setup_workflow_pool() -> SqlitePool {
         r#"
         CREATE TABLE workflow_attempts (
             id             BLOB PRIMARY KEY,
-            project_id     BLOB NOT NULL,
-            issue_id       BLOB NOT NULL,
+            task_id        BLOB NOT NULL UNIQUE,
             workflow_id    BLOB NOT NULL,
             latest_run_id  BLOB,
             workspace_id   BLOB,
-            name           TEXT NOT NULL,
             status         TEXT NOT NULL DEFAULT 'draft',
             created_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-            UNIQUE (workflow_id)
+            UNIQUE (workflow_id),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
         )
         "#,
         r#"
         CREATE TABLE node_executions (
             id             BLOB PRIMARY KEY,
             run_id         BLOB NOT NULL,
+            task_id        BLOB,
             node_id        TEXT NOT NULL,
             node_type      TEXT NOT NULL,
             iteration      INTEGER NOT NULL DEFAULT 0,
@@ -211,6 +230,45 @@ async fn setup_workflow_pool() -> SqlitePool {
             agent_working_dir TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+        )
+        "#,
+        r#"
+        CREATE TABLE agent_task_bindings (
+            task_id    BLOB PRIMARY KEY,
+            session_id BLOB NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+        "#,
+        r#"
+        CREATE TABLE arena_groups (
+            id BLOB PRIMARY KEY,
+            task_id BLOB NOT NULL UNIQUE,
+            prompt TEXT NOT NULL,
+            base_branch TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'implementation',
+            lifecycle_status TEXT NOT NULL DEFAULT 'open',
+            winner_candidate_id BLOB,
+            promoted_at TEXT,
+            closed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+        "#,
+        r#"
+        CREATE TABLE arena_candidates (
+            id BLOB PRIMARY KEY,
+            arena_group_id BLOB NOT NULL,
+            workspace_id BLOB NOT NULL UNIQUE,
+            purpose TEXT NOT NULL CHECK (purpose IN ('attempt', 'synthesis')),
+            sort_order INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+            UNIQUE (arena_group_id, sort_order),
+            FOREIGN KEY (arena_group_id) REFERENCES arena_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )
         "#,
         r#"
@@ -471,6 +529,58 @@ async fn insert_local_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid,
         .expect("insert local issue");
 }
 
+async fn link_canonical_orchestration_fixture(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_execution_id: Uuid,
+    node_id: &str,
+) {
+    let orchestration_run_id = Uuid::new_v4();
+    let orchestration_node_execution_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO orchestration_runs (
+            id, request_id, idempotency_key, correlation_id, product_kind,
+            source_definition_id, source_definition_version,
+            plan_schema_version, plan_snapshot, status
+        ) VALUES (?, ?, ?, ?, 'workflow', ?, '1', 1, '{}', 'running')
+        "#,
+    )
+    .bind(orchestration_run_id)
+    .bind(Uuid::new_v4())
+    .bind(format!("workflow-fixture-{orchestration_run_id}"))
+    .bind(Uuid::new_v4())
+    .bind(run_id)
+    .execute(pool)
+    .await
+    .expect("insert canonical orchestration run");
+    sqlx::query(
+        r#"
+        INSERT INTO orchestration_node_executions (
+            id, orchestration_run_id, node_key, iteration, stable_order, status
+        ) VALUES (?, ?, ?, 0, 0, 'running')
+        "#,
+    )
+    .bind(orchestration_node_execution_id)
+    .bind(orchestration_run_id)
+    .bind(node_id)
+    .execute(pool)
+    .await
+    .expect("insert canonical orchestration node execution");
+    sqlx::query("UPDATE workflow_runs SET orchestration_run_id = ? WHERE id = ?")
+        .bind(orchestration_run_id)
+        .bind(run_id)
+        .execute(pool)
+        .await
+        .expect("link Workflow run to canonical orchestration run");
+    sqlx::query("UPDATE node_executions SET orchestration_node_execution_id = ? WHERE id = ?")
+        .bind(orchestration_node_execution_id)
+        .bind(node_execution_id)
+        .execute(pool)
+        .await
+        .expect("link Workflow node to canonical orchestration node");
+}
+
 async fn insert_project_workflow(pool: &SqlitePool, project_id: Uuid) -> Uuid {
     let workflow_id = Uuid::new_v4();
     sqlx::query(
@@ -625,6 +735,54 @@ fn arena_graph_json() -> String {
             { "id": "e1", "source": "start", "target": "plan", "type": "default" },
             { "id": "e2", "source": "plan", "target": "arena", "type": "default" },
             { "id": "e3", "source": "arena", "target": "end", "type": "arena_winner" }
+        ]
+    })
+    .to_string()
+}
+
+fn structural_graph_json() -> String {
+    json!({
+        "version": 2,
+        "router_executor_config": { "executor": "codex" },
+        "nodes": [
+            { "id": "start", "type": "start", "data": { "display_name": "Start" } },
+            {
+                "id": "transform",
+                "type": "transform",
+                "data": {
+                    "display_name": "Prepare",
+                    "mode": "template",
+                    "template": "Prepared: {{input}}"
+                }
+            },
+            {
+                "id": "gate",
+                "type": "human_gate",
+                "data": {
+                    "display_name": "Approve",
+                    "prompt_to_human": "Continue?",
+                    "required_action": "approve_or_reject"
+                }
+            },
+            {
+                "id": "condition",
+                "type": "condition",
+                "data": {
+                    "display_name": "Route",
+                    "routing_mode": "single",
+                    "branches": [{
+                        "target_node_id": "end",
+                        "condition": "Continue to the end."
+                    }]
+                }
+            },
+            { "id": "end", "type": "end", "data": { "display_name": "End" } }
+        ],
+        "edges": [
+            { "id": "e1", "source": "start", "target": "transform", "type": "default" },
+            { "id": "e2", "source": "transform", "target": "gate", "type": "default" },
+            { "id": "e3", "source": "gate", "target": "condition", "type": "approval" },
+            { "id": "e4", "source": "condition", "target": "end", "type": "condition_branch" }
         ]
     })
     .to_string()
@@ -847,6 +1005,15 @@ impl WorkflowWorkspaceResolver for FakeWorkspaceResolver {
 
         Ok(request.existing_workspace_id.unwrap_or(self.workspace_id))
     }
+
+    async fn cleanup_created_main_workspace(&self, workspace_id: Uuid) -> Result<(), ApiError> {
+        sqlx::query("DELETE FROM workspaces WHERE id = ?")
+            .bind(workspace_id)
+            .execute(&self.pool)
+            .await
+            .map_err(ApiError::Database)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -890,6 +1057,23 @@ impl WorkflowAgentExecutor for FakeAgentExecutor {
             orchestration_node_execution_id: self.execution_process_id,
             agent_run_id: self.execution_process_id,
             output_text: self.output_text.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Default)]
+struct BoundSessionAgentExecutor;
+
+#[async_trait::async_trait]
+impl WorkflowAgentExecutor for BoundSessionAgentExecutor {
+    async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
+        Ok(AgentNodeExecution::Completed {
+            session_id: request.session_id.ok_or_else(|| {
+                ApiError::BadRequest("Workflow Agent Task has no bound Session".to_string())
+            })?,
+            orchestration_node_execution_id: Uuid::new_v4(),
+            agent_run_id: Uuid::new_v4(),
+            output_text: "bound session completed".to_string(),
         })
     }
 }
@@ -1029,6 +1213,7 @@ impl WorkflowAgentExecutor for FailOnceAgentExecutor {
 #[derive(Debug)]
 struct FakeArenaCreator {
     group_id: Uuid,
+    pool: Option<SqlitePool>,
     requests: Mutex<Vec<ArenaNodeRequest>>,
 }
 
@@ -1036,6 +1221,15 @@ impl FakeArenaCreator {
     fn new(group_id: Uuid) -> Self {
         Self {
             group_id,
+            pool: None,
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn persisting(pool: &SqlitePool, group_id: Uuid) -> Self {
+        Self {
+            group_id,
+            pool: Some(pool.clone()),
             requests: Mutex::new(Vec::new()),
         }
     }
@@ -1051,7 +1245,38 @@ impl WorkflowArenaCreator for FakeArenaCreator {
         &self,
         request: ArenaNodeRequest,
     ) -> Result<ArenaNodeExecution, ApiError> {
-        self.requests.lock().expect("arena requests").push(request);
+        self.requests
+            .lock()
+            .expect("arena requests")
+            .push(request.clone());
+
+        if let Some(pool) = &self.pool {
+            let task_id: Uuid = sqlx::query_scalar(
+                r#"
+                SELECT task_id
+                FROM node_executions
+                WHERE run_id = ? AND node_id = ? AND iteration = ?
+                "#,
+            )
+            .bind(request.run_id)
+            .bind(&request.node_id)
+            .bind(request.iteration)
+            .fetch_one(pool)
+            .await
+            .map_err(ApiError::Database)?;
+            sqlx::query(
+                r#"
+                INSERT INTO arena_groups (id, task_id, prompt, base_branch, mode)
+                VALUES (?, ?, ?, 'main', 'implementation')
+                "#,
+            )
+            .bind(self.group_id)
+            .bind(task_id)
+            .bind(&request.prompt)
+            .execute(pool)
+            .await
+            .map_err(ApiError::Database)?;
+        }
 
         Ok(ArenaNodeExecution {
             arena_group_id: self.group_id,
@@ -1238,6 +1463,10 @@ fn workflow_route_dtos_export_stable_type_names() {
         ),
         ("CreateWorkflowRequest", CreateWorkflowRequest::decl()),
         ("UpdateWorkflowRequest", UpdateWorkflowRequest::decl()),
+        (
+            "WorkflowRevisionConflict",
+            server::routes::workflows::WorkflowRevisionConflict::decl(),
+        ),
         ("TriggerWorkflowRequest", TriggerWorkflowRequest::decl()),
         (
             "CreateWorkflowAttemptRequest",
@@ -1382,6 +1611,25 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
     assert_eq!(attempt.status, WorkflowAttemptStatus::Draft);
     assert!(attempt.latest_run_id.is_none());
     assert!(attempt.workspace_id.is_none());
+
+    let canonical_task: (Uuid, Uuid, Uuid, String, String) = sqlx::query_as(
+        r#"
+        SELECT attempt.task_id, task.project_id, task.issue_id,
+               task.title, task.execution_kind
+        FROM workflow_attempts attempt
+        JOIN tasks task ON task.id = attempt.task_id
+        WHERE attempt.id = ?
+        "#,
+    )
+    .bind(attempt.id)
+    .fetch_one(&pool)
+    .await
+    .expect("load canonical workflow Task");
+    assert_eq!(canonical_task.0, attempt.id);
+    assert_eq!(canonical_task.1, project_id);
+    assert_eq!(canonical_task.2, issue_id);
+    assert_eq!(canonical_task.3, "Workflow attempt");
+    assert_eq!(canonical_task.4, "workflow");
 }
 
 #[tokio::test]
@@ -1425,6 +1673,75 @@ async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
     assert_eq!(requests[0].repo_overrides.len(), 1);
     assert_eq!(requests[0].repo_overrides[0].repo_id, repo_id);
     assert_eq!(requests[0].repo_overrides[0].target_branch, "main");
+}
+
+#[tokio::test]
+async fn workflow_attempt_resource_failure_compensates_all_created_resources() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Reject partial resources").await;
+    list_project_workflows(&pool, project_id)
+        .await
+        .expect("seed canonical system workflows before measuring baselines");
+
+    let tables = [
+        "workflows",
+        "workflow_attempts",
+        "tasks",
+        "workspaces",
+        "sessions",
+        "agent_task_bindings",
+    ];
+    let mut baselines = Vec::with_capacity(tables.len());
+    for table in tables {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count baseline {table}: {error}"));
+        baselines.push(count);
+    }
+
+    sqlx::query(
+        r#"
+        CREATE TRIGGER reject_workflow_session_resource
+        BEFORE INSERT ON sessions
+        BEGIN
+            SELECT RAISE(ABORT, 'reject Workflow Session resource');
+        END
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("install Session failure trigger");
+
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let result = create_issue_workflow_attempt_with_resources(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Compensated attempt".to_string()),
+            graph_json: agent_graph_json(),
+            repos: None,
+        },
+        &workspace,
+    )
+    .await;
+
+    assert!(result.is_err(), "resource initialization must fail");
+    for (table, baseline) in tables.into_iter().zip(baselines) {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("count {table}: {error}"));
+        assert_eq!(
+            count, baseline,
+            "{table} must return to its baseline cardinality"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1557,6 +1874,11 @@ async fn delete_workflow_attempt_removes_backing_graph_runs_and_nodes() {
             .fetch_one(&pool)
             .await
             .expect("count attempts");
+    let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE id = ?")
+        .bind(attempt.id)
+        .fetch_one(&pool)
+        .await
+        .expect("count canonical Tasks");
     let workflow_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflows WHERE id = ?")
         .bind(attempt.workflow_id)
         .fetch_one(&pool)
@@ -1574,6 +1896,7 @@ async fn delete_workflow_attempt_removes_backing_graph_runs_and_nodes() {
         .expect("count node executions");
 
     assert_eq!(attempt_count, 0);
+    assert_eq!(task_count, 0);
     assert_eq!(workflow_count, 0);
     assert_eq!(run_count, 0);
     assert_eq!(node_count, 0);
@@ -1654,6 +1977,7 @@ async fn update_system_template_returns_forbidden() {
         &pool,
         system_workflow_id,
         UpdateWorkflowRequest {
+            expected_revision: 1,
             name: Some("Changed".to_string()),
             description: None,
             graph_json: None,
@@ -1662,7 +1986,7 @@ async fn update_system_template_returns_forbidden() {
     .await;
 
     assert!(
-        matches!(result, Err(ApiError::Forbidden(message)) if message.contains("system")),
+        matches!(result, Err(WorkflowUpdateError::Api(ApiError::Forbidden(message))) if message.contains("system")),
         "system workflows must not be editable"
     );
 }
@@ -1678,6 +2002,7 @@ async fn update_project_workflow_accepts_parseable_draft_graph() {
         &pool,
         workflow_id,
         UpdateWorkflowRequest {
+            expected_revision: 1,
             name: None,
             description: None,
             graph_json: Some(unreachable_draft_graph_json()),
@@ -1690,6 +2015,130 @@ async fn update_project_workflow_accepts_parseable_draft_graph() {
         result.graph_json.contains("agent-draft"),
         "draft node configuration should survive workflow update"
     );
+    assert_eq!(result.revision, 2);
+}
+
+#[tokio::test]
+async fn concurrent_workflow_updates_from_one_revision_allow_one_writer() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    let workflow_id = insert_project_workflow(&pool, project_id).await;
+
+    let first = update_workflow_template(
+        &pool,
+        workflow_id,
+        UpdateWorkflowRequest {
+            expected_revision: 1,
+            name: Some("First writer".to_string()),
+            description: None,
+            graph_json: None,
+        },
+    )
+    .await
+    .expect("first writer should advance the revision");
+    assert_eq!(first.revision, 2);
+
+    let second = update_workflow_template(
+        &pool,
+        workflow_id,
+        UpdateWorkflowRequest {
+            expected_revision: 1,
+            name: Some("Second writer".to_string()),
+            description: None,
+            graph_json: None,
+        },
+    )
+    .await
+    .expect_err("stale writer must not overwrite the first writer");
+
+    match second {
+        WorkflowUpdateError::RevisionConflict(conflict) => {
+            assert_eq!(conflict.workflow_id, workflow_id);
+            assert_eq!(conflict.expected_revision, 1);
+            assert_eq!(conflict.current_revision, 2);
+        }
+        other => panic!("expected typed revision conflict, got {other:?}"),
+    }
+
+    let persisted = get_workflow_template(&pool, workflow_id)
+        .await
+        .expect("read persisted workflow");
+    assert_eq!(persisted.name, "First writer");
+    assert_eq!(persisted.revision, 2);
+}
+
+#[tokio::test]
+async fn revision_conflict_does_not_create_agent_sessions() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(
+        &pool,
+        project_id,
+        issue_id,
+        "Keep losing save side-effect free",
+    )
+    .await;
+
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let attempt = create_issue_workflow_attempt_with_resources(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Concurrent Agent workflow".to_string()),
+            graph_json: agent_graph_json(),
+            repos: None,
+        },
+        &workspace,
+    )
+    .await
+    .expect("create ready workflow attempt");
+    let before = get_workflow_template(&pool, attempt.workflow_id)
+        .await
+        .expect("load workflow before concurrent saves");
+    let baseline_sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count baseline Sessions");
+
+    update_workflow_template(
+        &pool,
+        attempt.workflow_id,
+        UpdateWorkflowRequest {
+            expected_revision: before.revision,
+            name: Some("Winning writer".to_string()),
+            description: None,
+            graph_json: None,
+        },
+    )
+    .await
+    .expect("winning writer advances revision");
+
+    let losing_result = update_workflow_template(
+        &pool,
+        attempt.workflow_id,
+        UpdateWorkflowRequest {
+            expected_revision: before.revision,
+            name: Some("Losing writer".to_string()),
+            description: None,
+            graph_json: Some(agent_graph_json()),
+        },
+    )
+    .await;
+    assert!(matches!(
+        losing_result,
+        Err(WorkflowUpdateError::RevisionConflict(_))
+    ));
+
+    let session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count Sessions after revision conflict");
+    assert_eq!(session_count, baseline_sessions);
 }
 
 #[tokio::test]
@@ -1916,6 +2365,314 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
         workspace_requests[0].repo_overrides[0].target_branch,
         "develop"
     );
+}
+
+#[tokio::test]
+async fn workflow_agent_node_materializes_one_child_task_and_agent_binding() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Materialize Agent Task").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Agent Task workflow".to_string()),
+            graph_json: agent_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .expect("create Agent workflow attempt");
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let run = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run the Agent Task".to_string(),
+            repos: None,
+        },
+        &workspace,
+        &BoundSessionAgentExecutor,
+    )
+    .await
+    .expect("run Agent workflow attempt");
+
+    let child: (Uuid, String, Uuid) = sqlx::query_as(
+        r#"
+        SELECT task.id, task.execution_kind, binding.session_id
+        FROM tasks task
+        JOIN agent_task_bindings binding ON binding.task_id = task.id
+        WHERE task.parent_task_id = ?
+        "#,
+    )
+    .bind(attempt.id)
+    .fetch_one(&pool)
+    .await
+    .expect("load Agent child Task and binding");
+    let agent_node = run
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "agent")
+        .expect("Agent node execution");
+    assert_eq!(child.1, "agent");
+    assert_eq!(agent_node.task_id, Some(child.0));
+    assert_eq!(agent_node.session_id, Some(child.2));
+
+    let child_task_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_task_id = ?")
+            .bind(attempt.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count Agent child Tasks");
+    let binding_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM agent_task_bindings binding
+        JOIN tasks task ON task.id = binding.task_id
+        WHERE task.parent_task_id = ?
+        "#,
+    )
+    .bind(attempt.id)
+    .fetch_one(&pool)
+    .await
+    .expect("count Agent Task bindings");
+    assert_eq!(child_task_count, 1);
+    assert_eq!(binding_count, 1);
+}
+
+#[tokio::test]
+async fn workflow_structural_nodes_never_materialize_tasks() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(
+        &pool,
+        project_id,
+        issue_id,
+        "Keep structural nodes structural",
+    )
+    .await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Structural workflow".to_string()),
+            graph_json: structural_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .expect("create structural workflow attempt");
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let run = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Pause before routing".to_string(),
+            repos: None,
+        },
+        &workspace,
+        &FakeAgentExecutor::new(Uuid::new_v4(), "unused"),
+    )
+    .await
+    .expect("initialize structural workflow");
+
+    assert_eq!(run.status, WorkflowRunStatus::AwaitingHuman);
+    for node_type in ["start", "end", "condition", "human_gate", "transform"] {
+        let matching = run
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == node_type)
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1, "expected one {node_type} node");
+        assert!(
+            matching[0].task_id.is_none(),
+            "{node_type} must not own a canonical Task"
+        );
+    }
+    let child_task_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_task_id = ?")
+            .bind(attempt.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count structural child Tasks");
+    assert_eq!(child_task_count, 0);
+}
+
+#[tokio::test]
+async fn workflow_arena_node_and_group_share_one_child_task() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let arena_group_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Materialize Arena Task").await;
+
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Arena Task workflow".to_string()),
+            graph_json: arena_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .expect("create Arena workflow attempt");
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let arena = FakeArenaCreator::persisting(&pool, arena_group_id);
+    let run = run_workflow_attempt_runtime_with_arena(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run one Arena Task".to_string(),
+            repos: None,
+        },
+        &workspace,
+        &FakeAgentExecutor::new(Uuid::new_v4(), "unused"),
+        &arena,
+    )
+    .await
+    .expect("run Arena workflow attempt");
+
+    let arena_node = run
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "arena")
+        .expect("Arena node execution");
+    let task_id = arena_node.task_id.expect("Arena node canonical Task");
+    let group_task_id: Uuid = sqlx::query_scalar("SELECT task_id FROM arena_groups WHERE id = ?")
+        .bind(arena_group_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load ArenaGroup Task binding");
+    assert_eq!(group_task_id, task_id);
+
+    let child_tasks: Vec<(Uuid, String)> =
+        sqlx::query_as("SELECT id, execution_kind FROM tasks WHERE parent_task_id = ? ORDER BY id")
+            .bind(attempt.id)
+            .fetch_all(&pool)
+            .await
+            .expect("load Arena child Tasks");
+    assert_eq!(child_tasks, vec![(task_id, "arena".to_string())]);
+}
+
+#[tokio::test]
+async fn workflow_initialization_failure_rolls_back_runtime_materialization() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(
+        &pool,
+        project_id,
+        issue_id,
+        "Rollback runtime materialization",
+    )
+    .await;
+
+    let workspace = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let attempt = create_issue_workflow_attempt_with_resources(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            name: Some("Atomic initialization".to_string()),
+            graph_json: agent_graph_json(),
+            repos: None,
+        },
+        &workspace,
+    )
+    .await
+    .expect("create ready workflow attempt");
+
+    let baseline_tasks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+        .fetch_one(&pool)
+        .await
+        .expect("count baseline Tasks");
+    let baseline_sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count baseline Sessions");
+    sqlx::query(
+        r#"
+        CREATE TRIGGER reject_agent_node_materialization
+        BEFORE INSERT ON node_executions
+        WHEN NEW.node_id = 'agent'
+        BEGIN
+            SELECT RAISE(ABORT, 'reject Agent node materialization');
+        END
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("install node materialization failure trigger");
+
+    let result = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Trigger atomic rollback".to_string(),
+            repos: None,
+        },
+        &workspace,
+        &BoundSessionAgentExecutor,
+    )
+    .await;
+    assert!(result.is_err(), "node materialization must fail");
+
+    let attempt_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM workflow_attempts WHERE id = ?")
+            .bind(attempt.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count retained attempt");
+    let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks")
+        .fetch_one(&pool)
+        .await
+        .expect("count Tasks after rollback");
+    let session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .expect("count Sessions after rollback");
+    let run_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs")
+        .fetch_one(&pool)
+        .await
+        .expect("count Workflow runs after rollback");
+    let node_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_executions")
+        .fetch_one(&pool)
+        .await
+        .expect("count NodeExecutions after rollback");
+    let binding_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_task_bindings")
+        .fetch_one(&pool)
+        .await
+        .expect("count Agent Task bindings after rollback");
+    assert_eq!(attempt_count, 1);
+    assert_eq!(task_count, baseline_tasks);
+    assert_eq!(session_count, baseline_sessions);
+    assert_eq!(run_count, 0);
+    assert_eq!(node_count, 0);
+    assert_eq!(binding_count, 0);
 }
 
 #[tokio::test]
@@ -2564,7 +3321,7 @@ async fn workflow_arena_winner_selection_applies_winner_and_resumes_downstream_n
     let issue_id = Uuid::new_v4();
     let workflow_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
-    let winner_workspace_id = Uuid::new_v4();
+    let winner_candidate_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
     let arena_group_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
@@ -2608,7 +3365,7 @@ async fn workflow_arena_winner_selection_applies_winner_and_resumes_downstream_n
         &pool,
         awaiting.id,
         "arena",
-        winner_workspace_id,
+        winner_candidate_id,
         &agent,
         &arena,
         &winner,
@@ -2646,7 +3403,7 @@ async fn workflow_arena_winner_selection_applies_winner_and_resumes_downstream_n
     assert_eq!(requests[0].node_id, "arena");
     assert_eq!(requests[0].arena_group_id, arena_group_id);
     assert_eq!(requests[0].main_workspace_id, workspace_id);
-    assert_eq!(requests[0].winner_workspace_id, winner_workspace_id);
+    assert_eq!(requests[0].candidate_id, winner_candidate_id);
 }
 
 #[tokio::test]
@@ -2656,7 +3413,7 @@ async fn workflow_arena_winner_apply_failure_fails_run_with_conflict_text() {
     let issue_id = Uuid::new_v4();
     let workflow_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
-    let winner_workspace_id = Uuid::new_v4();
+    let winner_candidate_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
     let arena_group_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
@@ -2699,7 +3456,7 @@ async fn workflow_arena_winner_apply_failure_fails_run_with_conflict_text() {
         &pool,
         awaiting.id,
         "arena",
-        winner_workspace_id,
+        winner_candidate_id,
         &agent,
         &arena,
         &winner,
@@ -2731,7 +3488,7 @@ async fn workflow_arena_winner_selection_requires_awaiting_arena_node() {
     let issue_id = Uuid::new_v4();
     let workflow_id = Uuid::new_v4();
     let workspace_id = Uuid::new_v4();
-    let winner_workspace_id = Uuid::new_v4();
+    let winner_candidate_id = Uuid::new_v4();
     let session_id = Uuid::new_v4();
     let arena_group_id = Uuid::new_v4();
     insert_project(&pool, project_id).await;
@@ -2785,7 +3542,7 @@ async fn workflow_arena_winner_selection_requires_awaiting_arena_node() {
         &pool,
         awaiting.id,
         "arena",
-        winner_workspace_id,
+        winner_candidate_id,
         &agent,
         &arena,
         &winner,
@@ -3067,7 +3824,7 @@ async fn workflow_human_retry_failed_agent_node_resumes_without_rerunning_start(
 }
 
 #[tokio::test]
-async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
+async fn workflow_human_retry_failed_transform_node_uses_immutable_run_snapshot() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
@@ -3111,6 +3868,17 @@ async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
         node_status(&failed.nodes, "transform"),
         NodeExecutionStatus::Failed
     );
+    let original_snapshot: String =
+        sqlx::query_scalar("SELECT graph_snapshot FROM workflow_runs WHERE id = ?")
+            .bind(failed.id)
+            .fetch_one(&pool)
+            .await
+            .expect("load immutable graph snapshot");
+    assert_eq!(
+        serde_json::from_str::<Value>(&original_snapshot).expect("parse stored snapshot"),
+        serde_json::from_str::<Value>(&failing_transform_graph_json())
+            .expect("parse failing graph")
+    );
 
     sqlx::query("UPDATE workflows SET graph_json = ? WHERE id = ?")
         .bind(fixed_transform_graph_json())
@@ -3123,11 +3891,69 @@ async fn workflow_human_retry_failed_transform_node_uses_updated_graph() {
         .await
         .expect("retry transform node");
 
-    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(retried.status, WorkflowRunStatus::Failed);
     assert_eq!(
-        retried.output_text.as_deref(),
-        Some("Fixed: No ticket here")
+        node_status(&retried.nodes, "transform"),
+        NodeExecutionStatus::Failed
     );
+    let snapshot_after_retry: String =
+        sqlx::query_scalar("SELECT graph_snapshot FROM workflow_runs WHERE id = ?")
+            .bind(failed.id)
+            .fetch_one(&pool)
+            .await
+            .expect("reload immutable graph snapshot");
+    assert_eq!(snapshot_after_retry, original_snapshot);
+}
+
+#[tokio::test]
+async fn workflow_retry_rejects_run_without_immutable_snapshot() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workflow_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let run_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflows (id, source, project_id, name, description, graph_json)
+        VALUES (?, 'project', ?, 'Mutable fallback must not run', NULL, ?)
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(project_id)
+    .bind(fixed_transform_graph_json())
+    .execute(&pool)
+    .await
+    .expect("insert mutable workflow graph");
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_runs
+            (id, workflow_id, issue_id, workspace_id, trigger_source, input_text, status)
+        VALUES (?, ?, ?, ?, 'manual', 'Do not use mutable graph', 'failed')
+        "#,
+    )
+    .bind(run_id)
+    .bind(workflow_id)
+    .bind(issue_id)
+    .bind(workspace_id)
+    .execute(&pool)
+    .await
+    .expect("insert run without snapshot");
+
+    let result = retry_workflow_node(
+        &pool,
+        run_id,
+        "transform",
+        &FakeAgentExecutor::new(Uuid::new_v4(), "unused"),
+    )
+    .await;
+
+    assert!(matches!(
+        result,
+        Err(ApiError::Conflict(message)) if message.contains("no immutable graph snapshot")
+    ));
 }
 
 #[tokio::test]
@@ -3226,6 +4052,7 @@ async fn workflow_human_recovery_marks_stale_running_nodes_failed() {
     .execute(&pool)
     .await
     .expect("insert stale node");
+    link_canonical_orchestration_fixture(&pool, run_id, node_execution_id, "agent").await;
 
     let recovered = recover_stale_workflow_runs(&pool)
         .await
@@ -3270,14 +4097,25 @@ async fn recovery_syncs_attempt_status_for_stale_running_run() {
 
     sqlx::query(
         r#"
-        INSERT INTO workflow_attempts
-            (id, project_id, issue_id, workflow_id, name, status)
-        VALUES (?, ?, ?, ?, 'Recover attempt', 'running')
+        INSERT INTO tasks (id, project_id, issue_id, title, execution_kind)
+        VALUES (?, ?, ?, 'Recover attempt', 'workflow')
         "#,
     )
     .bind(attempt_id)
     .bind(project_id)
     .bind(issue_id)
+    .execute(&pool)
+    .await
+    .expect("insert canonical workflow Task");
+
+    sqlx::query(
+        r#"
+        INSERT INTO workflow_attempts (id, task_id, workflow_id, status)
+        VALUES (?, ?, ?, 'running')
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(attempt_id)
     .bind(workflow_id)
     .execute(&pool)
     .await
@@ -3316,6 +4154,7 @@ async fn recovery_syncs_attempt_status_for_stale_running_run() {
     .execute(&pool)
     .await
     .expect("insert stale node");
+    link_canonical_orchestration_fixture(&pool, run_id, node_execution_id, "agent").await;
 
     let recovered = recover_stale_workflow_runs(&pool)
         .await

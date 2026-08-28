@@ -164,11 +164,6 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
                 return Err(ApiError::Workspace(WorkspaceError::WorkspaceNotFound));
             }
 
-            if let Some(project_id) = request.project_id {
-                upsert_workflow_workspace_link(pool, workspace_id, project_id, request.issue_id)
-                    .await?;
-            }
-
             return Ok(workspace_id);
         }
 
@@ -199,35 +194,23 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
             workspace_id,
         )
         .await?;
-        WorkspaceRepo::create_many(pool, workspace.id, &repos).await?;
-        upsert_workflow_workspace_link(pool, workspace.id, project_id, request.issue_id).await?;
+        if let Err(error) = WorkspaceRepo::create_many(pool, workspace.id, &repos).await {
+            if let Err(cleanup_error) = Workspace::delete(pool, workspace.id).await {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    "failed to compensate Workflow workspace after repository bind failure: {cleanup_error}"
+                );
+            }
+            return Err(ApiError::Database(error));
+        }
 
         Ok(workspace.id)
     }
-}
 
-async fn upsert_workflow_workspace_link(
-    pool: &sqlx::SqlitePool,
-    workspace_id: Uuid,
-    project_id: Uuid,
-    issue_id: Uuid,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"INSERT INTO local_workspace_links
-               (workspace_id, project_id, issue_id)
-           VALUES (?, ?, ?)
-           ON CONFLICT(workspace_id) DO UPDATE
-               SET project_id = excluded.project_id,
-                   issue_id = excluded.issue_id,
-                   updated_at = datetime('now', 'subsec')"#,
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .bind(issue_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
+    async fn cleanup_created_main_workspace(&self, workspace_id: Uuid) -> Result<(), ApiError> {
+        Workspace::delete(&self.deployment.db().pool, workspace_id).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -236,7 +219,7 @@ mod tests {
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::{project_workspace_repos_from_db, upsert_workflow_workspace_link};
+    use super::project_workspace_repos_from_db;
 
     async fn setup_repo_defaults_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -354,43 +337,5 @@ mod tests {
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].repo_id, repo_id);
         assert_eq!(repos[0].target_branch, "master");
-    }
-
-    #[tokio::test]
-    async fn upsert_workflow_workspace_link_makes_workspace_visible_for_issue() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("connect sqlite");
-        sqlx::query(
-            r#"
-            CREATE TABLE local_workspace_links (
-                workspace_id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                issue_id BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("create local workspace links");
-
-        let workspace_id = Uuid::new_v4();
-        let project_id = Uuid::new_v4();
-        let issue_id = Uuid::new_v4();
-
-        upsert_workflow_workspace_link(&pool, workspace_id, project_id, issue_id)
-            .await
-            .expect("upsert workflow workspace link");
-
-        let linked_issue_id: Uuid =
-            sqlx::query_scalar("SELECT issue_id FROM local_workspace_links WHERE workspace_id = ?")
-                .bind(workspace_id)
-                .fetch_one(&pool)
-                .await
-                .expect("fetch issue link");
-        assert_eq!(linked_issue_id, issue_id);
     }
 }

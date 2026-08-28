@@ -76,14 +76,12 @@ export function isSuccessfulArenaAgentRunStatus(
 
 export interface ArenaGroup {
   id: string;
-  issue_id: string;
-  project_id: string;
+  task_id: string;
   prompt: string;
   base_branch: string;
   mode: ArenaMode;
   lifecycle_status: ArenaLifecycleStatus;
-  promoted_workspace_id: string | null;
-  implementation_workspace_id: string | null;
+  winner_candidate_id: string | null;
   promoted_at: string | null;
   closed_at: string | null;
   created_at: string;
@@ -91,6 +89,7 @@ export interface ArenaGroup {
 }
 
 export interface ArenaWorkspaceSummary {
+  candidate_id: string;
   workspace_id: string;
   session_id: string | null;
   name: string | null;
@@ -147,7 +146,7 @@ export interface CreateArenaRequest {
 }
 
 export interface PromoteArenaRequest {
-  workspace_id: string;
+  candidate_id: string;
 }
 
 export interface RetryArenaRequest {
@@ -167,7 +166,7 @@ export interface CloseArenaResponse {
 }
 
 export interface StartArenaImplementationRequest {
-  workspace_id: string;
+  candidate_id: string;
   follow_up_prompt?: string | null;
   executor_config?: ExecutorConfig | null;
 }

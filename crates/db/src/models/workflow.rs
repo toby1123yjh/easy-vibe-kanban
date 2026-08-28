@@ -71,6 +71,7 @@ pub struct Workflow {
     pub name: String,
     pub description: Option<String>,
     pub graph_json: String,
+    pub revision: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -97,12 +98,10 @@ pub struct WorkflowRun {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct WorkflowAttempt {
     pub id: Uuid,
-    pub project_id: Uuid,
-    pub issue_id: Uuid,
+    pub task_id: Uuid,
     pub workflow_id: Uuid,
     pub latest_run_id: Option<Uuid>,
     pub workspace_id: Option<Uuid>,
-    pub name: String,
     pub status: WorkflowAttemptStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -112,6 +111,7 @@ pub struct WorkflowAttempt {
 pub struct NodeExecution {
     pub id: Uuid,
     pub run_id: Uuid,
+    pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,
     pub iteration: i64,
@@ -143,6 +143,7 @@ pub struct CreateWorkflow {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct UpdateWorkflow {
+    pub expected_revision: i64,
     pub name: Option<String>,
     pub description: Option<String>,
     pub graph_json: Option<String>,
@@ -160,10 +161,9 @@ pub struct CreateWorkflowRun {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateWorkflowAttempt {
-    pub project_id: Uuid,
-    pub issue_id: Uuid,
+    pub id: Uuid,
+    pub task_id: Uuid,
     pub workflow_id: Uuid,
-    pub name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -183,6 +183,7 @@ pub struct UpdateWorkflowRunStatus {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateNodeExecution {
     pub run_id: Uuid,
+    pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,
     pub iteration: i64,

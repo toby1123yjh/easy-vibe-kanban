@@ -49,6 +49,7 @@ import {
 } from '../model/workflowAttemptDraftStorage';
 import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { WorkflowRevisionConflictError } from '@/shared/lib/workflowApi';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { WorkflowNodePalette } from './WorkflowNodePalette';
 import { WORKFLOW_CANVAS_CLASS_NAMES } from './workflowCanvasTokens';
@@ -347,6 +348,7 @@ export function WorkflowTemplateEditorPage({
             name: localDraft.name,
             description: localDraft.issueDescription ?? null,
             graph_json: localDraft.graphJson,
+            revision: 0,
             created_at: localDraft.createdAt,
             updated_at: localDraft.createdAt,
           }
@@ -362,11 +364,18 @@ export function WorkflowTemplateEditorPage({
     issueId: workflowAttempt?.issue_id ?? localDraft?.issueId ?? '',
     issueTitle: issue?.title ?? localDraft?.issueTitle ?? name,
   });
-  const formatWorkflowRunError = (err: unknown) =>
-    getWorkflowRunErrorMessage(err, {
+  const formatWorkflowRunError = (err: unknown) => {
+    if (err instanceof WorkflowRevisionConflictError) {
+      return t('workflow.errors.revisionConflict', {
+        currentRevision: err.conflict.current_revision,
+      });
+    }
+
+    return getWorkflowRunErrorMessage(err, {
       repositoryMessage: t('workflow.errors.repositoryRequired'),
       fallbackMessage: t('workflow.errors.startFailed'),
     });
+  };
   const defaultGraphLabels = useMemo(
     () => getWorkflowDefaultGraphLabels(t),
     [t]
@@ -458,6 +467,7 @@ export function WorkflowTemplateEditorPage({
     const updatedTemplate = await updateTemplate({
       workflowId,
       payload: {
+        expected_revision: template?.revision ?? 0,
         name,
         description,
         graph_json: JSON.stringify(nextGraph),
@@ -502,11 +512,16 @@ export function WorkflowTemplateEditorPage({
 
   const handleSave = async () => {
     if (!graph || readOnly) return;
-    if (isLocalDraft) {
-      await createAttemptFromLocalDraft(graph);
-      return;
+    setRunStartError(null);
+    try {
+      if (isLocalDraft) {
+        await createAttemptFromLocalDraft(graph);
+        return;
+      }
+      await persistWorkflowGraph(graph);
+    } catch (err) {
+      setRunStartError(formatWorkflowRunError(err));
     }
-    await persistWorkflowGraph(graph);
   };
 
   const closeRouterConfigPanel = () => {
@@ -1144,6 +1159,7 @@ export function WorkflowTemplateEditorPage({
             id: `draft-${sessionPanelNode.id}`,
             run_id:
               workflowAttempt?.latest_run_id ?? workflowAttempt?.id ?? 'draft',
+            task_id: null,
             node_id: sessionPanelNode.id,
             node_type: sessionPanelNode.type,
             iteration: 0n,

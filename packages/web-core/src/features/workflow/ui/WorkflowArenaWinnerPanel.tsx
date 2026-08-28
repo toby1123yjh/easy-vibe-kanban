@@ -60,14 +60,14 @@ export function WorkflowArenaWinnerPanel({
     ? `/projects/${projectId}/issues/${issueId}/arena/${arenaGroupId}`
     : null;
 
-  const handleSelect = async (workspaceId: string) => {
+  const handleSelect = async (candidateId: string, workspaceId: string) => {
     setActionError(null);
     setSelectingWorkspaceId(workspaceId);
     try {
       await selectArenaWinner({
         runId,
         nodeId,
-        payload: { workspace_id: workspaceId },
+        payload: { candidate_id: candidateId },
       });
       if (arenaGroupId) {
         invalidateGroup(arenaGroupId);
@@ -203,7 +203,12 @@ export function WorkflowArenaWinnerPanel({
                       type="button"
                       size="xs"
                       disabled={!option.isSelectable || isSelectingArenaWinner}
-                      onClick={() => void handleSelect(option.workspaceId)}
+                      onClick={() =>
+                        void handleSelect(
+                          option.candidateId,
+                          option.workspaceId
+                        )
+                      }
                     >
                       {option.isPromoted
                         ? t('workflow.arenaWinner.selected')

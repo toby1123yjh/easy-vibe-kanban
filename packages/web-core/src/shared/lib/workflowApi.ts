@@ -12,6 +12,7 @@ import type {
   WorkflowAttemptResponse,
   WorkflowRunResponse,
   WorkflowActionResponse,
+  WorkflowRevisionConflict,
 } from 'shared/types';
 
 const LOCAL_BASE = '/api/local/v1';
@@ -19,6 +20,15 @@ const LOCAL_BASE = '/api/local/v1';
 interface MutationResponse<T> {
   data: T;
   txid: number;
+}
+
+export class WorkflowRevisionConflictError extends Error {
+  constructor(public readonly conflict: WorkflowRevisionConflict) {
+    super(
+      `Workflow changed from revision ${conflict.expected_revision} to ${conflict.current_revision}`
+    );
+    this.name = 'WorkflowRevisionConflictError';
+  }
 }
 
 export type CreateWorkflowAttemptPayload = CreateWorkflowAttemptRequest & {
@@ -81,6 +91,15 @@ async function parseError(
 ): Promise<Error> {
   try {
     const body = await response.json();
+    if (
+      response.status === 409 &&
+      body?.error_data &&
+      typeof body.error_data.workflow_id === 'string' &&
+      typeof body.error_data.expected_revision === 'number' &&
+      typeof body.error_data.current_revision === 'number'
+    ) {
+      return new WorkflowRevisionConflictError(body.error_data);
+    }
     const message = body?.message || body?.error || fallback;
     return new Error(`${message} (${response.status} ${response.statusText})`);
   } catch {
@@ -115,7 +134,7 @@ export interface RejectNodeRequest {
 }
 
 export interface SelectArenaWinnerRequest {
-  workspace_id: string;
+  candidate_id: string;
 }
 
 export interface SelectConditionBranchRequest {

@@ -18,7 +18,7 @@ interface UseArenaActionsResult {
   promote: UseMutationResult<
     ArenaGroupResponse,
     Error,
-    { workspaceId: string }
+    { candidateId: string }
   >;
   retry: UseMutationResult<
     ArenaGroupResponse,
@@ -64,8 +64,8 @@ export function useArenaActions(
   };
 
   const promote = useMutation({
-    mutationFn: ({ workspaceId }: { workspaceId: string }) =>
-      arenaApi.promote(groupId, { workspace_id: workspaceId }),
+    mutationFn: ({ candidateId }: { candidateId: string }) =>
+      arenaApi.promote(groupId, { candidate_id: candidateId }),
     onSuccess: (data) => {
       queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
     },

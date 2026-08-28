@@ -18,11 +18,13 @@ use axum::{
 use chrono::{DateTime, Utc};
 use db::models::{
     arena_group::{
-        ArenaGroup, ArenaGroupError, ArenaLifecycleStatus, ArenaMode, ArenaStatus, CreateArenaGroup,
+        ArenaCandidate, ArenaCandidatePurpose, ArenaGroup, ArenaGroupError, ArenaLifecycleStatus,
+        ArenaMode, ArenaStatus, CreateArenaCandidate, CreateArenaGroup,
     },
     execution_process::ExecutionProcessRunReason,
     requests::WorkspaceRepoInput,
     session::{CreateSession, Session},
+    task::{CreateTask, Task, TaskExecutionKind},
     workspace::Workspace as DbWorkspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -1145,11 +1147,36 @@ async fn list_project_workspaces(
 ) -> Result<Vec<Workspace>, ApiError> {
     let workspaces = sqlx::query_as::<_, Workspace>(
         r#"
+        WITH workspace_scope AS (
+            SELECT session.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at AS task_updated_at
+            FROM tasks task
+            JOIN agent_task_bindings binding ON binding.task_id = task.id
+            JOIN sessions session ON session.id = binding.session_id
+            UNION ALL
+            SELECT attempt.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at
+            FROM tasks task
+            JOIN workflow_attempts attempt ON attempt.task_id = task.id
+            WHERE attempt.workspace_id IS NOT NULL
+            UNION ALL
+            SELECT candidate.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at
+            FROM tasks task
+            JOIN arena_groups arena ON arena.task_id = task.id
+            JOIN arena_candidates candidate ON candidate.arena_group_id = arena.id
+        ), ranked_scope AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY workspace_id
+                ORDER BY task_updated_at DESC, issue_id ASC
+            ) AS row_number
+            FROM workspace_scope
+        )
         SELECT
             w.id,
-            i.project_id,
+            scope.project_id,
             ? AS owner_user_id,
-            i.id AS issue_id,
+            scope.issue_id,
             w.id AS local_workspace_id,
             w.name,
             w.archived,
@@ -1159,9 +1186,9 @@ async fn list_project_workspaces(
             w.created_at,
             w.updated_at
         FROM workspaces w
-        JOIN local_workspace_links l ON l.workspace_id = w.id
-        JOIN local_issues i ON i.id = l.issue_id
-        WHERE l.project_id = ?
+        JOIN ranked_scope scope
+          ON scope.workspace_id = w.id AND scope.row_number = 1
+        WHERE scope.project_id = ?
         ORDER BY w.updated_at DESC
         "#,
     )
@@ -1176,11 +1203,36 @@ async fn list_project_workspaces(
 async fn list_user_workspaces(pool: &SqlitePool) -> Result<Vec<Workspace>, ApiError> {
     let workspaces = sqlx::query_as::<_, Workspace>(
         r#"
+        WITH workspace_scope AS (
+            SELECT session.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at AS task_updated_at
+            FROM tasks task
+            JOIN agent_task_bindings binding ON binding.task_id = task.id
+            JOIN sessions session ON session.id = binding.session_id
+            UNION ALL
+            SELECT attempt.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at
+            FROM tasks task
+            JOIN workflow_attempts attempt ON attempt.task_id = task.id
+            WHERE attempt.workspace_id IS NOT NULL
+            UNION ALL
+            SELECT candidate.workspace_id, task.project_id, task.issue_id,
+                   task.updated_at
+            FROM tasks task
+            JOIN arena_groups arena ON arena.task_id = task.id
+            JOIN arena_candidates candidate ON candidate.arena_group_id = arena.id
+        ), ranked_scope AS (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY workspace_id
+                ORDER BY task_updated_at DESC, issue_id ASC
+            ) AS row_number
+            FROM workspace_scope
+        )
         SELECT
             w.id,
-            i.project_id,
+            scope.project_id,
             ? AS owner_user_id,
-            i.id AS issue_id,
+            scope.issue_id,
             w.id AS local_workspace_id,
             w.name,
             w.archived,
@@ -1190,8 +1242,8 @@ async fn list_user_workspaces(pool: &SqlitePool) -> Result<Vec<Workspace>, ApiEr
             w.created_at,
             w.updated_at
         FROM workspaces w
-        JOIN local_workspace_links l ON l.workspace_id = w.id
-        JOIN local_issues i ON i.id = l.issue_id
+        JOIN ranked_scope scope
+          ON scope.workspace_id = w.id AND scope.row_number = 1
         ORDER BY w.updated_at DESC
         "#,
     )
@@ -1931,25 +1983,17 @@ pub struct CreateArenaRequest {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct ArenaWorkspaceSummary {
+    pub candidate_id: Uuid,
     pub workspace_id: Uuid,
     pub session_id: Option<Uuid>,
     pub name: Option<String>,
     pub branch: String,
-    pub purpose: ArenaWorkspacePurpose,
+    pub purpose: ArenaCandidatePurpose,
     pub arena_status: ArenaStatus,
     pub executor: Option<String>,
     pub variant: Option<String>,
     pub latest_agent_run_status: Option<AgentRunStatus>,
     pub has_uncommitted_changes: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum ArenaWorkspacePurpose {
-    #[default]
-    Attempt,
-    Synthesis,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, sqlx::Type)]
@@ -1986,7 +2030,7 @@ pub struct ArenaGroupResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct PromoteArenaRequest {
-    pub workspace_id: Uuid,
+    pub candidate_id: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -2013,7 +2057,7 @@ pub struct CloseArenaResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 pub struct StartArenaImplementationRequest {
-    pub workspace_id: Uuid,
+    pub candidate_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up_prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2069,32 +2113,6 @@ pub struct ArenaWorkspaceExecutorConfig {
     pub executor_config: ExecutorConfig,
 }
 
-/// Insert (or upsert) a row into `local_workspace_links` so the new
-/// workspace shows up under the issue everywhere the rest of the
-/// fallback queries already join through that table.
-async fn insert_workspace_link(
-    pool: &SqlitePool,
-    workspace_id: Uuid,
-    project_id: Uuid,
-    issue_id: Uuid,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"INSERT INTO local_workspace_links
-               (workspace_id, project_id, issue_id)
-           VALUES (?, ?, ?)
-           ON CONFLICT(workspace_id) DO UPDATE
-               SET project_id = excluded.project_id,
-                   issue_id   = excluded.issue_id,
-                   updated_at = datetime('now', 'subsec')"#,
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .bind(issue_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 /// Verify the issue exists and belongs to the project.
 async fn ensure_issue_in_project(
     pool: &SqlitePool,
@@ -2114,33 +2132,72 @@ async fn ensure_issue_in_project(
     Ok(())
 }
 
-fn arena_workspace_purpose_from_name(name: Option<&str>) -> ArenaWorkspacePurpose {
-    if name
-        .map(str::trim)
-        .is_some_and(|name| name.starts_with(ARENA_SYNTHESIS_WORKSPACE_PREFIX))
-    {
-        ArenaWorkspacePurpose::Synthesis
-    } else {
-        ArenaWorkspacePurpose::Attempt
-    }
-}
-
-fn is_synthesis_workspace(workspace: &DbWorkspace) -> bool {
-    arena_workspace_purpose_from_name(workspace.name.as_deref()) == ArenaWorkspacePurpose::Synthesis
-}
-
-fn find_attempt_workspace_in_group(
-    workspaces: &[DbWorkspace],
+fn find_candidate_workspace_in_group<'workspace, 'candidate>(
+    workspaces: &'workspace [DbWorkspace],
+    candidates: &'candidate [ArenaCandidate],
     group_id: Uuid,
     workspace_id: Uuid,
-) -> Result<&DbWorkspace, ArenaGroupError> {
-    workspaces
+) -> Result<(&'workspace DbWorkspace, &'candidate ArenaCandidate), ArenaGroupError> {
+    let candidate = candidates
         .iter()
-        .find(|workspace| workspace.id == workspace_id && !is_synthesis_workspace(workspace))
+        .find(|candidate| {
+            candidate.arena_group_id == group_id && candidate.workspace_id == workspace_id
+        })
         .ok_or(ArenaGroupError::WorkspaceNotInGroup {
             group_id,
             workspace_id,
-        })
+        })?;
+    let workspace = workspaces
+        .iter()
+        .find(|workspace| workspace.id == candidate.workspace_id)
+        .ok_or(ArenaGroupError::WorkspaceNotInGroup {
+            group_id,
+            workspace_id,
+        })?;
+
+    Ok((workspace, candidate))
+}
+
+fn find_candidate_workspace_by_id_in_group<'workspace, 'candidate>(
+    workspaces: &'workspace [DbWorkspace],
+    candidates: &'candidate [ArenaCandidate],
+    group_id: Uuid,
+    candidate_id: Uuid,
+) -> Result<(&'workspace DbWorkspace, &'candidate ArenaCandidate), ArenaGroupError> {
+    let candidate = candidates
+        .iter()
+        .find(|candidate| candidate.arena_group_id == group_id && candidate.id == candidate_id)
+        .ok_or(ArenaGroupError::CandidateNotInGroup {
+            group_id,
+            candidate_id,
+        })?;
+    let workspace = workspaces
+        .iter()
+        .find(|workspace| workspace.id == candidate.workspace_id)
+        .ok_or(ArenaGroupError::WorkspaceNotInGroup {
+            group_id,
+            workspace_id: candidate.workspace_id,
+        })?;
+
+    Ok((workspace, candidate))
+}
+
+fn find_attempt_workspace_in_group<'workspace>(
+    workspaces: &'workspace [DbWorkspace],
+    candidates: &[ArenaCandidate],
+    group_id: Uuid,
+    workspace_id: Uuid,
+) -> Result<&'workspace DbWorkspace, ArenaGroupError> {
+    let (workspace, candidate) =
+        find_candidate_workspace_in_group(workspaces, candidates, group_id, workspace_id)?;
+    if candidate.purpose != ArenaCandidatePurpose::Attempt {
+        return Err(ArenaGroupError::ValidationError(format!(
+            "Arena candidate {} is {:?}, not an attempt",
+            candidate.id, candidate.purpose
+        )));
+    }
+
+    Ok(workspace)
 }
 
 fn build_synthesis_prompt(
@@ -2214,14 +2271,33 @@ async fn workspace_to_summary(
     executor_config: Option<&ExecutorConfig>,
 ) -> Result<ArenaWorkspaceSummary, ApiError> {
     let latest_agent_run = latest_agent_run_state_for_workspace(pool, ws.id).await?;
+    let candidate = ArenaCandidate::find_by_workspace_id(pool, ws.id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::Conflict(format!(
+                "Arena workspace {} has no explicit candidate identity",
+                ws.id
+            ))
+        })?;
+    let group = ArenaGroup::find_by_id(pool, candidate.arena_group_id)
+        .await?
+        .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
+    let arena_status = if group.winner_candidate_id == Some(candidate.id) {
+        ArenaStatus::Promoted
+    } else if ws.archived {
+        ArenaStatus::Archived
+    } else {
+        ArenaStatus::Active
+    };
 
     Ok(ArenaWorkspaceSummary {
+        candidate_id: candidate.id,
         workspace_id: ws.id,
         session_id: latest_agent_run.as_ref().map(|state| state.session_id),
         name: ws.name.clone(),
         branch: ws.branch.clone(),
-        purpose: arena_workspace_purpose_from_name(ws.name.as_deref()),
-        arena_status: ws.arena_status,
+        purpose: candidate.purpose,
+        arena_status,
         executor: executor_config.map(|c| c.executor.to_string()),
         variant: executor_config.and_then(|c| c.variant.clone()),
         latest_agent_run_status: latest_agent_run.map(|state| state.status),
@@ -2329,16 +2405,14 @@ async fn start_arena_workspace(
     Ok(())
 }
 
-/// Spawn one workspace inside a group: create the DB row, attach
-/// repos, link to the issue, mark `arena_group_id`, then start the
-/// initial coding agent execution. The whole thing is sequential per
-/// call so we can surface a precise error per-attempt; the caller
-/// loops over N attempts.
+/// Spawn one explicit Arena candidate: create the Workspace row, attach its
+/// repositories, persist candidate identity, then start the initial Agent run.
+/// The caller performs group-wide cleanup for every error after Task creation.
 async fn spawn_arena_attempt(
     deployment: &DeploymentImpl,
     group: &ArenaGroup,
-    issue_id: Uuid,
-    project_id: Uuid,
+    _issue_id: Uuid,
+    _project_id: Uuid,
     repos: &[WorkspaceRepoInput],
     attempt: ArenaAttemptInput,
     attempt_index: usize,
@@ -2381,9 +2455,19 @@ async fn spawn_arena_attempt(
 
     let workspace = managed_workspace.workspace.clone();
 
-    DbWorkspace::set_arena_group_id(pool, workspace.id, Some(group.id)).await?;
-    DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
-    insert_workspace_link(pool, workspace.id, project_id, issue_id).await?;
+    let mut transaction = pool.begin().await?;
+    ArenaCandidate::create(
+        &mut transaction,
+        &CreateArenaCandidate {
+            id: Uuid::new_v4(),
+            arena_group_id: group.id,
+            workspace_id: workspace.id,
+            purpose: ArenaCandidatePurpose::Attempt,
+            sort_order: attempt_index as i64,
+        },
+    )
+    .await?;
+    transaction.commit().await?;
 
     start_arena_workspace(
         deployment,
@@ -2528,21 +2612,37 @@ async fn create_arena_group(
         )));
     }
 
-    let group = ArenaGroup::create(
-        pool,
-        &CreateArenaGroup {
-            issue_id,
+    let task_id = Uuid::new_v4();
+    let group_id = Uuid::new_v4();
+    let mut transaction = pool.begin().await?;
+    Task::create(
+        &mut transaction,
+        &CreateTask {
+            id: task_id,
             project_id,
+            issue_id,
+            parent_task_id: None,
+            title: prompt.trim().chars().take(160).collect(),
+            execution_kind: TaskExecutionKind::Arena,
+        },
+    )
+    .await?;
+    let group = ArenaGroup::create(
+        &mut transaction,
+        &CreateArenaGroup {
+            id: group_id,
+            task_id,
             prompt: prompt.clone(),
             base_branch: base_branch.clone(),
             mode,
         },
     )
     .await?;
+    transaction.commit().await?;
 
     let mut summaries = Vec::with_capacity(attempts.len());
     for (idx, attempt) in attempts.into_iter().enumerate() {
-        match spawn_arena_attempt(
+        let attempt_result = match spawn_arena_attempt(
             &deployment,
             &group,
             issue_id,
@@ -2554,9 +2654,12 @@ async fn create_arena_group(
         .await
         {
             Ok((workspace, executor_config)) => {
-                summaries
-                    .push(workspace_to_summary(pool, &workspace, Some(&executor_config)).await?);
+                workspace_to_summary(pool, &workspace, Some(&executor_config)).await
             }
+            Err(error) => Err(error),
+        };
+        match attempt_result {
+            Ok(summary) => summaries.push(summary),
             Err(err) => {
                 tracing::error!(
                     arena_group_id = %group.id,
@@ -2600,7 +2703,6 @@ async fn cleanup_failed_arena_group(pool: &SqlitePool, group_id: Uuid) -> Result
     let mut archived = 0usize;
 
     for ws in siblings.iter() {
-        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
         DbWorkspace::set_archived(pool, ws.id, true).await?;
         archived += 1;
     }
@@ -2664,10 +2766,21 @@ async fn start_arena_implementation(
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
 
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    let workspace = find_attempt_workspace_in_group(&siblings, group.id, payload.workspace_id)
-        .map_err(ApiError::from)?;
-
-    ArenaGroup::set_implementation_workspace(pool, group.id, payload.workspace_id).await?;
+    let candidates = ArenaCandidate::list_for_group(pool, group.id).await?;
+    let (workspace, candidate) = find_candidate_workspace_by_id_in_group(
+        &siblings,
+        &candidates,
+        group.id,
+        payload.candidate_id,
+    )
+    .map_err(ApiError::from)?;
+    ArenaGroup::select_winner(
+        pool,
+        group.id,
+        candidate.id,
+        ArenaLifecycleStatus::ImplementationStarted,
+    )
+    .await?;
     record_arena_event(
         pool,
         RecordArenaEvent {
@@ -2675,7 +2788,7 @@ async fn start_arena_implementation(
             kind: ArenaEventKind::StartImplementation,
             prompt: payload.follow_up_prompt.as_deref().unwrap_or(""),
             source_workspace_id: None,
-            target_workspace_id: Some(payload.workspace_id),
+            target_workspace_id: Some(candidate.workspace_id),
             synthesis_workspace_id: None,
         },
     )
@@ -2824,9 +2937,20 @@ async fn spawn_arena_synthesis_workspace(
     }
 
     let workspace = managed_workspace.workspace.clone();
-    DbWorkspace::set_arena_group_id(pool, workspace.id, Some(group.id)).await?;
-    DbWorkspace::set_arena_status(pool, workspace.id, ArenaStatus::Active).await?;
-    insert_workspace_link(pool, workspace.id, group.project_id, group.issue_id).await?;
+    let sort_order = ArenaCandidate::list_for_group(pool, group.id).await?.len() as i64;
+    let mut transaction = pool.begin().await?;
+    ArenaCandidate::create(
+        &mut transaction,
+        &CreateArenaCandidate {
+            id: Uuid::new_v4(),
+            arena_group_id: group.id,
+            workspace_id: workspace.id,
+            purpose: ArenaCandidatePurpose::Synthesis,
+            sort_order,
+        },
+    )
+    .await?;
+    transaction.commit().await?;
 
     start_arena_workspace(deployment, &workspace, executor_config, prompt).await?;
 
@@ -2896,9 +3020,15 @@ async fn send_arena_message(
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
+    let candidates = ArenaCandidate::list_for_group(pool, group.id).await?;
+    let attempt_workspace_ids = candidates
+        .iter()
+        .filter(|candidate| candidate.purpose == ArenaCandidatePurpose::Attempt)
+        .map(|candidate| candidate.workspace_id)
+        .collect::<std::collections::HashSet<_>>();
     let attempt_siblings: Vec<&DbWorkspace> = siblings
         .iter()
-        .filter(|workspace| !is_synthesis_workspace(workspace))
+        .filter(|workspace| attempt_workspace_ids.contains(&workspace.id))
         .collect();
 
     match target {
@@ -3041,9 +3171,9 @@ async fn send_arena_message(
                 &activity_sections,
                 &options,
             );
-            let synthesis_count = siblings
+            let synthesis_count = candidates
                 .iter()
-                .filter(|ws| is_synthesis_workspace(ws))
+                .filter(|candidate| candidate.purpose == ArenaCandidatePurpose::Synthesis)
                 .count();
             let synthesis_workspace = spawn_arena_synthesis_workspace(
                 &deployment,
@@ -3099,22 +3229,38 @@ async fn promote_arena_workspace(
     }
 
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    find_attempt_workspace_in_group(&siblings, group.id, payload.workspace_id)
-        .map_err(ApiError::from)?;
-
-    // 1. Mark the chosen workspace as promoted.
-    DbWorkspace::set_arena_status(pool, payload.workspace_id, ArenaStatus::Promoted).await?;
-    ArenaGroup::set_promoted(pool, group.id, payload.workspace_id).await?;
+    let candidates = ArenaCandidate::list_for_group(pool, group.id).await?;
+    let (_, candidate) = find_candidate_workspace_by_id_in_group(
+        &siblings,
+        &candidates,
+        group.id,
+        payload.candidate_id,
+    )
+    .map_err(ApiError::from)?;
+    match group.winner_candidate_id {
+        None => {
+            ArenaGroup::select_winner(pool, group.id, candidate.id, ArenaLifecycleStatus::Adopted)
+                .await?;
+        }
+        Some(winner_id) if winner_id == candidate.id => {
+            ArenaGroup::set_lifecycle_status(pool, group.id, ArenaLifecycleStatus::Adopted).await?;
+        }
+        Some(_) => {
+            return Err(ApiError::Conflict(format!(
+                "Arena group {} already selected another candidate",
+                group.id
+            )));
+        }
+    }
 
     // 2. Archive every other sibling (arena_status=archived AND archived=true)
     //    so the existing 1h cleanup path picks them up. We deliberately do
     //    NOT call container.delete here — that synchronously removes the
     //    worktree and would block this request.
     for ws in siblings.iter() {
-        if ws.id == payload.workspace_id {
+        if ws.id == candidate.workspace_id {
             continue;
         }
-        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
         DbWorkspace::set_archived(pool, ws.id, true).await?;
     }
 
@@ -3127,7 +3273,8 @@ async fn promote_arena_workspace(
             "arena_workspace_promoted",
             json!({
                 "arena_group_id":       group.id.to_string(),
-                "promoted_workspace_id": payload.workspace_id.to_string(),
+                "winner_candidate_id":  payload.candidate_id.to_string(),
+                "promoted_workspace_id": candidate.workspace_id.to_string(),
                 "sibling_count":        siblings.len().saturating_sub(1),
             }),
         )
@@ -3149,15 +3296,16 @@ async fn retry_arena_workspace(
     let group = ArenaGroup::find_by_id(pool, group_id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    if group.promoted_workspace_id.is_some() {
-        return Err(ApiError::from(ArenaGroupError::AlreadyPromoted {
+    if group.winner_candidate_id.is_some() {
+        return Err(ApiError::from(ArenaGroupError::AlreadyHasWinner {
             group_id: group.id,
         }));
     }
 
     // Verify workspace belongs to group + figure out repos to reuse.
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
-    let target = find_attempt_workspace_in_group(&siblings, group.id, workspace_id)
+    let candidates = ArenaCandidate::list_for_group(pool, group.id).await?;
+    let target = find_attempt_workspace_in_group(&siblings, &candidates, group.id, workspace_id)
         .map_err(ApiError::from)?;
 
     // Pull repo set from the failing workspace so the retry mirrors it.
@@ -3189,22 +3337,25 @@ async fn retry_arena_workspace(
     // Mark the failing attempt as archived (arena-internally) but
     // **don't** flip the user-archived flag — the user might want to
     // keep its logs around.
-    DbWorkspace::set_arena_status(pool, workspace_id, ArenaStatus::Archived).await?;
+    DbWorkspace::set_archived(pool, workspace_id, true).await?;
 
-    let attempts_so_far = siblings
+    let attempts_so_far = candidates
         .iter()
-        .filter(|workspace| !is_synthesis_workspace(workspace))
+        .filter(|candidate| candidate.purpose == ArenaCandidatePurpose::Attempt)
         .count();
     let attempt = ArenaAttemptInput {
         executor_config: payload.executor_config,
         name: payload.name,
         prompt: payload.prompt,
     };
+    let task = Task::find_by_id(pool, group.task_id)
+        .await?
+        .ok_or_else(|| ApiError::Conflict("Arena Task is missing".to_string()))?;
     spawn_arena_attempt(
         &deployment,
         &group,
-        group.issue_id,
-        group.project_id,
+        task.issue_id,
+        task.project_id,
         &repos,
         attempt,
         attempts_so_far,
@@ -3230,7 +3381,7 @@ async fn dissolve_arena_group(
     let group = ArenaGroup::find_by_id(pool, group_id)
         .await?
         .ok_or_else(|| ApiError::from(ArenaGroupError::NotFound))?;
-    if group.promoted_workspace_id.is_some() {
+    if group.winner_candidate_id.is_some() {
         return Err(ApiError::BadRequest(
             "Cannot dissolve a promoted arena group; the merged attempt is now your work."
                 .to_string(),
@@ -3240,7 +3391,6 @@ async fn dissolve_arena_group(
     let siblings = DbWorkspace::find_by_arena_group_id(pool, group.id).await?;
     let mut archived = 0usize;
     for ws in siblings.iter() {
-        DbWorkspace::set_arena_status(pool, ws.id, ArenaStatus::Archived).await?;
         DbWorkspace::set_archived(pool, ws.id, true).await?;
         archived += 1;
     }
@@ -3277,15 +3427,30 @@ async fn list_issue_workspaces(
     // that the local kanban issue links to (regardless of arena
     // membership).
     let pool = &deployment.db().pool;
-    // Use runtime-checked query (matches other `local_workspace_links`
-    // queries in this file) so this handler does not require a refreshed
-    // .sqlx offline cache to compile.
+    // Keep this projection runtime-checked until the owning SQLx metadata is
+    // regenerated at the Phase 1 gate.
     let workspace_ids: Vec<Uuid> = sqlx::query_scalar::<_, Uuid>(
-        r#"SELECT workspace_id
-             FROM local_workspace_links
-            WHERE issue_id = ?
-            ORDER BY created_at ASC"#,
+        r#"
+        SELECT session.workspace_id
+        FROM tasks task
+        JOIN agent_task_bindings binding ON binding.task_id = task.id
+        JOIN sessions session ON session.id = binding.session_id
+        WHERE task.issue_id = ?
+        UNION
+        SELECT attempt.workspace_id
+        FROM tasks task
+        JOIN workflow_attempts attempt ON attempt.task_id = task.id
+        WHERE task.issue_id = ? AND attempt.workspace_id IS NOT NULL
+        UNION
+        SELECT candidate.workspace_id
+        FROM tasks task
+        JOIN arena_groups arena ON arena.task_id = task.id
+        JOIN arena_candidates candidate ON candidate.arena_group_id = arena.id
+        WHERE task.issue_id = ?
+        "#,
     )
+    .bind(issue_id)
+    .bind(issue_id)
     .bind(issue_id)
     .fetch_all(pool)
     .await?;
@@ -3565,31 +3730,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn arena_workspace_purpose_detects_synthesis_workspace_names() {
-        assert_eq!(
-            super::arena_workspace_purpose_from_name(Some("Arena Synthesis 1")),
-            super::ArenaWorkspacePurpose::Synthesis
-        );
-        assert_eq!(
-            super::arena_workspace_purpose_from_name(Some("codex-arena-1")),
-            super::ArenaWorkspacePurpose::Attempt
-        );
-        assert_eq!(
-            super::arena_workspace_purpose_from_name(None),
-            super::ArenaWorkspacePurpose::Attempt
-        );
-    }
-
-    fn test_workspace(
-        group_id: Uuid,
-        workspace_id: Uuid,
-        name: Option<&str>,
-    ) -> super::DbWorkspace {
+    fn test_workspace(workspace_id: Uuid, name: Option<&str>) -> super::DbWorkspace {
         let now = Utc::now();
         super::DbWorkspace {
             id: workspace_id,
-            task_id: None,
             container_ref: None,
             workspace_kind: db::models::workspace::WorkspaceKind::Worktree,
             container_ownership: db::models::workspace::ContainerOwnership::Managed,
@@ -3601,8 +3745,24 @@ mod tests {
             pinned: false,
             name: name.map(str::to_string),
             worktree_deleted: false,
-            arena_group_id: Some(group_id),
-            arena_status: super::ArenaStatus::Active,
+        }
+    }
+
+    fn test_candidate(
+        group_id: Uuid,
+        workspace_id: Uuid,
+        purpose: super::ArenaCandidatePurpose,
+        sort_order: i64,
+    ) -> super::ArenaCandidate {
+        let now = Utc::now();
+        super::ArenaCandidate {
+            id: Uuid::new_v4(),
+            arena_group_id: group_id,
+            workspace_id,
+            purpose,
+            sort_order,
+            created_at: now,
+            updated_at: now,
         }
     }
 
@@ -3612,16 +3772,35 @@ mod tests {
         let attempt_id = Uuid::new_v4();
         let synthesis_id = Uuid::new_v4();
         let workspaces = vec![
-            test_workspace(group_id, attempt_id, Some("codex-arena-1")),
-            test_workspace(group_id, synthesis_id, Some("Arena Synthesis 1")),
+            test_workspace(attempt_id, Some("renamed synthesis-looking workspace")),
+            test_workspace(synthesis_id, Some("renamed ordinary workspace")),
+        ];
+        let candidates = vec![
+            test_candidate(
+                group_id,
+                attempt_id,
+                super::ArenaCandidatePurpose::Attempt,
+                0,
+            ),
+            test_candidate(
+                group_id,
+                synthesis_id,
+                super::ArenaCandidatePurpose::Synthesis,
+                1,
+            ),
         ];
 
-        let attempt = super::find_attempt_workspace_in_group(&workspaces, group_id, attempt_id)
-            .expect("attempt workspace");
+        let attempt =
+            super::find_attempt_workspace_in_group(&workspaces, &candidates, group_id, attempt_id)
+                .expect("attempt workspace");
         assert_eq!(attempt.id, attempt_id);
 
-        let synthesis_result =
-            super::find_attempt_workspace_in_group(&workspaces, group_id, synthesis_id);
+        let synthesis_result = super::find_attempt_workspace_in_group(
+            &workspaces,
+            &candidates,
+            group_id,
+            synthesis_id,
+        );
         assert!(synthesis_result.is_err());
     }
 

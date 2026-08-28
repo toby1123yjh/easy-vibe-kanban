@@ -52,6 +52,7 @@ const baseRun = {
     {
       id: 'node-exec-1',
       run_id: 'run-1',
+      task_id: null,
       node_id: 'plan',
       node_type: 'agent',
       iteration: 0n,
@@ -74,6 +75,7 @@ const baseRun = {
     {
       id: 'node-exec-2',
       run_id: 'run-1',
+      task_id: null,
       node_id: 'review',
       node_type: 'human_gate',
       iteration: 0n,
@@ -98,14 +100,12 @@ const baseRun = {
 
 const baseArenaGroup = {
   id: 'arena-1',
-  issue_id: 'issue-1',
-  project_id: 'project-1',
+  task_id: 'task-arena-1',
   prompt: 'Build three approaches',
   base_branch: 'main',
   mode: 'implementation',
   lifecycle_status: 'open',
-  promoted_workspace_id: null,
-  implementation_workspace_id: null,
+  winner_candidate_id: null,
   promoted_at: null,
   closed_at: null,
   created_at: '2026-05-09T00:00:00Z',
@@ -113,6 +113,7 @@ const baseArenaGroup = {
   events: [],
   workspaces: [
     {
+      candidate_id: 'candidate-1',
       workspace_id: 'workspace-1',
       session_id: 'session-1',
       name: 'Attempt Alpha',
@@ -125,6 +126,7 @@ const baseArenaGroup = {
       has_uncommitted_changes: true,
     },
     {
+      candidate_id: 'candidate-2',
       workspace_id: 'workspace-2',
       session_id: null,
       name: null,
@@ -137,6 +139,7 @@ const baseArenaGroup = {
       has_uncommitted_changes: true,
     },
     {
+      candidate_id: 'candidate-3',
       workspace_id: 'workspace-3',
       session_id: 'session-3',
       name: null,
@@ -337,12 +340,18 @@ describe('workflow run view helpers', () => {
     expect(formatWorkflowDuration(null, null)).toBe('Not started');
   });
 
-  it('builds winner options from arena attempt workspaces only', () => {
+  it('builds winner options from explicit arena candidate identities', () => {
     const options = buildArenaWinnerOptions(baseArenaGroup);
 
     expect(options.map((option) => option.workspaceId)).toEqual([
       'workspace-1',
+      'workspace-2',
       'workspace-3',
+    ]);
+    expect(options.map((option) => option.candidateId)).toEqual([
+      'candidate-1',
+      'candidate-2',
+      'candidate-3',
     ]);
     expect(options[0]).toMatchObject({
       label: 'Attempt Alpha',
@@ -351,8 +360,8 @@ describe('workflow run view helpers', () => {
       isSelectable: true,
       isPromoted: false,
     });
-    expect(options[1]).toMatchObject({
-      label: 'Attempt 2',
+    expect(options[2]).toMatchObject({
+      label: 'Attempt 3',
       executorLabel: 'Unknown executor',
       executionStatusLabel: 'failed',
       isSelectable: false,
@@ -363,7 +372,7 @@ describe('workflow run view helpers', () => {
   it('marks winner options unavailable after promotion or while running', () => {
     const options = buildArenaWinnerOptions({
       ...baseArenaGroup,
-      promoted_workspace_id: 'workspace-1',
+      winner_candidate_id: 'candidate-1',
       workspaces: [
         {
           ...baseArenaGroup.workspaces[0],

@@ -34,10 +34,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
   const { t } = useTranslation('common');
   const [messageText, setMessageText] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { message, startImplementation } = useArenaActions(
-    group.id,
-    group.issue_id
-  );
+  const { message, startImplementation } = useArenaActions(group.id, null);
 
   if (group.mode !== 'design' || group.lifecycle_status !== 'open') {
     return null;
@@ -135,7 +132,7 @@ export function ArenaPageActions({ group }: ArenaPageActionsProps) {
     setErrorMessage(null);
     try {
       await startImplementation.mutateAsync({
-        workspace_id: workspace.workspace_id,
+        candidate_id: workspace.candidate_id,
         follow_up_prompt: null,
         executor_config: null,
       });

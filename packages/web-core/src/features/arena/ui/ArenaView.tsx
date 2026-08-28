@@ -56,10 +56,10 @@ function ArenaHeader({
     isActiveArenaAgentRunStatus(ws.latest_agent_run_status)
   ).length;
 
-  const { dissolve, close } = useArenaActions(group.id, group.issue_id);
+  const { dissolve, close } = useArenaActions(group.id, null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const groupAlreadyPromoted = group.promoted_workspace_id != null;
+  const groupAlreadyPromoted = group.winner_candidate_id != null;
   const canCloseDesign =
     group.mode === 'design' && group.lifecycle_status === 'open';
   const canDissolveImplementation =

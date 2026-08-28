@@ -6,22 +6,22 @@ use std::{
 
 use anyhow::{Context, Result};
 use db::{
-    models::{execution_process::ExecutionProcess, execution_process_logs::ExecutionProcessLogs},
     DBService,
+    models::{execution_process::ExecutionProcess, execution_process_logs::ExecutionProcessLogs},
 };
 use futures::{StreamExt, TryStreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use sqlx::SqlitePool;
 use tokio::{
     io::AsyncWriteExt,
-    sync::{broadcast, RwLock},
+    sync::{RwLock, broadcast},
     task::JoinHandle,
 };
 use utils::{
     assets::prod_asset_dir_path,
     execution_logs::{
-        process_log_file_path, process_log_file_path_in_root, read_execution_log_file,
-        ExecutionLogWriter,
+        ExecutionLogWriter, process_log_file_path, process_log_file_path_in_root,
+        read_execution_log_file,
     },
     log_msg::LogMsg,
     msg_store::MsgStore,

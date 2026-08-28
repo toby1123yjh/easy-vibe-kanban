@@ -1,16 +1,22 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::{workspace::Workspace, workspace_repo::WorkspaceRepo};
+use super::{
+    task::{CreateTask, Task, TaskError, TaskExecutionKind},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Task(#[from] TaskError),
     #[error("Session not found")]
     NotFound,
     #[error("Workspace not found")]
@@ -28,6 +34,31 @@ pub struct Session {
     pub agent_working_dir: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, TS)]
+pub struct SessionListItem {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    pub task_id: Uuid,
+    pub project_id: Uuid,
+    pub issue_id: Uuid,
+    pub title: String,
+    pub executor: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SessionCursor {
+    pub updated_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct SessionPage {
+    pub sessions: Vec<SessionListItem>,
+    pub next_cursor: Option<SessionCursor>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -172,7 +203,46 @@ impl Session {
         .await?)
     }
 
-    async fn resolve_agent_working_dir(
+    pub async fn create_with_agent_task(
+        pool: &SqlitePool,
+        data: &CreateSession,
+        id: Uuid,
+        workspace_id: Uuid,
+        task: &CreateTask,
+    ) -> Result<(Self, Task), SessionError> {
+        if task.execution_kind != TaskExecutionKind::Agent {
+            return Err(TaskError::InvalidBinding {
+                task_id: task.id,
+                detail: "Session binding requires execution_kind=agent".to_string(),
+            }
+            .into());
+        }
+
+        let agent_working_dir = Self::resolve_agent_working_dir(pool, workspace_id).await?;
+        let name = data.name.as_deref().filter(|name| !name.is_empty());
+        let mut transaction = pool.begin().await?;
+        let session = sqlx::query_as::<_, Session>(
+            r#"
+            INSERT INTO sessions (id, workspace_id, name, executor, agent_working_dir)
+            VALUES (?, ?, ?, ?, ?)
+            RETURNING id, workspace_id, name, executor, agent_working_dir,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(name)
+        .bind(&data.executor)
+        .bind(agent_working_dir)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let task = Task::create(&mut transaction, task).await?;
+        Task::bind_agent_session(&mut transaction, task.id, session.id).await?;
+        transaction.commit().await?;
+        Ok((session, task))
+    }
+
+    pub async fn resolve_agent_working_dir(
         pool: &SqlitePool,
         workspace_id: Uuid,
     ) -> Result<Option<String>, sqlx::Error> {
@@ -232,5 +302,70 @@ impl Session {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn list_recent_task_bound(
+        pool: &SqlitePool,
+        project_id: Option<Uuid>,
+        cursor: Option<SessionCursor>,
+        limit: u32,
+    ) -> Result<SessionPage, sqlx::Error> {
+        let page_size = limit.clamp(1, 100) as i64;
+        let mut query = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT session.id,
+                   session.workspace_id,
+                   task.id AS task_id,
+                   task.project_id,
+                   task.issue_id,
+                   task.title,
+                   session.executor,
+                   session.created_at,
+                   session.updated_at
+            FROM sessions session
+            JOIN agent_task_bindings binding ON binding.session_id = session.id
+            JOIN tasks task ON task.id = binding.task_id
+            WHERE task.execution_kind = 'agent'
+            "#,
+        );
+        if let Some(project_id) = project_id {
+            query.push(" AND task.project_id = ").push_bind(project_id);
+        }
+        if let Some(cursor) = cursor {
+            query
+                .push(" AND (julianday(session.updated_at) < julianday(")
+                .push_bind(cursor.updated_at)
+                .push(") OR (julianday(session.updated_at) = julianday(")
+                .push_bind(cursor.updated_at)
+                .push(") AND session.id > ")
+                .push_bind(cursor.id)
+                .push("))");
+        }
+        query
+            .push(" ORDER BY julianday(session.updated_at) DESC, session.id ASC LIMIT ")
+            .push_bind(page_size + 1);
+
+        let mut sessions = query
+            .build_query_as::<SessionListItem>()
+            .fetch_all(pool)
+            .await?;
+        let has_more = sessions.len() > page_size as usize;
+        if has_more {
+            sessions.pop();
+        }
+        let next_cursor = has_more.then(|| {
+            let last = sessions
+                .last()
+                .expect("a paginated Session page with more rows is non-empty");
+            SessionCursor {
+                updated_at: last.updated_at,
+                id: last.id,
+            }
+        });
+
+        Ok(SessionPage {
+            sessions,
+            next_cursor,
+        })
     }
 }

@@ -8,6 +8,12 @@ export type Repo = { id: string, path: string, name: string, display_name: strin
 
 export type Project = { id: string, name: string, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
 
+export type ProjectListItem = { id: string, name: string, created_at: string, updated_at: string, };
+
+export type ProjectCursor = { updated_at: string, id: string, };
+
+export type ProjectPage = { projects: Array<ProjectListItem>, next_cursor: ProjectCursor | null, };
+
 export type UpdateRepo = { display_name?: string | null, setup_script?: string | null, cleanup_script?: string | null, archive_script?: string | null, copy_files?: string | null, parallel_setup_script?: boolean | null, dev_server_script?: string | null, default_target_branch?: string | null, default_working_dir?: string | null, };
 
 export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, 
@@ -152,37 +158,15 @@ export type CreateScratch = { payload: ScratchPayload, };
 
 export type UpdateScratch = { payload: ScratchPayload, };
 
-export type Workspace = { id: string, task_id: string | null, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
-/**
- * AI Arena group this workspace belongs to, if any.
- * `None` for workspaces created outside of arena (race) mode.
- */
-arena_group_id: string | null, 
-/**
- * Status within the arena race. Always `Active` for non-arena
- * workspaces (the column is NOT NULL with a 'active' default and
- * is only meaningful when `arena_group_id IS NOT NULL`).
- */
-arena_status: ArenaStatus, };
+export type Workspace = { id: string, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
 
 export type WorkspaceKind = "worktree" | "direct_folder";
 
 export type ContainerOwnership = "managed" | "external";
 
-export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
-/**
- * AI Arena group this workspace belongs to, if any.
- * `None` for workspaces created outside of arena (race) mode.
- */
-arena_group_id: string | null, 
-/**
- * Status within the arena race. Always `Active` for non-arena
- * workspaces (the column is NOT NULL with a 'active' default and
- * is only meaningful when `arena_group_id IS NOT NULL`).
- */
-arena_status: ArenaStatus, };
+export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
 
-export type ArenaGroup = { id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroup = { id: string, task_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type ArenaStatus = "active" | "promoted" | "archived";
 
@@ -190,7 +174,33 @@ export type ArenaMode = "design" | "implementation";
 
 export type ArenaLifecycleStatus = "open" | "closed" | "adopted" | "implementation_started";
 
-export type CreateArenaGroup = { issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, };
+export type ArenaCandidatePurpose = "attempt" | "synthesis";
+
+export type ArenaCandidate = { id: string, arena_group_id: string, workspace_id: string, purpose: ArenaCandidatePurpose, sort_order: bigint, created_at: string, updated_at: string, };
+
+export type TaskExecutionKind = "agent" | "workflow" | "arena";
+
+export type TaskStatus = "draft" | "pending" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+
+export type TaskOpenTarget = { "kind": "agent", session_id: string, workspace_id: string, } | { "kind": "workflow", attempt_id: string, workflow_id: string, latest_run_id: string | null, } | { "kind": "arena", arena_group_id: string, };
+
+export type Task = { id: string, project_id: string, issue_id: string, parent_task_id: string | null, title: string, execution_kind: TaskExecutionKind, created_at: string, updated_at: string, };
+
+export type TaskSummary = { id: string, project_id: string, issue_id: string, parent_task_id: string | null, title: string, execution_kind: TaskExecutionKind, status: TaskStatus, open_target: TaskOpenTarget, created_at: string, updated_at: string, };
+
+export type TaskCursor = { updated_at: string, id: string, };
+
+export type TaskSummaryPage = { tasks: Array<TaskSummary>, next_cursor: TaskCursor | null, };
+
+export type SessionListItem = { id: string, workspace_id: string, task_id: string, project_id: string, issue_id: string, title: string, executor: string | null, created_at: string, updated_at: string, };
+
+export type SessionCursor = { updated_at: string, id: string, };
+
+export type SessionPage = { sessions: Array<SessionListItem>, next_cursor: SessionCursor | null, };
+
+export type ExecutionDataOwner = "local_host";
+
+export type ExecutionDataCapabilities = { owner: ExecutionDataOwner, task_queries: boolean, execution_actions: boolean, };
 
 export type WorkflowSource = "system" | "project";
 
@@ -200,27 +210,27 @@ export type WorkflowAttemptStatus = "draft" | "ready" | "running" | "awaiting_hu
 
 export type NodeExecutionStatus = "pending" | "running" | "awaiting_human" | "awaiting_arena" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped";
 
-export type Workflow = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, created_at: string, updated_at: string, };
+export type Workflow = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: bigint, created_at: string, updated_at: string, };
 
 export type WorkflowRun = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
-export type WorkflowAttempt = { id: string, project_id: string, issue_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
+export type WorkflowAttempt = { id: string, task_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
 
-export type NodeExecution = { id: string, run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+export type NodeExecution = { id: string, run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
 export type CreateWorkflow = { source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, };
 
-export type UpdateWorkflow = { name: string | null, description: string | null, graph_json: string | null, };
+export type UpdateWorkflow = { expected_revision: bigint, name: string | null, description: string | null, graph_json: string | null, };
 
 export type CreateWorkflowRun = { workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
-export type CreateWorkflowAttempt = { project_id: string, issue_id: string, workflow_id: string, name: string, };
+export type CreateWorkflowAttempt = { id: string, task_id: string, workflow_id: string, };
 
 export type UpdateWorkflowAttemptRuntime = { latest_run_id: string | null, workspace_id: string | null, status: WorkflowAttemptStatus, };
 
 export type UpdateWorkflowRunStatus = { status: WorkflowRunStatus, output_text: string | null, error_text: string | null, };
 
-export type CreateNodeExecution = { run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, };
+export type CreateNodeExecution = { run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, };
 
 export type UpdateNodeExecution = { status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, error_text: string | null, };
 
@@ -233,17 +243,15 @@ prompt?: string | null, };
 
 export type CreateArenaRequest = { project_id: string, base_branch: string, prompt: string, mode: ArenaMode, repos: Array<WorkspaceRepoInput>, attempts: Array<ArenaAttemptInput>, };
 
-export type ArenaWorkspacePurpose = "attempt" | "synthesis";
-
-export type ArenaWorkspaceSummary = { workspace_id: string, session_id: string | null, name: string | null, branch: string, purpose: ArenaWorkspacePurpose, arena_status: ArenaStatus, executor: string | null, variant: string | null, latest_agent_run_status: AgentRunStatus | null, has_uncommitted_changes: boolean | null, };
+export type ArenaWorkspaceSummary = { candidate_id: string, workspace_id: string, session_id: string | null, name: string | null, branch: string, purpose: ArenaCandidatePurpose, arena_status: ArenaStatus, executor: string | null, variant: string | null, latest_agent_run_status: AgentRunStatus | null, has_uncommitted_changes: boolean | null, };
 
 export type ArenaEventKind = "ask_all" | "workspace" | "challenge" | "synthesize" | "start_implementation";
 
 export type ArenaEvent = { id: string, arena_group_id: string, kind: ArenaEventKind, prompt: string, source_workspace_id: string | null, target_workspace_id: string | null, synthesis_workspace_id: string | null, created_at: string, };
 
-export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, events: Array<ArenaEvent>, id: string, issue_id: string, project_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, promoted_workspace_id: string | null, implementation_workspace_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, events: Array<ArenaEvent>, id: string, task_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
-export type PromoteArenaRequest = { workspace_id: string, };
+export type PromoteArenaRequest = { candidate_id: string, };
 
 export type RetryArenaRequest = { executor_config: ExecutorConfig, name?: string | null, 
 /**
@@ -255,7 +263,7 @@ export type DissolveArenaResponse = { group_id: string, workspaces_archived: num
 
 export type CloseArenaResponse = { group_id: string, lifecycle_status: ArenaLifecycleStatus, };
 
-export type StartArenaImplementationRequest = { workspace_id: string, follow_up_prompt?: string | null, executor_config?: ExecutorConfig | null, };
+export type StartArenaImplementationRequest = { candidate_id: string, follow_up_prompt?: string | null, executor_config?: ExecutorConfig | null, };
 
 export type ArenaSynthesizeOptions = { include_original_prompt: boolean, include_attempt_summaries: boolean, include_activity: boolean, };
 
@@ -265,13 +273,15 @@ export type ArenaWorkspaceExecutorConfig = { workspace_id: string, executor_conf
 
 export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, executor_configs: Array<ArenaWorkspaceExecutorConfig>, };
 
-export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, created_at: string, updated_at: string, };
+export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: number, created_at: string, updated_at: string, };
 
 export type WorkflowTemplateListResponse = { workflows: Array<WorkflowTemplateResponse>, };
 
 export type CreateWorkflowRequest = { name: string, description: string | null, graph_json: string, };
 
-export type UpdateWorkflowRequest = { name: string | null, description: string | null, graph_json: string | null, };
+export type UpdateWorkflowRequest = { expected_revision: number, name: string | null, description: string | null, graph_json: string | null, };
+
+export type WorkflowRevisionConflict = { workflow_id: string, expected_revision: number, current_revision: number, };
 
 export type TriggerWorkflowRequest = { issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
@@ -279,7 +289,7 @@ export type CreateWorkflowAttemptRequest = { name: string | null, graph_json: st
 
 export type RunWorkflowAttemptRequest = { workspace_id: string | null, trigger_source: string, input_text: string, repos?: Array<DraftWorkspaceRepo>, };
 
-export type SelectArenaWinnerRequest = { workspace_id: string, };
+export type SelectArenaWinnerRequest = { candidate_id: string, };
 
 export type SelectConditionBranchRequest = { selected_target_node_ids: Array<string>, reason?: string, };
 
@@ -297,7 +307,7 @@ export type WorkflowRunRuntimeView = { run_id: string, status: WorkflowRunStatus
 
 export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, };
 
-export type WorkflowNodeExecutionResponse = { id: string, run_id: string, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, projection_status: ProjectionStatus | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+export type WorkflowNodeExecutionResponse = { id: string, run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, projection_status: ProjectionStatus | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
 export type WorkflowActionResponse = { run_id: string, node_id: string | null, status: WorkflowRunStatus, };
 

@@ -10,7 +10,7 @@ use uuid::Uuid;
 const WORKSPACE_NAME_MAX_LEN: usize = 60;
 
 use super::{
-    arena_group::{ArenaGroup, ArenaStatus},
+    arena_group::ArenaGroup,
     session::Session,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
@@ -61,7 +61,6 @@ struct WorkspaceContainerRefRow {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Workspace {
     pub id: Uuid,
-    pub task_id: Option<Uuid>,
     pub container_ref: Option<String>,
     pub workspace_kind: WorkspaceKind,
     pub container_ownership: ContainerOwnership,
@@ -73,13 +72,6 @@ pub struct Workspace {
     pub pinned: bool,
     pub name: Option<String>,
     pub worktree_deleted: bool,
-    /// AI Arena group this workspace belongs to, if any.
-    /// `None` for workspaces created outside of arena (race) mode.
-    pub arena_group_id: Option<Uuid>,
-    /// Status within the arena race. Always `Active` for non-arena
-    /// workspaces (the column is NOT NULL with a 'active' default and
-    /// is only meaningful when `arena_group_id IS NOT NULL`).
-    pub arena_status: ArenaStatus,
 }
 
 #[derive(Debug, FromRow)]
@@ -152,7 +144,6 @@ impl Workspace {
         let workspaces = sqlx::query_as!(
             Workspace,
             r#"SELECT id AS "id!: Uuid",
-                          task_id AS "task_id: Uuid",
                           container_ref,
                           workspace_kind AS "workspace_kind!: WorkspaceKind",
                           container_ownership AS "container_ownership!: ContainerOwnership",
@@ -163,9 +154,7 @@ impl Workspace {
                           archived AS "archived!: bool",
                           pinned AS "pinned!: bool",
                           name,
-                          worktree_deleted AS "worktree_deleted!: bool",
-                          arena_group_id AS "arena_group_id: Uuid",
-                          arena_status AS "arena_status!: ArenaStatus"
+                          worktree_deleted AS "worktree_deleted!: bool"
                    FROM workspaces
                    ORDER BY created_at DESC"#
         )
@@ -258,7 +247,6 @@ impl Workspace {
         sqlx::query_as!(
             Workspace,
             r#"SELECT  id                AS "id!: Uuid",
-                       task_id           AS "task_id: Uuid",
                        container_ref,
                        workspace_kind    AS "workspace_kind!: WorkspaceKind",
                        container_ownership AS "container_ownership!: ContainerOwnership",
@@ -269,9 +257,7 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool",
-                       arena_group_id    AS "arena_group_id: Uuid",
-                       arena_status      AS "arena_status!: ArenaStatus"
+                       worktree_deleted  AS "worktree_deleted!: bool"
                FROM    workspaces
                WHERE   id = $1"#,
             id
@@ -284,7 +270,6 @@ impl Workspace {
         sqlx::query_as!(
             Workspace,
             r#"SELECT  id                AS "id!: Uuid",
-                       task_id           AS "task_id: Uuid",
                        container_ref,
                        workspace_kind    AS "workspace_kind!: WorkspaceKind",
                        container_ownership AS "container_ownership!: ContainerOwnership",
@@ -295,9 +280,7 @@ impl Workspace {
                        archived          AS "archived!: bool",
                        pinned            AS "pinned!: bool",
                        name,
-                       worktree_deleted  AS "worktree_deleted!: bool",
-                       arena_group_id    AS "arena_group_id: Uuid",
-                       arena_status      AS "arena_status!: ArenaStatus"
+                       worktree_deleted  AS "worktree_deleted!: bool"
                FROM    workspaces
                WHERE   rowid = $1"#,
             rowid
@@ -331,7 +314,6 @@ impl Workspace {
             r#"
             SELECT
                 w.id as "id!: Uuid",
-                w.task_id as "task_id: Uuid",
                 w.container_ref,
                 w.workspace_kind as "workspace_kind!: WorkspaceKind",
                 w.container_ownership as "container_ownership!: ContainerOwnership",
@@ -342,9 +324,7 @@ impl Workspace {
                 w.archived as "archived!: bool",
                 w.pinned as "pinned!: bool",
                 w.name,
-                w.worktree_deleted as "worktree_deleted!: bool",
-                w.arena_group_id   as "arena_group_id: Uuid",
-                w.arena_status     as "arena_status!: ArenaStatus"
+                w.worktree_deleted as "worktree_deleted!: bool"
             FROM workspaces w
             LEFT JOIN sessions s ON w.id = s.workspace_id
             LEFT JOIN execution_processes ep ON s.id = ep.session_id AND ep.completed_at IS NOT NULL
@@ -391,11 +371,10 @@ impl Workspace {
     ) -> Result<Self, WorkspaceError> {
         Ok(sqlx::query_as!(
             Workspace,
-            r#"INSERT INTO workspaces (id, task_id, container_ref, branch, setup_completed_at, name)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id as "id!: Uuid", task_id as "task_id: Uuid", container_ref, workspace_kind as "workspace_kind!: WorkspaceKind", container_ownership as "container_ownership!: ContainerOwnership", branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool", arena_group_id as "arena_group_id: Uuid", arena_status as "arena_status!: ArenaStatus""#,
+            r#"INSERT INTO workspaces (id, container_ref, branch, setup_completed_at, name)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id as "id!: Uuid", container_ref, workspace_kind as "workspace_kind!: WorkspaceKind", container_ownership as "container_ownership!: ContainerOwnership", branch, setup_completed_at as "setup_completed_at: DateTime<Utc>", created_at as "created_at!: DateTime<Utc>", updated_at as "updated_at!: DateTime<Utc>", archived as "archived!: bool", pinned as "pinned!: bool", name, worktree_deleted as "worktree_deleted!: bool""#,
             id,
-            Option::<Uuid>::None,
             Option::<String>::None,
             data.branch,
             Option::<DateTime<Utc>>::None,
@@ -415,7 +394,6 @@ impl Workspace {
             Workspace,
             r#"INSERT INTO workspaces (
                     id,
-                    task_id,
                     container_ref,
                     workspace_kind,
                     container_ownership,
@@ -423,9 +401,8 @@ impl Workspace {
                     setup_completed_at,
                     name
                )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id as "id!: Uuid",
-                         task_id as "task_id: Uuid",
                          container_ref,
                          workspace_kind as "workspace_kind!: WorkspaceKind",
                          container_ownership as "container_ownership!: ContainerOwnership",
@@ -436,11 +413,8 @@ impl Workspace {
                          archived as "archived!: bool",
                          pinned as "pinned!: bool",
                          name,
-                         worktree_deleted as "worktree_deleted!: bool",
-                         arena_group_id as "arena_group_id: Uuid",
-                         arena_status as "arena_status!: ArenaStatus""#,
+                         worktree_deleted as "worktree_deleted!: bool""#,
             id,
-            Option::<Uuid>::None,
             container_ref,
             WorkspaceKind::DirectFolder,
             ContainerOwnership::External,
@@ -526,71 +500,29 @@ impl Workspace {
         Ok(())
     }
 
-    /// Attach a workspace to an arena group. Used when spawning the
-    /// N race attempts for a single issue, and when adding a fresh
-    /// workspace to a group via the retry flow.
-    pub async fn set_arena_group_id(
-        pool: &SqlitePool,
-        workspace_id: Uuid,
-        arena_group_id: Option<Uuid>,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE workspaces SET arena_group_id = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
-            arena_group_id,
-            workspace_id
-        )
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
-    /// Flip the arena status of a workspace. Caller is responsible for
-    /// the surrounding semantics: when promoting one workspace, also
-    /// archive its siblings; when archiving, also call `set_archived(true)`
-    /// to trigger the 1h accelerated cleanup path used by
-    /// `find_expired_for_cleanup`.
-    pub async fn set_arena_status(
-        pool: &SqlitePool,
-        workspace_id: Uuid,
-        arena_status: ArenaStatus,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE workspaces SET arena_status = $1, updated_at = datetime('now', 'subsec') WHERE id = $2",
-            arena_status,
-            workspace_id
-        )
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
-    /// List all workspaces belonging to an arena group, ordered by
-    /// creation time so the UI can render "attempt 1, attempt 2, ..."
-    /// stably.
+    /// List all workspace containers belonging to explicit Arena candidates.
     pub async fn find_by_arena_group_id(
         pool: &SqlitePool,
         arena_group_id: Uuid,
     ) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as!(
             Workspace,
-            r#"SELECT  id                AS "id!: Uuid",
-                       task_id           AS "task_id: Uuid",
-                       container_ref,
-                       workspace_kind    AS "workspace_kind!: WorkspaceKind",
-                       container_ownership AS "container_ownership!: ContainerOwnership",
-                       branch,
-                       setup_completed_at AS "setup_completed_at: DateTime<Utc>",
-                       created_at        AS "created_at!: DateTime<Utc>",
-                       updated_at        AS "updated_at!: DateTime<Utc>",
-                       archived          AS "archived!: bool",
-                       pinned            AS "pinned!: bool",
-                       name,
-                       worktree_deleted  AS "worktree_deleted!: bool",
-                       arena_group_id    AS "arena_group_id: Uuid",
-                       arena_status      AS "arena_status!: ArenaStatus"
-               FROM    workspaces
-               WHERE   arena_group_id = $1
-               ORDER BY created_at ASC"#,
+            r#"SELECT  workspace.id                AS "id!: Uuid",
+                       workspace.container_ref,
+                       workspace.workspace_kind    AS "workspace_kind!: WorkspaceKind",
+                       workspace.container_ownership AS "container_ownership!: ContainerOwnership",
+                       workspace.branch,
+                       workspace.setup_completed_at AS "setup_completed_at: DateTime<Utc>",
+                       workspace.created_at        AS "created_at!: DateTime<Utc>",
+                       workspace.updated_at        AS "updated_at!: DateTime<Utc>",
+                       workspace.archived          AS "archived!: bool",
+                       workspace.pinned            AS "pinned!: bool",
+                       workspace.name,
+                       workspace.worktree_deleted  AS "worktree_deleted!: bool"
+               FROM arena_candidates candidate
+               JOIN workspaces workspace ON workspace.id = candidate.workspace_id
+               WHERE candidate.arena_group_id = $1
+               ORDER BY candidate.sort_order ASC, candidate.id ASC"#,
             arena_group_id
         )
         .fetch_all(pool)
@@ -603,21 +535,19 @@ impl Workspace {
     ) -> Result<Option<ArenaGroup>, sqlx::Error> {
         sqlx::query_as::<_, ArenaGroup>(
             r#"SELECT ag.id,
-                      ag.issue_id,
-                      ag.project_id,
+                      ag.task_id,
                       ag.prompt,
                       ag.base_branch,
                       ag.mode,
                       ag.lifecycle_status,
-                      ag.promoted_workspace_id,
-                      ag.implementation_workspace_id,
+                      ag.winner_candidate_id,
                       ag.promoted_at,
                       ag.closed_at,
                       ag.created_at,
                       ag.updated_at
-                 FROM workspaces w
-                 JOIN arena_groups ag ON ag.id = w.arena_group_id
-                WHERE w.id = ?"#,
+                 FROM arena_candidates candidate
+                 JOIN arena_groups ag ON ag.id = candidate.arena_group_id
+                WHERE candidate.workspace_id = ?"#,
         )
         .bind(workspace_id)
         .fetch_optional(pool)
@@ -742,7 +672,6 @@ impl Workspace {
                    OR (runtime_kind = 'script' AND status = 'running')
             )
             SELECT w.id,
-                   w.task_id,
                    w.container_ref,
                    w.workspace_kind,
                    w.container_ownership,
@@ -754,8 +683,6 @@ impl Workspace {
                    w.pinned,
                    w.name,
                    w.worktree_deleted,
-                   w.arena_group_id,
-                   w.arena_status,
                    CASE WHEN active.workspace_id IS NOT NULL THEN 1 ELSE 0 END AS is_running,
                    CASE WHEN latest.status IN (
                        'failed', 'crashed', 'audit_failed', 'killed'
@@ -846,7 +773,7 @@ mod tests {
     use sqlx::{sqlite::SqlitePoolOptions, types::Json};
     use uuid::Uuid;
 
-    use super::{ArenaStatus, ContainerOwnership, Workspace, WorkspaceKind};
+    use super::{ContainerOwnership, Workspace, WorkspaceKind};
 
     fn workspace_with_ownership(
         workspace_kind: WorkspaceKind,
@@ -856,7 +783,6 @@ mod tests {
 
         Workspace {
             id: Uuid::new_v4(),
-            task_id: None,
             container_ref: Some("/tmp/workspace".to_string()),
             workspace_kind,
             container_ownership,
@@ -868,8 +794,6 @@ mod tests {
             pinned: false,
             name: None,
             worktree_deleted: false,
-            arena_group_id: None,
-            arena_status: ArenaStatus::Active,
         }
     }
 

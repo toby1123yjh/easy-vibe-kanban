@@ -8,13 +8,15 @@ use db::models::{
         CreateWorkspaceMode,
     },
     session::{CreateSession, Session},
+    task::{CreateTask, TaskExecutionKind},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use services::services::container::ContainerService;
+use services::services::{container::ContainerService, remote_client::RemoteClientError};
 use utils::response::ApiResponse;
 use uuid::Uuid;
+use workspace_manager::WorkspaceManager;
 
 use crate::{
     DeploymentImpl,
@@ -142,7 +144,7 @@ async fn create_direct_folder_workspace_record(
         )
         .await?;
 
-        WorkspaceRepo::create_many(
+        if let Err(error) = WorkspaceRepo::create_many(
             &deployment.db().pool,
             workspace.id,
             &[CreateWorkspaceRepo {
@@ -150,7 +152,11 @@ async fn create_direct_folder_workspace_record(
                 target_branch,
             }],
         )
-        .await?;
+        .await
+        {
+            Workspace::delete(&deployment.db().pool, workspace.id).await?;
+            return Err(ApiError::Database(error));
+        }
 
         Ok(workspace)
     } else {
@@ -166,6 +172,97 @@ async fn create_direct_folder_workspace_record(
         .await
         .map_err(ApiError::from)
     }
+}
+
+async fn delete_failed_single_agent_records(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    // agent_runs.workspace_id uses ON DELETE RESTRICT, so the runs must be
+    // removed explicitly before Workspace deletion can cascade Sessions.
+    sqlx::query("DELETE FROM agent_runs WHERE workspace_id = ?")
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        r#"
+        DELETE FROM tasks
+        WHERE execution_kind = 'agent'
+          AND id IN (
+              SELECT binding.task_id
+              FROM agent_task_bindings binding
+              JOIN sessions session ON session.id = binding.session_id
+              WHERE session.workspace_id = ?
+          )
+        "#,
+    )
+    .bind(workspace_id)
+    .execute(&mut *transaction)
+    .await?;
+    let deleted = sqlx::query("DELETE FROM workspaces WHERE id = ?")
+        .bind(workspace_id)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+    transaction.commit().await?;
+    Ok(deleted)
+}
+
+async fn compensate_failed_single_agent_creation(
+    deployment: &DeploymentImpl,
+    workspace_id: Uuid,
+    may_have_remote_link: bool,
+) -> Result<(), ApiError> {
+    let mut remote_cleanup_error = None;
+    if may_have_remote_link && let Ok(client) = deployment.remote_client() {
+        match client.delete_workspace(workspace_id).await {
+            Ok(()) | Err(RemoteClientError::Http { status: 404, .. }) => {}
+            Err(error) => remote_cleanup_error = Some(error),
+        }
+    }
+
+    let Some(workspace) = Workspace::find_by_id(&deployment.db().pool, workspace_id).await? else {
+        if let Some(error) = remote_cleanup_error {
+            return Err(error.into());
+        }
+        return Ok(());
+    };
+    let deletion_context = match deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace)
+        .await
+    {
+        Ok(managed_workspace) => match managed_workspace.prepare_deletion_context().await {
+            Ok(context) => Some(context),
+            Err(error) => {
+                tracing::warn!(
+                    %workspace_id,
+                    "failed to prepare filesystem compensation context: {error}"
+                );
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!(
+                %workspace_id,
+                "failed to load workspace for filesystem compensation: {error}"
+            );
+            None
+        }
+    };
+
+    delete_failed_single_agent_records(&deployment.db().pool, workspace_id).await?;
+    if let Some(context) = deletion_context {
+        // External DirectFolder ownership produces no workspace path or branch
+        // cleanup in this context, so compensation never deletes user folders.
+        WorkspaceManager::spawn_workspace_deletion_cleanup(context, true);
+    }
+
+    if let Some(error) = remote_cleanup_error {
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn escape_markdown_label(label: &str) -> String {
@@ -337,195 +434,253 @@ pub async fn create_and_start_workspace(
         .filter(|path| !path.is_empty())
         .map(ToOwned::to_owned);
 
-    let managed_workspace = match mode {
+    let is_worktree = matches!(mode, CreateWorkspaceMode::Worktree);
+    let workspace_record = match mode {
         CreateWorkspaceMode::Worktree => {
             if repos.is_empty() {
                 return Err(ApiError::BadRequest(
                     "At least one repository is required".to_string(),
                 ));
             }
+            create_workspace_record(&deployment, name).await?
+        }
+        CreateWorkspaceMode::DirectFolder => {
+            create_direct_folder_workspace_record(&deployment, name, directory_path).await?
+        }
+    };
+    let workspace_id = workspace_record.id;
 
-            let mut managed_workspace = deployment
-                .workspace_manager()
-                .load_managed_workspace(create_workspace_record(&deployment, name).await?)
-                .await?;
-
+    let creation_result = async {
+        let mut managed_workspace = deployment
+            .workspace_manager()
+            .load_managed_workspace(workspace_record)
+            .await?;
+        if is_worktree {
             for repo in &repos {
                 managed_workspace
                     .add_repository(repo, deployment.git())
                     .await
                     .map_err(ApiError::from)?;
             }
-
-            managed_workspace
         }
-        CreateWorkspaceMode::DirectFolder => {
-            deployment
-                .workspace_manager()
-                .load_managed_workspace(
-                    create_direct_folder_workspace_record(&deployment, name, directory_path)
-                        .await?,
-                )
-                .await?
+
+        if let Some(ids) = &attachment_ids {
+            managed_workspace.associate_attachments(ids).await?;
         }
-    };
 
-    if let Some(ids) = &attachment_ids {
-        managed_workspace.associate_attachments(ids).await?;
-    }
-
-    if let Some(linked_issue) = &linked_issue
-        && let Ok(client) = deployment.remote_client()
-    {
-        match import_issue_attachments_from_remote(
-            &client,
-            deployment.file(),
-            linked_issue.issue_id,
-        )
-        .await
+        if let Some(linked_issue) = &linked_issue
+            && let Ok(client) = deployment.remote_client()
         {
-            Ok(imported_attachments) if !imported_attachments.is_empty() => {
-                let imported_ids = imported_attachments
-                    .iter()
-                    .map(|imported| imported.file.id)
-                    .collect::<Vec<_>>();
+            match import_issue_attachments_from_remote(
+                &client,
+                deployment.file(),
+                linked_issue.issue_id,
+            )
+            .await
+            {
+                Ok(imported_attachments) if !imported_attachments.is_empty() => {
+                    let imported_ids = imported_attachments
+                        .iter()
+                        .map(|imported| imported.file.id)
+                        .collect::<Vec<_>>();
 
-                if let Err(e) = managed_workspace.associate_attachments(&imported_ids).await {
-                    tracing::warn!("Failed to associate imported files with workspace: {}", e);
+                    if let Err(e) = managed_workspace.associate_attachments(&imported_ids).await {
+                        tracing::warn!("Failed to associate imported files with workspace: {}", e);
+                    }
+
+                    workspace_prompt = rewrite_imported_issue_attachments_markdown(
+                        &workspace_prompt,
+                        &imported_attachments,
+                    );
+
+                    tracing::info!(
+                        "Imported {} files from issue {}",
+                        imported_ids.len(),
+                        linked_issue.issue_id
+                    );
                 }
-
-                workspace_prompt = rewrite_imported_issue_attachments_markdown(
-                    &workspace_prompt,
-                    &imported_attachments,
-                );
-
-                tracing::info!(
-                    "Imported {} files from issue {}",
-                    imported_ids.len(),
-                    linked_issue.issue_id
-                );
-            }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!(
-                    "Failed to import issue attachments for issue {}: {}",
-                    linked_issue.issue_id,
-                    e
-                );
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to import issue attachments for issue {}: {}",
+                        linked_issue.issue_id,
+                        e
+                    );
+                }
             }
         }
-    }
 
-    let workspace = managed_workspace.workspace.clone();
-    tracing::info!("Created workspace {}", workspace.id);
+        let workspace = managed_workspace.workspace.clone();
+        tracing::info!("Created workspace {}", workspace.id);
 
-    if let Some(linked_issue) = &linked_issue {
-        link_workspace_to_issue(
-            &deployment,
-            &workspace,
-            linked_issue.remote_project_id,
-            linked_issue.issue_id,
-        )
-        .await?;
-    }
-
-    deployment.container().create(&workspace).await?;
-    let workspace = Workspace::find_by_id(&deployment.db().pool, workspace.id)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Created workspace was not found".to_string()))?;
-    let session = Session::create(
-        &deployment.db().pool,
-        &CreateSession {
+        deployment.container().create(&workspace).await?;
+        let workspace = Workspace::find_by_id(&deployment.db().pool, workspace.id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Created workspace was not found".to_string()))?;
+        let create_session = CreateSession {
             executor: Some(executor_config.executor.to_string()),
             name: None,
-        },
-        Uuid::new_v4(),
-        workspace.id,
-    )
-    .await?;
-    let workspace_repos =
-        WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, workspace.id).await?;
-    let repos_with_setup = if workspace.is_direct_folder() {
-        Vec::new()
-    } else {
-        workspace_repos
-            .iter()
-            .filter(|repo| repo.setup_script.is_some())
-            .collect::<Vec<_>>()
-    };
+        };
+        let session_id = Uuid::new_v4();
+        let session = if let Some(linked_issue) = &linked_issue {
+            let title = workspace
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .or_else(|| {
+                    let prompt = workspace_prompt.trim();
+                    (!prompt.is_empty()).then_some(prompt)
+                })
+                .unwrap_or("Agent task")
+                .chars()
+                .take(160)
+                .collect::<String>();
+            let (session, _) = Session::create_with_agent_task(
+                &deployment.db().pool,
+                &create_session,
+                session_id,
+                workspace.id,
+                &CreateTask {
+                    id: Uuid::new_v4(),
+                    project_id: linked_issue.remote_project_id,
+                    issue_id: linked_issue.issue_id,
+                    parent_task_id: None,
+                    title,
+                    execution_kind: TaskExecutionKind::Agent,
+                },
+            )
+            .await?;
+            session
+        } else {
+            Session::create(
+                &deployment.db().pool,
+                &create_session,
+                session_id,
+                workspace.id,
+            )
+            .await?
+        };
+        let workspace_repos =
+            WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, workspace.id).await?;
+        let repos_with_setup = if workspace.is_direct_folder() {
+            Vec::new()
+        } else {
+            workspace_repos
+                .iter()
+                .filter(|repo| repo.setup_script.is_some())
+                .collect::<Vec<_>>()
+        };
 
-    let agent_run = if repos_with_setup.is_empty() {
-        sessions::start_coding_agent_execution_for_session(
-            &deployment,
-            session,
-            workspace_prompt,
-            selected_skills,
-            executor_config.clone(),
-            resume_session_id.clone(),
-            resume_scope_path.clone(),
-        )
-        .await?
-    } else if repos_with_setup
-        .iter()
-        .all(|repo| repo.parallel_setup_script)
-    {
-        for repo in repos_with_setup {
-            if let Some(setup_action) = deployment
-                .container()
-                .setup_actions_for_repos(std::slice::from_ref(repo))
-                && let Err(error) = deployment
+        // Link only after the canonical Session/Task exists, but before any
+        // setup or Agent process can start. Process launch is intentionally
+        // the final fallible stage because record compensation cannot safely
+        // stand in for terminating an already-started provider process.
+        if let Some(linked_issue) = &linked_issue {
+            link_workspace_to_issue(
+                &deployment,
+                &workspace,
+                linked_issue.remote_project_id,
+                linked_issue.issue_id,
+            )
+            .await?;
+        }
+
+        let agent_run = if repos_with_setup.is_empty() {
+            sessions::start_coding_agent_execution_for_session(
+                &deployment,
+                session,
+                workspace_prompt,
+                selected_skills,
+                executor_config.clone(),
+                resume_session_id.clone(),
+                resume_scope_path.clone(),
+            )
+            .await?
+        } else if repos_with_setup
+            .iter()
+            .all(|repo| repo.parallel_setup_script)
+        {
+            for repo in repos_with_setup {
+                if let Some(setup_action) = deployment
                     .container()
-                    .start_execution(
-                        &workspace,
-                        &session,
-                        &setup_action,
-                        &ExecutionProcessRunReason::SetupScript,
+                    .setup_actions_for_repos(std::slice::from_ref(repo))
+                    && let Err(error) = deployment
+                        .container()
+                        .start_execution(
+                            &workspace,
+                            &session,
+                            &setup_action,
+                            &ExecutionProcessRunReason::SetupScript,
+                        )
+                        .await
+                {
+                    tracing::warn!(
+                        workspace_id = %workspace.id,
+                        repo_id = %repo.id,
+                        "failed to start parallel workspace setup script: {error:#}"
+                    );
+                }
+            }
+            sessions::start_coding_agent_execution_for_session(
+                &deployment,
+                session,
+                workspace_prompt,
+                selected_skills,
+                executor_config.clone(),
+                resume_session_id.clone(),
+                resume_scope_path.clone(),
+            )
+            .await?
+        } else {
+            let setup_action = deployment
+                .container()
+                .setup_actions_for_repos(&workspace_repos)
+                .ok_or_else(|| {
+                    ApiError::BadRequest(
+                        "Workspace setup configuration did not produce a setup action".to_string(),
                     )
-                    .await
+                })?;
+            let reserved = sessions::reserve_coding_agent_execution_for_session(
+                &deployment,
+                session,
+                workspace_prompt,
+                selected_skills,
+                executor_config.clone(),
+                resume_session_id,
+                resume_scope_path,
+            )
+            .await?;
+            sessions::setup_gate::start_reserved_after_setup(
+                &deployment,
+                reserved.agent_run_id,
+                &setup_action,
+            )
+            .await?;
+            reserved
+        };
+
+        Ok::<_, ApiError>((workspace, agent_run))
+    }
+    .await;
+
+    let (workspace, agent_run) = match creation_result {
+        Ok(created) => created,
+        Err(error) => {
+            if let Err(cleanup_error) = compensate_failed_single_agent_creation(
+                &deployment,
+                workspace_id,
+                linked_issue.is_some(),
+            )
+            .await
             {
-                tracing::warn!(
-                    workspace_id = %workspace.id,
-                    repo_id = %repo.id,
-                    "failed to start parallel workspace setup script: {error:#}"
+                tracing::error!(
+                    %workspace_id,
+                    "failed to compensate single-Agent creation: {cleanup_error:#}"
                 );
             }
+            return Err(error);
         }
-        sessions::start_coding_agent_execution_for_session(
-            &deployment,
-            session,
-            workspace_prompt,
-            selected_skills,
-            executor_config.clone(),
-            resume_session_id.clone(),
-            resume_scope_path.clone(),
-        )
-        .await?
-    } else {
-        let setup_action = deployment
-            .container()
-            .setup_actions_for_repos(&workspace_repos)
-            .ok_or_else(|| {
-                ApiError::BadRequest(
-                    "Workspace setup configuration did not produce a setup action".to_string(),
-                )
-            })?;
-        let reserved = sessions::reserve_coding_agent_execution_for_session(
-            &deployment,
-            session,
-            workspace_prompt,
-            selected_skills,
-            executor_config.clone(),
-            resume_session_id,
-            resume_scope_path,
-        )
-        .await?;
-        sessions::setup_gate::start_reserved_after_setup(
-            &deployment,
-            reserved.agent_run_id,
-            &setup_action,
-        )
-        .await?;
-        reserved
     };
 
     deployment
@@ -551,9 +706,182 @@ pub async fn create_and_start_workspace(
 mod tests {
     use chrono::Utc;
     use db::models::file::File;
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
     use uuid::Uuid;
 
-    use super::{ImportedIssueAttachment, rewrite_imported_issue_attachments_markdown};
+    use super::{
+        ImportedIssueAttachment, delete_failed_single_agent_records,
+        rewrite_imported_issue_attachments_markdown,
+    };
+
+    async fn single_agent_cleanup_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(":memory:")
+                    .foreign_keys(true),
+            )
+            .await
+            .expect("connect single-Agent cleanup test database");
+
+        for statement in [
+            r#"
+            CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY,
+                container_ref TEXT,
+                workspace_kind TEXT NOT NULL,
+                container_ownership TEXT NOT NULL
+            )
+            "#,
+            r#"
+            CREATE TABLE sessions (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            )
+            "#,
+            r#"
+            CREATE TABLE tasks (
+                id BLOB PRIMARY KEY,
+                execution_kind TEXT NOT NULL
+            )
+            "#,
+            r#"
+            CREATE TABLE agent_task_bindings (
+                task_id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL UNIQUE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+            "#,
+            r#"
+            CREATE TABLE agent_runs (
+                id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL,
+                workspace_id BLOB NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE RESTRICT
+            )
+            "#,
+        ] {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .expect("create single-Agent cleanup fixture table");
+        }
+
+        pool
+    }
+
+    async fn insert_single_agent_creation(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        session_id: Uuid,
+        task_id: Uuid,
+        agent_run_id: Uuid,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO workspaces (
+                id, container_ref, workspace_kind, container_ownership
+            ) VALUES (?, 'D:\\existing-project', 'direct_folder', 'external')
+            "#,
+        )
+        .bind(workspace_id)
+        .execute(pool)
+        .await
+        .expect("insert Workspace");
+        sqlx::query("INSERT INTO sessions (id, workspace_id) VALUES (?, ?)")
+            .bind(session_id)
+            .bind(workspace_id)
+            .execute(pool)
+            .await
+            .expect("insert Session");
+        sqlx::query("INSERT INTO tasks (id, execution_kind) VALUES (?, 'agent')")
+            .bind(task_id)
+            .execute(pool)
+            .await
+            .expect("insert Agent Task");
+        sqlx::query("INSERT INTO agent_task_bindings (task_id, session_id) VALUES (?, ?)")
+            .bind(task_id)
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .expect("insert Agent Task binding");
+        sqlx::query("INSERT INTO agent_runs (id, session_id, workspace_id) VALUES (?, ?, ?)")
+            .bind(agent_run_id)
+            .bind(session_id)
+            .bind(workspace_id)
+            .execute(pool)
+            .await
+            .expect("insert AgentRun");
+    }
+
+    #[tokio::test]
+    async fn delete_failed_single_agent_records_removes_partial_creation_only() {
+        let pool = single_agent_cleanup_pool().await;
+        let failed = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        let unrelated = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        insert_single_agent_creation(&pool, failed.0, failed.1, failed.2, failed.3).await;
+        insert_single_agent_creation(&pool, unrelated.0, unrelated.1, unrelated.2, unrelated.3)
+            .await;
+
+        let deleted = delete_failed_single_agent_records(&pool, failed.0)
+            .await
+            .expect("compensate failed single-Agent creation");
+
+        assert_eq!(deleted, 1);
+        for (table, id) in [
+            ("workspaces", failed.0),
+            ("sessions", failed.1),
+            ("tasks", failed.2),
+            ("agent_runs", failed.3),
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE id = ?"))
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 0, "failed creation left a row in {table}");
+        }
+        let failed_binding_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM agent_task_bindings WHERE task_id = ?")
+                .bind(failed.2)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(failed_binding_count, 0);
+
+        for (table, id) in [
+            ("workspaces", unrelated.0),
+            ("sessions", unrelated.1),
+            ("tasks", unrelated.2),
+            ("agent_runs", unrelated.3),
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE id = ?"))
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "cleanup removed an unrelated row from {table}");
+        }
+    }
 
     fn imported_file(
         attachment_id: Uuid,

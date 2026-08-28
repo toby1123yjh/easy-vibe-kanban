@@ -482,6 +482,7 @@
       "saveBeforeRun": "请先保存工作流执行，再启动运行。",
       "saveBeforeSession": "请先保存工作流执行，再打开智能体会话。",
       "startFailed": "启动工作流运行失败。",
+      "revisionConflict": "此工作流已在其他位置更新（当前版本 {{currentRevision}}）。再次保存前请重新加载；画布上的本地修改仍会保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "无法解析工作流 JSON。"
     },

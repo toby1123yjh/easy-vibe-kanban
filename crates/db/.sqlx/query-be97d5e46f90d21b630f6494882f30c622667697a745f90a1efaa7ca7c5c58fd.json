@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO workspaces (\n                    id,\n                    container_ref,\n                    workspace_kind,\n                    container_ownership,\n                    branch,\n                    setup_completed_at,\n                    name\n               )\n               VALUES ($1, $2, $3, $4, $5, $6, $7)\n               RETURNING id as \"id!: Uuid\",\n                         container_ref,\n                         workspace_kind as \"workspace_kind!: WorkspaceKind\",\n                         container_ownership as \"container_ownership!: ContainerOwnership\",\n                         branch,\n                         setup_completed_at as \"setup_completed_at: DateTime<Utc>\",\n                         created_at as \"created_at!: DateTime<Utc>\",\n                         updated_at as \"updated_at!: DateTime<Utc>\",\n                         archived as \"archived!: bool\",\n                         pinned as \"pinned!: bool\",\n                         name,\n                         worktree_deleted as \"worktree_deleted!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "container_ref",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "workspace_kind!: WorkspaceKind",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "container_ownership!: ContainerOwnership",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "archived!: bool",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pinned!: bool",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "worktree_deleted!: bool",
+        "ordinal": 11,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "be97d5e46f90d21b630f6494882f30c622667697a745f90a1efaa7ca7c5c58fd"
+}

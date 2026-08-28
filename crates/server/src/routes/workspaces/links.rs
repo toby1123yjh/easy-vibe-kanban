@@ -6,7 +6,13 @@ use axum::{
     response::Json as ResponseJson,
     routing::{delete, post},
 };
-use db::models::{merge::MergeStatus, pull_request::PullRequest, workspace::Workspace};
+use db::models::{
+    merge::MergeStatus,
+    pull_request::PullRequest,
+    session::Session,
+    task::{CreateTask, Task, TaskExecutionKind},
+    workspace::Workspace,
+};
 use deployment::Deployment;
 use serde::Deserialize;
 use services::services::{diff_stream, remote_client::RemoteClientError, remote_sync};
@@ -21,41 +27,70 @@ pub struct LinkWorkspaceRequest {
     pub issue_id: Uuid,
 }
 
-async fn upsert_local_workspace_link(
+async fn ensure_local_agent_task(
     pool: &sqlx::SqlitePool,
-    workspace_id: Uuid,
+    workspace: &Workspace,
     project_id: Uuid,
     issue_id: Uuid,
-) -> Result<(), ApiError> {
-    sqlx::query(
-        r#"
-        INSERT INTO local_workspace_links
-            (workspace_id, project_id, issue_id)
-        VALUES (?, ?, ?)
-        ON CONFLICT(workspace_id) DO UPDATE SET
-            project_id = excluded.project_id,
-            issue_id = excluded.issue_id,
-            updated_at = datetime('now', 'subsec')
-        "#,
+) -> Result<Task, ApiError> {
+    let issue_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM local_issues WHERE id = ? AND project_id = ?)",
     )
-    .bind(workspace_id)
-    .bind(project_id)
     .bind(issue_id)
-    .execute(pool)
+    .bind(project_id)
+    .fetch_one(pool)
     .await?;
+    if !issue_exists {
+        return Err(ApiError::BadRequest(format!(
+            "issue {issue_id} does not belong to project {project_id}"
+        )));
+    }
 
-    Ok(())
+    if let Some(task) = Task::find_agent_by_workspace_id(pool, workspace.id).await? {
+        if task.project_id != project_id || task.issue_id != issue_id {
+            return Err(ApiError::Conflict(format!(
+                "workspace {} is already owned by immutable Task {}",
+                workspace.id, task.id
+            )));
+        }
+        return Ok(task);
+    }
+
+    let session = Session::find_first_by_workspace_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| {
+            ApiError::Conflict(
+                "An Agent Task can only be created after its Session exists".to_string(),
+            )
+        })?;
+    let title = workspace
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or("Agent task")
+        .to_string();
+
+    Ok(Task::create_agent_task(
+        pool,
+        &CreateTask {
+            id: Uuid::new_v4(),
+            project_id,
+            issue_id,
+            parent_task_id: None,
+            title,
+            execution_kind: TaskExecutionKind::Agent,
+        },
+        session.id,
+    )
+    .await?)
 }
 
-async fn delete_local_workspace_link(
+async fn delete_local_agent_task(
     pool: &sqlx::SqlitePool,
     workspace_id: Uuid,
 ) -> Result<(), ApiError> {
-    sqlx::query("DELETE FROM local_workspace_links WHERE workspace_id = ?")
-        .bind(workspace_id)
-        .execute(pool)
-        .await?;
-
+    Task::delete_agent_by_workspace_id(pool, workspace_id).await?;
     Ok(())
 }
 
@@ -65,7 +100,7 @@ pub(crate) async fn link_workspace_to_issue(
     project_id: Uuid,
     issue_id: Uuid,
 ) -> Result<(), ApiError> {
-    upsert_local_workspace_link(&deployment.db().pool, workspace.id, project_id, issue_id).await?;
+    ensure_local_agent_task(&deployment.db().pool, workspace, project_id, issue_id).await?;
 
     if let Ok(client) = deployment.remote_client() {
         let stats =
@@ -159,7 +194,7 @@ pub async fn unlink_workspace(
         }
     }
 
-    delete_local_workspace_link(&deployment.db().pool, workspace_id).await?;
+    delete_local_agent_task(&deployment.db().pool, workspace_id).await?;
 
     Ok(ResponseJson(ApiResponse::success(())))
 }
@@ -179,10 +214,16 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
+    use chrono::Utc;
+    use db::models::{
+        session::{CreateSession, Session},
+        task::Task,
+        workspace::{ContainerOwnership, Workspace, WorkspaceKind},
+    };
+    use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::{delete_local_workspace_link, upsert_local_workspace_link};
+    use super::{delete_local_agent_task, ensure_local_agent_task};
 
     async fn setup_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -191,73 +232,155 @@ mod tests {
             .await
             .expect("connect sqlite");
 
-        sqlx::query(
-            r#"
-            CREATE TABLE local_workspace_links (
-                workspace_id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                issue_id BLOB NOT NULL,
+        for statement in [
+            "CREATE TABLE projects (id BLOB PRIMARY KEY)",
+            "CREATE TABLE local_issues (id BLOB PRIMARY KEY, project_id BLOB NOT NULL)",
+            r#"CREATE TABLE workspaces (
+                id BLOB PRIMARY KEY,
+                container_ref TEXT,
+                workspace_kind TEXT NOT NULL DEFAULT 'worktree',
+                container_ownership TEXT NOT NULL DEFAULT 'managed',
+                branch TEXT NOT NULL,
+                setup_completed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                archived INTEGER NOT NULL DEFAULT 0,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                name TEXT,
+                worktree_deleted BOOLEAN NOT NULL DEFAULT FALSE
+            )"#,
+            r#"CREATE TABLE sessions (
+                id BLOB PRIMARY KEY,
+                workspace_id BLOB NOT NULL,
+                name TEXT,
+                executor TEXT,
+                agent_working_dir TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("create local_workspace_links");
+            )"#,
+            r#"CREATE TABLE tasks (
+                id BLOB PRIMARY KEY,
+                project_id BLOB NOT NULL,
+                issue_id BLOB NOT NULL,
+                parent_task_id BLOB,
+                title TEXT NOT NULL,
+                execution_kind TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )"#,
+            r#"CREATE TABLE agent_task_bindings (
+                task_id BLOB PRIMARY KEY,
+                session_id BLOB NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )"#,
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
 
         pool
     }
 
     #[tokio::test]
-    async fn upsert_local_workspace_link_inserts_and_updates() {
+    async fn linking_workspace_creates_one_immutable_agent_task() {
         let pool = setup_pool().await;
         let workspace_id = Uuid::new_v4();
         let project_id = Uuid::new_v4();
-        let first_issue_id = Uuid::new_v4();
-        let second_issue_id = Uuid::new_v4();
-
-        upsert_local_workspace_link(&pool, workspace_id, project_id, first_issue_id)
+        let issue_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO projects (id) VALUES (?)")
+            .bind(project_id)
+            .execute(&pool)
             .await
-            .expect("insert link");
-        upsert_local_workspace_link(&pool, workspace_id, project_id, second_issue_id)
+            .unwrap();
+        sqlx::query("INSERT INTO local_issues (id, project_id) VALUES (?, ?)")
+            .bind(issue_id)
+            .bind(project_id)
+            .execute(&pool)
             .await
-            .expect("update link");
-
-        let row = sqlx::query(
-            "SELECT project_id, issue_id FROM local_workspace_links WHERE workspace_id = ?",
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id, branch, name) VALUES (?, 'main', 'Build API')")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        Session::create(
+            &pool,
+            &CreateSession {
+                executor: Some("codex".to_string()),
+                name: None,
+            },
+            Uuid::new_v4(),
+            workspace_id,
         )
-        .bind(workspace_id)
-        .fetch_one(&pool)
         .await
-        .expect("fetch link");
+        .unwrap();
+        let workspace = Workspace {
+            id: workspace_id,
+            container_ref: None,
+            workspace_kind: WorkspaceKind::Worktree,
+            container_ownership: ContainerOwnership::Managed,
+            branch: "main".to_string(),
+            setup_completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            archived: false,
+            pinned: false,
+            name: Some("Build API".to_string()),
+            worktree_deleted: false,
+        };
 
-        let linked_project_id: Uuid = row.try_get("project_id").expect("project_id");
-        let linked_issue_id: Uuid = row.try_get("issue_id").expect("issue_id");
-
-        assert_eq!(linked_project_id, project_id);
-        assert_eq!(linked_issue_id, second_issue_id);
+        let first = ensure_local_agent_task(&pool, &workspace, project_id, issue_id)
+            .await
+            .unwrap();
+        let second = ensure_local_agent_task(&pool, &workspace, project_id, issue_id)
+            .await
+            .unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.title, "Build API");
     }
 
     #[tokio::test]
-    async fn delete_local_workspace_link_removes_link() {
+    async fn unlinking_workspace_removes_task_but_keeps_session() {
         let pool = setup_pool().await;
         let workspace_id = Uuid::new_v4();
-
-        upsert_local_workspace_link(&pool, workspace_id, Uuid::new_v4(), Uuid::new_v4())
+        let session_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO workspaces (id, branch) VALUES (?, 'main')")
+            .bind(workspace_id)
+            .execute(&pool)
             .await
-            .expect("insert link");
-        delete_local_workspace_link(&pool, workspace_id)
+            .unwrap();
+        sqlx::query("INSERT INTO sessions (id, workspace_id) VALUES (?, ?)")
+            .bind(session_id)
+            .bind(workspace_id)
+            .execute(&pool)
             .await
-            .expect("delete link");
+            .unwrap();
+        sqlx::query("INSERT INTO tasks (id, project_id, issue_id, title, execution_kind) VALUES (?, ?, ?, 'Task', 'agent')")
+            .bind(task_id)
+            .bind(Uuid::new_v4())
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO agent_task_bindings (task_id, session_id) VALUES (?, ?)")
+            .bind(task_id)
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .unwrap();
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM local_workspace_links WHERE workspace_id = ?")
-                .bind(workspace_id)
-                .fetch_one(&pool)
+        delete_local_agent_task(&pool, workspace_id).await.unwrap();
+        assert!(
+            Task::find_agent_by_workspace_id(&pool, workspace_id)
                 .await
-                .expect("count links");
-
-        assert_eq!(count, 0);
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            Session::find_by_id(&pool, session_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

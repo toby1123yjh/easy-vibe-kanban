@@ -51,6 +51,19 @@ export function shouldRelayApiPath(pathAndQuery: string): boolean {
   return !path.startsWith("/api/remote/");
 }
 
+export function requireRelayHostContext(
+  hostId: string | null,
+  kind: "request" | "WebSocket",
+): string {
+  if (hostId) {
+    return hostId;
+  }
+
+  throw new Error(
+    `Host context is required for local API ${kind === "request" ? "requests" : "WebSocket requests"}. Navigate under /hosts/{hostId}/...`,
+  );
+}
+
 export function normalizePath(pathAndQuery: string): string {
   return pathAndQuery.startsWith("/") ? pathAndQuery : `/${pathAndQuery}`;
 }

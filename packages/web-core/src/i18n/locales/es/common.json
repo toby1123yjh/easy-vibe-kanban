@@ -875,6 +875,7 @@
       "saveBeforeRun": "Save the workflow attempt before starting a run.",
       "saveBeforeSession": "Save the workflow attempt before opening an agent session.",
       "startFailed": "Failed to start workflow run.",
+      "revisionConflict": "This workflow changed elsewhere (now revision {{currentRevision}}). Reload before saving again; your local canvas changes are still here.",
       "invalidGraph": "Workflow JSON did not contain a valid workflow.",
       "parseGraphFailed": "Workflow JSON could not be parsed."
     },

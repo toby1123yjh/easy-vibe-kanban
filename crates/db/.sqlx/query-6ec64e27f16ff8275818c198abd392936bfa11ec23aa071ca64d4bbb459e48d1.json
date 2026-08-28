@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO workspaces (id, container_ref, branch, setup_completed_at, name)\n               VALUES ($1, $2, $3, $4, $5)\n               RETURNING id as \"id!: Uuid\", container_ref, workspace_kind as \"workspace_kind!: WorkspaceKind\", container_ownership as \"container_ownership!: ContainerOwnership\", branch, setup_completed_at as \"setup_completed_at: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", archived as \"archived!: bool\", pinned as \"pinned!: bool\", name, worktree_deleted as \"worktree_deleted!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "container_ref",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "workspace_kind!: WorkspaceKind",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "container_ownership!: ContainerOwnership",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "setup_completed_at: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "archived!: bool",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pinned!: bool",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "worktree_deleted!: bool",
+        "ordinal": 11,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "6ec64e27f16ff8275818c198abd392936bfa11ec23aa071ca64d4bbb459e48d1"
+}

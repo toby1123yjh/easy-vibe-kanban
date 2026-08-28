@@ -12,6 +12,7 @@ import {
   isWorkspaceRoutePath,
   normalizePath,
   openBrowserWebSocket,
+  requireRelayHostContext,
   resolveRelayHostIdForCurrentPage,
   shouldRelayApiPath,
   toPathAndQuery,
@@ -51,13 +52,10 @@ export async function requestLocalApiViaRelay(
     return fetch(pathOrUrl, relayRequestInit);
   }
 
-  const hostId =
-    relayHostId ?? resolveRelayHostIdForCurrentPage() ?? getActiveRelayHostId();
-  if (!hostId) {
-    throw new Error(
-      "Host context is required for local API requests. Navigate under /hosts/{hostId}/...",
-    );
-  }
+  const hostId = requireRelayHostContext(
+    relayHostId ?? resolveRelayHostIdForCurrentPage() ?? getActiveRelayHostId(),
+    "request",
+  );
 
   return requestRelayHostApi(hostId, pathAndQuery, relayRequestInit);
 }
@@ -72,15 +70,12 @@ export async function openLocalApiWebSocketViaRelay(
     return openBrowserWebSocket(pathOrUrl);
   }
 
-  const hostId =
+  const hostId = requireRelayHostContext(
     options.relayHostId ??
-    resolveRelayHostIdForCurrentPage() ??
-    getActiveRelayHostId();
-  if (!hostId) {
-    throw new Error(
-      "Host context is required for local API WebSocket requests. Navigate under /hosts/{hostId}/...",
-    );
-  }
+      resolveRelayHostIdForCurrentPage() ??
+      getActiveRelayHostId(),
+    "WebSocket",
+  );
 
   return openRelayHostWebSocket(hostId, pathAndQuery);
 }

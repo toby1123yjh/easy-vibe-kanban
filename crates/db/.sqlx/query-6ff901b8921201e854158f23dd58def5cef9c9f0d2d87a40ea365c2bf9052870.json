@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE workspace_repos\n               SET target_branch = $1, updated_at = datetime('now')\n               WHERE target_branch = $2\n                 AND workspace_id IN (\n                     SELECT child_session.workspace_id\n                     FROM agent_task_bindings parent_binding\n                     JOIN sessions parent_session\n                       ON parent_session.id = parent_binding.session_id\n                     JOIN tasks child_task\n                       ON child_task.parent_task_id = parent_binding.task_id\n                     JOIN agent_task_bindings child_binding\n                       ON child_binding.task_id = child_task.id\n                     JOIN sessions child_session\n                       ON child_session.id = child_binding.session_id\n                     WHERE parent_session.workspace_id = $3\n                 )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6ff901b8921201e854158f23dd58def5cef9c9f0d2d87a40ea365c2bf9052870"
+}

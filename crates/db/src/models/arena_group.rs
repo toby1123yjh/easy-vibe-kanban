@@ -1,31 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, Type};
+use sqlx::{FromRow, SqliteConnection, SqlitePool, Type};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-/// Status of a workspace within an arena race.
-///
-/// `arena_status` is orthogonal to the existing `workspaces.archived`
-/// flag. `Archived` here means "this attempt lost the race / was retried
-/// over"; `archived=true` retains its existing meaning of "user-driven
-/// soft archive".
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
-#[sqlx(type_name = "arena_status", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-#[ts(rename_all = "lowercase")]
-pub enum ArenaStatus {
-    #[default]
-    Active,
-    Promoted,
-    Archived,
-}
-
-/// Product mode for an arena group.
-///
-/// Design mode is the v2 default: workspace-backed discussion with no
-/// default commit. Implementation mode preserves the v1 diff/promote flow.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "arena_mode", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -36,11 +15,6 @@ pub enum ArenaMode {
     Implementation,
 }
 
-/// Product lifecycle for an arena group.
-///
-/// This replaces the v1 "promoted_workspace_id IS NULL means active"
-/// proxy. A group can be closed without promotion and should no longer
-/// block a new arena for the same issue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "arena_lifecycle_status", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -53,103 +27,120 @@ pub enum ArenaLifecycleStatus {
     ImplementationStarted,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
+#[sqlx(type_name = "arena_candidate_purpose", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum ArenaCandidatePurpose {
+    #[default]
+    Attempt,
+    Synthesis,
+}
+
+/// Read-only UI projection for a candidate. This is never stored on Workspace;
+/// winner identity and Workspace archive state are the canonical inputs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum ArenaStatus {
+    #[default]
+    Active,
+    Promoted,
+    Archived,
+}
+
 #[derive(Debug, Error)]
 pub enum ArenaGroupError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
     #[error("Arena group not found")]
     NotFound,
-    #[error("Workspace {workspace_id} does not belong to arena group {group_id}")]
+    #[error("Arena candidate {candidate_id} does not belong to arena group {group_id}")]
+    CandidateNotInGroup { group_id: Uuid, candidate_id: Uuid },
+    #[error("Workspace {workspace_id} is not an Arena candidate in group {group_id}")]
     WorkspaceNotInGroup { group_id: Uuid, workspace_id: Uuid },
-    #[error("Arena group {group_id} has already been promoted")]
-    AlreadyPromoted { group_id: Uuid },
+    #[error("Arena group {group_id} already has a winner")]
+    AlreadyHasWinner { group_id: Uuid },
     #[error("Validation error: {0}")]
     ValidationError(String),
 }
 
-/// A single AI Arena group: N workspace-backed attempts for one local
-/// kanban issue. See `docs/future/ai-arena/spec-v2.md`.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct ArenaGroup {
     pub id: Uuid,
-    pub issue_id: Uuid,
-    pub project_id: Uuid,
+    pub task_id: Uuid,
     pub prompt: String,
     pub base_branch: String,
     pub mode: ArenaMode,
     pub lifecycle_status: ArenaLifecycleStatus,
-    pub promoted_workspace_id: Option<Uuid>,
-    pub implementation_workspace_id: Option<Uuid>,
+    pub winner_candidate_id: Option<Uuid>,
     pub promoted_at: Option<DateTime<Utc>>,
     pub closed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Deserialize, TS)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+pub struct ArenaCandidate {
+    pub id: Uuid,
+    pub arena_group_id: Uuid,
+    pub workspace_id: Uuid,
+    pub purpose: ArenaCandidatePurpose,
+    pub sort_order: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateArenaGroup {
-    pub issue_id: Uuid,
-    pub project_id: Uuid,
+    pub id: Uuid,
+    pub task_id: Uuid,
     pub prompt: String,
     pub base_branch: String,
     pub mode: ArenaMode,
 }
 
+#[derive(Debug, Clone)]
+pub struct CreateArenaCandidate {
+    pub id: Uuid,
+    pub arena_group_id: Uuid,
+    pub workspace_id: Uuid,
+    pub purpose: ArenaCandidatePurpose,
+    pub sort_order: i64,
+}
+
+const ARENA_GROUP_SELECT: &str = r#"
+    SELECT id, task_id, prompt, base_branch, mode, lifecycle_status,
+           winner_candidate_id, promoted_at, closed_at, created_at, updated_at
+    FROM arena_groups
+"#;
+
+const ARENA_CANDIDATE_SELECT: &str = r#"
+    SELECT id, arena_group_id, workspace_id, purpose, sort_order,
+           created_at, updated_at
+    FROM arena_candidates
+"#;
+
 impl ArenaGroup {
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            ArenaGroup,
-            r#"SELECT id                    AS "id!: Uuid",
-                      issue_id              AS "issue_id!: Uuid",
-                      project_id            AS "project_id!: Uuid",
-                      prompt,
-                      base_branch,
-                      mode                  AS "mode!: ArenaMode",
-                      lifecycle_status      AS "lifecycle_status!: ArenaLifecycleStatus",
-                      promoted_workspace_id AS "promoted_workspace_id: Uuid",
-                      implementation_workspace_id AS "implementation_workspace_id: Uuid",
-                      promoted_at           AS "promoted_at: DateTime<Utc>",
-                      closed_at             AS "closed_at: DateTime<Utc>",
-                      created_at            AS "created_at!: DateTime<Utc>",
-                      updated_at            AS "updated_at!: DateTime<Utc>"
-               FROM arena_groups
-               WHERE id = $1"#,
-            id
-        )
-        .fetch_optional(pool)
-        .await
+        sqlx::query_as::<_, ArenaGroup>(&format!("{ARENA_GROUP_SELECT} WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(pool)
+            .await
     }
 
-    /// Find the most-recent open group for an issue.
-    ///
-    /// Used by the kanban-card -> arena-tab redirect. Closed design
-    /// discussions no longer block new arena creation.
     pub async fn find_active_by_issue_id(
         pool: &SqlitePool,
         issue_id: Uuid,
     ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            ArenaGroup,
-            r#"SELECT id                    AS "id!: Uuid",
-                      issue_id              AS "issue_id!: Uuid",
-                      project_id            AS "project_id!: Uuid",
-                      prompt,
-                      base_branch,
-                      mode                  AS "mode!: ArenaMode",
-                      lifecycle_status      AS "lifecycle_status!: ArenaLifecycleStatus",
-                      promoted_workspace_id AS "promoted_workspace_id: Uuid",
-                      implementation_workspace_id AS "implementation_workspace_id: Uuid",
-                      promoted_at           AS "promoted_at: DateTime<Utc>",
-                      closed_at             AS "closed_at: DateTime<Utc>",
-                      created_at            AS "created_at!: DateTime<Utc>",
-                      updated_at            AS "updated_at!: DateTime<Utc>"
-               FROM arena_groups
-               WHERE issue_id = $1
-                 AND lifecycle_status = 'open'
-               ORDER BY created_at DESC
-               LIMIT 1"#,
-            issue_id
-        )
+        sqlx::query_as::<_, ArenaGroup>(&format!(
+            "{ARENA_GROUP_SELECT}
+             WHERE lifecycle_status = 'open'
+               AND task_id IN (SELECT id FROM tasks WHERE issue_id = ?)
+             ORDER BY updated_at DESC, id ASC
+             LIMIT 1"
+        ))
+        .bind(issue_id)
         .fetch_optional(pool)
         .await
     }
@@ -158,26 +149,12 @@ impl ArenaGroup {
         pool: &SqlitePool,
         issue_id: Uuid,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            ArenaGroup,
-            r#"SELECT id                    AS "id!: Uuid",
-                      issue_id              AS "issue_id!: Uuid",
-                      project_id            AS "project_id!: Uuid",
-                      prompt,
-                      base_branch,
-                      mode                  AS "mode!: ArenaMode",
-                      lifecycle_status      AS "lifecycle_status!: ArenaLifecycleStatus",
-                      promoted_workspace_id AS "promoted_workspace_id: Uuid",
-                      implementation_workspace_id AS "implementation_workspace_id: Uuid",
-                      promoted_at           AS "promoted_at: DateTime<Utc>",
-                      closed_at             AS "closed_at: DateTime<Utc>",
-                      created_at            AS "created_at!: DateTime<Utc>",
-                      updated_at            AS "updated_at!: DateTime<Utc>"
-               FROM arena_groups
-               WHERE issue_id = $1
-               ORDER BY created_at DESC"#,
-            issue_id
-        )
+        sqlx::query_as::<_, ArenaGroup>(&format!(
+            "{ARENA_GROUP_SELECT}
+             WHERE task_id IN (SELECT id FROM tasks WHERE issue_id = ?)
+             ORDER BY updated_at DESC, id ASC"
+        ))
+        .bind(issue_id)
         .fetch_all(pool)
         .await
     }
@@ -186,91 +163,93 @@ impl ArenaGroup {
         pool: &SqlitePool,
         project_id: Uuid,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            ArenaGroup,
-            r#"SELECT id                    AS "id!: Uuid",
-                      issue_id              AS "issue_id!: Uuid",
-                      project_id            AS "project_id!: Uuid",
-                      prompt,
-                      base_branch,
-                      mode                  AS "mode!: ArenaMode",
-                      lifecycle_status      AS "lifecycle_status!: ArenaLifecycleStatus",
-                      promoted_workspace_id AS "promoted_workspace_id: Uuid",
-                      implementation_workspace_id AS "implementation_workspace_id: Uuid",
-                      promoted_at           AS "promoted_at: DateTime<Utc>",
-                      closed_at             AS "closed_at: DateTime<Utc>",
-                      created_at            AS "created_at!: DateTime<Utc>",
-                      updated_at            AS "updated_at!: DateTime<Utc>"
-               FROM arena_groups
-               WHERE project_id = $1
-               ORDER BY created_at DESC"#,
-            project_id
-        )
+        sqlx::query_as::<_, ArenaGroup>(&format!(
+            "{ARENA_GROUP_SELECT}
+             WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)
+             ORDER BY updated_at DESC, id ASC"
+        ))
+        .bind(project_id)
         .fetch_all(pool)
         .await
     }
 
-    pub async fn create(pool: &SqlitePool, data: &CreateArenaGroup) -> Result<Self, sqlx::Error> {
-        let id = Uuid::new_v4();
-        sqlx::query_as!(
-            ArenaGroup,
-            r#"INSERT INTO arena_groups
-                   (id, issue_id, project_id, prompt, base_branch, mode)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id                    AS "id!: Uuid",
-                         issue_id              AS "issue_id!: Uuid",
-                         project_id            AS "project_id!: Uuid",
-                         prompt,
-                         base_branch,
-                         mode                  AS "mode!: ArenaMode",
-                         lifecycle_status      AS "lifecycle_status!: ArenaLifecycleStatus",
-                         promoted_workspace_id AS "promoted_workspace_id: Uuid",
-                         implementation_workspace_id AS "implementation_workspace_id: Uuid",
-                         promoted_at           AS "promoted_at: DateTime<Utc>",
-                         closed_at             AS "closed_at: DateTime<Utc>",
-                         created_at            AS "created_at!: DateTime<Utc>",
-                         updated_at            AS "updated_at!: DateTime<Utc>""#,
-            id,
-            data.issue_id,
-            data.project_id,
-            data.prompt,
-            data.base_branch,
-            data.mode
+    pub async fn create(
+        connection: &mut SqliteConnection,
+        data: &CreateArenaGroup,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as::<_, ArenaGroup>(
+            r#"
+            INSERT INTO arena_groups (id, task_id, prompt, base_branch, mode)
+            VALUES (?, ?, ?, ?, ?)
+            RETURNING id, task_id, prompt, base_branch, mode, lifecycle_status,
+                      winner_candidate_id, promoted_at, closed_at,
+                      created_at, updated_at
+            "#,
         )
-        .fetch_one(pool)
+        .bind(data.id)
+        .bind(data.task_id)
+        .bind(&data.prompt)
+        .bind(&data.base_branch)
+        .bind(data.mode)
+        .fetch_one(connection)
         .await
     }
 
-    /// Mark the given workspace as the adopted/promoted attempt for this group.
-    pub async fn set_promoted(
+    pub async fn select_winner(
         pool: &SqlitePool,
         group_id: Uuid,
-        promoted_workspace_id: Uuid,
+        candidate_id: Uuid,
+        lifecycle_status: ArenaLifecycleStatus,
     ) -> Result<(), ArenaGroupError> {
-        let now = Utc::now();
-        let result = sqlx::query!(
-            r#"UPDATE arena_groups
-                  SET promoted_workspace_id = $1,
-                      promoted_at = $2,
-                      lifecycle_status = 'adopted',
-                      implementation_workspace_id = $1,
-                      updated_at  = datetime('now', 'subsec')
-               WHERE id = $3
-                 AND promoted_workspace_id IS NULL"#,
-            promoted_workspace_id,
-            now,
-            group_id
+        if !matches!(
+            lifecycle_status,
+            ArenaLifecycleStatus::Adopted | ArenaLifecycleStatus::ImplementationStarted
+        ) {
+            return Err(ArenaGroupError::ValidationError(
+                "winner selection requires adopted or implementation_started lifecycle".to_string(),
+            ));
+        }
+
+        let candidate_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM arena_candidates
+                 WHERE id = ? AND arena_group_id = ?
+             )",
         )
+        .bind(candidate_id)
+        .bind(group_id)
+        .fetch_one(pool)
+        .await?;
+        if !candidate_exists {
+            return Err(ArenaGroupError::CandidateNotInGroup {
+                group_id,
+                candidate_id,
+            });
+        }
+
+        let result = sqlx::query(
+            r#"
+            UPDATE arena_groups
+            SET winner_candidate_id = ?,
+                promoted_at = datetime('now', 'subsec'),
+                lifecycle_status = ?,
+                updated_at = datetime('now', 'subsec')
+            WHERE id = ? AND winner_candidate_id IS NULL
+            "#,
+        )
+        .bind(candidate_id)
+        .bind(lifecycle_status)
+        .bind(group_id)
         .execute(pool)
         .await?;
 
-        if result.rows_affected() == 0 {
-            return match Self::find_by_id(pool, group_id).await? {
-                Some(_) => Err(ArenaGroupError::AlreadyPromoted { group_id }),
-                None => Err(ArenaGroupError::NotFound),
-            };
+        if result.rows_affected() == 1 {
+            return Ok(());
         }
-        Ok(())
+        match Self::find_by_id(pool, group_id).await? {
+            Some(_) => Err(ArenaGroupError::AlreadyHasWinner { group_id }),
+            None => Err(ArenaGroupError::NotFound),
+        }
     }
 
     pub async fn set_lifecycle_status(
@@ -278,62 +257,117 @@ impl ArenaGroup {
         group_id: Uuid,
         status: ArenaLifecycleStatus,
     ) -> Result<(), ArenaGroupError> {
-        let closed_at = if status == ArenaLifecycleStatus::Closed {
-            Some(Utc::now())
-        } else {
-            None
-        };
-
-        let result = sqlx::query!(
-            r#"UPDATE arena_groups
-                  SET lifecycle_status = $1,
-                      closed_at = COALESCE($2, closed_at),
-                      updated_at = datetime('now', 'subsec')
-                WHERE id = $3"#,
-            status,
-            closed_at,
-            group_id
+        let result = sqlx::query(
+            r#"
+            UPDATE arena_groups
+            SET lifecycle_status = ?,
+                closed_at = CASE
+                    WHEN ? = 'closed' THEN datetime('now', 'subsec')
+                    ELSE closed_at
+                END,
+                updated_at = datetime('now', 'subsec')
+            WHERE id = ?
+            "#,
         )
+        .bind(status)
+        .bind(status)
+        .bind(group_id)
         .execute(pool)
         .await?;
-
         if result.rows_affected() == 0 {
             return Err(ArenaGroupError::NotFound);
         }
-
         Ok(())
     }
 
-    pub async fn set_implementation_workspace(
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM tasks WHERE id = (SELECT task_id FROM arena_groups WHERE id = ?)",
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+}
+
+impl ArenaCandidate {
+    pub async fn create(
+        connection: &mut SqliteConnection,
+        data: &CreateArenaCandidate,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as::<_, ArenaCandidate>(
+            r#"
+            INSERT INTO arena_candidates (
+                id, arena_group_id, workspace_id, purpose, sort_order
+            ) VALUES (?, ?, ?, ?, ?)
+            RETURNING id, arena_group_id, workspace_id, purpose, sort_order,
+                      created_at, updated_at
+            "#,
+        )
+        .bind(data.id)
+        .bind(data.arena_group_id)
+        .bind(data.workspace_id)
+        .bind(data.purpose)
+        .bind(data.sort_order)
+        .fetch_one(connection)
+        .await
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ArenaCandidate>(&format!("{ARENA_CANDIDATE_SELECT} WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+    }
+
+    pub async fn find_by_workspace_id(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ArenaCandidate>(&format!(
+            "{ARENA_CANDIDATE_SELECT} WHERE workspace_id = ?"
+        ))
+        .bind(workspace_id)
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn find_in_group_by_workspace_id(
         pool: &SqlitePool,
         group_id: Uuid,
         workspace_id: Uuid,
-    ) -> Result<(), ArenaGroupError> {
-        let result = sqlx::query!(
-            r#"UPDATE arena_groups
-                  SET implementation_workspace_id = $1,
-                      lifecycle_status = 'implementation_started',
-                      updated_at = datetime('now', 'subsec')
-                WHERE id = $2"#,
-            workspace_id,
-            group_id
-        )
-        .execute(pool)
-        .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(ArenaGroupError::NotFound);
-        }
-
-        Ok(())
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ArenaCandidate>(&format!(
+            "{ARENA_CANDIDATE_SELECT}
+             WHERE arena_group_id = ? AND workspace_id = ?"
+        ))
+        .bind(group_id)
+        .bind(workspace_id)
+        .fetch_optional(pool)
+        .await
     }
 
-    /// Delete a group. Workspaces still pointing at it have
-    /// arena_group_id auto-cleared by ON DELETE SET NULL; their
-    /// arena_status is left untouched (caller decides whether to
-    /// archive them).
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM arena_groups WHERE id = $1", id)
+    pub async fn list_for_group(
+        pool: &SqlitePool,
+        group_id: Uuid,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, ArenaCandidate>(&format!(
+            "{ARENA_CANDIDATE_SELECT}
+             WHERE arena_group_id = ?
+             ORDER BY sort_order ASC, id ASC"
+        ))
+        .bind(group_id)
+        .fetch_all(pool)
+        .await
+    }
+
+    pub async fn delete_by_workspace_id(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM arena_candidates WHERE workspace_id = ?")
+            .bind(workspace_id)
             .execute(pool)
             .await?;
         Ok(result.rows_affected())
@@ -346,110 +380,105 @@ mod tests {
 
     use super::*;
 
-    async fn setup_arena_group_test_pool() -> SqlitePool {
+    async fn setup_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .expect("connect sqlite");
-
         for statement in [
-            r#"
-            CREATE TABLE projects (
+            "CREATE TABLE tasks (id BLOB PRIMARY KEY, project_id BLOB NOT NULL, issue_id BLOB NOT NULL)",
+            r#"CREATE TABLE arena_groups (
                 id BLOB PRIMARY KEY,
-                name TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE local_issues (
-                id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                title TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE workspaces (
-                id BLOB PRIMARY KEY,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE arena_groups (
-                id BLOB PRIMARY KEY,
-                issue_id BLOB NOT NULL,
-                project_id BLOB NOT NULL,
+                task_id BLOB NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
                 prompt TEXT NOT NULL,
                 base_branch TEXT NOT NULL,
                 mode TEXT NOT NULL DEFAULT 'implementation',
                 lifecycle_status TEXT NOT NULL DEFAULT 'open',
-                promoted_workspace_id BLOB,
-                implementation_workspace_id BLOB,
+                winner_candidate_id BLOB,
                 promoted_at TEXT,
                 closed_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
+            )"#,
+            "CREATE TABLE workspaces (id BLOB PRIMARY KEY)",
+            r#"CREATE TABLE arena_candidates (
+                id BLOB PRIMARY KEY,
+                arena_group_id BLOB NOT NULL REFERENCES arena_groups(id) ON DELETE CASCADE,
+                workspace_id BLOB NOT NULL UNIQUE REFERENCES workspaces(id) ON DELETE CASCADE,
+                purpose TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                UNIQUE (arena_group_id, sort_order)
+            )"#,
         ] {
             sqlx::query(statement)
                 .execute(&pool)
                 .await
-                .expect("create schema");
+                .expect("create test schema");
         }
-
         pool
     }
 
-    async fn insert_project_and_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid) {
-        sqlx::query("INSERT INTO projects (id, name) VALUES (?, ?)")
-            .bind(project_id)
-            .bind("Test Project")
-            .execute(pool)
-            .await
-            .expect("insert project");
-
-        sqlx::query("INSERT INTO local_issues (id, project_id, title) VALUES (?, ?, ?)")
-            .bind(issue_id)
-            .bind(project_id)
-            .bind("Test Issue")
-            .execute(pool)
-            .await
-            .expect("insert issue");
-    }
-
     #[tokio::test]
-    async fn active_group_lookup_ignores_closed_design_groups() {
-        let pool = setup_arena_group_test_pool().await;
+    async fn winner_is_candidate_identity_not_workspace_metadata() {
+        let pool = setup_pool().await;
         let project_id = Uuid::new_v4();
         let issue_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let group_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let candidate_id = Uuid::new_v4();
 
-        insert_project_and_issue(&pool, project_id, issue_id).await;
+        sqlx::query("INSERT INTO tasks (id, project_id, issue_id) VALUES (?, ?, ?)")
+            .bind(task_id)
+            .bind(project_id)
+            .bind(issue_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
 
-        let group = ArenaGroup::create(
-            &pool,
+        let mut connection = pool.acquire().await.unwrap();
+        ArenaGroup::create(
+            &mut connection,
             &CreateArenaGroup {
-                issue_id,
-                project_id,
-                prompt: "Compare two designs".to_string(),
+                id: group_id,
+                task_id,
+                prompt: "Compare".to_string(),
                 base_branch: "main".to_string(),
                 mode: ArenaMode::Design,
             },
         )
         .await
-        .expect("create group");
+        .unwrap();
+        ArenaCandidate::create(
+            &mut connection,
+            &CreateArenaCandidate {
+                id: candidate_id,
+                arena_group_id: group_id,
+                workspace_id,
+                purpose: ArenaCandidatePurpose::Attempt,
+                sort_order: 0,
+            },
+        )
+        .await
+        .unwrap();
+        drop(connection);
 
-        ArenaGroup::set_lifecycle_status(&pool, group.id, ArenaLifecycleStatus::Closed)
+        ArenaGroup::select_winner(&pool, group_id, candidate_id, ArenaLifecycleStatus::Adopted)
             .await
-            .expect("close group");
+            .unwrap();
 
-        let active = ArenaGroup::find_active_by_issue_id(&pool, issue_id)
+        let group = ArenaGroup::find_by_id(&pool, group_id)
             .await
-            .expect("active lookup");
-
-        assert!(active.is_none());
+            .unwrap()
+            .unwrap();
+        assert_eq!(group.winner_candidate_id, Some(candidate_id));
     }
 }
