@@ -1,0 +1,84 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.fixture-page {
+  display: grid;
+  gap: var(--vk-space-4);
+  min-width: 0;
+  padding: var(--vk-space-4);
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-lg);
+  background: var(--vk-surface-primary);
+}
+
+.fixture-page h1,
+.fixture-page p {
+  margin: 0;
+}
+
+.fixture-page__actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--vk-space-2);
+}
+
+.fixture-page__actions button {
+  min-height: 36px;
+  padding: var(--vk-space-2) var(--vk-space-3);
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
+  color: var(--vk-text-high);
+  background: var(--vk-surface-secondary);
+}
+
+.fixture-outputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--vk-space-2);
+  margin: 0;
+}
+
+.fixture-outputs > div {
+  min-width: 0;
+  padding: var(--vk-space-2);
+  background: var(--vk-surface-secondary);
+}
+
+.fixture-outputs dt {
+  color: var(--vk-text-low);
+  font-size: var(--vk-font-size-2xs);
+}
+
+.fixture-outputs dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--vk-text-high);
+  font-size: var(--vk-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fixture-wide-content {
+  width: 100%;
+  min-width: 0;
+  height: 600px;
+  border-radius: var(--vk-radius-md);
+  background: var(--vk-surface-secondary);
+}
+
+@media (max-width: 767px) {
+  .fixture-page {
+    padding: var(--vk-space-3);
+  }
+
+  .fixture-outputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
