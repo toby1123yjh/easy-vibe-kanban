@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { ModuleLandingPage } from '@/features/app-shell/ui/ModuleLandingPage';
+import { ProjectDirectoryPage } from '@/features/projects/ui/ProjectDirectoryPage';
 
 export const Route = createFileRoute('/_app/projects/')({
-  component: () => <ModuleLandingPage kind="projects" />,
+  component: ProjectDirectoryPage,
 });

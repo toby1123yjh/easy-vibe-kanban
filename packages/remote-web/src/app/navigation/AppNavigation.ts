@@ -195,6 +195,17 @@ function destinationToRemoteTarget(
           issueId: destination.issueId,
         },
       } as const;
+    case "project-issue-arena":
+      // Remote does not currently own an Arena comparison route. The shared
+      // UI detects the absent navigation action and fails closed before this
+      // fallback can be reached.
+      return {
+        to: "/projects/$projectId/issues/$issueId",
+        params: {
+          projectId: destination.projectId,
+          issueId: destination.issueId,
+        },
+      } as const;
     case "project-issue-workspace":
       return {
         to: "/projects/$projectId/issues/$issueId/hosts/$hostId/workspaces/$workspaceId",
@@ -243,6 +254,8 @@ export function createRemoteHostAppNavigation(hostId: string): AppNavigation {
   };
 
   const navigation: AppNavigation = {
+    projectWorkflowUnavailableReason:
+      "Workflow authoring and runs are unavailable in Remote.",
     resolveFromPath: (path) => resolveRemoteDestinationFromPath(path),
     goToRoot: (transition) => navigateTo({ kind: "root" }, transition),
     goToOnboarding: (transition) =>
@@ -327,6 +340,10 @@ function createRemoteFallbackAppNavigation(): AppNavigation {
   };
 
   const navigation: AppNavigation = {
+    agentExecutionUnavailableReason:
+      "Connect an online Host before starting or opening an Agent execution.",
+    projectWorkflowUnavailableReason:
+      "Workflow authoring and runs are unavailable in Remote.",
     resolveFromPath: (path) => resolveRemoteDestinationFromPath(path),
     goToRoot: (transition) => navigateTo({ kind: "root" }, transition),
     goToOnboarding: (transition) =>

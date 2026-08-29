@@ -105,6 +105,19 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
         ? { kind: 'project-issue', projectId, issueId }
         : null;
     }
+    case '/_app/projects/$projectId_/issues/$issueId_/arena/$groupId': {
+      const projectId = getPathParam(routeParams, 'projectId');
+      const issueId = getPathParam(routeParams, 'issueId');
+      const arenaGroupId = getPathParam(routeParams, 'groupId');
+      return projectId && issueId && arenaGroupId
+        ? {
+            kind: 'project-issue-arena',
+            projectId,
+            issueId,
+            arenaGroupId,
+          }
+        : null;
+    }
     case '/_app/projects/$projectId_/issues/$issueId_/workspaces/$workspaceId': {
       const projectId = getPathParam(routeParams, 'projectId');
       const issueId = getPathParam(routeParams, 'issueId');
@@ -285,6 +298,15 @@ function destinationToLocalTarget(
           issueId: destination.issueId,
         },
       } as const;
+    case 'project-issue-arena':
+      return {
+        to: '/projects/$projectId/issues/$issueId/arena/$groupId',
+        params: {
+          projectId: destination.projectId,
+          issueId: destination.issueId,
+          groupId: destination.arenaGroupId,
+        },
+      } as const;
     case 'project-issue-workspace':
       if (effectiveHostId) {
         return {
@@ -396,6 +418,11 @@ export function createLocalAppNavigation(): AppNavigation {
       ),
     goToProjectIssue: (projectId, issueId, transition) =>
       navigateTo({ kind: 'project-issue', projectId, issueId }, transition),
+    goToProjectIssueArena: (projectId, issueId, arenaGroupId, transition) =>
+      navigateTo(
+        { kind: 'project-issue-arena', projectId, issueId, arenaGroupId },
+        transition
+      ),
     goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>
       navigateTo(
         { kind: 'project-issue-workspace', projectId, issueId, workspaceId },

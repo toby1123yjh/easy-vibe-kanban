@@ -17,6 +17,12 @@ export type AppDestination =
       issueId: string;
     }
   | {
+      kind: 'project-issue-arena';
+      projectId: string;
+      issueId: string;
+      arenaGroupId: string;
+    }
+  | {
       kind: 'project-issue-workspace';
       projectId: string;
       issueId: string;
@@ -42,6 +48,17 @@ export type NavigationTransition = {
 };
 
 export interface AppNavigation {
+  /**
+   * Present when the current deployment cannot open or create Agent execution
+   * surfaces (for example, Remote without an online Host).
+   */
+  agentExecutionUnavailableReason?: string;
+  /**
+   * Present when this deployment has no canonical Workflow authoring/runtime
+   * route. Shared project surfaces must fail closed instead of navigating to a
+   * fallback page.
+   */
+  projectWorkflowUnavailableReason?: string;
   resolveFromPath(path: string): AppDestination | null;
   goToRoot(transition?: NavigationTransition): void;
   goToOnboarding(transition?: NavigationTransition): void;
@@ -74,6 +91,16 @@ export interface AppNavigation {
     issueId: string,
     transition?: NavigationTransition
   ): void;
+  /**
+   * Only deployments with an Arena comparison route provide this action.
+   * Consumers must fail closed when it is absent.
+   */
+  goToProjectIssueArena?(
+    projectId: string,
+    issueId: string,
+    arenaGroupId: string,
+    transition?: NavigationTransition
+  ): void;
   goToProjectIssueWorkspace(
     projectId: string,
     issueId: string,
@@ -99,6 +126,7 @@ type ProjectDestinationKind =
   | 'project-workflow-edit'
   | 'project-workflow-run'
   | 'project-issue'
+  | 'project-issue-arena'
   | 'project-issue-workspace'
   | 'project-issue-workspace-create'
   | 'project-workspace-create';
@@ -161,6 +189,7 @@ export function isProjectDestination(
     case 'project-workflow-edit':
     case 'project-workflow-run':
     case 'project-issue':
+    case 'project-issue-arena':
     case 'project-issue-workspace':
     case 'project-issue-workspace-create':
     case 'project-workspace-create':
@@ -232,6 +261,7 @@ export function resolveKanbanRouteState(
 
     switch (projectDestination.kind) {
       case 'project-issue':
+      case 'project-issue-arena':
       case 'project-issue-workspace':
       case 'project-issue-workspace-create':
         return projectDestination.issueId;
@@ -273,6 +303,7 @@ export function resolveKanbanRouteState(
       case 'project-workflows':
       case 'project-workflow-edit':
       case 'project-workflow-run':
+      case 'project-issue-arena':
         return 'closed';
       case 'project-issue':
         return 'issue';

@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
 import { LoginRequiredPrompt } from '@/shared/dialogs/shared/LoginRequiredPrompt';
-import { KanbanContainer } from '@/features/kanban/ui/KanbanContainer';
+import { ProjectKanbanContainer } from '@/features/projects/ui/ProjectKanbanContainer';
 import { useActions } from '@/shared/hooks/useActions';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
-import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { useOrgContext } from '@/shared/hooks/useOrgContext';
 import { useOrganizationProjects } from '@/shared/hooks/useOrganizationProjects';
 import { usePageTitle } from '@/shared/hooks/usePageTitle';
@@ -20,25 +18,6 @@ import {
   closeKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
-import {
-  PERSIST_KEYS,
-  usePaneSize,
-} from '@/shared/stores/useUiPreferencesStore';
-
-import { ProjectRightSidebarContainer } from './ProjectRightSidebarContainer';
-
-const KANBAN_DEFAULT_LEFT_PANEL_SIZE = 75;
-const KANBAN_BOARD_MIN_PERCENT = 35;
-const KANBAN_BOARD_MIN_SIZE = `${KANBAN_BOARD_MIN_PERCENT}%`;
-const KANBAN_RIGHT_PANEL_MIN_SIZE = '400px';
-
-function getClampedKanbanLeftPanelSize(size: number | string) {
-  if (typeof size !== 'number' || !Number.isFinite(size)) {
-    return KANBAN_DEFAULT_LEFT_PANEL_SIZE;
-  }
-
-  return Math.max(size, KANBAN_BOARD_MIN_PERCENT);
-}
 
 /**
  * Component that registers project mutations with ActionsContext.
@@ -106,92 +85,6 @@ function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function ProjectKanbanBoard() {
-  return (
-    <div className="h-full min-h-0 w-full">
-      <KanbanContainer />
-    </div>
-  );
-}
-
-function ProjectKanbanLayout({ projectName }: { projectName: string }) {
-  const { issueId, isPanelOpen } = useCurrentKanbanRouteState();
-  const isMobile = useIsMobile();
-  const { getIssue } = useProjectContext();
-  const issue = issueId ? getIssue(issueId) : undefined;
-  usePageTitle(issue?.title, projectName);
-  const [kanbanLeftPanelSize, setKanbanLeftPanelSize] = usePaneSize(
-    PERSIST_KEYS.kanbanLeftPanel,
-    KANBAN_DEFAULT_LEFT_PANEL_SIZE
-  );
-
-  const isRightPanelOpen = isPanelOpen;
-
-  if (isMobile) {
-    return isRightPanelOpen ? (
-      <div className="h-full w-full overflow-hidden bg-secondary">
-        <ProjectRightSidebarContainer />
-      </div>
-    ) : (
-      <div className="h-full w-full overflow-hidden bg-primary">
-        <ProjectKanbanBoard />
-      </div>
-    );
-  }
-
-  const clampedKanbanLeftPanelSize =
-    getClampedKanbanLeftPanelSize(kanbanLeftPanelSize);
-
-  const kanbanDefaultLayout: Layout = {
-    'kanban-left': clampedKanbanLeftPanelSize,
-    'kanban-right': 100 - clampedKanbanLeftPanelSize,
-  };
-
-  const onKanbanLayoutChange = (layout: Layout) => {
-    const nextKanbanLeftPanelSize = layout['kanban-left'];
-
-    if (isRightPanelOpen) {
-      setKanbanLeftPanelSize(
-        getClampedKanbanLeftPanelSize(nextKanbanLeftPanelSize)
-      );
-    }
-  };
-
-  return (
-    <Group
-      orientation="horizontal"
-      className="flex-1 min-w-0 h-full"
-      defaultLayout={kanbanDefaultLayout}
-      onLayoutChange={onKanbanLayoutChange}
-    >
-      <Panel
-        id="kanban-left"
-        minSize={KANBAN_BOARD_MIN_SIZE}
-        className="min-w-0 h-full overflow-hidden bg-primary"
-      >
-        <ProjectKanbanBoard />
-      </Panel>
-
-      {isRightPanelOpen && (
-        <Separator
-          id="kanban-separator"
-          className="w-1 bg-panel outline-none hover:bg-brand/50 transition-colors cursor-col-resize"
-        />
-      )}
-
-      {isRightPanelOpen && (
-        <Panel
-          id="kanban-right"
-          minSize={KANBAN_RIGHT_PANEL_MIN_SIZE}
-          className="min-w-0 h-full overflow-hidden bg-secondary"
-        >
-          <ProjectRightSidebarContainer />
-        </Panel>
-      )}
-    </Group>
-  );
-}
-
 function ProjectKanbanInner({ projectId }: { projectId: string }) {
   const { t } = useTranslation('common');
   const { projects, isLoading } = useOrgContext();
@@ -217,10 +110,38 @@ function ProjectKanbanInner({ projectId }: { projectId: string }) {
   return (
     <ProjectProvider projectId={projectId}>
       <ProjectMutationsRegistration>
-        <ProjectKanbanLayout projectName={project.name} />
+        <ProjectKanbanPageSurface projectName={project.name} />
       </ProjectMutationsRegistration>
     </ProjectProvider>
   );
+}
+
+function ProjectKanbanPageSurface({ projectName }: { projectName: string }) {
+  const { issueId } = useCurrentKanbanRouteState();
+  const { getIssue, isLoading, error, retry } = useProjectContext();
+  const issue = issueId ? getIssue(issueId) : undefined;
+  usePageTitle(issue?.title, projectName);
+
+  if (isLoading) {
+    return (
+      <div className="vk-project-surface-state" role="status">
+        Loading project board…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="vk-project-surface-state" role="alert">
+        <span>{error.message || 'The project board could not be synced.'}</span>
+        <button type="button" onClick={retry}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return <ProjectKanbanContainer projectName={projectName} />;
 }
 
 /**
