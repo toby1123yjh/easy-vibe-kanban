@@ -1,0 +1,99 @@
+:root {
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+  padding: 24px;
+}
+
+dl,
+nav {
+  display: grid;
+  gap: 8px;
+}
+
+dl > div {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+}
+
+dd {
+  margin: 0;
+}
+
+nav {
+  grid-template-columns: repeat(3, max-content);
+}
+
+textarea {
+  display: block;
+  min-height: 80px;
+  width: 100%;
+}
+
+[data-testid='scroll-region'] {
+  height: 120px;
+  overflow: auto;
+}
+
+.scroll-content {
+  height: 640px;
+}
+
+#component-root {
+  display: grid;
+  gap: 24px;
+}
+
+.fixture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fixture-floating-panel-content {
+  background: Canvas;
+  height: 100%;
+  overflow: auto;
+}
+
+[data-testid='split-layout'] {
+  display: flex;
+  height: 240px;
+  width: 720px;
+}
+
+[data-testid='split-layout'] > :first-child {
+  flex: 1 1 auto;
+}
+
+[data-testid='split-layout'] [role='separator'] {
+  flex: 0 0 12px;
+  touch-action: none;
+}
+
+[data-testid='split-layout'] [data-pane='secondary'] {
+  flex: 0 0 auto;
+}
+
+@keyframes fixture-motion {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.fixture-motion-probe {
+  animation: fixture-motion 1s linear infinite;
+  transition: transform 1s linear;
+}

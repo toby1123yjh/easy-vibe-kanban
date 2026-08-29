@@ -7,6 +7,7 @@ import { AppRouter } from "@remote/app/entry/App";
 import { RemoteAuthProvider } from "@remote/app/providers/RemoteAuthProvider";
 import { getIdentity } from "@remote/shared/lib/api";
 import { getToken, triggerRefresh } from "@remote/shared/lib/auth/tokenManager";
+import "@vibe/ui/styles/tokens.css";
 import "@remote/app/styles/index.css";
 import "@/i18n";
 import { configureAuthRuntime } from "@/shared/lib/auth/runtime";
@@ -15,6 +16,7 @@ import { setRelayApiBase } from "@/shared/lib/relayBackendApi";
 import { setLocalApiTransport } from "@/shared/lib/localApiTransport";
 import "@/shared/types/modals";
 import { queryClient } from "@/shared/lib/queryClient";
+import { ThemeProvider } from "@/shared/providers/ThemeProvider";
 import {
   requestLocalApiViaWebRtc,
   openLocalApiWebSocketViaWebRtc,
@@ -51,9 +53,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <PostHogProvider client={posthog}>
-        <RemoteAuthProvider>
-          <AppRouter />
-        </RemoteAuthProvider>
+        <ThemeProvider>
+          <RemoteAuthProvider>
+            <AppRouter />
+          </RemoteAuthProvider>
+        </ThemeProvider>
       </PostHogProvider>
     </QueryClientProvider>
   </React.StrictMode>,

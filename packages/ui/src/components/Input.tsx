@@ -1,11 +1,13 @@
 import * as React from 'react';
-import { cn } from '../lib/cn';
 import { twMerge } from 'tailwind-merge';
+
+import { cn } from '../lib/cn';
 
 export interface InputProps
   extends React.InputHTMLAttributes<HTMLInputElement> {
-  onCommandEnter?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onCommandShiftEnter?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onCommandEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  onCommandShiftEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  invalid?: boolean;
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
@@ -16,22 +18,29 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       onKeyDown,
       onCommandEnter,
       onCommandShiftEnter,
+      invalid,
+      'aria-invalid': ariaInvalid,
       ...props
     },
     ref
   ) => {
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Escape') {
-        e.currentTarget.blur();
+    const isInvalid =
+      invalid ?? (ariaInvalid === true || ariaInvalid === 'true');
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Escape') {
+        event.currentTarget.blur();
       }
-      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-        if (e.metaKey && e.shiftKey) {
-          onCommandShiftEnter?.(e);
+
+      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        if (event.metaKey && event.shiftKey) {
+          onCommandShiftEnter?.(event);
         } else {
-          onCommandEnter?.(e);
+          onCommandEnter?.(event);
         }
       }
-      onKeyDown?.(e);
+
+      onKeyDown?.(event);
     };
 
     return (
@@ -39,9 +48,20 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         ref={ref}
         type={type}
         onKeyDown={handleKeyDown}
+        aria-invalid={isInvalid || undefined}
+        data-invalid={isInvalid || undefined}
         className={twMerge(
           cn(
-            'flex h-10 w-full border px-3 py-2 text-sm ring-offset-background file:border-0 bg-transparent file:text-sm file:font-medium focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+            'flex min-h-[var(--vk-input-height)] w-full min-w-0 rounded-[var(--vk-input-radius)] border',
+            'border-[var(--vk-input-border)] bg-[var(--vk-input-surface)] px-[var(--vk-space-3)] py-[var(--vk-space-1)]',
+            'text-[length:var(--vk-font-size-sm)] leading-[var(--vk-line-height-sm)] text-[var(--vk-input-text)]',
+            'placeholder:text-[var(--vk-input-placeholder)] file:border-0 file:bg-transparent file:text-[length:var(--vk-font-size-sm)] file:font-medium',
+            'transition-[background-color,border-color,box-shadow] duration-[var(--vk-duration-fast)] ease-[var(--vk-ease-standard)]',
+            'hover:border-[var(--vk-input-border-hover)]',
+            'focus-visible:border-[var(--vk-input-border-focus)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vk-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--vk-surface-primary)]',
+            'data-[invalid=true]:border-[var(--vk-input-border-invalid)] data-[invalid=true]:focus-visible:ring-[var(--vk-status-error)]',
+            'read-only:cursor-default read-only:bg-[var(--vk-surface-primary)]',
+            'disabled:cursor-not-allowed disabled:border-[var(--vk-border-disabled)] disabled:bg-[var(--vk-input-disabled-surface)] disabled:text-[var(--vk-input-disabled-text)] disabled:placeholder:text-[var(--vk-input-disabled-text)]',
             className
           )
         )}
@@ -52,4 +72,5 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
 );
 
 Input.displayName = 'Input';
+
 export { Input };

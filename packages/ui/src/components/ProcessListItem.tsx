@@ -1,8 +1,4 @@
-import {
-  TerminalIcon,
-  GearIcon,
-  GlobeIcon,
-} from '@phosphor-icons/react';
+import { TerminalIcon, GearIcon, GlobeIcon } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { RunningDots } from './RunningDots';
 

@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "@playwright/test"],
+    "jsx": "react-jsx",
+    "baseUrl": "../..",
+    "paths": {
+      "react": ["packages/ui/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": [
+        "packages/ui/node_modules/@types/react/jsx-runtime.d.ts"
+      ],
+      "react-dom": ["packages/ui/node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/client": [
+        "packages/ui/node_modules/@types/react-dom/client.d.ts"
+      ]
+    },
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "fixture/src/**/*.ts",
+    "fixture/src/**/*.tsx",
+    "specs/**/*.ts",
+    "playwright.config.ts",
+    "vite.config.ts",
+    "../../packages/ui/src/lib/theme.ts"
+  ]
+}

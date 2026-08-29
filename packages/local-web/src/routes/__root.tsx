@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 import { Outlet, createRootRoute } from '@tanstack/react-router';
 import { I18nextProvider } from 'react-i18next';
 import { usePostHog } from 'posthog-js/react';
-import { ThemeMode } from 'shared/types';
 import i18n from '@/i18n';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
-import { ThemeProvider } from '@web/app/providers/ThemeProvider';
+import { ThemeProvider } from '@/shared/providers/ThemeProvider';
 import { useUiPreferencesScratch } from '@/shared/hooks/useUiPreferencesScratch';
 import { UserProvider } from '@/shared/providers/remote/UserProvider';
+import '@vibe/ui/styles/tokens.css';
 import '@/app/styles/new/index.css';
 
 function RootRouteComponent() {
@@ -31,7 +31,7 @@ function RootRouteComponent() {
 
   return (
     <I18nextProvider i18n={i18n}>
-      <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
+      <ThemeProvider initialTheme={config?.theme}>
         <UserProvider>
           <Outlet />
         </UserProvider>

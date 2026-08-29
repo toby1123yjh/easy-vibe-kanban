@@ -6,7 +6,6 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import { Provider as NiceModalProvider } from "@ebay/nice-modal-react";
-import { useSystemTheme } from "@remote/shared/hooks/useSystemTheme";
 import { RemoteActionsProvider } from "@remote/app/providers/RemoteActionsProvider";
 import { RemoteUserSystemProvider } from "@remote/app/providers/RemoteUserSystemProvider";
 import { RemoteAppShell } from "@remote/app/layout/RemoteAppShell";
@@ -107,7 +106,6 @@ function WorkspaceRouteProviders({ children }: { children: ReactNode }) {
 }
 
 function RootLayout() {
-  useSystemTheme();
   useUiPreferencesScratch();
   useKanbanIssueComposerScratch();
   const { isSignedIn } = useAuth();

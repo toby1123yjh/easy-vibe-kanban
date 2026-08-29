@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Theme foundation contract</title>
+  </head>
+  <body>
+    <main data-testid="app-mount">
+      <h1>Theme foundation contract</h1>
+
+      <dl>
+        <div>
+          <dt>Pre-paint snapshot</dt>
+          <dd data-testid="bootstrap-snapshot"></dd>
+        </div>
+        <div>
+          <dt>Controller mode</dt>
+          <dd data-testid="controller-mode"></dd>
+        </div>
+        <div>
+          <dt>Effective theme</dt>
+          <dd data-testid="effective-theme"></dd>
+        </div>
+        <div>
+          <dt>Mount count</dt>
+          <dd data-testid="mount-count"></dd>
+        </div>
+      </dl>
+
+      <nav aria-label="Theme mode">
+        <button type="button" data-theme-mode="system">System</button>
+        <button type="button" data-theme-mode="light">Light</button>
+        <button type="button" data-theme-mode="dark">Dark</button>
+      </nav>
+
+      <label>
+        Representative draft
+        <textarea data-testid="draft">Initial draft</textarea>
+      </label>
+
+      <section data-testid="scroll-region" tabindex="0">
+        <div class="scroll-content">Representative scroll content</div>
+      </section>
+
+      <div id="component-root"></div>
+    </main>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

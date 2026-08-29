@@ -26,7 +26,7 @@ export function XTermInstance({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const initialSizeRef = useRef({ cols: 80, rows: 24 });
-  const { theme } = useTheme();
+  const { effectiveTheme } = useTheme();
   const {
     registerTerminalInstance,
     getTerminalInstance,
@@ -133,7 +133,7 @@ export function XTermInstance({
     if (terminalRef.current) {
       terminalRef.current.options.theme = getTerminalTheme();
     }
-  }, [theme]);
+  }, [effectiveTheme]);
 
   return (
     <div ref={resizeRef} className="w-full h-full px-2 py-1">

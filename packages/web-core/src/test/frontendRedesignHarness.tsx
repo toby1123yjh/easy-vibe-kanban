@@ -83,7 +83,11 @@ export function FrontendRedesignHarness({
   return (
     <AppRuntimeProvider runtime={runtime}>
       <ThemeProviderContext.Provider
-        value={{ theme, setTheme: () => undefined }}
+        value={{
+          theme,
+          effectiveTheme: getResolvedTheme(theme),
+          setTheme: () => undefined,
+        }}
       >
         <FrontendRedesignContractProbe
           routeId={routeId}

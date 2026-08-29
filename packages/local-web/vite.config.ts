@@ -3,6 +3,7 @@ import { sentryVitePlugin } from '@sentry/vite-plugin';
 import { createLogger, defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
+import { getThemeBootstrapScript } from '@vibe/ui/lib/theme';
 import path from 'path';
 import fs from 'fs';
 import pkg from './package.json';
@@ -32,6 +33,24 @@ function createFilteredLogger() {
   };
 
   return logger;
+}
+
+function themeBootstrapPlugin(): Plugin {
+  return {
+    name: 'theme-bootstrap-plugin',
+    transformIndexHtml: {
+      order: 'pre',
+      handler() {
+        return [
+          {
+            tag: 'script',
+            children: getThemeBootstrapScript(),
+            injectTo: 'head-prepend',
+          },
+        ];
+      },
+    },
+  };
 }
 
 function executorSchemasPlugin(): Plugin {
@@ -85,6 +104,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
+    themeBootstrapPlugin(),
     tanstackRouter({
       target: 'react',
       autoCodeSplitting: false,

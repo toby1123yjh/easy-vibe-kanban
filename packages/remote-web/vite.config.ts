@@ -3,7 +3,26 @@ import path from "path";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { getThemeBootstrapScript } from "@vibe/ui/lib/theme";
 import pkg from "./package.json";
+
+function themeBootstrapPlugin(): Plugin {
+  return {
+    name: "theme-bootstrap-plugin",
+    transformIndexHtml: {
+      order: "pre",
+      handler() {
+        return [
+          {
+            tag: "script",
+            children: getThemeBootstrapScript(),
+            injectTo: "head-prepend",
+          },
+        ];
+      },
+    },
+  };
+}
 
 function executorSchemasPlugin(): Plugin {
   const VIRTUAL_ID = "virtual:executor-schemas";
@@ -57,6 +76,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
+    themeBootstrapPlugin(),
     tanstackRouter({
       target: "react",
       autoCodeSplitting: false,

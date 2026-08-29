@@ -4,11 +4,13 @@ import { ThemeMode } from 'shared/types';
 
 export type ThemeProviderState = {
   theme: ThemeMode;
+  effectiveTheme: 'light' | 'dark';
   setTheme: (theme: ThemeMode) => void;
 };
 
 const initialState: ThemeProviderState = {
   theme: ThemeMode.SYSTEM,
+  effectiveTheme: 'light',
   setTheme: () => null,
 };
 

@@ -1,4 +1,4 @@
-import { cn } from '../lib/cn';
+import { StatusDot, type SemanticStatus } from './StatusDot';
 
 export interface ToolStatusLike {
   status: string;
@@ -26,19 +26,19 @@ export function ToolStatusDot({
   const isPending =
     statusType === 'created' || statusType === 'pending_approval';
 
+  const semanticStatus: SemanticStatus = isSuccess
+    ? 'success'
+    : isError
+      ? 'error'
+      : isPending
+        ? 'waiting'
+        : 'cancelled';
+
   return (
-    <span className={cn('inline-flex', className)}>
-      <span
-        className={cn(
-          'size-1.5 rounded-full',
-          isSuccess && 'bg-success',
-          isError && 'bg-error',
-          isPending && 'bg-text-low'
-        )}
-      />
-      {isPending && active && (
-        <span className="absolute inset-0 size-1.5 rounded-full bg-text-low animate-ping" />
-      )}
-    </span>
+    <StatusDot
+      className={className}
+      status={semanticStatus}
+      pulse={isPending && active}
+    />
   );
 }
