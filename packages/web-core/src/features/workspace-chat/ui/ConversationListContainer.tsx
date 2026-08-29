@@ -175,10 +175,34 @@ export const ConversationList = forwardRef<
   ref
 ) {
   const { t } = useTranslation('common');
+  const agentWorkbenchTimelineCopy = useMemo(
+    () => ({
+      fileChanges: t('agentWorkbench.timeline.fileChanges', {
+        defaultValue: 'File changes',
+      }),
+      working: t('agentWorkbench.timeline.working', {
+        defaultValue: 'Agent is working',
+      }),
+      terminalStatuses: {
+        cancelled: t('agentWorkbench.timeline.cancelled', {
+          defaultValue: 'Agent run cancelled',
+        }),
+        failed: t('agentWorkbench.timeline.failed', {
+          defaultValue: 'Agent run failed',
+        }),
+        crashed: t('agentWorkbench.timeline.crashed', {
+          defaultValue: 'Agent run crashed',
+        }),
+        audit_failed: t('agentWorkbench.timeline.auditFailed', {
+          defaultValue: 'Agent run audit failed',
+        }),
+      },
+    }),
+    [t]
+  );
   const repos = reposProp;
   const resetAction = useResetProcess(attempt.id, attempt.session?.id);
   const conversationScopeKey = `${attempt.id}:${sessionScopeId ?? attempt.session?.id ?? 'new'}`;
-  const [filteredEntries, setFilteredEntries] = useState<DisplayEntry[]>([]);
   const [dataVersion, setDataVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [hasSetupScriptRun, setHasSetupScriptRun] = useState(false);
@@ -265,7 +289,6 @@ export const ConversationList = forwardRef<
     setHasSetupScriptRun(false);
     setHasCleanupScriptRun(false);
     setHasRunningProcess(false);
-    setFilteredEntries([]);
     setDataVersion(0);
     lastSettledTailStartIndexRef.current = null;
     reset();
@@ -373,13 +396,13 @@ export const ConversationList = forwardRef<
       derivedEntries.entries,
       pending.source,
       prevEntriesRef.current,
-      prevRowsRef.current
+      prevRowsRef.current,
+      agentWorkbenchTimelineCopy
     );
 
     prevEntriesRef.current = derivedTimeline.displayEntries;
     prevRowsRef.current = derivedTimeline.rows;
 
-    setFilteredEntries(derivedTimeline.displayEntries);
     setDataVersion((current) => current + 1);
     setEntries(derivedEntries.entries);
 
@@ -415,10 +438,7 @@ export const ConversationList = forwardRef<
 
   const prevEntriesRef = useRef<DisplayEntry[]>([]);
   const prevRowsRef = useRef<ConversationRow[]>([]);
-  const conversationRows = useMemo(
-    () => prevRowsRef.current,
-    [filteredEntries]
-  );
+  const conversationRows = prevRowsRef.current;
 
   const hasActiveStreamingTurn = useMemo(
     () =>
@@ -654,12 +674,7 @@ export const ConversationList = forwardRef<
     };
 
     correctScroll();
-  }, [
-    conversationRows,
-    firstUnvirtualizedRowIndex,
-    conversationVirtualizer,
-    scrollToAbsoluteIndex,
-  ]);
+  }, [conversationRows, conversationVirtualizer]);
 
   useImperativeHandle(
     ref,

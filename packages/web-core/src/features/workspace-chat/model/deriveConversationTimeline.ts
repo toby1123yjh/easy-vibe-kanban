@@ -1,5 +1,7 @@
-import { aggregateConsecutiveEntries } from '@/shared/lib/aggregateEntries';
-import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
+import {
+  projectAgentWorkbenchTimeline,
+  type AgentWorkbenchTimelineCopy,
+} from '@/features/agent-workbench/model/agentWorkbenchTimeline';
 import type {
   DisplayEntry,
   PatchTypeWithKey,
@@ -41,19 +43,70 @@ function isRenderableConversationEntry(entry: DisplayEntry): boolean {
 
 export function deriveConversationTimeline(
   entries: PatchTypeWithKey[],
-  source: import('@/shared/hooks/useConversationHistory/types').ConversationTimelineSource,
+  _source: import('@/shared/hooks/useConversationHistory/types').ConversationTimelineSource,
   previousDisplayEntries: DisplayEntry[],
-  previousRows: ConversationRow[]
+  previousRows: ConversationRow[],
+  copy?: AgentWorkbenchTimelineCopy
 ): DerivedConversationTimeline {
-  const runningProcessIds = new Set(
-    source.liveExecutionProcesses
-      .filter(isExecutionProcessActive)
-      .map((process) => process.id)
-  );
-  const displayEntries = aggregateConsecutiveEntries(
-    entries,
-    runningProcessIds
-  ).filter(isRenderableConversationEntry);
+  const entriesByKey = new Map(entries.map((entry) => [entry.patchKey, entry]));
+  const displayEntries = projectAgentWorkbenchTimeline(
+    {
+      ..._source.canonical,
+      entries,
+    },
+    copy
+  )
+    .flatMap((item): DisplayEntry[] => {
+      if (item.kind !== 'tool-group') {
+        const sourceEntry = entriesByKey.get(item.patchKey);
+        if (sourceEntry) return [sourceEntry];
+        if (item.kind !== 'status') return [];
+        return [
+          {
+            type: 'NORMALIZED_ENTRY',
+            content: {
+              entry_type: { type: 'system_message' },
+              content: item.content,
+              timestamp: item.timestamp,
+            },
+            patchKey: item.patchKey,
+            canonical:
+              item.agentRunId &&
+              item.runAttemptId &&
+              item.runAttemptNumber !== null &&
+              item.eventId &&
+              item.sequence !== null
+                ? {
+                    agentRunId: item.agentRunId,
+                    runAttemptId: item.runAttemptId,
+                    runAttemptNumber: item.runAttemptNumber,
+                    eventId: item.eventId,
+                    eventIds: item.eventIds,
+                    sequence: item.sequence,
+                    active: item.active,
+                  }
+                : undefined,
+          },
+        ];
+      }
+      const groupedEntries = item.items.flatMap((tool) => {
+        const sourceEntry = entriesByKey.get(tool.patchKey);
+        return sourceEntry ? [sourceEntry] : [];
+      });
+      if (groupedEntries.length < 2) return groupedEntries;
+      return [
+        {
+          type: 'AGGREGATED_GROUP',
+          aggregationType: 'tool_calls',
+          isRunning: item.active,
+          entries: groupedEntries,
+          patchKey: item.patchKey,
+          executionProcessId:
+            groupedEntries[0]?.executionProcessId ?? undefined,
+        },
+      ];
+    })
+    .filter(isRenderableConversationEntry);
 
   const rows = buildConversationRowsIncremental(
     displayEntries,

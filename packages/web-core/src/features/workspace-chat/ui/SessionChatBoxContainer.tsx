@@ -82,6 +82,10 @@ import { resolveWorkspaceWorkingDirectory } from '@/shared/lib/workspaceContext'
 import { isExecutionProcessActive } from '@/shared/lib/executionProcessRuntime';
 import { deriveCanonicalAgentRunActionPolicy } from '@/features/agent-runtime';
 import { canonicalAgentControls } from '../model/canonicalAgentControls';
+import {
+  isSessionDraftSubmissionCurrent,
+  snapshotSessionDraft,
+} from '@/features/agent-workbench/model/sessionDraft';
 
 /** Compute execution status from boolean flags */
 function computeExecutionStatus(params: {
@@ -236,14 +240,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const activeAgentRunState = activeAgentRun
     ? (activeAgentRun.timeline?.state ?? activeAgentRun.summary.state)
     : null;
-  const activeAgentRunEvents = activeAgentRun?.timeline?.events ?? [];
   const canonicalAgentActionPolicy = useMemo(
     () =>
       deriveCanonicalAgentRunActionPolicy(
         activeAgentRunState,
-        activeAgentRunEvents
+        activeAgentRun?.timeline?.events ?? []
       ),
-    [activeAgentRunEvents, activeAgentRunState]
+    [activeAgentRun, activeAgentRunState]
   );
   const latestAgentRunState = latestAgentRun
     ? (latestAgentRun.timeline?.state ?? latestAgentRun.summary.state)
@@ -289,14 +292,14 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Pending approval for this workspace (shared with the mobile approval banner)
   const pendingApproval = useWorkspacePendingApproval();
 
-  // Use approval_id as scratch key when pending approval exists to avoid
-  // prefilling approval response with queued follow-up message
-  const scratchId = useMemo(() => {
-    if (pendingApproval) {
-      return pendingApproval.controlId;
-    }
-    return isNewSessionMode ? workspaceId : sessionId;
-  }, [pendingApproval, isNewSessionMode, workspaceId, sessionId]);
+  // Follow-up drafts are owned by their canonical session. Interaction
+  // responses are transient and must never replace the session draft.
+  const scratchId = isNewSessionMode ? workspaceId : sessionId;
+  const [interactionMessage, setInteractionMessage] = useState('');
+
+  useEffect(() => {
+    setInteractionMessage('');
+  }, [pendingApproval?.controlId]);
 
   // Get repos for file search
   const { repos } = useWorkspaceRepo(workspaceId);
@@ -447,6 +450,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Ref to access current message value for attachment handler
   const localMessageRef = useRef(localMessage);
+  const draftIdentityRef = useRef({
+    sessionId: scratchId ?? '',
+    revision: 0,
+  });
+  if (draftIdentityRef.current.sessionId !== (scratchId ?? '')) {
+    draftIdentityRef.current = { sessionId: scratchId ?? '', revision: 0 };
+  }
   useEffect(() => {
     localMessageRef.current = localMessage;
   }, [localMessage]);
@@ -458,6 +468,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       const newMessage = currentMessage.trim()
         ? `${currentMessage}\n\n${markdown}`
         : markdown;
+      draftIdentityRef.current.revision += 1;
       setLocalMessage(newMessage);
     },
     [setLocalMessage]
@@ -565,7 +576,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   });
 
   const handleSend = useCallback(async () => {
-    const { prompt, isSlashCommand } = buildAgentPrompt(localMessage, [
+    const submittedMessage = localMessage;
+    const submission = snapshotSessionDraft({
+      sessionId: scratchId ?? '',
+      text: submittedMessage,
+      revision: draftIdentityRef.current.revision,
+    });
+    const { prompt, isSlashCommand } = buildAgentPrompt(submittedMessage, [
       reviewMarkdown,
     ]);
 
@@ -577,11 +594,27 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     });
     if (success) {
       cancelDebouncedSave();
-      setLocalMessage('');
+      const currentMessage = localMessageRef.current;
+      if (
+        isSessionDraftSubmissionCurrent(
+          draftIdentityRef.current.sessionId,
+          currentMessage,
+          draftIdentityRef.current.revision,
+          submission
+        )
+      ) {
+        draftIdentityRef.current.revision += 1;
+        setLocalMessage('');
+        await clearDraft();
+      } else if (
+        executorConfig &&
+        draftIdentityRef.current.sessionId === submission.sessionId
+      ) {
+        await saveToScratch(currentMessage, executorConfig);
+      }
       setSelectedSkills([]);
       setStagedResumeSession(null);
       clearUploadedAttachments();
-      if (isNewSessionMode) await clearDraft();
       if (!isSlashCommand) {
         reviewContext?.clearComments();
       }
@@ -595,13 +628,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onScrollToBottom,
     send,
     localMessage,
+    scratchId,
     reviewMarkdown,
     selectedSkills,
     stagedResumeSession?.agent_session_id,
+    resumeScopePath,
     cancelDebouncedSave,
     setLocalMessage,
+    executorConfig,
+    saveToScratch,
     clearUploadedAttachments,
-    isNewSessionMode,
     clearDraft,
     reviewContext,
   ]);
@@ -632,24 +668,46 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     // Allow queueing if there's a message OR review comments, and we have a config
     if ((!localMessage.trim() && !reviewMarkdown) || !executorConfig) return;
 
-    const { prompt } = buildAgentPrompt(localMessage, [reviewMarkdown]);
+    const submittedMessage = localMessage;
+    const submission = snapshotSessionDraft({
+      sessionId: scratchId ?? '',
+      text: submittedMessage,
+      revision: draftIdentityRef.current.revision,
+    });
+    const { prompt } = buildAgentPrompt(submittedMessage, [reviewMarkdown]);
 
     cancelDebouncedSave();
-    await saveToScratch(localMessage, executorConfig);
+    await saveToScratch(submittedMessage, executorConfig);
     await queueMessage(prompt, executorConfig, selectedSkills);
 
-    // Clear local state after queueing (same as handleSend)
-    setLocalMessage('');
+    const currentMessage = localMessageRef.current;
+    if (
+      isSessionDraftSubmissionCurrent(
+        draftIdentityRef.current.sessionId,
+        currentMessage,
+        draftIdentityRef.current.revision,
+        submission
+      )
+    ) {
+      draftIdentityRef.current.revision += 1;
+      setLocalMessage('');
+      await clearDraft();
+    } else if (draftIdentityRef.current.sessionId === submission.sessionId) {
+      await saveToScratch(currentMessage, executorConfig);
+    }
     setSelectedSkills([]);
     clearUploadedAttachments();
     reviewContext?.clearComments();
   }, [
     localMessage,
+    scratchId,
     reviewMarkdown,
     executorConfig,
+    selectedSkills,
     queueMessage,
     cancelDebouncedSave,
     saveToScratch,
+    clearDraft,
     setLocalMessage,
     clearUploadedAttachments,
     reviewContext,
@@ -658,6 +716,12 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // Editor change handler
   const handleEditorChange = useCallback(
     (value: string) => {
+      if (pendingApproval) {
+        setInteractionMessage(value);
+        if (sendError) clearError();
+        return;
+      }
+      draftIdentityRef.current.revision += 1;
       if (isQueued) cancelQueue();
       if (executorConfig) {
         handleMessageChange(value, executorConfig);
@@ -674,6 +738,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       sendError,
       clearError,
       setLocalMessage,
+      pendingApproval,
     ]
   );
 
@@ -896,17 +961,16 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Handle request changes (deny with feedback)
   const handleRequestChanges = useCallback(async () => {
-    if (pendingApproval?.kind !== 'approval' || !localMessage.trim()) return;
+    if (pendingApproval?.kind !== 'approval' || !interactionMessage.trim())
+      return;
 
     try {
       await denyAsync({
         approvalId: pendingApproval.approvalId,
         agentRunId: pendingApproval.agentRunId,
-        reason: localMessage.trim(),
+        reason: interactionMessage.trim(),
       });
-      cancelDebouncedSave();
-      setLocalMessage('');
-      await clearDraft();
+      setInteractionMessage('');
 
       // Invalidate workspace summary cache to update sidebar
       queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
@@ -916,11 +980,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     }
   }, [
     pendingApproval,
-    localMessage,
+    interactionMessage,
     denyAsync,
-    cancelDebouncedSave,
-    setLocalMessage,
-    clearDraft,
     queryClient,
     onScrollToBottom,
   ]);
@@ -936,13 +997,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       await denyAsync({
         approvalId: pendingApproval.approvalId,
         agentRunId: pendingApproval.agentRunId,
-        reason: localMessage.trim() || 'User denied this tool use request.',
+        reason:
+          interactionMessage.trim() || 'User denied this tool use request.',
       });
-      if (localMessage.trim()) {
-        cancelDebouncedSave();
-        setLocalMessage('');
-        await clearDraft();
-      }
+      setInteractionMessage('');
 
       // Invalidate workspace summary cache to update sidebar
       queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
@@ -952,11 +1010,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     }
   }, [
     pendingApproval,
-    localMessage,
+    interactionMessage,
     denyAsync,
-    cancelDebouncedSave,
-    setLocalMessage,
-    clearDraft,
     queryClient,
     onScrollToBottom,
   ]);
@@ -1010,8 +1065,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     stopStandaloneScripts,
   ]);
 
+  const composerMessage = pendingApproval ? interactionMessage : localMessage;
   const hasMessageContent =
-    localMessage.trim().length > 0 || reviewMarkdown.length > 0;
+    composerMessage.trim().length > 0 || reviewMarkdown.length > 0;
   const runtimeActionPolicy = useMemo(
     () =>
       deriveRuntimeActionPolicy({
@@ -1080,12 +1136,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   // In approval mode, don't show queued message - it's for follow-up, not approval response
   const editorValue = useMemo(() => {
     if (isScratchLoading || !hasInitialValue) return '';
-    if (pendingApproval) return localMessage;
+    if (pendingApproval) return interactionMessage;
     return queuedMessage ?? localMessage;
   }, [
     isScratchLoading,
     hasInitialValue,
     pendingApproval,
+    interactionMessage,
     queuedMessage,
     localMessage,
   ]);

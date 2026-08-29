@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import type {
   ProjectCursor,
   ProjectListItem,
@@ -21,6 +22,7 @@ import { getProjectDestination } from '@/shared/lib/routes/appNavigation';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { useVisualViewportHeightVar } from '@/shared/hooks/useVisualViewportHeightVar';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
+import { AppShellRecentSessionsProvider } from '@/shared/hooks/useAppShellRecentSessions';
 import {
   deriveActiveShellModule,
   derivePageCanvasMode,
@@ -44,6 +46,7 @@ export function AppShellContainer({
   banner,
   children,
 }: AppShellContainerProps) {
+  const { t } = useTranslation('common');
   const location = useLocation();
   const appNavigation = useAppNavigation();
   const currentDestination = useCurrentAppDestination();
@@ -207,46 +210,50 @@ export function AppShellContainer({
   );
 
   return (
-    <div
-      className="vk-app-shell"
-      style={isMobile ? { height: 'var(--app-vh, 100dvh)' } : undefined}
-      data-deployment={adapter.deployment}
-    >
-      <a className="vk-skip-link" href="#main-content">
-        Skip to content
-      </a>
-      <div className="vk-app-shell__layout" data-search-open={searchOpen}>
-        <ProductSidebar
-          adapter={adapter}
-          activeModule={deriveActiveShellModule(location.pathname)}
-          activeProjectId={activeProjectId}
-          activeWorkspaceId={activeWorkspaceId}
-          projects={projectState}
-          sessions={sessionState}
-          objectDrawerOpen={objectDrawerOpen}
-          onObjectDrawerOpenChange={setObjectDrawerOpen}
-          onSearch={openSearch}
-          onProject={(projectId) => appNavigation.goToProject(projectId)}
-          onSession={(workspaceId) => appNavigation.goToWorkspace(workspaceId)}
-        />
-        <div className="vk-page-stack">
-          {banner}
-          <PageCanvas
-            ref={mainContentRef}
-            mode={derivePageCanvasMode(location.pathname)}
-          >
-            {children}
-          </PageCanvas>
+    <AppShellRecentSessionsProvider sessions={sessions}>
+      <div
+        className="vk-app-shell"
+        style={isMobile ? { height: 'var(--app-vh, 100dvh)' } : undefined}
+        data-deployment={adapter.deployment}
+      >
+        <a className="vk-skip-link" href="#main-content">
+          {t('appShell.skipToContent', { defaultValue: 'Skip to content' })}
+        </a>
+        <div className="vk-app-shell__layout" data-search-open={searchOpen}>
+          <ProductSidebar
+            adapter={adapter}
+            activeModule={deriveActiveShellModule(location.pathname)}
+            activeProjectId={activeProjectId}
+            activeWorkspaceId={activeWorkspaceId}
+            projects={projectState}
+            sessions={sessionState}
+            objectDrawerOpen={objectDrawerOpen}
+            onObjectDrawerOpenChange={setObjectDrawerOpen}
+            onSearch={openSearch}
+            onProject={(projectId) => appNavigation.goToProject(projectId)}
+            onSession={(workspaceId) =>
+              appNavigation.goToWorkspace(workspaceId)
+            }
+          />
+          <div className="vk-page-stack">
+            {banner}
+            <PageCanvas
+              ref={mainContentRef}
+              mode={derivePageCanvasMode(location.pathname)}
+            >
+              {children}
+            </PageCanvas>
+          </div>
         </div>
+        <GlobalSearchPalette
+          open={searchOpen}
+          projects={projects}
+          sessions={sessions}
+          sources={searchSources}
+          onClose={closeSearch}
+          onNavigate={adapter.navigateToRoute}
+        />
       </div>
-      <GlobalSearchPalette
-        open={searchOpen}
-        projects={projects}
-        sessions={sessions}
-        sources={searchSources}
-        onClose={closeSearch}
-        onNavigate={adapter.navigateToRoute}
-      />
-    </div>
+    </AppShellRecentSessionsProvider>
   );
 }

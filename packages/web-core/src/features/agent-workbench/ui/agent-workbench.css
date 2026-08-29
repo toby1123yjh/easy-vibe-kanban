@@ -1,0 +1,33 @@
+.vk-agent-workbench {
+  position: relative;
+  isolation: isolate;
+}
+
+.vk-agent-workbench__conversation {
+  container-type: inline-size;
+}
+
+.vk-agent-workbench__inspector {
+  max-width: min(480px, 70vw);
+}
+
+@media (max-width: 767px) {
+  .vk-agent-workbench__separator {
+    display: none;
+  }
+
+  .vk-agent-workbench__inspector[data-visible='true'] {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    width: 100% !important;
+    max-width: none;
+    background: var(--background);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vk-agent-workbench__inspector {
+    transition: none !important;
+  }
+}

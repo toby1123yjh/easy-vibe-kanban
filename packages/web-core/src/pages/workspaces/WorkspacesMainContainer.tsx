@@ -7,10 +7,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Workspace, Session, RepoWithTargetBranch } from 'shared/types';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
-import { MobileApprovalBanner } from '@vibe/ui/components/MobileApprovalBanner';
 import {
   ConversationList,
   type ConversationListHandle,
@@ -24,7 +24,6 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
-import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 /**
  * Isolated component that reads diffStats from WorkspaceContext.
@@ -89,16 +88,41 @@ function ChatBoxWithDiffStats({
   );
 }
 
-/**
- * Mobile-only: surfaces the workspace's pending approval as a banner above the
- * composer. Rendered inside the Entries/Approval providers (via WorkspacesMain),
- * so it can read the shared pending-approval hook. Question approvals are
- * handled by the composer's askQuestion mode and skipped here.
- */
-function MobileApprovalBannerContainer({ onView }: { onView: () => void }) {
+/** Locates the same canonical approval/input event rendered in the timeline. */
+function AgentWorkbenchAttentionBannerContainer({
+  onView,
+}: {
+  onView: () => void;
+}) {
+  const { t } = useTranslation('common');
   const pending = useWorkspacePendingApproval();
-  if (!pending || pending.kind === 'input') return null;
-  return <MobileApprovalBanner toolName={pending.toolName} onView={onView} />;
+  if (!pending) return null;
+  return (
+    <div
+      role="status"
+      className="mx-auto flex w-chat max-w-full items-center gap-3 border-y border-warning/30 bg-warning/10 px-4 py-2 text-sm"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {pending.kind === 'input'
+          ? t('agentWorkbench.attention.waitingForInput', {
+              defaultValue: 'Agent is waiting for input',
+            })
+          : t('agentWorkbench.attention.needsApproval', {
+              toolName: pending.toolName,
+              defaultValue: '{{toolName}} needs approval',
+            })}
+      </span>
+      <button
+        type="button"
+        className="min-h-9 shrink-0 rounded px-3 font-medium text-foreground hover:bg-warning/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        onClick={onView}
+      >
+        {t('agentWorkbench.attention.viewEvent', {
+          defaultValue: 'View event',
+        })}
+      </button>
+    </div>
+  );
 }
 
 export interface WorkspacesMainContainerHandle {
@@ -130,7 +154,6 @@ export const WorkspacesMainContainer = forwardRef<
     repos,
     onSelectSession,
     isLoading,
-    isSessionsLoading: _isSessionsLoading,
     isNewSessionMode,
     onStartNewSession,
   },
@@ -254,13 +277,9 @@ export const WorkspacesMainContainer = forwardRef<
     <ContextBarContainer containerRef={containerRef} />
   ) : null;
 
-  // Mobile-only pending-approval banner between transcript and composer. Gated
-  // here so the banner (and its approvals subscription) never mounts on desktop.
-  const isMobile = useIsMobile();
-  const approvalBannerContent =
-    isMobile && workspaceWithSession ? (
-      <MobileApprovalBannerContainer onView={handleScrollToBottom} />
-    ) : null;
+  const approvalBannerContent = workspaceWithSession ? (
+    <AgentWorkbenchAttentionBannerContainer onView={handleScrollToBottom} />
+  ) : null;
 
   useImperativeHandle(
     ref,
