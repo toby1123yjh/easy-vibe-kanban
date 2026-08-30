@@ -10,6 +10,52 @@
       "discard": "변경 사항 삭제",
       "cancel": "계속 편집"
     },
+    "page": {
+      "eyebrow": "애플리케이션 및 환경",
+      "title": "설정",
+      "description": "애플리케이션 기본 설정, 선택한 호스트 및 Cloud 리소스를 관리합니다.",
+      "currentHost": "현재 호스트",
+      "tabsLabel": "설정 범주",
+      "tabs": {
+        "general": "일반",
+        "host": "현재 호스트",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "설정 섹션",
+      "sections": {
+        "application": "애플리케이션",
+        "repositories": "저장소",
+        "relay": "원격 액세스",
+        "organizations": "조직",
+        "projects": "프로젝트"
+      },
+      "unsaved": {
+        "title": "저장되지 않은 설정",
+        "message": "이 섹션을 나가기 전에 저장되지 않은 변경 사항을 버리시겠습니까?",
+        "discard": "변경 사항 버리기",
+        "cancel": "계속 편집"
+      },
+      "states": {
+        "loadingHosts": "사용 가능한 호스트를 불러오는 중…",
+        "offline": "오프라인",
+        "hostOfflineTitle": "호스트를 사용할 수 없음",
+        "noHostTitle": "선택한 호스트 없음",
+        "hostOffline": "설정을 보거나 변경하기 전에 이 호스트를 다시 연결하세요.",
+        "noHost": "호스트 설정을 관리하려면 사용 가능한 호스트를 선택하세요."
+      },
+      "unavailable": {
+        "title": "계획된 설정",
+        "description": "이 설정은 범위를 명확히 하기 위해 표시되지만 아직 구성할 수 없습니다.",
+        "density": "밀도",
+        "fontScale": "데스크톱 글꼴 크기",
+        "updateChannel": "업데이트 채널",
+        "backupRestore": "백업 및 복원",
+        "diagnostics": "진단",
+        "notifications": "시스템 알림 관리",
+        "dataDirectory": "데이터 디렉터리 관리",
+        "status": "사용할 수 없음"
+      }
+    },
     "layout": {
       "nav": {
         "title": "설정",

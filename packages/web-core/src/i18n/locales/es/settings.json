@@ -10,6 +10,52 @@
       "discard": "Descartar cambios",
       "cancel": "Seguir editando"
     },
+    "page": {
+      "eyebrow": "Aplicación y entorno",
+      "title": "Configuración",
+      "description": "Administra las preferencias de la aplicación, el host seleccionado y los recursos en la nube.",
+      "currentHost": "Host actual",
+      "tabsLabel": "Categorías de configuración",
+      "tabs": {
+        "general": "General",
+        "host": "Host actual",
+        "cloud": "Nube"
+      },
+      "sectionsLabel": "Secciones de configuración",
+      "sections": {
+        "application": "Aplicación",
+        "repositories": "Repositorios",
+        "relay": "Acceso remoto",
+        "organizations": "Organizaciones",
+        "projects": "Proyectos"
+      },
+      "unsaved": {
+        "title": "Configuración sin guardar",
+        "message": "¿Quieres descartar los cambios antes de salir de esta sección?",
+        "discard": "Descartar cambios",
+        "cancel": "Seguir editando"
+      },
+      "states": {
+        "loadingHosts": "Cargando hosts disponibles…",
+        "offline": "Sin conexión",
+        "hostOfflineTitle": "Host no disponible",
+        "noHostTitle": "Ningún host seleccionado",
+        "hostOffline": "Vuelve a conectar este host antes de ver o cambiar su configuración.",
+        "noHost": "Selecciona un host disponible para administrar su configuración."
+      },
+      "unavailable": {
+        "title": "Configuración planificada",
+        "description": "Estas opciones se muestran para mayor claridad, pero aún no se pueden configurar.",
+        "density": "Densidad",
+        "fontScale": "Escala de fuente del escritorio",
+        "updateChannel": "Canal de actualización",
+        "backupRestore": "Copia de seguridad y restauración",
+        "diagnostics": "Diagnósticos",
+        "notifications": "Gestión de notificaciones del sistema",
+        "dataDirectory": "Gestión del directorio de datos",
+        "status": "No disponible"
+      }
+    },
     "layout": {
       "nav": {
         "title": "Configuración",

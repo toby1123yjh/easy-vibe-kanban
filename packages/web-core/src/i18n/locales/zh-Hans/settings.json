@@ -10,6 +10,52 @@
       "discard": "放弃更改",
       "cancel": "继续编辑"
     },
+    "page": {
+      "eyebrow": "应用与环境",
+      "title": "设置",
+      "description": "管理应用偏好、当前主机和 Cloud 资源。",
+      "currentHost": "当前主机",
+      "tabsLabel": "设置分类",
+      "tabs": {
+        "general": "通用",
+        "host": "当前主机",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "设置分区",
+      "sections": {
+        "application": "应用",
+        "repositories": "仓库",
+        "relay": "远程访问",
+        "organizations": "组织",
+        "projects": "项目"
+      },
+      "unsaved": {
+        "title": "设置尚未保存",
+        "message": "离开此分区前要放弃未保存的更改吗？",
+        "discard": "放弃更改",
+        "cancel": "继续编辑"
+      },
+      "states": {
+        "loadingHosts": "正在加载可用主机…",
+        "offline": "离线",
+        "hostOfflineTitle": "主机不可用",
+        "noHostTitle": "未选择主机",
+        "hostOffline": "请先重新连接此主机，再查看或修改它的设置。",
+        "noHost": "请选择一台可用主机来管理主机设置。"
+      },
+      "unavailable": {
+        "title": "规划中的设置",
+        "description": "这些设置暂不可配置，当前仅用于明确产品范围。",
+        "density": "界面密度",
+        "fontScale": "桌面全局字号",
+        "updateChannel": "更新通道",
+        "backupRestore": "备份与恢复",
+        "diagnostics": "诊断信息",
+        "notifications": "系统通知管理",
+        "dataDirectory": "数据目录管理",
+        "status": "暂不可用"
+      }
+    },
     "layout": {
       "nav": {
         "title": "设置",

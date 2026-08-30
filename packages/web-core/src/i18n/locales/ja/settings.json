@@ -10,6 +10,52 @@
       "discard": "変更を破棄",
       "cancel": "編集を続ける"
     },
+    "page": {
+      "eyebrow": "アプリケーションと環境",
+      "title": "設定",
+      "description": "アプリケーション設定、選択中のホスト、Cloud リソースを管理します。",
+      "currentHost": "現在のホスト",
+      "tabsLabel": "設定カテゴリ",
+      "tabs": {
+        "general": "一般",
+        "host": "現在のホスト",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "設定セクション",
+      "sections": {
+        "application": "アプリケーション",
+        "repositories": "リポジトリ",
+        "relay": "リモートアクセス",
+        "organizations": "組織",
+        "projects": "プロジェクト"
+      },
+      "unsaved": {
+        "title": "未保存の設定",
+        "message": "このセクションを離れる前に未保存の変更を破棄しますか？",
+        "discard": "変更を破棄",
+        "cancel": "編集を続ける"
+      },
+      "states": {
+        "loadingHosts": "利用可能なホストを読み込んでいます…",
+        "offline": "オフライン",
+        "hostOfflineTitle": "ホストを利用できません",
+        "noHostTitle": "ホストが選択されていません",
+        "hostOffline": "設定を表示または変更する前に、このホストへ再接続してください。",
+        "noHost": "ホスト設定を管理するには、利用可能なホストを選択してください。"
+      },
+      "unavailable": {
+        "title": "計画中の設定",
+        "description": "これらの設定は範囲を明確にするため表示されていますが、まだ変更できません。",
+        "density": "表示密度",
+        "fontScale": "デスクトップのフォント倍率",
+        "updateChannel": "更新チャンネル",
+        "backupRestore": "バックアップと復元",
+        "diagnostics": "診断情報",
+        "notifications": "システム通知の管理",
+        "dataDirectory": "データディレクトリの管理",
+        "status": "利用不可"
+      }
+    },
     "layout": {
       "nav": {
         "title": "設定",

@@ -10,6 +10,52 @@
       "discard": "Discard Changes",
       "cancel": "Keep Editing"
     },
+    "page": {
+      "eyebrow": "Application and environment",
+      "title": "Settings",
+      "description": "Manage application preferences, the selected host and cloud resources.",
+      "currentHost": "Current host",
+      "tabsLabel": "Settings categories",
+      "tabs": {
+        "general": "General",
+        "host": "Current Host",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "Settings sections",
+      "sections": {
+        "application": "Application",
+        "repositories": "Repositories",
+        "relay": "Remote Access",
+        "organizations": "Organizations",
+        "projects": "Projects"
+      },
+      "unsaved": {
+        "title": "Unsaved settings",
+        "message": "Discard your unsaved changes before leaving this section?",
+        "discard": "Discard changes",
+        "cancel": "Keep editing"
+      },
+      "states": {
+        "loadingHosts": "Loading available hosts…",
+        "offline": "Offline",
+        "hostOfflineTitle": "Host unavailable",
+        "noHostTitle": "No host selected",
+        "hostOffline": "Reconnect this host before viewing or changing its settings.",
+        "noHost": "Select an available host to manage host-owned settings."
+      },
+      "unavailable": {
+        "title": "Planned settings",
+        "description": "These settings are visible for clarity but are not configurable yet.",
+        "density": "Density",
+        "fontScale": "Desktop font scale",
+        "updateChannel": "Update channel",
+        "backupRestore": "Backup and restore",
+        "diagnostics": "Diagnostics",
+        "notifications": "System notification management",
+        "dataDirectory": "Data directory management",
+        "status": "Unavailable"
+      }
+    },
     "layout": {
       "nav": {
         "title": "Settings",

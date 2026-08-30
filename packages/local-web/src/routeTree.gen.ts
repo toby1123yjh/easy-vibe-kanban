@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as OnboardingSignInRouteImport } from './routes/onboarding_.sign-in'
 import { Route as AppWorkspacesRouteImport } from './routes/_app.workspaces'
 import { Route as AppWorkflowsRouteImport } from './routes/_app.workflows'
+import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppProjectsRouteImport } from './routes/_app.projects'
 import { Route as AppNotificationsRouteImport } from './routes/_app.notifications'
 import { Route as AppExportRouteImport } from './routes/_app.export'
@@ -69,6 +70,11 @@ const AppWorkspacesRoute = AppWorkspacesRouteImport.update({
 const AppWorkflowsRoute = AppWorkflowsRouteImport.update({
   id: '/workflows',
   path: '/workflows',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
@@ -232,6 +238,7 @@ export interface FileRoutesByFullPath {
   '/export': typeof AppExportRoute
   '/notifications': typeof AppNotificationsRoute
   '/projects': typeof AppProjectsRouteWithChildren
+  '/settings': typeof AppSettingsRoute
   '/workflows': typeof AppWorkflowsRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/onboarding/sign-in': typeof OnboardingSignInRoute
@@ -264,6 +271,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AppDashboardRoute
   '/export': typeof AppExportRoute
   '/notifications': typeof AppNotificationsRoute
+  '/settings': typeof AppSettingsRoute
   '/workflows': typeof AppWorkflowsRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/onboarding/sign-in': typeof OnboardingSignInRoute
@@ -299,6 +307,7 @@ export interface FileRoutesById {
   '/_app/export': typeof AppExportRoute
   '/_app/notifications': typeof AppNotificationsRoute
   '/_app/projects': typeof AppProjectsRouteWithChildren
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/workflows': typeof AppWorkflowsRoute
   '/_app/workspaces': typeof AppWorkspacesRoute
   '/onboarding_/sign-in': typeof OnboardingSignInRoute
@@ -334,6 +343,7 @@ export interface FileRouteTypes {
     | '/export'
     | '/notifications'
     | '/projects'
+    | '/settings'
     | '/workflows'
     | '/workspaces'
     | '/onboarding/sign-in'
@@ -366,6 +376,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/export'
     | '/notifications'
+    | '/settings'
     | '/workflows'
     | '/workspaces'
     | '/onboarding/sign-in'
@@ -400,6 +411,7 @@ export interface FileRouteTypes {
     | '/_app/export'
     | '/_app/notifications'
     | '/_app/projects'
+    | '/_app/settings'
     | '/_app/workflows'
     | '/_app/workspaces'
     | '/onboarding_/sign-in'
@@ -477,6 +489,13 @@ declare module '@tanstack/react-router' {
       path: '/workflows'
       fullPath: '/workflows'
       preLoaderRoute: typeof AppWorkflowsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/projects': {
@@ -716,6 +735,7 @@ interface AppRouteChildren {
   AppExportRoute: typeof AppExportRoute
   AppNotificationsRoute: typeof AppNotificationsRoute
   AppProjectsRoute: typeof AppProjectsRouteWithChildren
+  AppSettingsRoute: typeof AppSettingsRoute
   AppWorkflowsRoute: typeof AppWorkflowsRoute
   AppWorkspacesRoute: typeof AppWorkspacesRoute
   AppWorkspacesWorkspaceIdRoute: typeof AppWorkspacesWorkspaceIdRoute
@@ -732,6 +752,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppExportRoute: AppExportRoute,
   AppNotificationsRoute: AppNotificationsRoute,
   AppProjectsRoute: AppProjectsRouteWithChildren,
+  AppSettingsRoute: AppSettingsRoute,
   AppWorkflowsRoute: AppWorkflowsRoute,
   AppWorkspacesRoute: AppWorkspacesRoute,
   AppWorkspacesWorkspaceIdRoute: AppWorkspacesWorkspaceIdRoute,

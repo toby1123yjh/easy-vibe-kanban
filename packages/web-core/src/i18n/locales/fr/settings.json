@@ -10,6 +10,52 @@
       "discard": "Abandonner les modifications",
       "cancel": "Continuer l'édition"
     },
+    "page": {
+      "eyebrow": "Application et environnement",
+      "title": "Paramètres",
+      "description": "Gérez les préférences de l’application, l’hôte sélectionné et les ressources Cloud.",
+      "currentHost": "Hôte actuel",
+      "tabsLabel": "Catégories de paramètres",
+      "tabs": {
+        "general": "Général",
+        "host": "Hôte actuel",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "Sections des paramètres",
+      "sections": {
+        "application": "Application",
+        "repositories": "Dépôts",
+        "relay": "Accès à distance",
+        "organizations": "Organisations",
+        "projects": "Projets"
+      },
+      "unsaved": {
+        "title": "Paramètres non enregistrés",
+        "message": "Abandonner les modifications avant de quitter cette section ?",
+        "discard": "Abandonner les modifications",
+        "cancel": "Continuer l’édition"
+      },
+      "states": {
+        "loadingHosts": "Chargement des hôtes disponibles…",
+        "offline": "Hors ligne",
+        "hostOfflineTitle": "Hôte indisponible",
+        "noHostTitle": "Aucun hôte sélectionné",
+        "hostOffline": "Reconnectez cet hôte avant d’afficher ou de modifier ses paramètres.",
+        "noHost": "Sélectionnez un hôte disponible pour gérer ses paramètres."
+      },
+      "unavailable": {
+        "title": "Paramètres prévus",
+        "description": "Ces paramètres sont visibles à titre indicatif, mais ne sont pas encore configurables.",
+        "density": "Densité",
+        "fontScale": "Échelle de police du bureau",
+        "updateChannel": "Canal de mise à jour",
+        "backupRestore": "Sauvegarde et restauration",
+        "diagnostics": "Diagnostics",
+        "notifications": "Gestion des notifications système",
+        "dataDirectory": "Gestion du dossier de données",
+        "status": "Indisponible"
+      }
+    },
     "layout": {
       "nav": {
         "title": "Paramètres",

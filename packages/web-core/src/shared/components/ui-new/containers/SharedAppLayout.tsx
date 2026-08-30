@@ -53,10 +53,10 @@ export function SharedAppLayout() {
           return;
         }
         if (route.startsWith('/settings')) {
-          void SettingsDialog.show({
-            initialSection: route.includes('appearance')
-              ? 'general'
-              : undefined,
+          const target = new URL(route, window.location.origin);
+          void navigate({
+            to: '/settings',
+            search: Object.fromEntries(target.searchParams),
           });
           return;
         }
@@ -68,7 +68,7 @@ export function SharedAppLayout() {
         else if (route === '/projects') void navigate({ to: '/projects' });
         else if (route === '/workflows') void navigate({ to: '/workflows' });
       },
-      openSettings: () => void SettingsDialog.show({}),
+      openSettings: () => void navigate({ to: '/settings' }),
       openUser: () => {
         if (isSignedIn)
           void SettingsDialog.show({ initialSection: 'organizations' });

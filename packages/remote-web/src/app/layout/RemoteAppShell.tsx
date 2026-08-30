@@ -4,7 +4,6 @@ import { AppShellContainer } from "@/features/app-shell/containers/AppShellConta
 import type { AppShellCapabilityAdapter } from "@/features/app-shell/model/appShell";
 import { useAppNavigation } from "@/shared/hooks/useAppNavigation";
 import { useUserSystem } from "@/shared/hooks/useUserSystem";
-import { SettingsDialog } from "@/shared/dialogs/settings/SettingsDialog";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
 import { CloudShutdownExportBanner } from "@/shared/components/CloudShutdownExportBanner";
 
@@ -60,10 +59,10 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
           return;
         }
         if (route.startsWith("/settings")) {
-          void SettingsDialog.show({
-            initialSection: route.includes("appearance")
-              ? "general"
-              : undefined,
+          const target = new URL(route, window.location.origin);
+          void navigate({
+            to: "/settings",
+            search: Object.fromEntries(target.searchParams),
           });
           return;
         }
@@ -75,7 +74,7 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
         else if (route === "/projects") void navigate({ to: "/projects" });
         else if (route === "/workflows") void navigate({ to: "/workflows" });
       },
-      openSettings: () => void SettingsDialog.show({}),
+      openSettings: () => void navigate({ to: "/settings" }),
       openUser: () => void navigate({ to: "/account" }),
     }),
     [appNavigation, appVersion, environment, navigate],

@@ -55,7 +55,11 @@ import {
 } from './SettingsComponents';
 import { useSettingsDirty } from './SettingsDirtyContext';
 
-export function GeneralSettingsSection() {
+export function GeneralSettingsSection({
+  includeAgentSettings = true,
+}: {
+  includeAgentSettings?: boolean;
+} = {}) {
   const { t } = useTranslation(['settings', 'common']);
   const { setDirty: setContextDirty } = useSettingsDirty();
 
@@ -431,102 +435,104 @@ export function GeneralSettingsSection() {
         )}
       </SettingsCard>
 
-      {/* Default Coding Agent */}
-      <SettingsCard
-        title={t('settings.general.taskExecution.title')}
-        description={t('settings.general.taskExecution.description')}
-      >
-        <SettingsField
-          label={t('settings.general.taskExecution.executor.label')}
-          description={t('settings.general.taskExecution.executor.helper')}
+      {/* Agent defaults belong to Agent Center on the routed Settings page. */}
+      {includeAgentSettings && (
+        <SettingsCard
+          title={t('settings.general.taskExecution.title')}
+          description={t('settings.general.taskExecution.description')}
         >
-          <div className="grid grid-cols-2 gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <DropdownMenuTriggerButton
-                  label={
-                    draft?.executor_profile?.executor
-                      ? toPrettyCase(draft.executor_profile.executor)
-                      : t('settings.agents.selectAgent')
-                  }
-                  className="w-full justify-between"
-                  disabled={!profiles}
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                {executorOptions.map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    onClick={() => {
-                      const variants = profiles?.[option.value];
-                      const variantKeys = variants
-                        ? getExecutorVariantKeys(variants)
-                        : [];
-                      const keepCurrentVariant =
-                        variantKeys.length > 0 &&
-                        draft?.executor_profile?.variant &&
-                        variantKeys.includes(draft.executor_profile.variant);
-
-                      const newProfile: ExecutorProfileId = {
-                        executor: option.value as BaseCodingAgent,
-                        variant: keepCurrentVariant
-                          ? draft!.executor_profile!.variant
-                          : null,
-                      };
-                      updateDraft({ executor_profile: newProfile });
-                    }}
-                  >
-                    {option.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {hasVariants ? (
+          <SettingsField
+            label={t('settings.general.taskExecution.executor.label')}
+            description={t('settings.general.taskExecution.executor.helper')}
+          >
+            <div className="grid grid-cols-2 gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <DropdownMenuTriggerButton
                     label={
-                      draft?.executor_profile?.variant
-                        ? toPrettyCase(draft.executor_profile.variant)
-                        : t('settings.general.taskExecution.defaultLabel')
+                      draft?.executor_profile?.executor
+                        ? toPrettyCase(draft.executor_profile.executor)
+                        : t('settings.agents.selectAgent')
                     }
                     className="w-full justify-between"
+                    disabled={!profiles}
                   />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                  {variantOptions.map((variantLabel) => (
+                  {executorOptions.map((option) => (
                     <DropdownMenuItem
-                      key={variantLabel}
+                      key={option.value}
                       onClick={() => {
+                        const variants = profiles?.[option.value];
+                        const variantKeys = variants
+                          ? getExecutorVariantKeys(variants)
+                          : [];
+                        const keepCurrentVariant =
+                          variantKeys.length > 0 &&
+                          draft?.executor_profile?.variant &&
+                          variantKeys.includes(draft.executor_profile.variant);
+
                         const newProfile: ExecutorProfileId = {
-                          executor: draft!.executor_profile!.executor,
-                          variant: variantLabel,
+                          executor: option.value as BaseCodingAgent,
+                          variant: keepCurrentVariant
+                            ? draft!.executor_profile!.variant
+                            : null,
                         };
                         updateDraft({ executor_profile: newProfile });
                       }}
                     >
-                      {toPrettyCase(variantLabel)}
+                      {option.label}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : selectedAgentProfile ? (
-              <button
-                disabled
-                className={cn(
-                  'flex items-center justify-between w-full px-base py-half rounded-sm border border-border bg-secondary',
-                  'text-base text-low opacity-50 cursor-not-allowed'
-                )}
-              >
-                <span className="truncate">
-                  {t('settings.general.taskExecution.defaultLabel')}
-                </span>
-              </button>
-            ) : null}
-          </div>
-        </SettingsField>
-      </SettingsCard>
+
+              {hasVariants ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <DropdownMenuTriggerButton
+                      label={
+                        draft?.executor_profile?.variant
+                          ? toPrettyCase(draft.executor_profile.variant)
+                          : t('settings.general.taskExecution.defaultLabel')
+                      }
+                      className="w-full justify-between"
+                    />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    {variantOptions.map((variantLabel) => (
+                      <DropdownMenuItem
+                        key={variantLabel}
+                        onClick={() => {
+                          const newProfile: ExecutorProfileId = {
+                            executor: draft!.executor_profile!.executor,
+                            variant: variantLabel,
+                          };
+                          updateDraft({ executor_profile: newProfile });
+                        }}
+                      >
+                        {toPrettyCase(variantLabel)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : selectedAgentProfile ? (
+                <button
+                  disabled
+                  className={cn(
+                    'flex items-center justify-between w-full px-base py-half rounded-sm border border-border bg-secondary',
+                    'text-base text-low opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <span className="truncate">
+                    {t('settings.general.taskExecution.defaultLabel')}
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          </SettingsField>
+        </SettingsCard>
+      )}
 
       {/* Git */}
       <SettingsCard

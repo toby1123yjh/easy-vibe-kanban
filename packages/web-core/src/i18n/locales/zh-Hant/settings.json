@@ -10,6 +10,52 @@
       "discard": "放棄變更",
       "cancel": "繼續編輯"
     },
+    "page": {
+      "eyebrow": "應用程式與環境",
+      "title": "設定",
+      "description": "管理應用程式偏好、目前主機和 Cloud 資源。",
+      "currentHost": "目前主機",
+      "tabsLabel": "設定分類",
+      "tabs": {
+        "general": "一般",
+        "host": "目前主機",
+        "cloud": "Cloud"
+      },
+      "sectionsLabel": "設定分區",
+      "sections": {
+        "application": "應用程式",
+        "repositories": "儲存庫",
+        "relay": "遠端存取",
+        "organizations": "組織",
+        "projects": "專案"
+      },
+      "unsaved": {
+        "title": "設定尚未儲存",
+        "message": "離開此分區前要放棄未儲存的變更嗎？",
+        "discard": "放棄變更",
+        "cancel": "繼續編輯"
+      },
+      "states": {
+        "loadingHosts": "正在載入可用主機…",
+        "offline": "離線",
+        "hostOfflineTitle": "主機無法使用",
+        "noHostTitle": "未選擇主機",
+        "hostOffline": "請先重新連接此主機，再檢視或修改它的設定。",
+        "noHost": "請選擇一台可用主機來管理主機設定。"
+      },
+      "unavailable": {
+        "title": "規劃中的設定",
+        "description": "這些設定暫時無法配置，目前僅用於明確產品範圍。",
+        "density": "介面密度",
+        "fontScale": "桌面全域字級",
+        "updateChannel": "更新通道",
+        "backupRestore": "備份與還原",
+        "diagnostics": "診斷資訊",
+        "notifications": "系統通知管理",
+        "dataDirectory": "資料目錄管理",
+        "status": "暫時無法使用"
+      }
+    },
     "layout": {
       "nav": {
         "title": "設定",
