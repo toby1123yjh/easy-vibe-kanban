@@ -4,9 +4,9 @@ import type { WorkflowRunResponse } from 'shared/types';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
 import {
   buildAgentSessionRows,
-  buildWorkspaceSessionHref,
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
@@ -95,7 +95,7 @@ export function WorkflowRunDashboardTab({
     }
 
     setSelectedNodeId(getDefaultSelectedNodeId(run));
-  }, [runtimeView, selectedNodeId]);
+  }, [run, runtimeView, selectedNodeId]);
 
   const selectedNodeWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
   const selectedNode = getWorkflowNodeExecutionForWork(run, selectedNodeWork);

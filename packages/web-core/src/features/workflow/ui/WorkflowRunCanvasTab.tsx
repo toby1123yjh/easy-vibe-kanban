@@ -49,6 +49,7 @@ import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
+import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
 import { cn } from '@/shared/lib/utils';
 import {
   getConditionRouterHumanPrompt,
@@ -75,7 +76,6 @@ import {
 } from '../model/workflowCanvasVisualState';
 import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
 import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
-import { buildWorkspaceSessionHref } from '../model/workflowRunView';
 import {
   getWorkflowNodeActionGate,
   getWorkflowNodeExecutionForWork,

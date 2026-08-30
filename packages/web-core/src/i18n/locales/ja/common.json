@@ -74,6 +74,87 @@
     "headerTitle": "Arena / {{count}} 件の試行",
     "headerSummary": "{{running}} 件実行中 / {{promoted}} 件採用済み / {{archived}} 件アーカイブ済み",
     "headerSummaryWithMemos": "{{running}} 件実行中 / {{promoted}} 件採用済み / {{archived}} 件アーカイブ済み / {{memos}} 件のメモ",
+    "comparison": {
+      "title": "Arena · {{prompt}}",
+      "summary": "{{count}} candidates · {{completed}} completed",
+      "winner": "Winning result",
+      "candidate": "Candidate",
+      "selectWinner": "Select winning result",
+      "empty": "No Arena candidates are available yet.",
+      "unknownExecutor": "Unknown Agent",
+      "openSession": "Open session",
+      "openDiff": "Diff"
+    },
+    "purpose": {
+      "attempt": "Attempt",
+      "synthesis": "Synthesis"
+    },
+    "agentStatus": {
+      "not_started": "Not started",
+      "pending": "Pending",
+      "starting": "Starting",
+      "running": "Running",
+      "awaiting_input": "Waiting for input",
+      "awaiting_approval": "Waiting for approval",
+      "cancelling": "Cancelling",
+      "succeeded": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "crashed": "Crashed",
+      "audit_failed": "Audit failed"
+    },
+    "moreActions": "More Arena actions",
+    "lifecycleActions": {
+      "closeRound": "Close round",
+      "dissolveAndArchive": "Dissolve and archive",
+      "dissolveTitle": "Dissolve and archive this Arena?",
+      "dissolveMessage": "This will archive all {{count}} candidate workspaces and delete the Arena. This cannot be undone.",
+      "closedFeedback": "The Arena round is closed. Results and workspaces were preserved."
+    },
+    "selector": {
+      "label": "Candidate result",
+      "fixedSummary": "{{attempts}} attempts · {{synthesis}} synthesis · {{active}} active"
+    },
+    "resultSummary": {
+      "title": "Result summary",
+      "loading": "Loading the latest result...",
+      "loadFailed": "The latest result could not be loaded.",
+      "running": "The Agent is still working. Its final result will appear here.",
+      "empty": "No final result was reported."
+    },
+    "diff": {
+      "title": "Diff",
+      "unavailable": "Diff summary unavailable",
+      "summary": "{{count}} changed files"
+    },
+    "tests": {
+      "title": "Tests",
+      "running": "Waiting for the Agent's final test result.",
+      "empty": "No structured test result was reported."
+    },
+    "stopAll": {
+      "action": "Stop all",
+      "stopping": "Stopping all candidates",
+      "retry": "Retry stop",
+      "requested": "Cancellation requested for {{count}} Agent runs.",
+      "partialFailure": "Stop All completed with {{failed}} failures out of {{total}} requests. Retry is available.",
+      "failed": "Stop All failed. Retry is available."
+    },
+    "winnerConfirm": {
+      "title": "Use {{candidate}} as the winning result?",
+      "description": "Review the candidate and its impact before continuing.",
+      "changedFiles": "Changed files",
+      "unavailable": "Unavailable",
+      "archivedCandidates": "Candidates to archive",
+      "otherCandidates": "Other candidates",
+      "remainAvailable": "Remain available",
+      "workflowImpact": "The candidate changes will be applied and the Workflow will continue.",
+      "implementationImpact": "This result becomes the implementation starting point. Other candidate results remain available.",
+      "applying": "Applying winning result",
+      "applyAndContinue": "Apply and continue",
+      "startImplementation": "Start implementation",
+      "adopt": "Use result"
+    },
     "modes": {
       "design": "設計 Arena",
       "implementation": "実装 Arena"

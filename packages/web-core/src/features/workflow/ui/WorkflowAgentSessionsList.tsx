@@ -1,10 +1,8 @@
 import { ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import {
-  buildWorkspaceSessionHref,
-  type AgentSessionRow,
-} from '../model/workflowRunView';
+import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
+import type { AgentSessionRow } from '../model/workflowRunView';
 import { cn } from '@/shared/lib/utils';
 
 interface WorkflowAgentSessionsListProps {

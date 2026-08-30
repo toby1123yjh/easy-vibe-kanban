@@ -5,6 +5,7 @@ import {
 } from '@tanstack/react-query';
 import {
   arenaApi,
+  isCancellableArenaAgentRunStatus,
   type ArenaMessageRequest,
   type ArenaGroupResponse,
   type CloseArenaResponse,
@@ -12,6 +13,7 @@ import {
   type RetryArenaRequest,
   type StartArenaImplementationRequest,
 } from '@/shared/lib/arenaApi';
+import { agentRunsApi } from '@/shared/lib/agentRunApi';
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
 
 interface UseArenaActionsResult {
@@ -33,6 +35,17 @@ interface UseArenaActionsResult {
     Error,
     StartArenaImplementationRequest
   >;
+  stopAll: UseMutationResult<
+    ArenaStopAllResult,
+    Error,
+    { sessionIds: string[] }
+  >;
+}
+
+export interface ArenaStopAllResult {
+  requestedAgentRunIds: string[];
+  cancelledAgentRunIds: string[];
+  failures: string[];
 }
 
 /**
@@ -114,5 +127,70 @@ export function useArenaActions(
     onSettled,
   });
 
-  return { promote, retry, dissolve, close, message, startImplementation };
+  const stopAll = useMutation({
+    mutationFn: async ({ sessionIds }: { sessionIds: string[] }) => {
+      const uniqueSessionIds = [...new Set(sessionIds)];
+      const discoveries = await Promise.allSettled(
+        uniqueSessionIds.map(async (sessionId) => ({
+          sessionId,
+          runs: await agentRunsApi.listForSession(sessionId),
+        }))
+      );
+      const failures: string[] = [];
+      const requestedAgentRunIds = new Set<string>();
+
+      for (const discovery of discoveries) {
+        if (discovery.status === 'rejected') {
+          failures.push(
+            discovery.reason instanceof Error
+              ? discovery.reason.message
+              : String(discovery.reason)
+          );
+          continue;
+        }
+        for (const run of discovery.value.runs) {
+          if (isCancellableArenaAgentRunStatus(run.state.status)) {
+            requestedAgentRunIds.add(run.agent_run_id);
+          }
+        }
+      }
+
+      const requested = [...requestedAgentRunIds];
+      const cancellations = await Promise.allSettled(
+        requested.map(async (agentRunId) => {
+          await agentRunsApi.cancel(agentRunId, 'Arena stopped by user.');
+          return agentRunId;
+        })
+      );
+      const cancelledAgentRunIds: string[] = [];
+      for (const cancellation of cancellations) {
+        if (cancellation.status === 'fulfilled') {
+          cancelledAgentRunIds.push(cancellation.value);
+        } else {
+          failures.push(
+            cancellation.reason instanceof Error
+              ? cancellation.reason.message
+              : String(cancellation.reason)
+          );
+        }
+      }
+
+      return {
+        requestedAgentRunIds: requested,
+        cancelledAgentRunIds,
+        failures,
+      } satisfies ArenaStopAllResult;
+    },
+    onSettled,
+  });
+
+  return {
+    promote,
+    retry,
+    dissolve,
+    close,
+    message,
+    startImplementation,
+    stopAll,
+  };
 }

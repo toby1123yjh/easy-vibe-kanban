@@ -39,6 +39,87 @@
     "headerTitle": "Arena / {{count}} 个执行",
     "headerSummary": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档",
     "headerSummaryWithMemos": "{{running}} 个运行中 / {{promoted}} 个已采用 / {{archived}} 个已归档 / {{memos}} 份备忘录",
+    "comparison": {
+      "title": "Arena · {{prompt}}",
+      "summary": "{{count}} 个候选 · {{completed}} 个已完成",
+      "winner": "获胜方案",
+      "candidate": "候选方案",
+      "selectWinner": "选择为获胜方案",
+      "empty": "暂无 Arena 候选结果。",
+      "unknownExecutor": "未知智能体",
+      "openSession": "打开会话",
+      "openDiff": "Diff"
+    },
+    "purpose": {
+      "attempt": "执行方案",
+      "synthesis": "综合结果"
+    },
+    "agentStatus": {
+      "not_started": "未开始",
+      "pending": "等待启动",
+      "starting": "启动中",
+      "running": "运行中",
+      "awaiting_input": "等待输入",
+      "awaiting_approval": "等待批准",
+      "cancelling": "取消中",
+      "succeeded": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "crashed": "已崩溃",
+      "audit_failed": "审计失败"
+    },
+    "moreActions": "更多 Arena 操作",
+    "lifecycleActions": {
+      "closeRound": "关闭本轮",
+      "dissolveAndArchive": "解散并归档",
+      "dissolveTitle": "解散并归档这个 Arena？",
+      "dissolveMessage": "这将归档全部 {{count}} 个候选工作区并删除 Arena，且无法撤销。",
+      "closedFeedback": "本轮 Arena 已关闭，结果和工作区均已保留。"
+    },
+    "selector": {
+      "label": "候选结果",
+      "fixedSummary": "{{attempts}} 个执行方案 · {{synthesis}} 个综合结果 · {{active}} 个运行中"
+    },
+    "resultSummary": {
+      "title": "结果摘要",
+      "loading": "正在加载最新结果……",
+      "loadFailed": "无法加载最新结果。",
+      "running": "智能体仍在运行，最终结果会显示在这里。",
+      "empty": "智能体没有报告最终结果。"
+    },
+    "diff": {
+      "title": "Diff",
+      "unavailable": "Diff 摘要不可用",
+      "summary": "变更 {{count}} 个文件"
+    },
+    "tests": {
+      "title": "测试",
+      "running": "正在等待智能体的最终测试结果。",
+      "empty": "没有结构化测试结果。"
+    },
+    "stopAll": {
+      "action": "停止全部",
+      "stopping": "正在停止全部候选",
+      "retry": "重试停止",
+      "requested": "已请求取消 {{count}} 个智能体运行。",
+      "partialFailure": "停止操作共 {{total}} 项，其中 {{failed}} 项失败，可以重试。",
+      "failed": "停止全部失败，可以重试。"
+    },
+    "winnerConfirm": {
+      "title": "将 {{candidate}} 设为获胜方案？",
+      "description": "继续前请确认候选方案及实际影响。",
+      "changedFiles": "变更文件",
+      "unavailable": "不可用",
+      "archivedCandidates": "将归档的候选",
+      "otherCandidates": "其他候选",
+      "remainAvailable": "继续保留",
+      "workflowImpact": "将应用该候选的变更并继续执行 Workflow。",
+      "implementationImpact": "该结果将成为实现起点，其他候选结果继续保留。",
+      "applying": "正在应用获胜方案",
+      "applyAndContinue": "应用并继续",
+      "startImplementation": "开始实现",
+      "adopt": "采用结果"
+    },
     "modes": {
       "design": "抽卡模式",
       "implementation": "实现 Arena"

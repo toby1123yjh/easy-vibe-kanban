@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { AgentRunStatus } from 'shared/types';
 import {
   isActiveArenaAgentRunStatus,
+  isCancellableArenaAgentRunStatus,
+  isRetryableArenaAgentRunStatus,
   isSuccessfulArenaAgentRunStatus,
   isTerminalArenaAgentRunStatus,
 } from './arenaApi';
@@ -41,5 +43,28 @@ describe('Arena AgentRun status policy', () => {
       );
     }
     expect(isSuccessfulArenaAgentRunStatus(null)).toBe(false);
+  });
+
+  it('does not send a duplicate cancel after cancellation is in progress', () => {
+    expect(isCancellableArenaAgentRunStatus(AgentRunStatus.running)).toBe(true);
+    expect(
+      isCancellableArenaAgentRunStatus(AgentRunStatus.awaiting_input)
+    ).toBe(true);
+    expect(isCancellableArenaAgentRunStatus(AgentRunStatus.cancelling)).toBe(
+      false
+    );
+    expect(isCancellableArenaAgentRunStatus(AgentRunStatus.cancelled)).toBe(
+      false
+    );
+  });
+
+  it('only retries attempts that never started or ended unsuccessfully', () => {
+    expect(isRetryableArenaAgentRunStatus(null)).toBe(true);
+    expect(isRetryableArenaAgentRunStatus(AgentRunStatus.failed)).toBe(true);
+    expect(isRetryableArenaAgentRunStatus(AgentRunStatus.cancelled)).toBe(true);
+    expect(isRetryableArenaAgentRunStatus(AgentRunStatus.succeeded)).toBe(
+      false
+    );
+    expect(isRetryableArenaAgentRunStatus(AgentRunStatus.running)).toBe(false);
   });
 });

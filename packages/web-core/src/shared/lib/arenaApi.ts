@@ -52,6 +52,23 @@ export const TERMINAL_ARENA_AGENT_RUN_STATUSES: ReadonlySet<AgentRunStatus> =
     AgentRunStatus.audit_failed,
   ]);
 
+export const CANCELLABLE_ARENA_AGENT_RUN_STATUSES: ReadonlySet<AgentRunStatus> =
+  new Set([
+    AgentRunStatus.pending,
+    AgentRunStatus.starting,
+    AgentRunStatus.running,
+    AgentRunStatus.awaiting_input,
+    AgentRunStatus.awaiting_approval,
+  ]);
+
+export const RETRYABLE_ARENA_AGENT_RUN_STATUSES: ReadonlySet<AgentRunStatus> =
+  new Set([
+    AgentRunStatus.failed,
+    AgentRunStatus.cancelled,
+    AgentRunStatus.crashed,
+    AgentRunStatus.audit_failed,
+  ]);
+
 export function isActiveArenaAgentRunStatus(
   status: AgentRunStatus | null | undefined
 ): boolean {
@@ -72,6 +89,20 @@ export function isSuccessfulArenaAgentRunStatus(
   status: AgentRunStatus | null | undefined
 ): boolean {
   return status === AgentRunStatus.succeeded;
+}
+
+export function isCancellableArenaAgentRunStatus(
+  status: AgentRunStatus | null | undefined
+): boolean {
+  return status !== null && status !== undefined
+    ? CANCELLABLE_ARENA_AGENT_RUN_STATUSES.has(status)
+    : false;
+}
+
+export function isRetryableArenaAgentRunStatus(
+  status: AgentRunStatus | null | undefined
+): boolean {
+  return status == null || RETRYABLE_ARENA_AGENT_RUN_STATUSES.has(status);
 }
 
 export interface ArenaGroup {

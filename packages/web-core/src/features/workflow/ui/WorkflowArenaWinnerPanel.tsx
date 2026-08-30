@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import {
   AlertCircle,
   CheckCircle,
@@ -15,8 +14,13 @@ import {
   useArenaInvalidators,
 } from '@/shared/hooks/useArenaGroup';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
+import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
 import { cn } from '@/shared/lib/utils';
-import { buildArenaWinnerOptions } from '../model/workflowRunView';
+import { ArenaWinnerConfirmDialog } from '@/shared/dialogs/arena/ArenaWinnerConfirmDialog';
+import {
+  buildArenaComparisonView,
+  type ArenaComparisonCandidate,
+} from '../../arena/model/arenaComparisonView';
 
 export interface WorkflowArenaWinnerPanelProps {
   arenaGroupId: string | null;
@@ -39,10 +43,13 @@ export function WorkflowArenaWinnerPanel({
   const { selectArenaWinner, isSelectingArenaWinner } =
     useWorkflowRunMutations();
   const { invalidateGroup } = useArenaInvalidators();
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [selectingWorkspaceId, setSelectingWorkspaceId] = useState<
-    string | null
-  >(null);
+  const [confirmationCandidate, setConfirmationCandidate] =
+    useState<ArenaComparisonCandidate | null>(null);
+  const [winnerDialogOpen, setWinnerDialogOpen] = useState(false);
+  const [winnerTrigger, setWinnerTrigger] = useState<HTMLElement | null>(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(
+    null
+  );
   const {
     data: arenaGroup,
     error: arenaError,
@@ -51,35 +58,49 @@ export function WorkflowArenaWinnerPanel({
     enabled: !!arenaGroupId,
   });
 
-  const options = useMemo(
-    () => buildArenaWinnerOptions(arenaGroup),
-    [arenaGroup]
+  const comparison = useMemo(
+    () =>
+      arenaGroup
+        ? buildArenaComparisonView(arenaGroup, {
+            attempt: (order) =>
+              t('arena.workspace.attemptName', { index: order }),
+            synthesis: (order) => `${t('arena.purpose.synthesis')} ${order}`,
+          })
+        : null,
+    [arenaGroup, t]
   );
+  const candidates = comparison?.candidates ?? [];
 
   const arenaHref = arenaGroupId
     ? `/projects/${projectId}/issues/${issueId}/arena/${arenaGroupId}`
     : null;
 
-  const handleSelect = async (candidateId: string, workspaceId: string) => {
-    setActionError(null);
-    setSelectingWorkspaceId(workspaceId);
+  const handleConfirmWinner = async () => {
+    if (!confirmationCandidate) return;
+    const currentCandidate = comparison?.candidates.find(
+      ({ candidateId }) => candidateId === confirmationCandidate.candidateId
+    );
+    if (!currentCandidate?.canSelectWinner) {
+      setConfirmationError(t('workflow.arenaWinner.selectFailed'));
+      return;
+    }
+    setConfirmationError(null);
     try {
       await selectArenaWinner({
         runId,
         nodeId,
-        payload: { candidate_id: candidateId },
+        payload: { candidate_id: currentCandidate.candidateId },
       });
       if (arenaGroupId) {
         invalidateGroup(arenaGroupId);
       }
+      setWinnerDialogOpen(false);
     } catch (err) {
-      setActionError(
+      setConfirmationError(
         err instanceof Error
           ? err.message
           : t('workflow.arenaWinner.selectFailed')
       );
-    } finally {
-      setSelectingWorkspaceId(null);
     }
   };
 
@@ -129,54 +150,61 @@ export function WorkflowArenaWinnerPanel({
                 : t('workflow.arenaWinner.unknownError'),
           })}
         </p>
-      ) : options.length === 0 ? (
+      ) : candidates.length === 0 ? (
         <p className="text-xs text-low">
           {t('workflow.arenaWinner.noAttempts')}
         </p>
       ) : (
         <div className="space-y-half">
-          {options.map((option) => {
-            const workspaceHref = `/projects/${projectId}/issues/${issueId}/workspaces/${option.workspaceId}`;
+          {candidates.map((candidate) => {
+            const workspaceBaseHref = `/projects/${projectId}/issues/${issueId}/workspaces/${candidate.workspaceId}`;
+            const workspaceHref =
+              buildWorkspaceSessionHref(
+                workspaceBaseHref,
+                candidate.sessionId
+              ) ?? workspaceBaseHref;
             const isApplying =
               isSelectingArenaWinner &&
-              selectingWorkspaceId === option.workspaceId;
+              confirmationCandidate?.candidateId === candidate.candidateId;
 
             return (
               <div
-                key={option.workspaceId}
+                key={candidate.candidateId}
                 className={cn(
                   'rounded border bg-panel p-half text-xs',
-                  option.isPromoted ? 'border-success/60' : 'border-secondary'
+                  candidate.isWinner ? 'border-success/60' : 'border-secondary'
                 )}
               >
                 <div className="flex items-start justify-between gap-half">
                   <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-half">
-                      {option.isPromoted ? (
+                      {candidate.isWinner ? (
                         <CheckCircle className="h-3.5 w-3.5 text-success" />
-                      ) : option.isSelectable ? (
+                      ) : candidate.canSelectWinner ? (
                         <Swords className="h-3.5 w-3.5 text-warning" />
                       ) : (
                         <AlertCircle className="h-3.5 w-3.5 text-low" />
                       )}
                       <span className="truncate font-medium text-high">
-                        {option.label}
+                        {candidate.label}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-half gap-y-1 text-low">
                       <span>
-                        {formatArenaExecutorLabel(option.executorLabel, t)}
+                        {candidate.executorLabel ||
+                          t('workflow.arenaWinner.unknownExecutor')}
                       </span>
                       <span>
-                        {formatArenaStatusLabel(option.executionStatusLabel, t)}
+                        {t(
+                          `arena.agentStatus.${candidate.agentRunStatus ?? 'not_started'}`
+                        )}
                       </span>
+                      <span>{t(`arena.status.${candidate.arenaStatus}`)}</span>
                       <span>
-                        {formatArenaStatusLabel(option.arenaStatusLabel, t)}
-                      </span>
-                      <span>
-                        {option.hasUncommittedChanges === true
+                        {candidate.workspace.has_uncommitted_changes === true
                           ? t('workflow.arenaWinner.changes')
-                          : option.hasUncommittedChanges === false
+                          : candidate.workspace.has_uncommitted_changes ===
+                              false
                             ? t('workflow.arenaWinner.noChanges')
                             : t('workflow.arenaWinner.changesUnknown')}
                       </span>
@@ -184,7 +212,7 @@ export function WorkflowArenaWinnerPanel({
                     <div className="flex min-w-0 items-center gap-half text-low">
                       <GitBranch className="h-3 w-3 shrink-0" />
                       <span className="truncate font-mono">
-                        {option.branch}
+                        {candidate.branch}
                       </span>
                     </div>
                   </div>
@@ -194,7 +222,7 @@ export function WorkflowArenaWinnerPanel({
                       className="inline-flex min-h-8 items-center rounded border border-secondary px-half py-1 text-xs font-medium text-brand hover:bg-secondary"
                       href={workspaceHref}
                       aria-label={t('workflow.arenaWinner.openWorkspace', {
-                        label: option.label,
+                        label: candidate.label,
                       })}
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -202,15 +230,17 @@ export function WorkflowArenaWinnerPanel({
                     <Button
                       type="button"
                       size="xs"
-                      disabled={!option.isSelectable || isSelectingArenaWinner}
-                      onClick={() =>
-                        void handleSelect(
-                          option.candidateId,
-                          option.workspaceId
-                        )
+                      disabled={
+                        !candidate.canSelectWinner || isSelectingArenaWinner
                       }
+                      onClick={(event) => {
+                        setConfirmationCandidate(candidate);
+                        setWinnerTrigger(event.currentTarget);
+                        setConfirmationError(null);
+                        setWinnerDialogOpen(true);
+                      }}
                     >
-                      {option.isPromoted
+                      {candidate.isWinner
                         ? t('workflow.arenaWinner.selected')
                         : isApplying
                           ? t('workflow.arenaWinner.applying')
@@ -224,43 +254,20 @@ export function WorkflowArenaWinnerPanel({
         </div>
       )}
 
-      {actionError ? (
-        <p className="text-xs text-error" role="alert">
-          {actionError}
-        </p>
-      ) : null}
+      <ArenaWinnerConfirmDialog
+        candidate={confirmationCandidate}
+        archiveSiblingCount={Math.max(0, candidates.length - 1)}
+        outcome="workflow"
+        open={winnerDialogOpen}
+        isPending={isSelectingArenaWinner}
+        error={confirmationError}
+        returnFocusTarget={winnerTrigger}
+        onOpenChange={(open) => {
+          setWinnerDialogOpen(open);
+          if (!open) setConfirmationError(null);
+        }}
+        onConfirm={handleConfirmWinner}
+      />
     </div>
   );
-}
-
-function formatArenaExecutorLabel(
-  label: string,
-  t: TFunction<'common'>
-): string {
-  return label === 'Unknown executor'
-    ? t('workflow.arenaWinner.unknownExecutor')
-    : label;
-}
-
-function formatArenaStatusLabel(label: string, t: TFunction<'common'>): string {
-  switch (label) {
-    case 'not started':
-      return t('workflow.arenaWinner.status.notStarted');
-    case 'unknown':
-      return t('workflow.arenaWinner.status.unknown');
-    case 'active':
-      return t('workflow.arenaWinner.status.active');
-    case 'promoted':
-      return t('workflow.arenaWinner.status.promoted');
-    case 'completed':
-      return t('workflow.arenaWinner.status.completed');
-    case 'running':
-      return t('workflow.arenaWinner.status.running');
-    case 'failed':
-      return t('workflow.arenaWinner.status.failed');
-    case 'canceled':
-      return t('workflow.arenaWinner.status.canceled');
-    default:
-      return label;
-  }
 }

@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AgentRunStatus,
   type WorkflowNodeExecutionResponse,
   type WorkflowRunResponse,
 } from 'shared/types';
-import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
 import {
   buildAgentSessionRows,
   buildWorkflowNodeDebugView,
-  buildWorkspaceSessionHref,
-  buildArenaWinnerOptions,
   buildWorkflowRunDashboardSummary,
   formatWorkflowDuration,
   getNodeStatusTone,
@@ -17,6 +13,7 @@ import {
   getWorkflowRunStatusLabel,
   selectWorkflowRunNode,
 } from './workflowRunView';
+import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
 
 type NodeExecutionWithProcess = WorkflowNodeExecutionResponse & {
   execution_process_id?: string | null;
@@ -97,62 +94,6 @@ const baseRun = {
     },
   ],
 } satisfies WorkflowRunResponse;
-
-const baseArenaGroup = {
-  id: 'arena-1',
-  task_id: 'task-arena-1',
-  prompt: 'Build three approaches',
-  base_branch: 'main',
-  mode: 'implementation',
-  lifecycle_status: 'open',
-  winner_candidate_id: null,
-  promoted_at: null,
-  closed_at: null,
-  created_at: '2026-05-09T00:00:00Z',
-  updated_at: '2026-05-09T00:00:00Z',
-  events: [],
-  workspaces: [
-    {
-      candidate_id: 'candidate-1',
-      workspace_id: 'workspace-1',
-      session_id: 'session-1',
-      name: 'Attempt Alpha',
-      branch: 'vk/issue-wf-arena-1',
-      purpose: 'attempt',
-      arena_status: 'active',
-      executor: 'codex',
-      variant: 'gpt-5.4',
-      latest_agent_run_status: AgentRunStatus.succeeded,
-      has_uncommitted_changes: true,
-    },
-    {
-      candidate_id: 'candidate-2',
-      workspace_id: 'workspace-2',
-      session_id: null,
-      name: null,
-      branch: 'vk/issue-wf-synthesis',
-      purpose: 'synthesis',
-      arena_status: 'active',
-      executor: 'codex',
-      variant: null,
-      latest_agent_run_status: AgentRunStatus.succeeded,
-      has_uncommitted_changes: true,
-    },
-    {
-      candidate_id: 'candidate-3',
-      workspace_id: 'workspace-3',
-      session_id: 'session-3',
-      name: null,
-      branch: 'vk/issue-wf-arena-3',
-      purpose: 'attempt',
-      arena_status: 'archived',
-      executor: null,
-      variant: null,
-      latest_agent_run_status: AgentRunStatus.failed,
-      has_uncommitted_changes: false,
-    },
-  ],
-} satisfies ArenaGroupResponse;
 
 describe('workflow run view helpers', () => {
   it('formats run statuses for compact UI labels', () => {
@@ -338,84 +279,6 @@ describe('workflow run view helpers', () => {
       formatWorkflowDuration('2026-05-09T00:00:00Z', '2026-05-09T00:02:05Z')
     ).toBe('2m 5s');
     expect(formatWorkflowDuration(null, null)).toBe('Not started');
-  });
-
-  it('builds winner options from explicit arena candidate identities', () => {
-    const options = buildArenaWinnerOptions(baseArenaGroup);
-
-    expect(options.map((option) => option.workspaceId)).toEqual([
-      'workspace-1',
-      'workspace-2',
-      'workspace-3',
-    ]);
-    expect(options.map((option) => option.candidateId)).toEqual([
-      'candidate-1',
-      'candidate-2',
-      'candidate-3',
-    ]);
-    expect(options[0]).toMatchObject({
-      label: 'Attempt Alpha',
-      executorLabel: 'codex / gpt-5.4',
-      executionStatusLabel: 'succeeded',
-      isSelectable: true,
-      isPromoted: false,
-    });
-    expect(options[2]).toMatchObject({
-      label: 'Attempt 3',
-      executorLabel: 'Unknown executor',
-      executionStatusLabel: 'failed',
-      isSelectable: false,
-      isPromoted: false,
-    });
-  });
-
-  it('marks winner options unavailable after promotion or while running', () => {
-    const options = buildArenaWinnerOptions({
-      ...baseArenaGroup,
-      winner_candidate_id: 'candidate-1',
-      workspaces: [
-        {
-          ...baseArenaGroup.workspaces[0],
-          arena_status: 'promoted',
-        },
-        {
-          ...baseArenaGroup.workspaces[2],
-          workspace_id: 'workspace-4',
-          arena_status: 'active',
-          latest_agent_run_status: AgentRunStatus.running,
-        },
-      ],
-    });
-
-    expect(options).toHaveLength(2);
-    expect(options[0]).toMatchObject({
-      workspaceId: 'workspace-1',
-      isSelectable: false,
-      isPromoted: true,
-    });
-    expect(options[1]).toMatchObject({
-      workspaceId: 'workspace-4',
-      isSelectable: false,
-      isPromoted: false,
-      executionStatusLabel: 'running',
-    });
-  });
-
-  it('requires an attempt to complete before it can be selected', () => {
-    const options = buildArenaWinnerOptions({
-      ...baseArenaGroup,
-      workspaces: [
-        {
-          ...baseArenaGroup.workspaces[0],
-          latest_agent_run_status: null,
-        },
-      ],
-    });
-
-    expect(options[0]).toMatchObject({
-      executionStatusLabel: 'not started',
-      isSelectable: false,
-    });
   });
 
   it('builds an Agent Sessions list for the selected node only', () => {

@@ -5,11 +5,6 @@ import type {
   WorkflowRunResponse,
   WorkflowRunStatus,
 } from 'shared/types';
-import {
-  isSuccessfulArenaAgentRunStatus,
-  type ArenaGroupResponse,
-  type ArenaWorkspaceSummary,
-} from '@/shared/lib/arenaApi';
 import type { WorkflowGraph } from './workflowGraph';
 import {
   getWorkflowNodeExecutionForWork,
@@ -218,21 +213,6 @@ export interface AgentSessionRow {
   outputPreview: string;
 }
 
-export function buildWorkspaceSessionHref(
-  workspaceHref: string | null | undefined,
-  sessionId: string | null | undefined
-): string | null {
-  if (!workspaceHref || !sessionId) return null;
-
-  const [pathAndQuery, hash] = workspaceHref.split('#');
-  const separator = pathAndQuery.includes('?') ? '&' : '?';
-  const nextHref = `${pathAndQuery}${separator}session_id=${encodeURIComponent(
-    sessionId
-  )}`;
-
-  return hash ? `${nextHref}#${hash}` : nextHref;
-}
-
 export function buildAgentSessionRows(
   run: WorkflowRunResponse,
   nodeId: string | null
@@ -325,63 +305,4 @@ export function buildWorkflowNodeDebugView({
       (execution as CanonicalWorkflowNodeExecution).agent_run_id ?? null,
     upstreamOutputs,
   };
-}
-
-export interface ArenaWinnerOption {
-  candidateId: string;
-  workspaceId: string;
-  label: string;
-  branch: string;
-  executorLabel: string;
-  arenaStatusLabel: string;
-  executionStatusLabel: string;
-  hasUncommittedChanges: boolean | null;
-  isSelectable: boolean;
-  isPromoted: boolean;
-}
-
-function formatStatus(value: string | null | undefined, fallback: string) {
-  return value ? value.replace(/_/g, ' ') : fallback;
-}
-
-function arenaWinnerLabel(workspace: ArenaWorkspaceSummary, index: number) {
-  return workspace.name || workspace.executor || `Attempt ${index + 1}`;
-}
-
-function arenaWinnerExecutorLabel(workspace: ArenaWorkspaceSummary) {
-  const parts = [workspace.executor, workspace.variant].filter(Boolean);
-  return parts.length > 0 ? parts.join(' / ') : 'Unknown executor';
-}
-
-export function buildArenaWinnerOptions(
-  group: ArenaGroupResponse | null | undefined
-): ArenaWinnerOption[] {
-  if (!group) return [];
-
-  const groupAlreadyPromoted = group.winner_candidate_id !== null;
-
-  return group.workspaces.map((workspace, index) => {
-    const isPromoted =
-      group.winner_candidate_id === workspace.candidate_id ||
-      workspace.arena_status === 'promoted';
-    const agentRunStatus = workspace.latest_agent_run_status;
-    const isExecutionFinished = isSuccessfulArenaAgentRunStatus(agentRunStatus);
-    const isSelectable =
-      !groupAlreadyPromoted &&
-      workspace.arena_status === 'active' &&
-      isExecutionFinished;
-
-    return {
-      candidateId: workspace.candidate_id,
-      workspaceId: workspace.workspace_id,
-      label: arenaWinnerLabel(workspace, index),
-      branch: workspace.branch,
-      executorLabel: arenaWinnerExecutorLabel(workspace),
-      arenaStatusLabel: formatStatus(workspace.arena_status, 'unknown'),
-      executionStatusLabel: formatStatus(agentRunStatus, 'not started'),
-      hasUncommittedChanges: workspace.has_uncommitted_changes,
-      isSelectable,
-      isPromoted,
-    };
-  });
 }
