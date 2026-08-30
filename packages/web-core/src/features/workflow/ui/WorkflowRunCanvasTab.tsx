@@ -6,8 +6,17 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+  Swords,
+  User,
+} from 'lucide-react';
 import {
   Background,
   BackgroundVariant,
@@ -16,50 +25,41 @@ import {
   Handle,
   Position,
   ReactFlow,
-  useEdgesState,
-  useNodesState,
   type Edge as ReactFlowEdge,
   type Node as ReactFlowNode,
 } from '@xyflow/react';
-import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
 import '@xyflow/react/dist/style.css';
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Files,
-  Swords,
-  User,
-} from 'lucide-react';
 import type {
-  NodeExecutionStatus,
   WorkflowNodeExecutionResponse,
+  WorkflowNodeWorkStatus,
   WorkflowNodeWorkView,
   WorkflowRunResponse,
 } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
 import { Checkbox } from '@vibe/ui/components/Checkbox';
+import {
+  FloatingPanel,
+  FloatingPanelBody,
+  FloatingPanelDescription,
+  FloatingPanelFooter,
+  FloatingPanelHeader,
+  FloatingPanelTitle,
+} from '@vibe/ui/components/FloatingPanel';
+import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
-import { buildWorkspaceSessionHref } from '../model/workflowRunView';
 import {
-  getDefaultWorkflowRuntimeNodeId,
-  getWorkflowNodeActionGate,
-  getWorkflowNodeExecutionForWork,
-  getWorkflowNodeWork,
-  getWorkflowRuntimeView,
-  type WorkflowRuntimeAuthority,
-} from '../model/workflowRuntimeView';
-import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
-import { queueWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
+  getConditionRouterHumanPrompt,
+  getConditionRouterReason,
+  parseConditionRouterOutput,
+} from '../model/workflowConditionRouterOutput';
 import {
-  DEFAULT_SOURCE_HANDLE,
-  DEFAULT_TARGET_HANDLE,
-  WORKFLOW_PORT_HANDLE_IDS,
-  WORKFLOW_REACT_FLOW_EDGE_TYPE,
+  WORKFLOW_SEMANTIC_HANDLE_IDS,
+  getWorkflowNodeSourceHandles,
+} from '../model/workflowAuthoring';
+import {
   migrateWorkflowGraph,
   toReactFlowEdges,
   toReactFlowNodes,
@@ -68,30 +68,24 @@ import {
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from '../model/workflowGraph';
-import {
-  getConditionRouterHumanPrompt,
-  getConditionRouterReason,
-  parseConditionRouterOutput,
-} from '../model/workflowConditionRouterOutput';
+import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
 import {
   getWorkflowCanvasEdgeState,
   getWorkflowCanvasNodeState,
-  getWorkflowCanvasNodeStateLabel,
 } from '../model/workflowCanvasVisualState';
 import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
-import { WorkflowArenaWinnerPanel } from './WorkflowArenaWinnerPanel';
-import { WorkflowNodeSessionPanel } from './WorkflowNodeSessionPanel';
-import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
-import { AgentIcon } from '@/shared/components/AgentIcon';
+import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
+import { buildWorkspaceSessionHref } from '../model/workflowRunView';
 import {
-  WorkspaceFilesInlineInspector,
-  useWorkspaceFilePreviewState,
-} from '@/features/workspace-files';
-import {
-  WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
-  workflowCanvasEdgeTypes,
-} from './WorkflowCanvas';
-import { getWorkflowNodeIcon } from './workflowNodeIcons';
+  getWorkflowNodeActionGate,
+  getWorkflowNodeExecutionForWork,
+  getWorkflowNodeTaskTarget,
+  getWorkflowNodeWork,
+  getWorkflowRuntimeAttentionItems,
+  getWorkflowRuntimeView,
+  type WorkflowRuntimeAttentionItem,
+  type WorkflowRuntimeAuthority,
+} from '../model/workflowRuntimeView';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
   WORKFLOW_CANVAS_COLOR_TOKENS,
@@ -100,7 +94,12 @@ import {
   getWorkflowNodeIdentityClass,
   getWorkflowNodeStatusClass,
 } from './workflowCanvasTokens';
+import {
+  WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
+  workflowCanvasEdgeTypes,
+} from './WorkflowCanvas';
 import { workflowNodeStatusKey } from './workflowI18n';
+import { getWorkflowNodeIcon } from './workflowNodeIcons';
 
 export interface WorkflowRunCanvasTabProps {
   projectId: string;
@@ -108,200 +107,29 @@ export interface WorkflowRunCanvasTabProps {
 }
 
 interface RunNodeData extends WorkflowNodeData {
-  execution?: WorkflowNodeExecutionResponse | null;
-  runtimeStatus?: WorkflowNodeWorkView['status'];
+  runtimeStatus?: WorkflowNodeWorkStatus;
   runtimeAuthority?: WorkflowRuntimeAuthority;
-  isSelected?: boolean;
-  nodeId?: string;
-  nodeType?: WorkflowNodeKind;
-  onOpenConversation?: (nodeId: string) => void;
-  onSelectNode?: (nodeId: string) => void;
+  nodeId: string;
+  nodeType: WorkflowNodeKind;
 }
 
-const statusIconMap: Record<NodeExecutionStatus, ReactNode> = {
-  pending: <Clock className="h-4 w-4 text-low" />,
-  running: <Activity className="h-4 w-4 text-brand" />,
-  succeeded: <CheckCircle className="h-4 w-4 text-success" />,
-  failed: <AlertCircle className="h-4 w-4 text-error" />,
-  awaiting_human: <User className="h-4 w-4 text-warning" />,
-  awaiting_arena: <Swords className="h-4 w-4 text-warning" />,
-  cancelling: <Clock className="h-4 w-4 text-warning" />,
-  cancelled: <Clock className="h-4 w-4 text-low" />,
-  skipped: <Clock className="h-4 w-4 text-low" />,
-};
+interface ConditionBranchOption {
+  targetNodeId: string;
+  targetLabel: string;
+  condition: string | null;
+}
 
-const runPortHandles = [
-  { id: DEFAULT_TARGET_HANDLE, position: Position.Left },
-  { id: WORKFLOW_PORT_HANDLE_IDS.top, position: Position.Top },
-  { id: DEFAULT_SOURCE_HANDLE, position: Position.Right },
-  { id: WORKFLOW_PORT_HANDLE_IDS.bottom, position: Position.Bottom },
-] as const;
+interface GateSubmission {
+  nodeId: string;
+  executionId: string;
+  action: 'approve' | 'reject';
+  phase: 'submitting' | 'awaiting-projection';
+}
 
-function RunNode({ data }: { data: RunNodeData }) {
-  const { t } = useTranslation('common');
-  const status: NodeExecutionStatus =
-    data.execution?.status ??
-    (data.runtimeStatus === 'starting' ? 'running' : data.runtimeStatus) ??
-    'pending';
-  const type = data.nodeType ?? 'agent';
-  const structural = type === 'start' || type === 'end';
-  const Icon = getWorkflowNodeIcon(type);
-  const nodeState = getWorkflowCanvasNodeState({
-    data,
-    executionStatus: status,
-    nodeType: type,
-  });
-  const stateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
-  const isRunning = status === 'running';
-  const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
-  const handles = runPortHandles.map((handle) => (
-    <Handle
-      key={handle.id}
-      id={handle.id}
-      type={type === 'end' ? 'target' : 'source'}
-      position={handle.position}
-      className="opacity-0"
-    />
-  ));
-
-  const premiumClasses = cn(
-    'node-premium-dark',
-    getWorkflowNodeIdentityClass(type, agentDisplay?.executor),
-    getWorkflowNodeStatusClass(nodeState),
-    data.isSelected && 'node-selected',
-    (type === 'condition' || type === 'human_gate') && 'node-lower-weight'
-  );
-  const nodeAccentStyle = {
-    borderColor: 'rgba(var(--node-color-rgb), 0.58)',
-    background:
-      'linear-gradient(135deg, rgba(var(--node-color-rgb), 0.24), rgba(var(--node-color-rgb), 0.08))',
-    color: 'rgb(var(--node-color-rgb))',
-    boxShadow:
-      '0 0 18px rgba(var(--node-color-rgb), 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.06)',
-  };
-
-  if (structural) {
-    return (
-      <div
-        style={{ pointerEvents: 'all' }}
-        data-testid={
-          data.nodeId ? `workflow-run-node-${data.nodeId}` : undefined
-        }
-        onClick={(event) => {
-          if (!data.nodeId) return;
-          event.stopPropagation();
-          data.onSelectNode?.(data.nodeId);
-        }}
-        className={cn(
-          'relative flex min-w-[120px] cursor-pointer items-center gap-2 overflow-visible px-3 py-2 text-normal',
-          premiumClasses
-        )}
-      >
-        {handles}
-        <span
-          className={cn(
-            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-port-ring)]',
-            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-            isRunning ? 'workflow-status-dot-running' : ''
-          )}
-          title={
-            data.runtimeAuthority && data.runtimeAuthority !== 'current'
-              ? `${stateLabel} (${data.runtimeAuthority})`
-              : stateLabel
-          }
-        />
-        <div
-          style={nodeAccentStyle}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border opacity-80"
-        >
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-xs font-semibold text-high">
-            {data.display_name || getWorkflowNodeKindLabel(type, t)}
-          </div>
-          <div className="text-[9px] font-semibold uppercase tracking-normal text-low">
-            {getWorkflowNodeKindLabel(type, t)}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      style={{ pointerEvents: 'all' }}
-      data-testid={data.nodeId ? `workflow-run-node-${data.nodeId}` : undefined}
-      onClick={(event) => {
-        if (!data.nodeId) return;
-        event.stopPropagation();
-        data.onSelectNode?.(data.nodeId);
-        if (event.detail >= 2 && !structural) {
-          data.onOpenConversation?.(data.nodeId);
-        }
-      }}
-      onDoubleClick={(event) => {
-        if (!data.nodeId) return;
-        event.stopPropagation();
-        if (!structural) {
-          data.onOpenConversation?.(data.nodeId);
-        }
-      }}
-      className={cn(
-        'relative min-w-[210px] cursor-pointer overflow-visible text-high active:cursor-grabbing',
-        premiumClasses
-      )}
-    >
-      <span
-        className={cn(
-          'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
-          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-          isRunning ? 'workflow-status-dot-running' : ''
-        )}
-      />
-      {handles}
-      <div className="flex items-start gap-3 border-b border-white/5 bg-white/[0.02] px-3 py-2.5 pl-4">
-        <div
-          style={nodeAccentStyle}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border"
-        >
-          {agentDisplay?.executor ? (
-            <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
-          ) : (
-            (statusIconMap[status] ?? <Icon className="h-4 w-4" />)
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-sm font-semibold text-high">
-            {data.display_name || type || t('workflow.canvas.nodeFallback')}
-          </span>
-          <span className="truncate text-[10px] font-semibold tracking-normal text-low opacity-80 mt-0.5">
-            {agentDisplay
-              ? `${agentDisplay.agentLabel} / ${agentDisplay.modelLabel}`
-              : t(`workflow.nodeStatus.${workflowNodeStatusKey(status)}`)}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 px-3 py-2 pl-4 text-xs text-low">
-        <div className="flex flex-wrap gap-1">
-          <span
-            className={cn(
-              'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-              WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES[nodeState]
-            )}
-          >
-            {stateLabel}
-          </span>
-          {agentDisplay?.reasoningLabel ? (
-            <span className="inline-flex items-center rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
-              {agentDisplay.reasoningLabel}
-            </span>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
+interface ConditionSubmission {
+  nodeId: string;
+  executionId: string;
+  phase: 'submitting' | 'awaiting-projection';
 }
 
 const nodeTypes = {
@@ -313,6 +141,146 @@ const nodeTypes = {
   transform: RunNode,
   arena: RunNode,
 };
+
+function RunNode({ data }: { data: RunNodeData }) {
+  const { t } = useTranslation('common');
+  const type = data.nodeType;
+  const structural = type === 'start' || type === 'end';
+  const Icon = getWorkflowNodeIcon(type);
+  const nodeState = getWorkflowCanvasNodeState({
+    data,
+    executionStatus: data.runtimeStatus,
+    nodeType: type,
+  });
+  const stateLabel = data.runtimeStatus
+    ? t(`workflow.nodeStatus.${workflowNodeStatusKey(data.runtimeStatus)}`)
+    : t('workflow.runCanvas.notExecutedYet');
+  const agentDisplay = type === 'agent' ? getWorkflowAgentDisplay(data) : null;
+  const sourceHandles = getWorkflowNodeSourceHandles({
+    id: data.nodeId,
+    type,
+    data,
+  });
+  const premiumClasses = cn(
+    'node-premium-dark rounded-lg border bg-panel shadow-sm transition-[border-color,box-shadow] motion-reduce:transition-none',
+    getWorkflowNodeIdentityClass(type, agentDisplay?.executor),
+    getWorkflowNodeStatusClass(nodeState)
+  );
+
+  const handles = (
+    <>
+      {type !== 'start' ? (
+        <Handle
+          id={WORKFLOW_SEMANTIC_HANDLE_IDS.input}
+          type="target"
+          position={Position.Left}
+          className="opacity-0"
+        />
+      ) : null}
+      {sourceHandles.map((handle, index) => (
+        <Handle
+          key={handle.id}
+          id={handle.id}
+          type="source"
+          position={Position.Right}
+          style={{
+            top: `${((index + 1) / (sourceHandles.length + 1)) * 100}%`,
+          }}
+          className="opacity-0"
+        />
+      ))}
+    </>
+  );
+
+  if (structural) {
+    return (
+      <div
+        data-testid={`workflow-run-node-${data.nodeId}`}
+        className={cn(
+          'relative flex min-w-[120px] items-center gap-2 overflow-visible px-3 py-2 text-normal',
+          premiumClasses
+        )}
+      >
+        {handles}
+        <span
+          className={cn(
+            'absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-panel',
+            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
+            data.runtimeStatus === 'running' ||
+              data.runtimeStatus === 'starting'
+              ? 'workflow-status-dot-running motion-reduce:animate-none'
+              : ''
+          )}
+        />
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-secondary bg-secondary/30 text-low">
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-normal text-low">
+            {getWorkflowNodeKindLabel(type, t)}
+          </div>
+          <div className="truncate text-xs font-semibold text-high">
+            {data.display_name || getWorkflowNodeKindLabel(type, t)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`workflow-run-node-${data.nodeId}`}
+      className={cn(
+        'relative w-[232px] overflow-visible text-high',
+        premiumClasses
+      )}
+    >
+      {handles}
+      <span
+        className={cn(
+          'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
+          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
+          data.runtimeStatus === 'running' || data.runtimeStatus === 'starting'
+            ? 'workflow-status-dot-running motion-reduce:animate-none'
+            : ''
+        )}
+        title={stateLabel}
+      />
+      <div className="flex items-start gap-3 px-3 py-3 pl-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary bg-secondary/30 text-low">
+          {agentDisplay?.executor ? (
+            <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
+          ) : (
+            <Icon className="h-4 w-4" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[10px] font-semibold uppercase tracking-normal text-low">
+            {getWorkflowNodeKindLabel(type, t)}
+          </div>
+          <div className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-high">
+            {data.display_name || getWorkflowNodeKindLabel(type, t)}
+          </div>
+          {agentDisplay ? (
+            <div className="mt-1 truncate text-[11px] text-low">
+              {agentDisplay.agentLabel}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="border-t border-secondary/60 px-3 py-2 pl-4">
+        <span
+          className={cn(
+            'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+            WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES[nodeState]
+          )}
+        >
+          {stateLabel}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function parseWorkflowGraph(graphJson: string): WorkflowGraph | null {
   try {
@@ -347,12 +315,6 @@ function buildRunWorkspaceHref(
     : null;
 }
 
-interface ConditionBranchOption {
-  targetNodeId: string;
-  targetLabel: string;
-  condition: string | null;
-}
-
 function buildConditionBranchOptions(
   graph: WorkflowGraph,
   conditionNode: WorkflowNode,
@@ -377,14 +339,14 @@ function buildConditionBranchOptions(
 
     const targetNode = nodeById.get(edge.target);
     const branch = branchByTarget.get(edge.target);
-    const targetLabel =
-      targetNode?.data.display_name?.trim() ||
-      (targetNode ? getWorkflowNodeKindLabel(targetNode.type, t) : edge.target);
     const condition = branch?.condition?.trim();
-
     options.push({
       targetNodeId: edge.target,
-      targetLabel,
+      targetLabel:
+        targetNode?.data.display_name?.trim() ||
+        (targetNode
+          ? getWorkflowNodeKindLabel(targetNode.type, t)
+          : edge.target),
       condition: condition && condition.length > 0 ? condition : null,
     });
   }
@@ -409,23 +371,34 @@ export function WorkflowRunCanvasTab({
     isRejecting,
     isSelectingConditionBranch,
   } = useWorkflowRunMutations();
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<
-    ReactFlowNode<RunNodeData, WorkflowNodeKind>
-  >([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<ReactFlowEdge>([]);
+  const gateLockRef = useRef(false);
+  const conditionLockRef = useRef(false);
   const consumedQueuedFocusForRunRef = useRef<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [detailsNodeId, setDetailsNodeId] = useState<string | null>(null);
+  const [gateSubmission, setGateSubmission] = useState<GateSubmission | null>(
+    null
+  );
+  const [conditionSubmission, setConditionSubmission] =
+    useState<ConditionSubmission | null>(null);
+  const [actionError, setActionError] = useState<{
+    nodeId: string;
+    message: string;
+  } | null>(null);
   const runtimeView = useMemo(() => getWorkflowRuntimeView(run), [run]);
+  const graph = useMemo(
+    () => (template ? parseWorkflowGraph(template.graph_json) : null),
+    [template]
+  );
+  const attentionItems = useMemo(
+    () => getWorkflowRuntimeAttentionItems(runtimeView),
+    [runtimeView]
+  );
 
-  const selectNodeById = useCallback((nodeId: string | null) => {
+  const openNodeDetails = useCallback((nodeId: string) => {
     setActionError(null);
     setSelectedNodeId(nodeId);
-  }, []);
-
-  const openNodeConversationById = useCallback((nodeId: string) => {
-    setActionError(null);
-    setSelectedNodeId(nodeId);
+    setDetailsNodeId(nodeId);
   }, []);
 
   useEffect(() => {
@@ -433,240 +406,211 @@ export function WorkflowRunCanvasTab({
     consumedQueuedFocusForRunRef.current = run.id;
 
     const queuedFocus = consumeWorkflowRunNodeFocus(run.id);
-    if (!queuedFocus) return;
-
-    setActionError(null);
-    setSelectedNodeId(queuedFocus.nodeId);
-  }, [run.id]);
-
-  useEffect(() => {
-    if (
-      selectedNodeId &&
-      runtimeView.node_work.some((work) => work.node_id === selectedNodeId)
-    ) {
-      return;
-    }
-
-    const activeNodeId = getDefaultWorkflowRuntimeNodeId(runtimeView);
-
-    if (activeNodeId) {
-      setSelectedNodeId(activeNodeId);
-    }
-  }, [runtimeView, selectedNodeId]);
-
-  const graph = useMemo(
-    () => (template ? parseWorkflowGraph(template.graph_json) : null),
-    [template]
-  );
+    if (queuedFocus) openNodeDetails(queuedFocus.nodeId);
+  }, [openNodeDetails, run.id]);
 
   useEffect(() => {
     if (!graph) return;
-
-    const workMap = new Map(
-      runtimeView.node_work.map((work) => [work.node_id, work])
-    );
-    const positions = getDefaultPositions(graph);
-    const baseNodes = toReactFlowNodes(graph, positions);
-    const baseEdges = toReactFlowEdges(graph);
-
-    setNodes(
-      baseNodes.map((baseNode) => {
-        const work = workMap.get(baseNode.id) ?? null;
-        const execution = getWorkflowNodeExecutionForWork(run, work);
-
-        return {
-          ...baseNode,
-          data: {
-            ...baseNode.data,
-            execution,
-            runtimeStatus: work?.status,
-            runtimeAuthority: work?.runtime_authority,
-            isSelected: baseNode.id === selectedNodeId,
-            nodeId: baseNode.id,
-            nodeType: baseNode.type,
-            onOpenConversation: openNodeConversationById,
-            onSelectNode: selectNodeById,
-          },
-        };
-      })
-    );
-
-    setEdges(
-      baseEdges.map((baseEdge) => {
-        const sourceWork = workMap.get(baseEdge.source);
-        const targetWork = workMap.get(baseEdge.target);
-
-        return {
-          ...baseEdge,
-          type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
-          data: {
-            ...baseEdge.data,
-            visualStatus: getWorkflowCanvasEdgeState(
-              sourceWork?.status,
-              targetWork?.status
-            ),
-          },
-        };
-      })
-    );
-  }, [
-    graph,
-    openNodeConversationById,
-    run,
-    runtimeView,
-    selectNodeById,
-    selectedNodeId,
-    setEdges,
-    setNodes,
-  ]);
-
-  const selectedWork = getWorkflowNodeWork(runtimeView, selectedNodeId);
-  const selectedExecution = getWorkflowNodeExecutionForWork(run, selectedWork);
-  const selectedGraphNode =
-    graph && selectedNodeId
-      ? (graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
-      : null;
-  const isWideRunSidePanel =
-    selectedExecution?.node_type === 'agent' ||
-    selectedExecution?.node_type === 'condition' ||
-    selectedGraphNode?.type === 'agent' ||
-    selectedGraphNode?.type === 'condition';
-  const runCanvasLayout: Layout = isWideRunSidePanel
-    ? { 'workflow-run-canvas': 62, 'workflow-run-side': 38 }
-    : { 'workflow-run-canvas': 74, 'workflow-run-side': 26 };
-
-  const onSelectionChange = useCallback(
-    ({ nodes: selectedNodes }: { nodes: ReactFlowNode[] }) => {
-      setActionError(null);
-      setSelectedNodeId(selectedNodes.length > 0 ? selectedNodes[0].id : null);
-    },
-    []
-  );
-
-  const handleNodeClick = useCallback(
-    (_event: unknown, node: ReactFlowNode<RunNodeData, WorkflowNodeKind>) => {
-      selectNodeById(node.id);
-    },
-    [selectNodeById]
-  );
-
-  const handleNodeDoubleClick = useCallback(
-    (_event: unknown, node: ReactFlowNode<RunNodeData, WorkflowNodeKind>) => {
-      openNodeConversationById(node.id);
-    },
-    [openNodeConversationById]
-  );
-
-  const handleEditSelectedNodeConfig = useCallback(() => {
-    const nodeId = selectedExecution?.node_id ?? selectedNodeId;
-    if (nodeId) {
-      queueWorkflowTemplateNodeFocus(run.workflow_id, {
-        nodeId,
-        panel: 'edit',
-      });
-    }
-    navigation.goToProjectWorkflowEdit(projectId, run.workflow_id);
-  }, [
-    navigation,
-    projectId,
-    run.workflow_id,
-    selectedExecution?.node_id,
-    selectedNodeId,
-  ]);
-
-  const handleApprove = async () => {
     if (
-      !selectedExecution ||
-      !getWorkflowNodeActionGate(selectedWork).canApprove
+      selectedNodeId &&
+      !graph.nodes.some((node) => node.id === selectedNodeId)
     ) {
-      setActionError(
-        t('workflow.runCanvas.actionUnavailable', {
-          defaultValue:
-            'Action unavailable while runtime projection is unavailable.',
-        })
-      );
+      setSelectedNodeId(null);
+    }
+    if (
+      detailsNodeId &&
+      !graph.nodes.some((node) => node.id === detailsNodeId)
+    ) {
+      setDetailsNodeId(null);
+    }
+  }, [detailsNodeId, graph, selectedNodeId]);
+
+  useEffect(() => {
+    if (!gateSubmission) return;
+    const work = getWorkflowNodeWork(runtimeView, gateSubmission.nodeId);
+    const execution = getWorkflowNodeExecutionForWork(run, work);
+    const gate = getWorkflowNodeActionGate(work);
+    if (
+      execution?.id !== gateSubmission.executionId ||
+      (!gate.canApprove && !gate.canReject)
+    ) {
+      setGateSubmission(null);
+    }
+  }, [gateSubmission, run, runtimeView]);
+
+  useEffect(() => {
+    if (!conditionSubmission) return;
+    const work = getWorkflowNodeWork(runtimeView, conditionSubmission.nodeId);
+    const execution = getWorkflowNodeExecutionForWork(run, work);
+    if (
+      execution?.id !== conditionSubmission.executionId ||
+      !getWorkflowNodeActionGate(work).canSelectConditionBranch
+    ) {
+      setConditionSubmission(null);
+    }
+  }, [conditionSubmission, run, runtimeView]);
+
+  const workMap = useMemo(
+    () => new Map(runtimeView.node_work.map((work) => [work.node_id, work])),
+    [runtimeView]
+  );
+  const nodes = useMemo(() => {
+    if (!graph) return [];
+    return toReactFlowNodes(graph, getDefaultPositions(graph)).map((node) => {
+      const work = workMap.get(node.id);
+      return {
+        ...node,
+        selected: node.id === selectedNodeId,
+        data: {
+          ...node.data,
+          runtimeStatus: work?.status,
+          runtimeAuthority: work?.runtime_authority,
+          nodeId: node.id,
+          nodeType: node.type,
+        },
+      } satisfies ReactFlowNode<RunNodeData, WorkflowNodeKind>;
+    });
+  }, [graph, selectedNodeId, workMap]);
+  const edges = useMemo(() => {
+    if (!graph) return [];
+    return toReactFlowEdges(graph).map((edge) => ({
+      ...edge,
+      data: {
+        ...edge.data,
+        visualStatus: getWorkflowCanvasEdgeState(
+          workMap.get(edge.source)?.status,
+          workMap.get(edge.target)?.status
+        ),
+      },
+    })) satisfies ReactFlowEdge[];
+  }, [graph, workMap]);
+
+  const detailsWork = getWorkflowNodeWork(runtimeView, detailsNodeId);
+  const detailsExecution = getWorkflowNodeExecutionForWork(run, detailsWork);
+  const detailsGraphNode =
+    graph?.nodes.find((node) => node.id === detailsNodeId) ?? null;
+  const gatePending = Boolean(gateSubmission) || isApproving || isRejecting;
+  const conditionPending =
+    Boolean(conditionSubmission) || isSelectingConditionBranch;
+
+  const handleHumanGateDecision = async (action: 'approve' | 'reject') => {
+    if (gateLockRef.current || gateSubmission || !detailsNodeId) return;
+
+    const work = getWorkflowNodeWork(runtimeView, detailsNodeId);
+    const execution = getWorkflowNodeExecutionForWork(run, work);
+    const gate = getWorkflowNodeActionGate(work);
+    const allowed = action === 'approve' ? gate.canApprove : gate.canReject;
+    if (!execution || !allowed) {
+      setActionError({
+        nodeId: detailsNodeId,
+        message: t('workflow.runCanvas.actionUnavailable'),
+      });
       return;
     }
-    setActionError(null);
-    try {
-      await approveNode({
-        runId: run.id,
-        nodeId: selectedExecution.node_id,
-        payload: {},
-      });
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : t('workflow.dashboard.approveFailed')
-      );
-    }
-  };
 
-  const handleReject = async () => {
-    if (
-      !selectedExecution ||
-      !getWorkflowNodeActionGate(selectedWork).canReject
-    ) {
-      setActionError(
-        t('workflow.runCanvas.actionUnavailable', {
-          defaultValue:
-            'Action unavailable while runtime projection is unavailable.',
-        })
-      );
-      return;
-    }
+    gateLockRef.current = true;
     setActionError(null);
+    setGateSubmission({
+      nodeId: detailsNodeId,
+      executionId: execution.id,
+      action,
+      phase: 'submitting',
+    });
     try {
-      await rejectNode({
-        runId: run.id,
-        nodeId: selectedExecution.node_id,
-        payload: {},
-      });
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : t('workflow.dashboard.rejectFailed')
+      if (action === 'approve') {
+        await approveNode({
+          runId: run.id,
+          nodeId: execution.node_id,
+          payload: {},
+        });
+      } else {
+        await rejectNode({
+          runId: run.id,
+          nodeId: execution.node_id,
+          payload: {},
+        });
+      }
+      setGateSubmission((current) =>
+        current?.executionId === execution.id
+          ? { ...current, phase: 'awaiting-projection' }
+          : current
       );
+    } catch (decisionError) {
+      setGateSubmission(null);
+      setActionError({
+        nodeId: detailsNodeId,
+        message:
+          decisionError instanceof Error
+            ? decisionError.message
+            : t(
+                action === 'approve'
+                  ? 'workflow.dashboard.approveFailed'
+                  : 'workflow.dashboard.rejectFailed'
+              ),
+      });
+    } finally {
+      gateLockRef.current = false;
     }
   };
 
   const handleSelectConditionBranch = async (targetNodeIds: string[]) => {
     if (
-      !selectedExecution ||
-      !getWorkflowNodeActionGate(selectedWork).canSelectConditionBranch
+      conditionLockRef.current ||
+      conditionSubmission ||
+      isSelectingConditionBranch ||
+      !detailsNodeId
     ) {
-      setActionError(
-        t('workflow.runCanvas.actionUnavailable', {
-          defaultValue:
-            'Action unavailable while runtime projection is unavailable.',
-        })
-      );
       return;
     }
+    const work = getWorkflowNodeWork(runtimeView, detailsNodeId);
+    const execution = getWorkflowNodeExecutionForWork(run, work);
+    if (
+      !execution ||
+      !getWorkflowNodeActionGate(work).canSelectConditionBranch
+    ) {
+      setActionError({
+        nodeId: detailsNodeId,
+        message: t('workflow.runCanvas.actionUnavailable'),
+      });
+      return;
+    }
+
+    conditionLockRef.current = true;
     setActionError(null);
+    setConditionSubmission({
+      nodeId: detailsNodeId,
+      executionId: execution.id,
+      phase: 'submitting',
+    });
     try {
       await selectConditionBranch({
         runId: run.id,
-        nodeId: selectedExecution.node_id,
-        payload: {
-          selected_target_node_ids: targetNodeIds,
-        },
+        nodeId: execution.node_id,
+        payload: { selected_target_node_ids: targetNodeIds },
       });
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : t('workflow.runCanvas.conditionBranchFailed')
+      setConditionSubmission((current) =>
+        current?.executionId === execution.id
+          ? { ...current, phase: 'awaiting-projection' }
+          : current
       );
+    } catch (branchError) {
+      setConditionSubmission(null);
+      setActionError({
+        nodeId: detailsNodeId,
+        message:
+          branchError instanceof Error
+            ? branchError.message
+            : t('workflow.runCanvas.conditionBranchFailed'),
+      });
+    } finally {
+      conditionLockRef.current = false;
     }
   };
 
   if (isTemplateLoading) {
     return (
       <div className="flex h-full items-center justify-center text-low">
-        <Activity className="mr-2 h-4 w-4 animate-spin" />
+        <Activity className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
         {t('workflow.runCanvas.loadingGraph')}
       </div>
     );
@@ -680,260 +624,403 @@ export function WorkflowRunCanvasTab({
     );
   }
 
+  const attentionItem = detailsNodeId ? null : (attentionItems[0] ?? null);
+
   return (
-    <div className="workflow-canvas-shell h-full w-full bg-primary">
-      <Group
-        orientation="horizontal"
-        className="h-full min-w-0 overflow-hidden"
-        defaultLayout={runCanvasLayout}
+    <div className="workflow-canvas-shell relative h-full min-h-[360px] w-full overflow-hidden bg-primary">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={workflowCanvasEdgeTypes}
+        onNodeClick={(_, node) => openNodeDetails(node.id)}
+        onNodeDoubleClick={(_, node) => openNodeDetails(node.id)}
+        onPaneClick={() => {
+          setSelectedNodeId(null);
+          setDetailsNodeId(null);
+          setActionError(null);
+        }}
+        defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        edgesReconnectable={false}
+        connectionMode={ConnectionMode.Strict}
+        elementsSelectable
+        deleteKeyCode={null}
+        fitView
+        className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
+        aria-label={t('workflow.runCanvas.canvasLabel')}
       >
-        <Panel
-          id="workflow-run-canvas"
-          minSize="35%"
-          className="min-w-0 overflow-hidden"
-        >
-          <div className="h-full min-h-[360px] min-w-0">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={workflowCanvasEdgeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onSelectionChange={onSelectionChange}
-              onNodeClick={handleNodeClick}
-              onNodeDoubleClick={handleNodeDoubleClick}
-              onPaneClick={() => selectNodeById(null)}
-              defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              connectionMode={ConnectionMode.Loose}
-              elementsSelectable={true}
-              fitView
-              className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
-            >
-              <Background
-                variant={BackgroundVariant.Dots}
-                size={1.5}
-                color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
-              />
-              <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
-            </ReactFlow>
-          </div>
-        </Panel>
-
-        <Separator
-          id="workflow-run-separator"
-          className="w-1 cursor-col-resize bg-panel outline-none transition-colors hover:bg-brand/50"
+        <Background
+          variant={BackgroundVariant.Dots}
+          size={1.5}
+          color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
         />
+        <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
+      </ReactFlow>
 
-        <Panel
-          id="workflow-run-side"
-          minSize="320px"
-          maxSize="760px"
-          className={WORKFLOW_CANVAS_CLASS_NAMES.sidePanel}
-        >
-          <NodeDetailPanel
-            actionError={actionError}
-            isApproving={isApproving}
-            isRejecting={isRejecting}
-            isSelectingConditionBranch={isSelectingConditionBranch}
-            onApprove={() => void handleApprove()}
-            onReject={() => void handleReject()}
-            onSelectConditionBranch={(targetNodeIds) =>
-              void handleSelectConditionBranch(targetNodeIds)
-            }
-            graph={graph}
-            projectId={projectId}
-            run={run}
-            selectedExecution={selectedExecution}
-            selectedWork={selectedWork}
-            selectedGraphNode={selectedGraphNode}
-            selectedNodeId={selectedNodeId}
-            onEditWorkflowConfig={handleEditSelectedNodeConfig}
-          />
-        </Panel>
-      </Group>
+      {attentionItem ? (
+        <WorkflowRunAttentionCard
+          item={attentionItem}
+          itemCount={attentionItems.length}
+          graph={graph}
+          onOpenNode={() => openNodeDetails(attentionItem.nodeId)}
+        />
+      ) : null}
+
+      <WorkflowRunNodeDetailsDialog
+        open={Boolean(detailsNodeId && detailsGraphNode)}
+        actionError={
+          actionError?.nodeId === detailsNodeId ? actionError.message : null
+        }
+        gatePending={gatePending}
+        gateSubmission={gateSubmission}
+        graph={graph}
+        isSelectingConditionBranch={conditionPending}
+        navigation={navigation}
+        node={detailsGraphNode}
+        onApprove={() => void handleHumanGateDecision('approve')}
+        onClose={() => {
+          setDetailsNodeId(null);
+          setActionError(null);
+        }}
+        onReject={() => void handleHumanGateDecision('reject')}
+        onSelectConditionBranch={(targetNodeIds) =>
+          void handleSelectConditionBranch(targetNodeIds)
+        }
+        projectId={projectId}
+        run={run}
+        execution={detailsExecution}
+        work={detailsWork}
+      />
     </div>
   );
 }
 
-interface NodeDetailPanelProps {
-  actionError: string | null;
+function WorkflowRunAttentionCard({
+  item,
+  itemCount,
+  graph,
+  onOpenNode,
+}: {
+  item: WorkflowRuntimeAttentionItem;
+  itemCount: number;
   graph: WorkflowGraph;
-  isApproving: boolean;
-  isRejecting: boolean;
+  onOpenNode: () => void;
+}) {
+  const { t } = useTranslation('common');
+  const node = graph.nodes.find((candidate) => candidate.id === item.nodeId);
+  const title =
+    node?.data.display_name ||
+    (node ? getWorkflowNodeKindLabel(node.type, t) : item.nodeId);
+
+  return (
+    <aside
+      className="absolute right-6 top-6 z-20 w-[min(360px,calc(100%-3rem))] rounded-lg border border-secondary bg-panel p-base text-normal shadow-lg max-md:right-3 max-md:top-3 max-md:w-[calc(100%-1.5rem)]"
+      aria-labelledby="workflow-runtime-attention-title"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-3">
+        {item.kind === 'failed' ? (
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-error" />
+        ) : (
+          <User className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+        )}
+        <div className="min-w-0 flex-1">
+          <h2
+            id="workflow-runtime-attention-title"
+            className="text-sm font-semibold text-high"
+          >
+            {t('workflow.runCanvas.attentionTitle')}
+          </h2>
+          <p className="mt-half break-words text-xs text-normal">
+            {t(
+              item.kind === 'failed'
+                ? 'workflow.runCanvas.attentionFailed'
+                : 'workflow.runCanvas.attentionWaiting',
+              { node: title }
+            )}
+          </p>
+          {itemCount > 1 ? (
+            <p className="mt-half text-[10px] text-low">
+              {t('workflow.runCanvas.moreAttentionItems', {
+                count: itemCount - 1,
+              })}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            size="xs"
+            className="mt-base"
+            onClick={onOpenNode}
+          >
+            {t('workflow.runCanvas.openNode')}
+          </Button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+interface WorkflowRunNodeDetailsDialogProps {
+  open: boolean;
+  actionError: string | null;
+  gatePending: boolean;
+  gateSubmission: GateSubmission | null;
+  graph: WorkflowGraph;
   isSelectingConditionBranch: boolean;
+  navigation: ReturnType<typeof useAppNavigation>;
+  node: WorkflowNode | null;
   onApprove: () => void;
+  onClose: () => void;
   onReject: () => void;
   onSelectConditionBranch: (targetNodeIds: string[]) => void;
   projectId: string;
   run: WorkflowRunResponse;
-  selectedExecution: WorkflowNodeExecutionResponse | null;
-  selectedWork: WorkflowNodeWorkView | null;
-  selectedGraphNode: WorkflowNode | null;
-  selectedNodeId: string | null;
-  onEditWorkflowConfig: () => void;
+  execution: WorkflowNodeExecutionResponse | null;
+  work: WorkflowNodeWorkView | null;
 }
 
-function NodeDetailPanel({
+function WorkflowRunNodeDetailsDialog({
+  open,
   actionError,
+  gatePending,
+  gateSubmission,
   graph,
-  isApproving,
-  isRejecting,
   isSelectingConditionBranch,
+  navigation,
+  node,
   onApprove,
+  onClose,
   onReject,
   onSelectConditionBranch,
   projectId,
   run,
-  selectedExecution,
-  selectedWork,
-  selectedGraphNode,
-  selectedNodeId,
-  onEditWorkflowConfig,
-}: NodeDetailPanelProps) {
+  execution,
+  work,
+}: WorkflowRunNodeDetailsDialogProps) {
   const { t } = useTranslation('common');
+  if (!node) return null;
+
+  const actionGate = getWorkflowNodeActionGate(work);
+  const taskTarget = getWorkflowNodeTaskTarget(execution, work);
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
-  const sessionHref = selectedExecution
-    ? buildWorkspaceSessionHref(workspaceHref, selectedExecution.session_id)
-    : null;
-  const isAgent =
-    selectedExecution?.node_type === 'agent' ||
-    selectedGraphNode?.type === 'agent';
-  const isCondition =
-    selectedExecution?.node_type === 'condition' ||
-    selectedGraphNode?.type === 'condition';
-  const isConversationalNode = isAgent || isCondition;
-  const selectedActionGate = getWorkflowNodeActionGate(selectedWork);
-  const conversationNodeData =
-    selectedGraphNode?.type === 'condition'
-      ? {
-          ...selectedGraphNode.data,
-          executor_config: graph.router_executor_config,
-        }
-      : (selectedGraphNode?.data ?? null);
-  const agentDisplay =
-    isConversationalNode && conversationNodeData
-      ? getWorkflowAgentDisplay(conversationNodeData)
+  const sessionHref =
+    taskTarget?.kind === 'agent-session'
+      ? buildWorkspaceSessionHref(workspaceHref, taskTarget.sessionId)
       : null;
+  const statusLabel = work
+    ? t(`workflow.nodeStatus.${workflowNodeStatusKey(work.status)}`)
+    : t('workflow.runCanvas.notExecutedYet');
   const title =
-    selectedGraphNode?.data.display_name ||
-    (isAgent
-      ? t('workflow.nodeSession.agentStepSession')
-      : isCondition
-        ? t('workflow.nodeSession.conditionRouterSession')
-        : t('workflow.runCanvas.nodeDetails'));
-  const subtitle = selectedExecution
-    ? t(
-        `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
-      )
-    : selectedNodeId
-      ? t('workflow.runCanvas.notExecutedYet')
-      : t('workflow.runCanvas.selectNode');
-
-  const conditionActionPanel =
-    selectedGraphNode?.type === 'condition' &&
-    selectedActionGate.canSelectConditionBranch &&
-    selectedExecution ? (
-      <ConditionRouterActionPanel
-        graph={graph}
-        conditionNode={selectedGraphNode}
-        isSelecting={isSelectingConditionBranch}
-        onSelectBranch={onSelectConditionBranch}
-        selectedExecution={selectedExecution}
-      />
-    ) : null;
-
-  if (isConversationalNode && selectedExecution) {
-    return (
-      <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
-        <div
-          key={`node-session-${selectedExecution.node_id}`}
-          className="workflow-side-panel-content h-full min-h-0"
-        >
-          <WorkflowNodeConversationPanel
-            afterHeaderContent={conditionActionPanel}
-            nodeData={conversationNodeData}
-            selectedExecution={selectedExecution}
-            selectedWork={selectedWork}
-            selectedGraphNode={selectedGraphNode}
-            workspaceId={run.workspace_id}
-            sessionHref={sessionHref}
-            workspaceHref={workspaceHref}
-            onEditConfig={onEditWorkflowConfig}
-          />
-        </div>
-      </aside>
-    );
-  }
+    node.data.display_name || getWorkflowNodeKindLabel(node.type, t);
+  const isGateActionPending = gatePending && gateSubmission?.nodeId === node.id;
+  const output = execution?.output_text?.trim();
+  const error = execution?.error_text?.trim();
+  const waitingPrompt =
+    work?.status === 'awaiting_human' || work?.status === 'awaiting_arena'
+      ? output || t('workflow.runCanvas.reviewNodeToProceed')
+      : null;
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-panel">
-      <div className="border-b border-secondary p-base">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-high">{title}</h2>
-          <div className="mt-1 flex flex-wrap gap-1">
-            {agentDisplay ? (
-              <>
-                <span className="rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-brand">
-                  {agentDisplay.agentLabel}
-                </span>
-                <span className="max-w-[220px] truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
-                  {agentDisplay.modelLabel}
-                </span>
-              </>
-            ) : null}
-            <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low">
-              {subtitle}
-            </span>
-          </div>
-        </div>
-      </div>
+    <FloatingPanel
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+      portal={false}
+      autoFocus={false}
+      restoreFocus
+      closeLabel={t('workflow.runCanvas.closeNodeDetails')}
+      className="absolute bottom-6 right-6 top-6 w-[min(440px,calc(100vw-3rem))] max-md:inset-0 max-md:w-full max-md:max-w-none max-md:rounded-none"
+      contentClassName="flex min-h-0 flex-col overflow-hidden"
+      data-testid="workflow-run-node-details"
+    >
+      <FloatingPanelHeader>
+        <FloatingPanelTitle>{title}</FloatingPanelTitle>
+        <FloatingPanelDescription>
+          {getWorkflowNodeKindLabel(node.type, t)} · {statusLabel}
+        </FloatingPanelDescription>
+      </FloatingPanelHeader>
 
-      <div
-        key={`node-detail-${selectedExecution?.node_id ?? selectedNodeId ?? 'empty'}`}
-        className={cn(
-          'workflow-side-panel-content flex-1',
-          isAgent ? 'min-h-0 overflow-hidden p-0' : 'overflow-y-auto p-base'
-        )}
-      >
-        {!selectedExecution ? (
-          <div className="text-sm text-low">
-            {selectedNodeId
-              ? t('workflow.runCanvas.nodeNotExecuted')
-              : t('workflow.runCanvas.selectNodeDetails')}
+      <FloatingPanelBody className="min-h-0 flex-1 space-y-base overflow-y-auto">
+        <section aria-labelledby="workflow-node-status-heading">
+          <h3
+            id="workflow-node-status-heading"
+            className="text-[10px] font-semibold uppercase tracking-normal text-low"
+          >
+            {t('workflow.dashboard.status')}
+          </h3>
+          <div className="mt-half flex items-center gap-half text-sm text-high">
+            {getRuntimeStatusIcon(work?.status)}
+            <span>{statusLabel}</span>
           </div>
-        ) : isAgent ? (
-          <WorkflowNodeConversationPanel
-            selectedExecution={selectedExecution}
-            selectedWork={selectedWork}
-            selectedGraphNode={selectedGraphNode}
-            workspaceId={run.workspace_id}
-            sessionHref={sessionHref}
-            workspaceHref={workspaceHref}
-            onEditConfig={onEditWorkflowConfig}
-          />
-        ) : (
-          <NodeDetailsTab
-            actionError={actionError}
-            isApproving={isApproving}
-            isRejecting={isRejecting}
-            onApprove={onApprove}
-            onReject={onReject}
+        </section>
+
+        {waitingPrompt ? (
+          <section className="rounded border border-warning/40 bg-warning/10 p-base">
+            <h3 className="text-xs font-semibold text-warning">
+              {t('workflow.runCanvas.waitingInformation')}
+            </h3>
+            <p className="mt-half whitespace-pre-wrap text-xs text-high">
+              {waitingPrompt}
+            </p>
+          </section>
+        ) : null}
+
+        {error ? (
+          <section className="rounded border border-error/40 bg-error/10 p-base">
+            <h3 className="text-xs font-semibold text-error">
+              {t('workflow.dashboard.error')}
+            </h3>
+            <pre className="mt-half whitespace-pre-wrap break-words text-xs text-error">
+              {error}
+            </pre>
+          </section>
+        ) : null}
+
+        {output && !waitingPrompt ? (
+          <section>
+            <h3 className="text-[10px] font-semibold uppercase tracking-normal text-low">
+              {t('workflow.runCanvas.currentOutput')}
+            </h3>
+            <pre className="mt-half whitespace-pre-wrap break-words rounded border border-secondary bg-primary p-base text-xs text-high">
+              {output}
+            </pre>
+          </section>
+        ) : null}
+
+        {!execution ? (
+          <p className="text-xs text-low">
+            {t('workflow.runCanvas.nodeNotExecuted')}
+          </p>
+        ) : !output && !error && !waitingPrompt ? (
+          <p className="text-xs text-low">
+            {t('workflow.runCanvas.noRuntimeOutput')}
+          </p>
+        ) : null}
+
+        {node.type === 'condition' &&
+        actionGate.canSelectConditionBranch &&
+        execution ? (
+          <ConditionRouterActionPanel
             graph={graph}
-            isSelectingConditionBranch={isSelectingConditionBranch}
-            onSelectConditionBranch={onSelectConditionBranch}
-            projectId={projectId}
-            run={run}
-            selectedExecution={selectedExecution}
-            selectedWork={selectedWork}
-            selectedGraphNode={selectedGraphNode}
-            workspaceHref={workspaceHref}
+            conditionNode={node}
+            isSelecting={isSelectingConditionBranch}
+            onSelectBranch={onSelectConditionBranch}
+            selectedExecution={execution}
           />
-        )}
-      </div>
-    </aside>
+        ) : null}
+
+        {actionError ? (
+          <p className="text-xs text-error" role="alert">
+            {actionError}
+          </p>
+        ) : null}
+
+        {execution ? (
+          <details className="rounded border border-secondary bg-primary">
+            <summary className="cursor-pointer px-base py-half text-xs font-medium text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+              {t('workflow.runCanvas.technicalDetails')}
+            </summary>
+            <div className="space-y-half border-t border-secondary p-base">
+              <MetadataRow label={t('workflow.runCanvas.executionId')}>
+                {execution.id}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.runCanvas.nodeId')}>
+                {execution.node_id}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.runCanvas.taskId')}>
+                {execution.task_id ?? t('workflow.dashboard.notAvailable')}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.nodeSession.sessionId')}>
+                {execution.session_id ?? t('workflow.dashboard.notAvailable')}
+              </MetadataRow>
+              <MetadataRow
+                label={t('workflow.nodeSession.orchestrationNodeExecutionId')}
+              >
+                {execution.orchestration_node_execution_id ??
+                  t('workflow.dashboard.notAvailable')}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.nodeSession.agentRunId')}>
+                {execution.agent_run_id ?? t('workflow.dashboard.notAvailable')}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.runCanvas.started')}>
+                {execution.started_at ?? t('workflow.dashboard.notStarted')}
+              </MetadataRow>
+              <MetadataRow label={t('workflow.runCanvas.finished')}>
+                {execution.finished_at ?? t('workflow.runCanvas.notFinished')}
+              </MetadataRow>
+            </div>
+          </details>
+        ) : null}
+      </FloatingPanelBody>
+
+      {actionGate.canApprove ||
+      actionGate.canReject ||
+      sessionHref ||
+      taskTarget?.kind === 'arena' ? (
+        <FloatingPanelFooter>
+          {actionGate.canReject ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={gatePending}
+              aria-busy={isGateActionPending}
+              onClick={onReject}
+            >
+              {isGateActionPending
+                ? t('workflow.runCanvas.updatingDecision')
+                : t('workflow.dashboard.reject')}
+            </Button>
+          ) : null}
+          {actionGate.canApprove ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={gatePending}
+              aria-busy={isGateActionPending}
+              onClick={onApprove}
+            >
+              {isGateActionPending
+                ? t('workflow.runCanvas.updatingDecision')
+                : t('workflow.runCanvas.approveAndContinue')}
+            </Button>
+          ) : null}
+          {sessionHref ? (
+            <Button asChild size="sm">
+              <a href={sessionHref}>
+                {t('workflow.runCanvas.openFullSession')}
+                <ExternalLink className="ml-half h-3.5 w-3.5" />
+              </a>
+            </Button>
+          ) : null}
+          {taskTarget?.kind === 'arena' ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={!navigation.goToProjectIssueArena}
+              title={
+                navigation.goToProjectIssueArena
+                  ? undefined
+                  : navigation.projectWorkflowUnavailableReason
+              }
+              onClick={() =>
+                navigation.goToProjectIssueArena?.(
+                  projectId,
+                  run.issue_id,
+                  taskTarget.arenaGroupId
+                )
+              }
+            >
+              {t('workflow.runCanvas.viewArenaResults')}
+              <ExternalLink className="ml-half h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+        </FloatingPanelFooter>
+      ) : null}
+    </FloatingPanel>
   );
 }
 
@@ -979,80 +1066,71 @@ function ConditionRouterActionPanel({
   };
 
   return (
-    <div className="shrink-0 space-y-half border-b border-warning/30 bg-warning/10 p-base">
-      <div className="space-y-1">
-        <h4 className="text-sm font-semibold text-warning">
+    <section className="space-y-base rounded border border-warning/40 bg-warning/10 p-base">
+      <div>
+        <h3 className="text-xs font-semibold text-warning">
           {t('workflow.runCanvas.humanActionRequired')}
-        </h4>
-        <p className="whitespace-pre-wrap text-xs text-high">{question}</p>
+        </h3>
+        <p className="mt-half whitespace-pre-wrap text-xs text-high">
+          {question}
+        </p>
         {reason ? (
-          <p className="whitespace-pre-wrap text-xs text-low">{reason}</p>
+          <p className="mt-half whitespace-pre-wrap text-xs text-low">
+            {reason}
+          </p>
         ) : null}
       </div>
-
       <div className="space-y-half">
-        <div className="text-[10px] font-semibold uppercase tracking-normal text-low">
-          {t('workflow.runCanvas.conditionRouterBranches')}
-        </div>
         {branchOptions.length === 0 ? (
-          <div className="rounded border border-warning/30 bg-panel/60 p-half text-xs text-low">
+          <p className="text-xs text-low">
             {t('workflow.runCanvas.noConditionBranches')}
-          </div>
+          </p>
         ) : (
-          <div className="space-y-half">
-            {branchOptions.map((option) => {
-              const checked = selectedTargetIds.includes(option.targetNodeId);
-              const label = option.targetLabel;
-              const targetDetail = option.targetNodeId;
-
-              return (
-                <div
-                  key={option.targetNodeId}
-                  className={cn(
-                    'flex items-start gap-half rounded border bg-panel/80 p-half text-xs',
-                    checked ? 'border-brand/45' : 'border-secondary'
-                  )}
-                >
-                  {isMulti ? (
-                    <Checkbox
-                      checked={checked}
-                      disabled={isSelecting}
-                      onCheckedChange={() => toggleTarget(option.targetNodeId)}
-                      className="mt-0.5"
-                    />
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold text-high">
-                      {label}
-                    </div>
-                    <div className="truncate text-[10px] text-low">
-                      {targetDetail}
-                    </div>
-                    {option.condition ? (
-                      <div className="mt-1 line-clamp-2 text-low">
-                        {option.condition}
-                      </div>
-                    ) : null}
+          branchOptions.map((option) => {
+            const checked = selectedTargetIds.includes(option.targetNodeId);
+            return (
+              <div
+                key={option.targetNodeId}
+                className={cn(
+                  'flex items-start gap-half rounded border bg-panel p-half text-xs',
+                  checked ? 'border-brand/45' : 'border-secondary'
+                )}
+              >
+                {isMulti ? (
+                  <Checkbox
+                    checked={checked}
+                    disabled={isSelecting}
+                    onCheckedChange={() => toggleTarget(option.targetNodeId)}
+                    className="mt-0.5"
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold text-high">
+                    {option.targetLabel}
                   </div>
-                  {isMulti ? null : (
-                    <Button
-                      type="button"
-                      size="xs"
-                      disabled={isSelecting}
-                      onClick={() => onSelectBranch([option.targetNodeId])}
-                    >
-                      {isSelecting
-                        ? t('workflow.runCanvas.selectingConditionBranch')
-                        : t('workflow.runCanvas.selectConditionBranch')}
-                    </Button>
-                  )}
+                  {option.condition ? (
+                    <div className="mt-1 line-clamp-2 text-low">
+                      {option.condition}
+                    </div>
+                  ) : null}
                 </div>
-              );
-            })}
-          </div>
+                {isMulti ? null : (
+                  <Button
+                    type="button"
+                    size="xs"
+                    disabled={isSelecting}
+                    onClick={() => onSelectBranch([option.targetNodeId])}
+                  >
+                    {isSelecting
+                      ? t('workflow.runCanvas.selectingConditionBranch')
+                      : t('workflow.runCanvas.selectConditionBranch')}
+                  </Button>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
-
       {isMulti ? (
         <Button
           type="button"
@@ -1065,312 +1143,30 @@ function ConditionRouterActionPanel({
             : t('workflow.runCanvas.continueSelectedBranches')}
         </Button>
       ) : null}
-    </div>
+    </section>
   );
 }
 
-function NodeDetailsTab({
-  actionError,
-  isApproving,
-  isRejecting,
-  onApprove,
-  onReject,
-  graph,
-  isSelectingConditionBranch,
-  onSelectConditionBranch,
-  projectId,
-  run,
-  selectedExecution,
-  selectedWork,
-  selectedGraphNode,
-  workspaceHref,
-}: {
-  actionError: string | null;
-  isApproving: boolean;
-  isRejecting: boolean;
-  onApprove: () => void;
-  onReject: () => void;
-  graph: WorkflowGraph;
-  isSelectingConditionBranch: boolean;
-  onSelectConditionBranch: (targetNodeIds: string[]) => void;
-  projectId: string;
-  run: WorkflowRunResponse;
-  selectedExecution: WorkflowNodeExecutionResponse;
-  selectedWork: WorkflowNodeWorkView | null;
-  selectedGraphNode: WorkflowNode | null;
-  workspaceHref: string | null;
-}) {
-  const { t } = useTranslation('common');
-  const actionGate = getWorkflowNodeActionGate(selectedWork);
-  const [showFilesInspector, setShowFilesInspector] = useState(false);
-  const { target, openTarget, clearTarget } = useWorkspaceFilePreviewState();
-  const previewScopeKey = `${run.workspace_id ?? 'no-workspace'}:${selectedExecution.id}`;
-
-  useEffect(() => {
-    setShowFilesInspector(false);
-    clearTarget();
-  }, [clearTarget, previewScopeKey]);
-
-  if (showFilesInspector && run.workspace_id) {
-    return (
-      <div className="h-full min-h-[520px] overflow-hidden rounded border border-secondary">
-        <WorkspaceFilesInlineInspector
-          workspaceId={run.workspace_id}
-          target={target}
-          source="workflow"
-          sessionId={selectedExecution.session_id ?? undefined}
-          compact
-          title={t('workflow.dashboard.inspectFiles')}
-          onSelectFile={openTarget}
-          onClearTarget={clearTarget}
-          onClose={() => setShowFilesInspector(false)}
-        />
-      </div>
-    );
+function getRuntimeStatusIcon(
+  status: WorkflowNodeWorkStatus | undefined
+): ReactNode {
+  switch (status) {
+    case 'running':
+    case 'starting':
+      return (
+        <Activity className="h-4 w-4 text-brand motion-safe:animate-spin" />
+      );
+    case 'succeeded':
+      return <CheckCircle className="h-4 w-4 text-success" />;
+    case 'failed':
+      return <AlertCircle className="h-4 w-4 text-error" />;
+    case 'awaiting_human':
+      return <User className="h-4 w-4 text-warning" />;
+    case 'awaiting_arena':
+      return <Swords className="h-4 w-4 text-warning" />;
+    default:
+      return <Clock className="h-4 w-4 text-low" />;
   }
-
-  return (
-    <div className="space-y-base">
-      <div>
-        <h3 className="mb-half text-xs font-semibold uppercase text-low">
-          {t('workflow.dashboard.status')}
-        </h3>
-        <div className="flex items-center gap-half">
-          {statusIconMap[selectedExecution.status]}
-          <span className="text-sm capitalize text-high">
-            {t(
-              `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
-            )}
-          </span>
-        </div>
-      </div>
-
-      {selectedGraphNode?.type === 'condition' &&
-      actionGate.canSelectConditionBranch ? (
-        <ConditionRouterActionPanel
-          graph={graph}
-          conditionNode={selectedGraphNode}
-          isSelecting={isSelectingConditionBranch}
-          onSelectBranch={onSelectConditionBranch}
-          selectedExecution={selectedExecution}
-        />
-      ) : actionGate.canApprove && actionGate.canReject ? (
-        <div className="space-y-half rounded border border-warning/50 bg-warning/10 p-half">
-          <h4 className="text-sm font-semibold text-warning">
-            {t('workflow.runCanvas.humanActionRequired')}
-          </h4>
-          <p className="text-xs text-high">
-            {selectedExecution.output_text ||
-              t('workflow.runCanvas.reviewNodeToProceed')}
-          </p>
-          <div className="flex flex-wrap gap-half">
-            <Button
-              type="button"
-              size="xs"
-              disabled={isApproving || isRejecting}
-              onClick={onApprove}
-            >
-              {isApproving
-                ? t('workflow.runCanvas.approving')
-                : t('workflow.dashboard.approve')}
-            </Button>
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              disabled={isApproving || isRejecting}
-              onClick={onReject}
-            >
-              {isRejecting
-                ? t('workflow.runCanvas.rejecting')
-                : t('workflow.dashboard.reject')}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {actionGate.canSelectArenaWinner ? (
-        <WorkflowArenaWinnerPanel
-          arenaGroupId={selectedExecution.arena_group_id}
-          issueId={run.issue_id}
-          nodeId={selectedExecution.node_id}
-          projectId={projectId}
-          runId={run.id}
-        />
-      ) : null}
-
-      {actionError ? (
-        <p className="text-xs text-error" role="alert">
-          {actionError}
-        </p>
-      ) : null}
-
-      {selectedExecution.error_text ? (
-        <div className="rounded border border-error/50 bg-error/10 p-half">
-          <h3 className="text-xs font-semibold uppercase text-error">
-            {t('workflow.dashboard.error')}
-          </h3>
-          <pre className="mt-half whitespace-pre-wrap text-xs text-error">
-            {selectedExecution.error_text}
-          </pre>
-        </div>
-      ) : null}
-
-      <NodeExecutionTab
-        run={run}
-        selectedExecution={selectedExecution}
-        sessionHref={null}
-        workspaceHref={workspaceHref}
-        onInspectFiles={
-          run.workspace_id ? () => setShowFilesInspector(true) : undefined
-        }
-      />
-    </div>
-  );
-}
-
-function WorkflowNodeConversationPanel({
-  afterHeaderContent,
-  nodeData,
-  selectedExecution,
-  selectedWork,
-  selectedGraphNode,
-  workspaceId,
-  sessionHref,
-  workspaceHref,
-  onEditConfig,
-}: {
-  afterHeaderContent?: ReactNode;
-  nodeData?: WorkflowNodeData | null;
-  selectedExecution: WorkflowNodeExecutionResponse;
-  selectedWork: WorkflowNodeWorkView | null;
-  selectedGraphNode: WorkflowNode | null;
-  workspaceId: string | null;
-  sessionHref: string | null;
-  workspaceHref: string | null;
-  onEditConfig: () => void;
-}) {
-  const { t } = useTranslation('common');
-  const supportsConversation =
-    selectedExecution.node_type === 'agent' ||
-    selectedExecution.node_type === 'condition';
-  if (!supportsConversation) {
-    return (
-      <div
-        data-testid="workflow-node-conversation-panel"
-        className="text-sm text-low"
-      >
-        {t('workflow.runCanvas.conversationAgentOnly')}
-      </div>
-    );
-  }
-
-  return (
-    <div data-testid="workflow-node-conversation-panel" className="h-full">
-      <WorkflowNodeSessionPanel
-        execution={selectedExecution}
-        workspaceId={workspaceId}
-        sessionHref={sessionHref}
-        workspaceHref={workspaceHref}
-        nodeTitle={selectedGraphNode?.data.display_name}
-        nodeData={nodeData ?? selectedGraphNode?.data ?? null}
-        statusLabel={t(
-          `workflow.nodeStatus.${workflowNodeStatusKey(selectedExecution.status)}`
-        )}
-        onEditConfig={onEditConfig}
-        runStepDisabled
-        runStepTitle={t('workflow.canvas.runStepUnavailable')}
-        afterHeaderContent={afterHeaderContent}
-        runtimeWork={selectedWork}
-      />
-    </div>
-  );
-}
-
-function NodeExecutionTab({
-  run,
-  selectedExecution,
-  sessionHref,
-  workspaceHref,
-  onInspectFiles,
-}: {
-  run: WorkflowRunResponse;
-  selectedExecution: WorkflowNodeExecutionResponse;
-  sessionHref: string | null;
-  workspaceHref: string | null;
-  onInspectFiles?: () => void;
-}) {
-  const { t } = useTranslation('common');
-  return (
-    <div className="space-y-base">
-      <div className="space-y-half">
-        <MetadataRow label={t('workflow.dashboard.runId')}>
-          {run.id}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.executionId')}>
-          {selectedExecution.id}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.nodeId')}>
-          {selectedExecution.node_id}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.nodeType')}>
-          {selectedExecution.node_type}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.nodeSession.sessionId')}>
-          {selectedExecution.session_id ?? t('workflow.dashboard.notStarted')}
-        </MetadataRow>
-        <MetadataRow
-          label={t('workflow.nodeSession.orchestrationNodeExecutionId')}
-        >
-          {selectedExecution.orchestration_node_execution_id ??
-            t('workflow.dashboard.notAvailable')}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.nodeSession.agentRunId')}>
-          {selectedExecution.agent_run_id ??
-            t('workflow.dashboard.notAvailable')}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.nodeSession.projection')}>
-          {selectedExecution.projection_status ??
-            t('workflow.dashboard.notAvailable')}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.workspaceId')}>
-          {run.workspace_id ?? t('workflow.runCanvas.noWorkspace')}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.started')}>
-          {selectedExecution.started_at ?? t('workflow.dashboard.notStarted')}
-        </MetadataRow>
-        <MetadataRow label={t('workflow.runCanvas.finished')}>
-          {selectedExecution.finished_at ?? t('workflow.runCanvas.notFinished')}
-        </MetadataRow>
-      </div>
-
-      <div className="flex flex-wrap gap-half">
-        {sessionHref ? (
-          <Button asChild size="xs" variant="outline">
-            <a href={sessionHref}>{t('attempts.openSession')}</a>
-          </Button>
-        ) : null}
-        {workspaceHref ? (
-          <Button asChild size="xs" variant="outline">
-            <a href={workspaceHref}>
-              {t('workflow.dashboard.openWorkflowWorkspace')}
-            </a>
-          </Button>
-        ) : null}
-        {onInspectFiles ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            onClick={onInspectFiles}
-          >
-            <Files className="mr-half size-3" />
-            {t('workflow.dashboard.inspectFiles')}
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function MetadataRow({
@@ -1381,7 +1177,7 @@ function MetadataRow({
   label: string;
 }) {
   return (
-    <div className="rounded border border-secondary bg-primary p-half">
+    <div className="rounded border border-secondary bg-panel p-half">
       <div className="text-[10px] font-semibold uppercase text-low">
         {label}
       </div>

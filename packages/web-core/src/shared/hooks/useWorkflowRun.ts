@@ -42,8 +42,13 @@ export function useWorkflowRun(
       if (refetchIntervalMs === false) return false;
       const data = query.state.data as WorkflowRunResponse | undefined;
       if (!data) return false;
-      const isRunning = data.status === 'running' || data.status === 'pending';
-      return isRunning ? refetchIntervalMs : false;
+      const isActive =
+        data.status === 'pending' ||
+        data.status === 'running' ||
+        data.status === 'awaiting_human' ||
+        data.status === 'awaiting_arena' ||
+        data.status === 'cancelling';
+      return isActive ? refetchIntervalMs : false;
     },
     refetchOnWindowFocus: false,
   });

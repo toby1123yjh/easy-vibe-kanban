@@ -10,7 +10,6 @@ export * from './ui/WorkflowTemplateEditorPage';
 export * from './ui/WorkflowCanvas';
 export * from './ui/WorkflowRunPage';
 export * from './ui/WorkflowRunCanvasTab';
-export * from './ui/WorkflowRunDashboardTab';
 export * from './ui/WorkflowEdgeInspector';
 export * from './ui/WorkflowNodeInspector';
 export * from './ui/WorkflowValidationPanel';

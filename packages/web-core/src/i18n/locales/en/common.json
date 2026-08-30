@@ -779,7 +779,9 @@
       "canvas": "Workflow",
       "dashboard": "Dashboard",
       "taskAttempt": "Task attempt {{id}}",
-      "workflowRun": "Workflow run {{id}}"
+      "workflowRun": "Workflow run {{id}}",
+      "progress": "{{completed}} / {{total}} completed",
+      "cancelling": "Cancelling..."
     },
     "runCanvas": {
       "loadingGraph": "Loading workflow...",
@@ -807,7 +809,25 @@
       "finished": "Finished",
       "notFinished": "Not finished",
       "selectConditionBranch": "Select",
-      "selectingConditionBranch": "Selecting..."
+      "selectingConditionBranch": "Selecting...",
+      "actionUnavailable": "This action is unavailable until canonical runtime state is current.",
+      "canvasLabel": "Workflow runtime canvas",
+      "attentionTitle": "Needs attention",
+      "attentionWaiting": "{{node}} is waiting for input.",
+      "attentionFailed": "{{node}} failed and needs review.",
+      "moreAttentionItems": "{{count}} more item requires attention",
+      "moreAttentionItems_other": "{{count}} more items require attention",
+      "openNode": "Open Node",
+      "closeNodeDetails": "Close Node details",
+      "waitingInformation": "Waiting information",
+      "currentOutput": "Current output",
+      "noRuntimeOutput": "No runtime output is available yet.",
+      "technicalDetails": "Technical details",
+      "taskId": "Task ID",
+      "updatingDecision": "Updating...",
+      "approveAndContinue": "Approve and continue",
+      "openFullSession": "Open full session",
+      "viewArenaResults": "View candidate results"
     },
     "debug": {
       "noDebugData": "No debug data for this step.",
@@ -827,17 +847,21 @@
       "running": "Running",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "Cancelling",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "canceled": "Canceled"
     },
     "nodeStatus": {
       "pending": "Pending",
+      "starting": "Starting",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "Cancelling",
+      "cancelled": "Cancelled",
       "skipped": "Skipped"
     },
     "dashboard": {

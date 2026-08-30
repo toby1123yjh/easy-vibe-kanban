@@ -7,8 +7,12 @@ import type {
 import {
   getDefaultWorkflowRuntimeNodeId,
   getWorkflowNodeActionGate,
+  getWorkflowNodeExecutionForWork,
   getWorkflowNodeRuntimeSummary,
+  getWorkflowNodeTaskTarget,
   getWorkflowNodeWork,
+  getWorkflowRunActionGate,
+  getWorkflowRuntimeAttentionItems,
   getWorkflowRuntimeView,
   isWorkflowNodeProcessing,
 } from './workflowRuntimeView';
@@ -23,6 +27,7 @@ function node(
   return {
     id,
     run_id: 'run-1',
+    task_id: null,
     node_id: nodeId,
     node_type: nodeType,
     iteration,
@@ -208,5 +213,220 @@ describe('workflow runtime view', () => {
       status: 'pending',
       pending_work_count: 1,
     });
+  });
+
+  it('resolves terminal structural execution from canonical slot identity', () => {
+    const older = {
+      ...node('exec-older', 'approval', 'human_gate', 'failed', 1n),
+      updated_at: '2026-06-25T00:00:01Z',
+    };
+    const latest = {
+      ...node('exec-latest', 'approval', 'human_gate', 'succeeded', 1n),
+      output_text: 'Approved',
+      updated_at: '2026-06-25T00:00:02Z',
+    };
+    const runtimeView = {
+      run_id: 'run-1',
+      status: 'succeeded',
+      active_node_count: 0,
+      pending_node_count: 0,
+      waiting_node_count: 0,
+      failed_node_count: 0,
+      completed_node_count: 1,
+      node_work: [
+        {
+          node_id: 'approval',
+          node_type: 'human_gate',
+          iteration: 1n,
+          status: 'succeeded',
+          pending_work_count: 0,
+          starting_child_count: 0,
+          active_execution_id: null,
+          active_session_id: null,
+          orchestration_node_execution_id: null,
+          active_agent_run_id: null,
+          projection_status: null,
+          active_started_at: null,
+          active_elapsed_ms: null,
+          active_slow: false,
+          active_slow_threshold_ms: 300000,
+          runtime_health: 'ok',
+          can_open_session: false,
+          can_retry: false,
+          can_approve: false,
+          can_reject: false,
+          can_select_arena_winner: false,
+          can_select_condition_branch: false,
+          can_cancel_node: false,
+        },
+      ],
+    } satisfies WorkflowRunRuntimeView;
+    const run = {
+      ...baseRun,
+      status: 'succeeded',
+      nodes: [older, latest],
+      runtime_view: runtimeView,
+    } satisfies WorkflowRunResponse;
+    const view = getWorkflowRuntimeView(run);
+
+    expect(
+      getWorkflowNodeExecutionForWork(
+        run,
+        getWorkflowNodeWork(view, 'approval')
+      )
+    ).toEqual(latest);
+  });
+
+  it('projects attention only from current canonical work', () => {
+    const runtimeView = {
+      run_id: 'run-1',
+      status: 'awaiting_human',
+      active_node_count: 0,
+      pending_node_count: 0,
+      waiting_node_count: 1,
+      failed_node_count: 1,
+      completed_node_count: 0,
+      node_work: [
+        {
+          node_id: 'failed-agent',
+          node_type: 'agent',
+          iteration: 0n,
+          status: 'failed',
+          pending_work_count: 0,
+          starting_child_count: 0,
+          active_execution_id: 'exec-failed',
+          active_session_id: 'session-failed',
+          orchestration_node_execution_id: 'orch-failed',
+          active_agent_run_id: 'agent-run-failed',
+          projection_status: 'current',
+          active_started_at: null,
+          active_elapsed_ms: null,
+          active_slow: false,
+          active_slow_threshold_ms: 300000,
+          runtime_health: 'ok',
+          can_open_session: true,
+          can_retry: true,
+          can_approve: false,
+          can_reject: false,
+          can_select_arena_winner: false,
+          can_select_condition_branch: false,
+          can_cancel_node: false,
+        },
+        {
+          node_id: 'approval',
+          node_type: 'human_gate',
+          iteration: 0n,
+          status: 'awaiting_human',
+          pending_work_count: 0,
+          starting_child_count: 0,
+          active_execution_id: 'exec-approval',
+          active_session_id: null,
+          orchestration_node_execution_id: 'orch-approval',
+          active_agent_run_id: null,
+          projection_status: 'current',
+          active_started_at: null,
+          active_elapsed_ms: null,
+          active_slow: false,
+          active_slow_threshold_ms: 300000,
+          runtime_health: 'ok',
+          can_open_session: false,
+          can_retry: false,
+          can_approve: true,
+          can_reject: true,
+          can_select_arena_winner: false,
+          can_select_condition_branch: false,
+          can_cancel_node: false,
+        },
+      ],
+    } satisfies WorkflowRunRuntimeView;
+
+    const current = getWorkflowRuntimeView({
+      ...baseRun,
+      runtime_view: runtimeView,
+    });
+    expect(getWorkflowRuntimeAttentionItems(current)).toEqual([
+      {
+        nodeId: 'approval',
+        nodeType: 'human_gate',
+        status: 'awaiting_human',
+        kind: 'waiting',
+      },
+      {
+        nodeId: 'failed-agent',
+        nodeType: 'agent',
+        status: 'failed',
+        kind: 'failed',
+      },
+    ]);
+
+    const fallback = getWorkflowRuntimeView({
+      ...baseRun,
+      nodes: [
+        node('exec-fallback', 'approval', 'human_gate', 'awaiting_human'),
+      ],
+    });
+    expect(getWorkflowRuntimeAttentionItems(fallback)).toEqual([]);
+  });
+
+  it('builds deep links only for canonically bound Agent and Arena Tasks', () => {
+    const currentAgentWork = {
+      runtime_authority: 'current',
+      can_open_session: true,
+    } as ReturnType<typeof getWorkflowNodeWork>;
+    const agent = {
+      ...node('exec-agent', 'agent', 'agent', 'running'),
+      task_id: 'task-agent',
+      session_id: 'session-agent',
+    };
+    expect(getWorkflowNodeTaskTarget(agent, currentAgentWork)).toEqual({
+      kind: 'agent-session',
+      taskId: 'task-agent',
+      sessionId: 'session-agent',
+    });
+
+    const arena = {
+      ...node('exec-arena', 'arena', 'arena', 'awaiting_arena'),
+      task_id: 'task-arena',
+      arena_group_id: 'arena-group',
+    };
+    expect(
+      getWorkflowNodeTaskTarget(arena, {
+        ...currentAgentWork,
+        can_open_session: false,
+      })
+    ).toEqual({
+      kind: 'arena',
+      taskId: 'task-arena',
+      arenaGroupId: 'arena-group',
+    });
+
+    expect(
+      getWorkflowNodeTaskTarget(
+        { ...agent, node_type: 'condition' },
+        currentAgentWork
+      )
+    ).toBeNull();
+    expect(
+      getWorkflowNodeTaskTarget({ ...agent, task_id: null }, currentAgentWork)
+    ).toBeNull();
+    expect(
+      getWorkflowNodeTaskTarget(agent, {
+        ...currentAgentWork,
+        runtime_authority: 'unknown',
+      })
+    ).toBeNull();
+  });
+
+  it('exposes cancellation only for canonical cancellable run statuses', () => {
+    expect(getWorkflowRunActionGate(baseRun)).toEqual({
+      canCancel: true,
+      cancellationPending: false,
+    });
+    expect(
+      getWorkflowRunActionGate({ ...baseRun, status: 'cancelling' })
+    ).toEqual({ canCancel: false, cancellationPending: true });
+    expect(
+      getWorkflowRunActionGate({ ...baseRun, status: 'succeeded' })
+    ).toEqual({ canCancel: false, cancellationPending: false });
   });
 });

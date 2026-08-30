@@ -17,6 +17,7 @@ function execution(
   return {
     id: `${nodeId}-${String(iteration)}`,
     run_id: 'run-1',
+    task_id: null,
     node_id: nodeId,
     node_type: 'agent',
     iteration,
@@ -24,6 +25,9 @@ function execution(
     input_text: null,
     output_text: null,
     session_id: null,
+    orchestration_node_execution_id: null,
+    agent_run_id: null,
+    projection_status: null,
     execution_process_id: null,
     arena_group_id: null,
     tokens_used: null,
@@ -61,6 +65,8 @@ describe('workflow canvas visual state', () => {
     expect(getWorkflowCanvasEdgeState(undefined)).toBe('idle');
     expect(getWorkflowCanvasEdgeState('pending')).toBe('idle');
     expect(getWorkflowCanvasEdgeState('running')).toBe('running');
+    expect(getWorkflowCanvasEdgeState('starting')).toBe('running');
+    expect(getWorkflowCanvasEdgeState('cancelling')).toBe('running');
     expect(getWorkflowCanvasEdgeState('succeeded', 'running')).toBe('running');
     expect(getWorkflowCanvasEdgeState('succeeded', 'awaiting_human')).toBe(
       'waiting'
@@ -68,6 +74,7 @@ describe('workflow canvas visual state', () => {
     expect(getWorkflowCanvasEdgeState('succeeded')).toBe('succeeded');
     expect(getWorkflowCanvasEdgeState('awaiting_human')).toBe('waiting');
     expect(getWorkflowCanvasEdgeState('failed')).toBe('failed');
+    expect(getWorkflowCanvasEdgeState('cancelled')).toBe('skipped');
   });
 
   it('maps latest node executions into canvas edge states', () => {
@@ -107,6 +114,20 @@ describe('workflow canvas visual state', () => {
         executionStatus: 'failed',
       })
     ).toBe('failed');
+    expect(
+      getWorkflowCanvasNodeState({
+        nodeType: 'agent',
+        data: { prompt_template: 'Read the project' },
+        executionStatus: 'starting',
+      })
+    ).toBe('running');
+    expect(
+      getWorkflowCanvasNodeState({
+        nodeType: 'agent',
+        data: { prompt_template: 'Read the project' },
+        executionStatus: 'cancelled',
+      })
+    ).toBe('skipped');
     expect(getWorkflowCanvasNodeStateLabel('waiting')).toBe('Waiting');
   });
 });

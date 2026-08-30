@@ -90,13 +90,15 @@ export function getWorkflowCanvasNodeState({
   nodeType,
 }: {
   data: WorkflowNodeData;
-  executionStatus?: NodeExecutionStatus;
+  executionStatus?: NodeExecutionStatus | WorkflowNodeWorkStatus;
   nodeType: WorkflowNodeKind;
 }): WorkflowCanvasNodeState {
   switch (executionStatus) {
     case 'pending':
       return 'pending';
     case 'running':
+    case 'starting':
+    case 'cancelling':
       return 'running';
     case 'succeeded':
       return 'succeeded';
@@ -106,6 +108,7 @@ export function getWorkflowCanvasNodeState({
     case 'awaiting_arena':
       return 'waiting';
     case 'skipped':
+    case 'cancelled':
       return 'skipped';
     default:
       return nodeType === 'agent' && !hasConfiguredAgentData(data)
@@ -130,7 +133,14 @@ export function getWorkflowCanvasEdgeState(
   targetStatus?: NodeExecutionStatus | WorkflowNodeWorkStatus
 ): WorkflowCanvasEdgeState {
   if (sourceStatus === 'failed' || targetStatus === 'failed') return 'failed';
-  if (sourceStatus === 'running' || targetStatus === 'running') {
+  if (
+    sourceStatus === 'running' ||
+    sourceStatus === 'starting' ||
+    sourceStatus === 'cancelling' ||
+    targetStatus === 'running' ||
+    targetStatus === 'starting' ||
+    targetStatus === 'cancelling'
+  ) {
     return 'running';
   }
   if (
@@ -141,7 +151,12 @@ export function getWorkflowCanvasEdgeState(
   ) {
     return 'waiting';
   }
-  if (sourceStatus === 'skipped' || targetStatus === 'skipped') {
+  if (
+    sourceStatus === 'skipped' ||
+    sourceStatus === 'cancelled' ||
+    targetStatus === 'skipped' ||
+    targetStatus === 'cancelled'
+  ) {
     return 'skipped';
   }
   if (sourceStatus === 'succeeded' || targetStatus === 'succeeded') {

@@ -687,7 +687,9 @@
       "canvas": "工作流",
       "dashboard": "儀表板",
       "taskAttempt": "任務執行 {{id}}",
-      "workflowRun": "工作流執行 {{id}}"
+      "workflowRun": "工作流執行 {{id}}",
+      "progress": "已完成 {{completed}} / {{total}}",
+      "cancelling": "正在取消..."
     },
     "runCanvas": {
       "loadingGraph": "正在載入工作流...",
@@ -715,7 +717,25 @@
       "finished": "完成時間",
       "notFinished": "尚未完成",
       "selectConditionBranch": "選擇",
-      "selectingConditionBranch": "正在選擇..."
+      "selectingConditionBranch": "正在選擇...",
+      "actionUnavailable": "canonical 執行狀態更新前，此操作不可用。",
+      "canvasLabel": "工作流執行畫布",
+      "attentionTitle": "需要處理",
+      "attentionWaiting": "{{node}} 正在等待輸入。",
+      "attentionFailed": "{{node}} 執行失敗，需要檢查。",
+      "moreAttentionItems": "還有 {{count}} 項需要處理",
+      "moreAttentionItems_other": "還有 {{count}} 項需要處理",
+      "openNode": "開啟對應 Node",
+      "closeNodeDetails": "關閉 Node 詳情",
+      "waitingInformation": "等待事項",
+      "currentOutput": "目前輸出",
+      "noRuntimeOutput": "暫時沒有執行輸出。",
+      "technicalDetails": "技術詳情",
+      "taskId": "任務 ID",
+      "updatingDecision": "正在更新...",
+      "approveAndContinue": "核准並繼續",
+      "openFullSession": "開啟完整會話",
+      "viewArenaResults": "檢視候選結果"
     },
     "debug": {
       "noDebugData": "此步驟沒有除錯資料。",
@@ -735,17 +755,21 @@
       "running": "執行中",
       "awaitingHuman": "等待人工處理",
       "awaitingArena": "等待 Arena",
+      "cancelling": "正在取消",
       "succeeded": "已成功",
       "failed": "已失敗",
       "canceled": "已取消"
     },
     "nodeStatus": {
       "pending": "待開始",
+      "starting": "正在啟動",
       "running": "執行中",
       "succeeded": "已成功",
       "failed": "已失敗",
       "awaitingHuman": "等待人工處理",
       "awaitingArena": "等待 Arena",
+      "cancelling": "正在取消",
+      "cancelled": "已取消",
       "skipped": "已跳過"
     },
     "dashboard": {

@@ -62,6 +62,32 @@ export interface WorkflowNodeRuntimeSummary {
   startingChildCount: number;
 }
 
+export type WorkflowRuntimeAttentionKind = 'waiting' | 'failed';
+
+export interface WorkflowRuntimeAttentionItem {
+  nodeId: string;
+  nodeType: string;
+  status: WorkflowNodeWorkStatus;
+  kind: WorkflowRuntimeAttentionKind;
+}
+
+export type WorkflowNodeTaskTarget =
+  | {
+      kind: 'agent-session';
+      taskId: string;
+      sessionId: string;
+    }
+  | {
+      kind: 'arena';
+      taskId: string;
+      arenaGroupId: string;
+    };
+
+export interface WorkflowRunActionGate {
+  canCancel: boolean;
+  cancellationPending: boolean;
+}
+
 export function getWorkflowRuntimeView(
   run: WorkflowRunResponse,
   options: WorkflowRuntimeViewOptions = {}
@@ -97,6 +123,13 @@ export function getWorkflowNodeExecutionForWork(
   const orchestrationNodeExecutionId =
     canonicalWork.orchestration_node_execution_id;
   const agentRunId = canonicalWork.active_agent_run_id;
+  const latestSlotExecution = selectLatestNodeExecution(
+    run.nodes.filter(
+      (node) =>
+        node.node_id === canonicalWork.node_id &&
+        node.iteration === canonicalWork.iteration
+    )
+  );
 
   return (
     (orchestrationNodeExecutionId
@@ -117,6 +150,7 @@ export function getWorkflowNodeExecutionForWork(
           (node) => node.id === canonicalWork.active_execution_id
         ) ?? null)
       : null) ??
+    latestSlotExecution ??
     null
   );
 }
@@ -166,6 +200,96 @@ export function getWorkflowNodeRuntimeSummary(
     activeSlow: work.active_slow,
     pendingWorkCount: work.pending_work_count,
     startingChildCount: work.starting_child_count,
+  };
+}
+
+/**
+ * Project the small set of Nodes that require operator attention. Unknown or
+ * degraded fallback work is intentionally omitted so the runtime UI never
+ * promotes locally reconstructed state into an actionable notice.
+ */
+export function getWorkflowRuntimeAttentionItems(
+  view: WorkflowRuntimeProjection
+): WorkflowRuntimeAttentionItem[] {
+  const items: WorkflowRuntimeAttentionItem[] = [];
+  for (const work of view.node_work) {
+    if (work.runtime_authority !== 'current') continue;
+
+    if (work.status === 'awaiting_human' || work.status === 'awaiting_arena') {
+      items.push({
+        nodeId: work.node_id,
+        nodeType: work.node_type,
+        status: work.status,
+        kind: 'waiting',
+      });
+      continue;
+    }
+
+    if (work.status === 'failed') {
+      items.push({
+        nodeId: work.node_id,
+        nodeType: work.node_type,
+        status: work.status,
+        kind: 'failed',
+      });
+    }
+  }
+
+  return items.sort((left, right) => {
+    if (left.kind === right.kind) return 0;
+    return left.kind === 'waiting' ? -1 : 1;
+  });
+}
+
+/**
+ * Resolve Task-owned runtime navigation. Session or Arena identities without
+ * a canonical Task binding are deliberately not exposed as Node deep links.
+ */
+export function getWorkflowNodeTaskTarget(
+  execution: WorkflowNodeExecutionResponse | null | undefined,
+  work: WorkflowNodeWorkView | null | undefined
+): WorkflowNodeTaskTarget | null {
+  const canonicalWork = work as
+    | CanonicalWorkflowNodeWorkView
+    | null
+    | undefined;
+  if (!execution?.task_id || canonicalWork?.runtime_authority !== 'current') {
+    return null;
+  }
+
+  if (
+    execution.node_type === 'agent' &&
+    execution.session_id &&
+    getWorkflowNodeActionGate(work).canOpenSession
+  ) {
+    return {
+      kind: 'agent-session',
+      taskId: execution.task_id,
+      sessionId: execution.session_id,
+    };
+  }
+
+  if (execution.node_type === 'arena' && execution.arena_group_id) {
+    return {
+      kind: 'arena',
+      taskId: execution.task_id,
+      arenaGroupId: execution.arena_group_id,
+    };
+  }
+
+  return null;
+}
+
+export function getWorkflowRunActionGate(
+  run: WorkflowRunResponse
+): WorkflowRunActionGate {
+  return {
+    canCancel:
+      run.status === 'pending' ||
+      run.status === 'running' ||
+      run.status === 'awaiting_human' ||
+      run.status === 'awaiting_arena',
+    cancellationPending: run.status === 'cancelling',
   };
 }
 

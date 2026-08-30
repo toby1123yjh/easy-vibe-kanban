@@ -1091,7 +1091,9 @@
       "canvas": "Workflow",
       "dashboard": "Dashboard",
       "taskAttempt": "Task attempt {{id}}",
-      "workflowRun": "Workflow run {{id}}"
+      "workflowRun": "Workflow run {{id}}",
+      "progress": "{{completed}} / {{total}} 完了",
+      "cancelling": "キャンセル中..."
     },
     "runCanvas": {
       "loadingGraph": "Loading workflow...",
@@ -1119,7 +1121,25 @@
       "finished": "Finished",
       "notFinished": "Not finished",
       "selectConditionBranch": "Select",
-      "selectingConditionBranch": "Selecting..."
+      "selectingConditionBranch": "Selecting...",
+      "actionUnavailable": "正規の実行状態が最新になるまで、この操作は利用できません。",
+      "canvasLabel": "ワークフロー実行キャンバス",
+      "attentionTitle": "対応が必要です",
+      "attentionWaiting": "{{node}} は入力を待っています。",
+      "attentionFailed": "{{node}} が失敗したため確認が必要です。",
+      "moreAttentionItems": "ほかに {{count}} 件の対応項目があります",
+      "moreAttentionItems_other": "ほかに {{count}} 件の対応項目があります",
+      "openNode": "ノードを開く",
+      "closeNodeDetails": "ノード詳細を閉じる",
+      "waitingInformation": "待機情報",
+      "currentOutput": "現在の出力",
+      "noRuntimeOutput": "実行出力はまだありません。",
+      "technicalDetails": "技術情報",
+      "taskId": "タスク ID",
+      "updatingDecision": "更新中...",
+      "approveAndContinue": "承認して続行",
+      "openFullSession": "完全なセッションを開く",
+      "viewArenaResults": "候補結果を表示"
     },
     "debug": {
       "noDebugData": "No debug data for this step.",
@@ -1139,17 +1159,21 @@
       "running": "Running",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "キャンセル中",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "canceled": "Canceled"
     },
     "nodeStatus": {
       "pending": "Pending",
+      "starting": "開始中",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "キャンセル中",
+      "cancelled": "キャンセル済み",
       "skipped": "Skipped"
     },
     "dashboard": {

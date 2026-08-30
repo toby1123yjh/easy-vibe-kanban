@@ -1091,7 +1091,9 @@
       "canvas": "Workflow",
       "dashboard": "Dashboard",
       "taskAttempt": "Task attempt {{id}}",
-      "workflowRun": "Workflow run {{id}}"
+      "workflowRun": "Workflow run {{id}}",
+      "progress": "{{completed}} / {{total}} 완료",
+      "cancelling": "취소 중..."
     },
     "runCanvas": {
       "loadingGraph": "Loading workflow...",
@@ -1119,7 +1121,25 @@
       "finished": "Finished",
       "notFinished": "Not finished",
       "selectConditionBranch": "Select",
-      "selectingConditionBranch": "Selecting..."
+      "selectingConditionBranch": "Selecting...",
+      "actionUnavailable": "정식 실행 상태가 최신이 될 때까지 이 작업을 사용할 수 없습니다.",
+      "canvasLabel": "워크플로 실행 캔버스",
+      "attentionTitle": "확인 필요",
+      "attentionWaiting": "{{node}} 노드가 입력을 기다리고 있습니다.",
+      "attentionFailed": "{{node}} 노드가 실패하여 검토가 필요합니다.",
+      "moreAttentionItems": "추가로 {{count}}개 항목을 확인해야 합니다",
+      "moreAttentionItems_other": "추가로 {{count}}개 항목을 확인해야 합니다",
+      "openNode": "노드 열기",
+      "closeNodeDetails": "노드 세부 정보 닫기",
+      "waitingInformation": "대기 정보",
+      "currentOutput": "현재 출력",
+      "noRuntimeOutput": "아직 실행 출력이 없습니다.",
+      "technicalDetails": "기술 세부 정보",
+      "taskId": "작업 ID",
+      "updatingDecision": "업데이트 중...",
+      "approveAndContinue": "승인하고 계속",
+      "openFullSession": "전체 세션 열기",
+      "viewArenaResults": "후보 결과 보기"
     },
     "debug": {
       "noDebugData": "No debug data for this step.",
@@ -1139,17 +1159,21 @@
       "running": "Running",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "취소 중",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "canceled": "Canceled"
     },
     "nodeStatus": {
       "pending": "Pending",
+      "starting": "시작 중",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "취소 중",
+      "cancelled": "취소됨",
       "skipped": "Skipped"
     },
     "dashboard": {

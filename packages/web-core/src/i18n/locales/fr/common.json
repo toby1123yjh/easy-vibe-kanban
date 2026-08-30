@@ -1091,7 +1091,9 @@
       "canvas": "Workflow",
       "dashboard": "Dashboard",
       "taskAttempt": "Task attempt {{id}}",
-      "workflowRun": "Workflow run {{id}}"
+      "workflowRun": "Workflow run {{id}}",
+      "progress": "{{completed}} / {{total}} terminés",
+      "cancelling": "Annulation..."
     },
     "runCanvas": {
       "loadingGraph": "Loading workflow...",
@@ -1119,7 +1121,25 @@
       "finished": "Finished",
       "notFinished": "Not finished",
       "selectConditionBranch": "Select",
-      "selectingConditionBranch": "Selecting..."
+      "selectingConditionBranch": "Selecting...",
+      "actionUnavailable": "Cette action est indisponible tant que l’état canonique n’est pas à jour.",
+      "canvasLabel": "Canevas d’exécution du workflow",
+      "attentionTitle": "Attention requise",
+      "attentionWaiting": "{{node}} attend une saisie.",
+      "attentionFailed": "{{node}} a échoué et doit être vérifié.",
+      "moreAttentionItems": "{{count}} autre élément requiert votre attention",
+      "moreAttentionItems_other": "{{count}} autres éléments requièrent votre attention",
+      "openNode": "Ouvrir le nœud",
+      "closeNodeDetails": "Fermer les détails du nœud",
+      "waitingInformation": "Informations en attente",
+      "currentOutput": "Sortie actuelle",
+      "noRuntimeOutput": "Aucune sortie d’exécution n’est encore disponible.",
+      "technicalDetails": "Détails techniques",
+      "taskId": "ID de tâche",
+      "updatingDecision": "Mise à jour...",
+      "approveAndContinue": "Approuver et continuer",
+      "openFullSession": "Ouvrir la session complète",
+      "viewArenaResults": "Voir les résultats des candidats"
     },
     "debug": {
       "noDebugData": "No debug data for this step.",
@@ -1139,17 +1159,21 @@
       "running": "Running",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "Annulation",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "canceled": "Canceled"
     },
     "nodeStatus": {
       "pending": "Pending",
+      "starting": "Démarrage",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",
       "awaitingHuman": "Waiting for human",
       "awaitingArena": "Waiting for arena",
+      "cancelling": "Annulation",
+      "cancelled": "Annulé",
       "skipped": "Skipped"
     },
     "dashboard": {
