@@ -393,6 +393,36 @@
         "attemptB": "執行 B"
       }
     },
+    "nodePicker": {
+      "addNode": "新增節點",
+      "chooseNodeType": "選擇節點類型",
+      "descriptions": {
+        "agent": "執行任務的 AI 智慧體",
+        "condition": "在已連接的分支之間路由任務",
+        "human_gate": "等待人工審批",
+        "transform": "轉換節點之間的資料",
+        "arena": "並行執行多個候選智慧體"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "所選物件已不存在。",
+      "selfConnection": "節點不能連接到自身。",
+      "endSource": "結束節點不能發起連接。",
+      "startTarget": "開始節點不能接收連接。",
+      "invalidSourceHandle": "請選擇來源節點上的有效路由。",
+      "occupiedSourceHandle": "此條件分支已連接。",
+      "duplicateConnection": "這條路由已連接到目標節點。",
+      "nodeTitleRequired": "請為此節點填寫標題。",
+      "taskPromptRequired": "請新增任務提示詞。",
+      "agentRequired": "請選擇智慧體。",
+      "branchesRequired": "請補全每個條件分支。",
+      "unconnectedBranch": "請將每個條件分支連接到目標節點。",
+      "approvalRequestRequired": "請新增審批請求。",
+      "transformTemplateRequired": "請新增轉換範本。",
+      "transformRegexRequired": "請新增擷取模式。",
+      "transformMaxCharsRequired": "最大字元數必須大於零。",
+      "tooFewCandidates": "Arena 至少需要兩個候選項。"
+    },
     "edges": {
       "default": "預設",
       "condition": "條件",
@@ -538,7 +568,20 @@
       "reconnectSource": "重新連接來源節點",
       "reconnectTarget": "重新連接目標節點",
       "deleteEdge": "刪除連線",
-      "runWorkflowToExecuteStep": "執行工作流以執行此步驟。"
+      "runWorkflowToExecuteStep": "執行工作流以執行此步驟。",
+      "undo": "復原",
+      "redo": "重做",
+      "undoShortcut": "復原（Ctrl/Cmd + Z）",
+      "redoShortcut": "重做（Ctrl/Cmd + Shift + Z）",
+      "unsavedChangesTitle": "工作流有未儲存的變更",
+      "unsavedChangesDescription": "離開前儲存目前草稿、放棄變更或繼續編輯。",
+      "continueEditing": "繼續編輯",
+      "discardAndLeave": "放棄並離開",
+      "saveAndLeave": "儲存並離開",
+      "multiSelectionActions": "所選節點操作",
+      "nodesSelected": "已選擇 {{count}} 個節點",
+      "deletedObjects": "已刪除 {{count}} 項",
+      "deletedObjects_other": "已刪除 {{count}} 項"
     },
     "canvas": {
       "openSession": "開啟會話",
@@ -553,7 +596,16 @@
       "notePlaceholder": "寫一則筆記...",
       "deleteStageGroup": "刪除階段群組",
       "stageDescriptionPlaceholder": "階段描述",
-      "openEdgeActions": "開啟 {{id}} 的連線操作"
+      "openEdgeActions": "開啟 {{id}} 的連線操作",
+      "inputHandle": "輸入",
+      "nextHandle": "下一步",
+      "connectionIssues": {
+        "missingEndpoint": "連線缺少來源節點或目標節點。",
+        "missingNode": "連線引用了已不存在的節點。",
+        "selfEdge": "發現節點 {{nodeId}} 的自連線。",
+        "endSource": "結束節點不能發起出站連線。",
+        "startTarget": "開始節點不能接收入站連線。"
+      }
     },
     "agentEdit": {
       "title": "編輯智慧體",
@@ -605,7 +657,9 @@
       "source": "來源節點",
       "target": "目標節點",
       "routeType": "路由類型",
-      "edgeId": "連線 ID"
+      "edgeId": "連線 ID",
+      "deleteNode": "刪除節點",
+      "deleteNodeDescription": "從草稿中移除此節點及其關聯連線。"
     },
     "agentDraft": {
       "defaultStepName": "智慧體",

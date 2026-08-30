@@ -797,6 +797,36 @@
         "attemptB": "Attempt B"
       }
     },
+    "nodePicker": {
+      "addNode": "Ajouter un nœud",
+      "chooseNodeType": "Choisir le type de nœud",
+      "descriptions": {
+        "agent": "Agent IA qui exécute une tâche",
+        "condition": "Achemine le travail entre les branches connectées",
+        "human_gate": "Attend une approbation humaine",
+        "transform": "Transforme les données entre les nœuds",
+        "arena": "Exécute plusieurs agents candidats en parallèle"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "L’objet sélectionné n’existe plus.",
+      "selfConnection": "Un nœud ne peut pas se connecter à lui-même.",
+      "endSource": "Fin ne peut pas démarrer une connexion.",
+      "startTarget": "Début ne peut pas recevoir une connexion.",
+      "invalidSourceHandle": "Choisissez une route valide depuis le nœud source.",
+      "occupiedSourceHandle": "Cette branche de condition est déjà connectée.",
+      "duplicateConnection": "Cette route est déjà connectée au nœud cible.",
+      "nodeTitleRequired": "Donnez un titre à ce nœud.",
+      "taskPromptRequired": "Ajoutez les instructions de la tâche.",
+      "agentRequired": "Choisissez un agent.",
+      "branchesRequired": "Complétez chaque branche de condition.",
+      "unconnectedBranch": "Connectez chaque branche de condition à un nœud cible.",
+      "approvalRequestRequired": "Ajoutez la demande d’approbation.",
+      "transformTemplateRequired": "Ajoutez le modèle de transformation.",
+      "transformRegexRequired": "Ajoutez le motif d’extraction.",
+      "transformMaxCharsRequired": "Le nombre maximal de caractères doit être supérieur à zéro.",
+      "tooFewCandidates": "Arena nécessite au moins deux candidats."
+    },
     "edges": {
       "default": "Default",
       "condition": "Condition",
@@ -942,7 +972,20 @@
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "undo": "Annuler",
+      "redo": "Rétablir",
+      "undoShortcut": "Annuler (Ctrl/Cmd + Z)",
+      "redoShortcut": "Rétablir (Ctrl/Cmd + Maj + Z)",
+      "unsavedChangesTitle": "Modifications du workflow non enregistrées",
+      "unsavedChangesDescription": "Enregistrez le brouillon actuel avant de partir, abandonnez-le ou poursuivez la modification.",
+      "continueEditing": "Poursuivre la modification",
+      "discardAndLeave": "Abandonner et quitter",
+      "saveAndLeave": "Enregistrer et quitter",
+      "multiSelectionActions": "Actions des nœuds sélectionnés",
+      "nodesSelected": "{{count}} nœuds sélectionnés",
+      "deletedObjects": "{{count}} élément supprimé",
+      "deletedObjects_other": "{{count}} éléments supprimés"
     },
     "canvas": {
       "openSession": "Open session",
@@ -957,7 +1000,16 @@
       "notePlaceholder": "Write a note...",
       "deleteStageGroup": "Delete stage group",
       "stageDescriptionPlaceholder": "Stage description",
-      "openEdgeActions": "Open edge actions for {{id}}"
+      "openEdgeActions": "Open edge actions for {{id}}",
+      "inputHandle": "Entrée",
+      "nextHandle": "Suivant",
+      "connectionIssues": {
+        "missingEndpoint": "La connexion n’a pas de nœud source ou cible.",
+        "missingNode": "La connexion référence un nœud qui n’existe plus.",
+        "selfEdge": "Connexion du nœud {{nodeId}} à lui-même détectée.",
+        "endSource": "Les nœuds Fin ne peuvent pas démarrer de connexions sortantes.",
+        "startTarget": "Les nœuds Début ne peuvent pas recevoir de connexions entrantes."
+      }
     },
     "agentEdit": {
       "title": "Edit Agent Step",
@@ -1009,7 +1061,9 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "edgeId": "Edge ID"
+      "edgeId": "Edge ID",
+      "deleteNode": "Supprimer le nœud",
+      "deleteNodeDescription": "Retire ce nœud et ses connexions du brouillon."
     },
     "agentDraft": {
       "defaultStepName": "Agent step",

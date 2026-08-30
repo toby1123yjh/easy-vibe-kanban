@@ -3,10 +3,9 @@ import {
   useEffect,
   useRef,
   type DragEvent,
-  type PointerEvent,
   type MouseEvent,
-  type ReactNode,
 } from 'react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import {
   ReactFlow,
@@ -21,10 +20,9 @@ import {
   ConnectionMode,
   MarkerType,
   NodeResizer,
+  SelectionMode,
   useNodesState,
   useEdgesState,
-  addEdge,
-  reconnectEdge,
   applyNodeChanges,
   applyEdgeChanges,
   useReactFlow,
@@ -36,13 +34,10 @@ import {
   type EdgeChange,
   type EdgeProps,
   type DefaultEdgeOptions,
+  type OnConnectEnd,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
-  DEFAULT_SOURCE_HANDLE,
-  DEFAULT_TARGET_HANDLE,
-  WORKFLOW_PORT_HANDLE_IDS,
-  normalizeWorkflowPortHandle,
   toReactFlowEdges,
   isWorkflowNodeKind,
   WORKFLOW_REACT_FLOW_EDGE_TYPE,
@@ -60,71 +55,42 @@ import {
   fromReactFlowCanvasGraph,
 } from '../model/workflowGraph';
 import {
+  WORKFLOW_SEMANTIC_HANDLE_IDS,
+  getWorkflowNodeSourceHandles,
+  validateWorkflowConnection,
+} from '../model/workflowAuthoring';
+import {
   getWorkflowEdgeVisual,
-  getWorkflowNodeMetadata,
   getWorkflowNodeKindLabel,
-  getWorkflowNodeRouteHints,
-  getWorkflowNodeSummary,
-  getWorkflowNodeVisual,
 } from '../model/workflowPresentation';
 import { getWorkflowNodeIcon } from './workflowNodeIcons';
 import type { ValidationIssue } from './WorkflowValidationPanel';
 import { cn } from '../../../shared/lib/utils';
-import { AgentIcon } from '@/shared/components/AgentIcon';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
-import { coerceWorkflowNodeExecutorConfig } from '../model/workflowAgentNodeDraft';
-import {
-  buildWorkflowEdgeStateMap,
-  getWorkflowCanvasNodeState,
-  getWorkflowCanvasNodeStateLabel,
-  type WorkflowCanvasEdgeState,
-  type WorkflowCanvasNodeState,
-  type WorkflowNodeExecutionStatusMap,
-} from '../model/workflowCanvasVisualState';
+import { type WorkflowCanvasEdgeState } from '../model/workflowCanvasVisualState';
 import { isWorkflowNodeAuthorable } from '../model/workflowNodeCatalog';
-import {
-  AlertTriangle,
-  Copy,
-  MessageSquare,
-  Pencil,
-  Play,
-  Settings2,
-  Trash2,
-} from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 import {
   WORKFLOW_CANVAS_CLASS_NAMES,
-  WORKFLOW_CANVAS_EDGE_CLASSES,
   WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES,
   WORKFLOW_CANVAS_GROUP_COLOR_CLASSES,
-  WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES,
-  WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
   WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
   WORKFLOW_CANVAS_NOTE_COLOR_CLASSES,
-  getWorkflowNodeIdentityClass,
-  getWorkflowNodeStatusClass,
 } from './workflowCanvasTokens';
 
 export const WORKFLOW_CANVAS_NODE_ACTIONS = [
-  'open-session',
-  'edit',
-  'run-step',
+  'configure',
   'duplicate',
   'delete',
 ] as const;
 
-export const WORKFLOW_CANVAS_EDGE_ACTIONS = [
-  'insert-agent-step',
-  'reconnect-source',
-  'reconnect-target',
-  'delete-edge',
-] as const;
+export const WORKFLOW_CANVAS_EDGE_ACTIONS = ['delete-edge'] as const;
 
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
   validationIssues?: ValidationIssue[];
-  nodeStatuses?: WorkflowNodeExecutionStatusMap;
-  staleNodeIds?: readonly string[];
   selectedNodeId?: string | null;
+  selectedNodeIds?: string[];
   selectedEdgeId?: string | null;
   readOnly?: boolean;
   onChange?: (graph: WorkflowGraph) => void;
@@ -132,16 +98,78 @@ export interface WorkflowCanvasProps {
   onNodeDrop?: (kind: WorkflowNodeKind, position: WorkflowNodePosition) => void;
   onNodeOpen?: (nodeId: string) => void;
   onNodeEdit?: (nodeId: string) => void;
-  onNodeRunStep?: (nodeId: string) => void;
-  onNodeDuplicate?: (nodeId: string) => void;
   onNodeDelete?: (nodeId: string) => void | Promise<void>;
+  onNodesDelete?: (nodeIds: string[]) => void | Promise<void>;
+  onNodesMove?: (positions: Record<string, WorkflowNodePosition>) => void;
+  onSplitEdgeWithNode?: (input: {
+    edgeId: string;
+    nodeId: string;
+    position: WorkflowNodePosition;
+  }) => void;
+  onConnectNodes?: (connection: {
+    source: string;
+    sourceHandle: string;
+    target: string;
+  }) => void;
+  onConnectDrop?: (connection: {
+    source: string;
+    sourceHandle: string;
+    position: WorkflowNodePosition;
+    anchorPoint: { x: number; y: number };
+  }) => void;
+  onReconnectEdge?: (connection: {
+    edgeId: string;
+    source: string;
+    sourceHandle: string;
+    target: string;
+  }) => void;
+  onEdgeDelete?: (edgeId: string) => void;
   onNodeContextMenu?: (event: WorkflowNodeContextMenuEvent) => void;
-  onEdgeActionMenu?: (event: WorkflowEdgeActionMenuEvent) => void;
 }
 
 export interface WorkflowCanvasSelection {
+  nodeIds: string[];
   nodeId: string | null;
   edgeId: string | null;
+}
+
+export function getWorkflowCanvasNodeClickResult({
+  nodeId,
+  currentNodeIds,
+  shiftKey,
+  isAuthorableNode,
+}: {
+  nodeId: string;
+  currentNodeIds: string[];
+  shiftKey: boolean;
+  isAuthorableNode: boolean;
+}): {
+  selection: WorkflowCanvasSelection;
+  shouldEdit: boolean;
+} {
+  const nextNodeIds =
+    shiftKey && isAuthorableNode
+      ? currentNodeIds.includes(nodeId)
+        ? currentNodeIds.filter((currentNodeId) => currentNodeId !== nodeId)
+        : [...currentNodeIds, nodeId]
+      : isAuthorableNode
+        ? [nodeId]
+        : [];
+
+  return {
+    selection: {
+      nodeIds: nextNodeIds,
+      nodeId:
+        nextNodeIds.length === 1
+          ? nextNodeIds[0]
+          : isAuthorableNode
+            ? null
+            : nodeId,
+      edgeId: null,
+    },
+    shouldEdit:
+      isAuthorableNode && nextNodeIds.length === 1 && nextNodeIds[0] === nodeId,
+  };
 }
 
 export interface WorkflowNodeContextMenuEvent {
@@ -150,24 +178,8 @@ export interface WorkflowNodeContextMenuEvent {
   y: number;
 }
 
-export interface WorkflowEdgeActionMenuEvent {
-  edgeId: string;
-  x: number;
-  y: number;
-}
-
-interface WorkflowNodeActions {
-  readOnly?: boolean;
-  open?: (nodeId: string) => void;
-  edit?: (nodeId: string) => void;
-  runStep?: (nodeId: string) => void;
-  duplicate?: (nodeId: string) => void;
-  delete?: (nodeId: string) => void | Promise<void>;
-}
-
 interface WorkflowCanvasEdgeData extends ReactFlowWorkflowEdgeData {
-  onSelect?: (edgeId: string) => void;
-  onActionMenu?: (event: WorkflowEdgeActionMenuEvent) => void;
+  semanticLabel?: string;
   visualStatus?: WorkflowCanvasEdgeState;
   connectionIssue?: WorkflowCanvasConnectionIssue;
 }
@@ -207,30 +219,10 @@ export type WorkflowCanvasConnectionIssue =
   | 'end_source'
   | 'start_target';
 
-const ROUTE_HINT_CLASSES: Record<string, string> = {
-  brand: 'border-brand/30 bg-brand/10 text-brand',
-  success: 'border-success/30 bg-success/10 text-success',
-  warning: 'border-amber-500/30 bg-amber-500/10 text-amber-700',
-  danger: 'border-error/30 bg-error/10 text-error',
-};
-
 const getValidationIssues = (data: WorkflowNodeData): ValidationIssue[] => {
   const issues = data.__validationIssues;
   return Array.isArray(issues) ? (issues as ValidationIssue[]) : [];
 };
-
-const hasSession = (data: WorkflowNodeData): boolean =>
-  typeof data.session_id === 'string' && data.session_id.length > 0;
-
-const getNodeUiState = (data: WorkflowNodeData): WorkflowCanvasNodeState =>
-  (data.__workflowNodeState as WorkflowCanvasNodeState | undefined) ??
-  'configured';
-
-const isNodeStaleForNextRun = (data: WorkflowNodeData): boolean =>
-  data.__workflowIsStale === true;
-
-const getNodeActions = (data: WorkflowNodeData): WorkflowNodeActions =>
-  (data.__workflowActions as WorkflowNodeActions | undefined) ?? {};
 
 const getCanvasObjectActions = (
   data: WorkflowCanvasObjectNodeData
@@ -242,193 +234,79 @@ function stopCanvasObjectAction(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
-function WorkflowNodeActionButton({
-  children,
-  danger,
-  disabled,
-  label,
-  onClick,
-}: {
-  children: ReactNode;
-  danger?: boolean;
-  disabled?: boolean;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'nodrag nopan flex h-7 w-7 items-center justify-center rounded border text-low shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-45',
-        danger
-          ? 'border-error/30 bg-error/10 hover:border-error/70 hover:text-error'
-          : WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.actionButton
-      )}
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onPointerDown={(event) => event.stopPropagation()}
-      onDoubleClick={stopCanvasObjectAction}
-      onClick={(event) => {
-        stopCanvasObjectAction(event);
-        if (!disabled) onClick?.();
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function WorkflowNodeHoverToolbar({
-  actions,
-  nodeId,
-  selected,
-}: {
-  actions: WorkflowNodeActions;
-  nodeId: string;
-  selected?: boolean;
-}) {
-  const { t } = useTranslation('common');
-  const readOnly = actions.readOnly === true;
-
-  return (
-    <div
-      className={cn(
-        WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.toolbar,
-        selected
-          ? 'translate-y-0 opacity-100'
-          : 'pointer-events-none translate-y-1 opacity-0'
-      )}
-    >
-      <WorkflowNodeActionButton
-        label={t('workflow.canvas.openSession')}
-        disabled={!actions.open}
-        onClick={() => actions.open?.(nodeId)}
-      >
-        <MessageSquare className="h-3.5 w-3.5" />
-      </WorkflowNodeActionButton>
-      <WorkflowNodeActionButton
-        label={t('buttons.edit')}
-        disabled={readOnly || !actions.edit}
-        onClick={() => actions.edit?.(nodeId)}
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </WorkflowNodeActionButton>
-      <WorkflowNodeActionButton
-        label={
-          actions.runStep
-            ? t('workflow.canvas.runStep')
-            : t('workflow.canvas.runStepUnavailable')
-        }
-        disabled={readOnly || !actions.runStep}
-        onClick={() => actions.runStep?.(nodeId)}
-      >
-        <Play className="h-3.5 w-3.5" />
-      </WorkflowNodeActionButton>
-      <WorkflowNodeActionButton
-        label={t('workflow.editor.duplicate')}
-        disabled={readOnly || !actions.duplicate}
-        onClick={() => actions.duplicate?.(nodeId)}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </WorkflowNodeActionButton>
-      <WorkflowNodeActionButton
-        danger
-        label={t('buttons.delete')}
-        disabled={readOnly || !actions.delete}
-        onClick={() => void actions.delete?.(nodeId)}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </WorkflowNodeActionButton>
-    </div>
-  );
-}
-
 const workflowHandleClass = WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.handle;
 
-const workflowHandlePoints = [
-  {
-    id: WORKFLOW_PORT_HANDLE_IDS.left,
-    position: Position.Left,
-    style: { top: '50%' },
-  },
-  {
-    id: WORKFLOW_PORT_HANDLE_IDS.top,
-    position: Position.Top,
-    style: { left: '50%' },
-  },
-  {
-    id: WORKFLOW_PORT_HANDLE_IDS.right,
-    position: Position.Right,
-    style: { top: '50%' },
-  },
-  {
-    id: WORKFLOW_PORT_HANDLE_IDS.bottom,
-    position: Position.Bottom,
-    style: { left: '50%' },
-  },
-] as const;
-
 function renderWorkflowHandles({
-  canReceive,
-  canStart,
+  node,
+  t,
 }: {
-  canReceive: boolean;
-  canStart: boolean;
+  node: { id: string; type: WorkflowNodeKind; data: WorkflowNodeData };
+  t: TFunction<'common'>;
 }) {
-  if (!canReceive && !canStart) {
-    return null;
-  }
+  const handles = getWorkflowNodeSourceHandles(node);
+  return (
+    <>
+      {node.type !== 'start' ? (
+        <Handle
+          id={WORKFLOW_SEMANTIC_HANDLE_IDS.input}
+          type="target"
+          position={Position.Left}
+          className={cn(workflowHandleClass, 'workflow-handle-visible z-[3]')}
+          aria-label={t('workflow.canvas.inputHandle', {
+            defaultValue: 'Input',
+          })}
+        />
+      ) : null}
+      {handles.map((handle, index) => (
+        <Handle
+          key={handle.id}
+          id={handle.id}
+          type="source"
+          position={Position.Right}
+          style={{ top: `${((index + 1) / (handles.length + 1)) * 100}%` }}
+          title={getLocalizedWorkflowHandleLabel(handle, t)}
+          aria-label={getLocalizedWorkflowHandleLabel(handle, t)}
+          className={cn(workflowHandleClass, 'workflow-handle-visible z-[3]')}
+        />
+      ))}
+    </>
+  );
+}
 
-  return workflowHandlePoints.map((handle) => {
-    return (
-      <Handle
-        key={handle.id}
-        id={handle.id}
-        type={canStart ? 'source' : 'target'}
-        position={handle.position}
-        style={handle.style}
-        className={cn(workflowHandleClass, 'workflow-handle-visible z-[3]')}
-      />
-    );
-  });
+function getLocalizedWorkflowHandleLabel(
+  handle: ReturnType<typeof getWorkflowNodeSourceHandles>[number],
+  t: TFunction<'common'>
+): string {
+  switch (handle.kind) {
+    case 'input':
+      return t('workflow.canvas.inputHandle', { defaultValue: 'Input' });
+    case 'default':
+      return t('workflow.canvas.nextHandle', { defaultValue: 'Next' });
+    case 'winner':
+      return t('workflow.edges.winner');
+    case 'approve':
+      return t('workflow.edges.approve');
+    case 'reject':
+      return t('workflow.edges.reject');
+    case 'condition_branch':
+      return handle.label;
+  }
 }
 
 const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const { t } = useTranslation('common');
   const nodeKind = type ?? 'agent';
   const Icon = getWorkflowNodeIcon(nodeKind);
-  const visual = getWorkflowNodeVisual(nodeKind);
-  const metadata = getWorkflowNodeMetadata(nodeKind, data, t);
-  const routeHints = getWorkflowNodeRouteHints(nodeKind, data, t);
   const validationIssues = getValidationIssues(data);
   const issueCount = validationIssues.length;
   const structural = nodeKind === 'start' || nodeKind === 'end';
-  const compactAgent = nodeKind === 'agent';
-  const sessionReady = hasSession(data);
-  const agentDisplay = compactAgent ? getWorkflowAgentDisplay(data) : null;
-  const nodeState = getNodeUiState(data);
-  const nodeStateLabel = getWorkflowCanvasNodeStateLabel(nodeState, t);
-  const isRunning = nodeState === 'running';
-  const isStale = isNodeStaleForNextRun(data);
-  const actions = getNodeActions(data);
-
-  const premiumClasses = cn(
-    'node-premium-dark',
-    getWorkflowNodeIdentityClass(nodeKind, agentDisplay?.executor),
-    getWorkflowNodeStatusClass(nodeState),
-    selected && 'node-selected',
-    (nodeKind === 'condition' || nodeKind === 'human_gate') &&
-      'node-lower-weight'
+  const agentDisplay =
+    nodeKind === 'agent' ? getWorkflowAgentDisplay(data) : null;
+  const authoringCardClasses = cn(
+    'rounded-lg border bg-panel shadow-sm transition-[border-color,box-shadow]',
+    issueCount > 0 ? 'border-warning/70' : 'border-secondary',
+    selected && 'border-brand ring-2 ring-brand/30'
   );
-  const nodeAccentStyle = {
-    borderColor: 'rgba(var(--node-color-rgb), 0.58)',
-    background:
-      'linear-gradient(135deg, rgba(var(--node-color-rgb), 0.24), rgba(var(--node-color-rgb), 0.08))',
-    color: 'rgb(var(--node-color-rgb))',
-    boxShadow:
-      '0 0 18px rgba(var(--node-color-rgb), 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.06)',
-  };
 
   if (structural) {
     return (
@@ -437,13 +315,10 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         style={{ pointerEvents: 'all' }}
         className={cn(
           'relative flex min-w-[120px] cursor-grab items-center gap-2 overflow-visible px-3 py-2 text-normal active:cursor-grabbing',
-          premiumClasses
+          authoringCardClasses
         )}
       >
-        {renderWorkflowHandles({
-          canReceive: nodeKind !== 'start',
-          canStart: nodeKind !== 'end',
-        })}
+        {renderWorkflowHandles({ node: { id, type: nodeKind, data }, t })}
         {issueCount > 0 ? (
           <div
             data-testid={`workflow-node-issue-${id}`}
@@ -456,30 +331,18 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
             {issueCount}
           </div>
         ) : null}
-        <span
-          data-testid={`workflow-node-status-dot-${id}`}
-          title={nodeStateLabel}
-          className={cn(
-            'workflow-status-dot absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-port-ring)]',
-            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-            isRunning && 'workflow-status-dot-running'
-          )}
-        />
-        <div
-          style={nodeAccentStyle}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border opacity-80"
-        >
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-secondary bg-secondary/30 text-low">
           <Icon className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-xs font-semibold text-high">
-            {data.display_name || getWorkflowNodeKindLabel(nodeKind, t)}
-          </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
             className="text-[9px] font-semibold uppercase tracking-normal text-low"
           >
             {getWorkflowNodeKindLabel(nodeKind, t)}
+          </div>
+          <div className="truncate text-xs font-semibold text-high">
+            {data.display_name || getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
         </div>
       </div>
@@ -491,22 +354,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'workflow-agent-step-node relative min-w-[236px] max-w-[280px] cursor-grab overflow-visible text-high active:cursor-grabbing',
-        premiumClasses,
-        isStale && 'border-amber-400/70 shadow-amber-500/10'
+        'workflow-agent-step-node relative w-[232px] cursor-grab overflow-visible text-high active:cursor-grabbing',
+        authoringCardClasses
       )}
     >
-      {renderWorkflowHandles({
-        canReceive: true,
-        canStart: true,
-      })}
-      {!structural ? (
-        <WorkflowNodeHoverToolbar
-          actions={actions}
-          nodeId={id}
-          selected={selected}
-        />
-      ) : null}
+      {renderWorkflowHandles({ node: { id, type: nodeKind, data }, t })}
 
       {issueCount > 0 ? (
         <div
@@ -520,180 +372,39 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           {issueCount}
         </div>
       ) : null}
-      <span
-        data-testid={`workflow-node-status-dot-${id}`}
-        title={nodeStateLabel}
-        className={cn(
-          'workflow-status-dot absolute right-3 top-3 z-10 h-2.5 w-2.5 rounded-full border border-[var(--workflow-node-bg)]',
-          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-          isRunning && 'workflow-status-dot-running'
-        )}
-      />
-      {isStale ? (
-        <span
-          data-testid={`workflow-node-stale-${id}`}
-          title={t('workflow.canvas.updatedForNextRunTitle')}
-          className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.staleBadge}
-        >
-          {t('workflow.canvas.updatedForNextRun')}
-        </span>
-      ) : null}
-
-      <div className="flex items-start gap-3 border-b border-white/5 bg-white/[0.02] px-3 py-2 pl-4">
-        <div
-          style={nodeAccentStyle}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border"
-        >
-          {agentDisplay?.executor ? (
-            <AgentIcon agent={agentDisplay.executor} className="h-4 w-4" />
-          ) : (
-            <Icon className="h-4 w-4" />
-          )}
+      <div className="flex items-start gap-3 px-3 py-3 pl-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-secondary bg-secondary/30 text-low">
+          <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-high">
-            {data.display_name || type || t('workflow.canvas.nodeFallback')}
-          </div>
           <div
             data-testid={`workflow-node-kind-${id}`}
-            className={cn(
-              'mt-0.5 truncate text-[10px] font-semibold tracking-normal text-low',
-              !agentDisplay && 'uppercase'
-            )}
+            className="truncate text-[10px] font-semibold uppercase tracking-normal text-low"
           >
-            {agentDisplay
-              ? agentDisplay.detailLabel
-              : getWorkflowNodeKindLabel(nodeKind, t)}
+            {getWorkflowNodeKindLabel(nodeKind, t)}
+            {issueCount > 0
+              ? ` · ${t('workflow.canvas.needsConfiguration', { defaultValue: 'Needs configuration' })}`
+              : ''}
           </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 px-3 py-2 pl-4 text-xs text-low">
-        {!compactAgent ? (
-          <div
-            data-testid={`workflow-node-summary-${id}`}
-            className="truncate text-normal"
-          >
-            {getWorkflowNodeSummary(nodeKind, data, t)}
+          <div className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-high">
+            {data.display_name || type || t('workflow.canvas.nodeFallback')}
           </div>
-        ) : null}
-
-        {nodeKind === 'arena' &&
-        Array.isArray(data.attempts) &&
-        data.attempts.length > 0 ? (
-          <div className="text-[10px] text-low/80 flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 mt-1">
-              <span>
-                {t('workflow.metadata.attempts', { defaultValue: 'Attempts' })}
-              </span>
-              <div className="flex -space-x-1.5 overflow-hidden">
-                {data.attempts.map((attempt, idx) => {
-                  const execConfig = coerceWorkflowNodeExecutorConfig(
-                    attempt.executor_config
-                  );
-                  const exec = execConfig?.executor ?? 'default_agent';
-                  const identityClass = getWorkflowNodeIdentityClass(
-                    'agent',
-                    exec
-                  );
-                  return (
-                    <span
-                      key={attempt.id ?? idx}
-                      title={attempt.display_name || exec}
-                      className={cn(
-                        'inline-block h-2.5 w-2.5 rounded-full ring-2 ring-[rgba(23,25,31,0.95)]',
-                        identityClass
-                      )}
-                      style={{
-                        backgroundColor: 'rgba(var(--node-color-rgb), 1)',
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap gap-1 mt-1">
-          <span
-            data-testid={`workflow-node-status-${id}`}
-            className={cn(
-              'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-              WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES[nodeState]
-            )}
-          >
-            {nodeStateLabel}
-          </span>
-          {compactAgent ? (
-            <span
-              data-testid={`workflow-node-session-${id}`}
-              className={cn(
-                'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-                sessionReady
-                  ? 'border-success/30 bg-success/10 text-success'
-                  : 'border-white/10 bg-white/[0.04] text-low'
-              )}
-            >
-              {sessionReady
-                ? t('workflow.canvas.sessionReady')
-                : t('workflow.canvas.draftSession')}
-            </span>
-          ) : (
-            <span className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chip}>
-              {getWorkflowNodeKindLabel(nodeKind, t)}
-            </span>
-          )}
           {agentDisplay ? (
-            <span
-              data-testid={`workflow-node-agent-model-${id}`}
-              className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chipTruncate}
-              title={agentDisplay.modelLabel}
+            <div
+              data-testid={`workflow-node-agent-${id}`}
+              className="mt-1 truncate text-[11px] text-low"
+              title={agentDisplay.agentLabel}
             >
-              {agentDisplay.modelLabel}
-            </span>
+              {agentDisplay.agentLabel}
+            </div>
           ) : null}
-          {agentDisplay?.reasoningLabel ? (
-            <span className={WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.chipTruncate}>
-              {agentDisplay.reasoningLabel}
-            </span>
+          {nodeKind === 'arena' ? (
+            <div className="mt-1 text-[11px] text-low">
+              {t('workflow.metadata.attempts', { defaultValue: 'Candidates' })}:{' '}
+              {data.attempts?.length ?? 0}
+            </div>
           ) : null}
         </div>
-
-        {!compactAgent && metadata.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {metadata.map((chip) => (
-              <span
-                key={`${chip.label}-${chip.value}`}
-                data-testid={`workflow-node-metadata-${id}-${chip.label}`}
-                className={cn(
-                  'inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] leading-none',
-                  visual.badgeClass
-                )}
-              >
-                <span>{chip.label}</span>{' '}
-                <span className="font-semibold">{chip.value}</span>
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        {!compactAgent && routeHints.length > 0 ? (
-          <div className="flex flex-wrap gap-1 border-t border-secondary/50 pt-2">
-            {routeHints.map((hint) => (
-              <span
-                key={`${hint.label}-${hint.tone}`}
-                data-testid={`workflow-node-route-${id}-${hint.label}`}
-                className={cn(
-                  'rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
-                  ROUTE_HINT_CLASSES[hint.tone]
-                )}
-              >
-                {hint.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </div>
     </div>
   );
@@ -852,7 +563,7 @@ export const WORKFLOW_CANVAS_DELETE_KEYS = ['Backspace', 'Delete'];
 export const WORKFLOW_CANVAS_EDGE_TYPE = WORKFLOW_REACT_FLOW_EDGE_TYPE;
 export const WORKFLOW_CANVAS_CONNECTION_LINE_TYPE =
   ConnectionLineType.SmoothStep;
-export const WORKFLOW_CANVAS_CONNECTION_MODE = ConnectionMode.Loose;
+export const WORKFLOW_CANVAS_CONNECTION_MODE = ConnectionMode.Strict;
 export const WORKFLOW_CANVAS_EDGE_INTERACTION_WIDTH = 32;
 export const WORKFLOW_CANVAS_RECONNECT_RADIUS = 16;
 export const WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS = {
@@ -873,7 +584,6 @@ export const WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES = [
 ] as const;
 export const WORKFLOW_CANVAS_READ_ONLY_EDGE_CHANGE_TYPES = ['select'] as const;
 const EMPTY_VALIDATION_ISSUES: ValidationIssue[] = [];
-const EMPTY_STALE_NODE_IDS: readonly string[] = [];
 
 type ReadOnlyNodeChangeType =
   (typeof WORKFLOW_CANVAS_READ_ONLY_NODE_CHANGE_TYPES)[number];
@@ -925,19 +635,31 @@ export function isWorkflowCanvasConnectionAllowed(
 
 function getWorkflowCanvasConnectionIssueMessage(
   issue: WorkflowCanvasConnectionIssue,
-  connection: { source?: string | null; target?: string | null }
+  connection: { source?: string | null; target?: string | null },
+  t: TFunction<'common'>
 ): string {
   switch (issue) {
     case 'missing_endpoint':
-      return 'Edge is missing a source or target node.';
+      return t('workflow.canvas.connectionIssues.missingEndpoint', {
+        defaultValue: 'Edge is missing a source or target Node.',
+      });
     case 'missing_node':
-      return 'Edge references a node that no longer exists.';
+      return t('workflow.canvas.connectionIssues.missingNode', {
+        defaultValue: 'Edge references a Node that no longer exists.',
+      });
     case 'self_edge':
-      return `Self-edge found on node ${connection.source ?? ''}`;
+      return t('workflow.canvas.connectionIssues.selfEdge', {
+        nodeId: connection.source ?? '',
+        defaultValue: 'Self-edge found on Node {{nodeId}}.',
+      });
     case 'end_source':
-      return 'End nodes cannot start outgoing edges.';
+      return t('workflow.canvas.connectionIssues.endSource', {
+        defaultValue: 'End Nodes cannot start outgoing Edges.',
+      });
     case 'start_target':
-      return 'Start nodes cannot receive incoming edges.';
+      return t('workflow.canvas.connectionIssues.startTarget', {
+        defaultValue: 'Start Nodes cannot receive incoming Edges.',
+      });
   }
 }
 
@@ -983,8 +705,6 @@ const WorkflowEdge = ({
 }: EdgeProps<ReactFlowEdge<WorkflowCanvasEdgeData>>) => {
   const { t } = useTranslation('common');
   const workflowType = data?.workflowType ?? 'default';
-  const onSelect = data?.onSelect;
-  const onActionMenu = data?.onActionMenu;
   const connectionIssue = data?.connectionIssue;
   const isInvalid = Boolean(connectionIssue);
   const visualStatus = isInvalid ? 'failed' : (data?.visualStatus ?? 'idle');
@@ -1004,26 +724,19 @@ const WorkflowEdge = ({
           borderRadius: 18,
         });
   const connectionIssueMessage = connectionIssue
-    ? getWorkflowCanvasConnectionIssueMessage(connectionIssue, {
-        source,
-        target,
-      })
+    ? getWorkflowCanvasConnectionIssueMessage(
+        connectionIssue,
+        {
+          source,
+          target,
+        },
+        t
+      )
     : null;
-  const openActionMenu = (
-    event: PointerEvent<HTMLButtonElement> | MouseEvent<HTMLButtonElement>
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (onActionMenu) {
-      onActionMenu({
-        edgeId: id,
-        x: event.clientX,
-        y: event.clientY,
-      });
-      return;
-    }
-    onSelect?.(id);
-  };
+  const semanticLabel = data?.semanticLabel ?? visual.label;
+  const semanticLabelX =
+    sourceX + (sourcePosition === Position.Left ? -48 : 48);
+  const semanticLabelY = sourceY - 18;
 
   return (
     <>
@@ -1102,50 +815,13 @@ const WorkflowEdge = ({
             </div>
           </EdgeLabelRenderer>
         ) : null}
-        {onSelect ? (
-          <foreignObject
-            x={labelX - 20}
-            y={labelY - 20}
-            width={40}
-            height={40}
-            className={cn(
-              'workflow-edge-action overflow-visible opacity-0 group-hover:opacity-100',
-              selected && 'opacity-100'
-            )}
-          >
-            <div className="flex h-10 w-10 items-center justify-center">
-              <button
-                type="button"
-                data-testid={`workflow-edge-action-${id}`}
-                className={WORKFLOW_CANVAS_EDGE_CLASSES.actionButton}
-                onPointerDown={openActionMenu}
-                onPointerUp={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  if (event.detail === 0) {
-                    openActionMenu(event);
-                    return;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                aria-label={t('workflow.canvas.openEdgeActions', { id })}
-                title={t('workflow.editor.edgeActions')}
-              >
-                <Settings2 className="relative z-10 h-3.5 w-3.5" />
-              </button>
-            </div>
-          </foreignObject>
-        ) : null}
       </g>
-      {visual.label ? (
+      {semanticLabel ? (
         <EdgeLabelRenderer>
           <div
             className="nodrag nopan absolute"
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${
-                labelY + (onSelect ? 30 : 0)
-              }px)`,
+              transform: `translate(-50%, -50%) translate(${semanticLabelX}px, ${semanticLabelY}px)`,
               pointerEvents: 'none',
             }}
           >
@@ -1156,11 +832,20 @@ const WorkflowEdge = ({
                 visual.chipClass
               )}
             >
-              {visual.label}
+              {semanticLabel}
             </span>
           </div>
         </EdgeLabelRenderer>
       ) : null}
+      <EdgeLabelRenderer>
+        <div
+          data-workflow-edge-drop-target={id}
+          className="pointer-events-none absolute h-14 w-20 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-transparent transition-colors [.react-flow__node.dragging_~_*_&]:border-brand/40"
+          style={{
+            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+          }}
+        />
+      </EdgeLabelRenderer>
     </>
   );
 };
@@ -1208,9 +893,8 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 export function WorkflowCanvas({
   graph,
   validationIssues = EMPTY_VALIDATION_ISSUES,
-  nodeStatuses,
-  staleNodeIds = EMPTY_STALE_NODE_IDS,
   selectedNodeId,
+  selectedNodeIds = selectedNodeId ? [selectedNodeId] : [],
   selectedEdgeId,
   readOnly = false,
   onChange,
@@ -1218,24 +902,29 @@ export function WorkflowCanvas({
   onNodeDrop,
   onNodeOpen,
   onNodeEdit,
-  onNodeRunStep,
-  onNodeDuplicate,
   onNodeDelete,
+  onNodesDelete,
+  onNodesMove,
+  onSplitEdgeWithNode,
+  onConnectNodes,
+  onConnectDrop,
+  onReconnectEdge,
+  onEdgeDelete,
   onNodeContextMenu,
-  onEdgeActionMenu,
 }: WorkflowCanvasProps) {
+  const { t } = useTranslation('common');
   const [nodes, setNodes] = useNodesState<WorkflowCanvasFlowNode>([]);
   const [edges, setEdges] = useEdgesState<
     ReactFlowEdge<WorkflowCanvasEdgeData>
   >([]);
   const { screenToFlowPosition } = useReactFlow();
   const lastSelectionRef = useRef<WorkflowCanvasSelection>({
+    nodeIds: [],
     nodeId: null,
     edgeId: null,
   });
   const nodesRef = useRef<WorkflowCanvasFlowNode[]>([]);
   const edgesRef = useRef<ReactFlowEdge<WorkflowCanvasEdgeData>[]>([]);
-  const selectEdgeRef = useRef<(edgeId: string) => void>(() => {});
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -1305,8 +994,6 @@ export function WorkflowCanvas({
   // Sync incoming graph to internal state
   useEffect(() => {
     const issuesByNodeId = new Map<string, ValidationIssue[]>();
-    const edgeStateById = buildWorkflowEdgeStateMap(graph, nodeStatuses);
-    const staleNodeIdSet = new Set(staleNodeIds);
     for (const issue of validationIssues) {
       if (!issue.nodeId) continue;
       const nodeIssues = issuesByNodeId.get(issue.nodeId) ?? [];
@@ -1345,77 +1032,71 @@ export function WorkflowCanvas({
           }
 
           const data = n.data as WorkflowNodeData;
-          const nodeType = n.type as WorkflowNodeKind;
           return {
             ...n,
             data: {
               ...data,
               __validationIssues: issuesByNodeId.get(n.id) ?? [],
-              __workflowNodeState: getWorkflowCanvasNodeState({
-                data,
-                executionStatus: nodeStatuses?.[n.id],
-                nodeType,
-              }),
-              __workflowIsStale: staleNodeIdSet.has(n.id),
-              __workflowActions: {
-                readOnly,
-                open: nodeType === 'agent' ? onNodeOpen : undefined,
-                edit: onNodeEdit,
-                runStep: nodeType === 'agent' ? onNodeRunStep : undefined,
-                duplicate: onNodeDuplicate,
-                delete: onNodeDelete,
-              } satisfies WorkflowNodeActions,
             },
             position: n.position,
-            selected: selectedNodeId === n.id,
+            selected: selectedNodeIds.includes(n.id),
           } satisfies WorkflowCanvasFlowNode;
         }
       );
       nodesRef.current = nextNodes;
       return nextNodes;
     });
-    const nextEdges = toReactFlowEdges(graph).map((edge) => ({
-      ...edge,
-      data: {
-        workflowType: edge.data?.workflowType ?? 'default',
-        visualStatus: edgeStateById[edge.id] ?? 'idle',
-        connectionIssue:
-          getWorkflowCanvasConnectionIssue(
-            edge,
-            getWorkflowCanvasNodeTypeById(graph.nodes)
-          ) ?? undefined,
-        onSelect: (edgeId: string) => selectEdgeRef.current(edgeId),
-        onActionMenu: onEdgeActionMenu,
-      },
-      selected: selectedEdgeId === edge.id,
-    })) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
+    const graphEdgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    const nextEdges = toReactFlowEdges(graph).map((edge) => {
+      const graphEdge = graphEdgeById.get(edge.id);
+      const sourceNode = graphEdge ? nodeById.get(graphEdge.source) : undefined;
+      const sourceHandle = graphEdge?.source_handle;
+      const semanticHandle = sourceNode
+        ? getWorkflowNodeSourceHandles(sourceNode).find(
+            (handle) => handle.id === sourceHandle
+          )
+        : undefined;
+      const semanticLabel =
+        graphEdge?.type !== 'default' && semanticHandle
+          ? getLocalizedWorkflowHandleLabel(semanticHandle, t)
+          : undefined;
+      return {
+        ...edge,
+        data: {
+          workflowType: edge.data?.workflowType ?? 'default',
+          semanticLabel,
+          visualStatus: 'idle',
+          connectionIssue:
+            getWorkflowCanvasConnectionIssue(
+              edge,
+              getWorkflowCanvasNodeTypeById(graph.nodes)
+            ) ?? undefined,
+        },
+        selected: selectedEdgeId === edge.id,
+      };
+    }) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
     setEdges(nextEdges);
   }, [
     graph,
-    nodeStatuses,
-    onEdgeActionMenu,
-    onNodeDelete,
-    onNodeDuplicate,
-    onNodeEdit,
-    onNodeOpen,
-    onNodeRunStep,
     readOnly,
     selectedEdgeId,
     selectedNodeId,
+    selectedNodeIds,
     setNodes,
     setEdges,
-    staleNodeIds,
     updateCanvasObjectNode,
     deleteCanvasObjectNode,
+    t,
     validationIssues,
   ]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<WorkflowCanvasFlowNode>[]) => {
-      const appliedChanges = readOnly
-        ? filterReadOnlyNodeChanges(changes)
-        : changes;
+      const appliedChanges = (
+        readOnly ? filterReadOnlyNodeChanges(changes) : changes
+      ).filter((change) => change.type !== 'remove');
       if (appliedChanges.length === 0) return;
       const next = applyNodeChanges(
         appliedChanges,
@@ -1423,33 +1104,97 @@ export function WorkflowCanvas({
       ) as WorkflowCanvasFlowNode[];
       nodesRef.current = next;
       setNodes(next);
-      if (!readOnly && hasGraphAffectingNodeChanges(appliedChanges)) {
-        reportChange(next, edgesRef.current);
+      if (!readOnly) {
+        let movedCanvasObject = false;
+        for (const change of appliedChanges) {
+          if (change.type !== 'position' || change.dragging === true) continue;
+          const movedNode = next.find((node) => node.id === change.id);
+          if (!movedNode) continue;
+          if (!isWorkflowNodeKind(String(movedNode.type))) {
+            movedCanvasObject = true;
+          }
+        }
+        if (movedCanvasObject) {
+          reportChange(next, edgesRef.current);
+        }
       }
     },
     [readOnly, reportChange, setNodes]
   );
 
+  const onNodeDragStop = useCallback(
+    (event: MouseEvent, draggedNode: WorkflowCanvasFlowNode) => {
+      if (readOnly || !isWorkflowNodeKind(String(draggedNode.type))) return;
+      const selectedWorkflowNodeIds = lastSelectionRef.current.nodeIds;
+      if (
+        selectedWorkflowNodeIds.length === 1 &&
+        draggedNode.type !== 'start' &&
+        draggedNode.type !== 'end' &&
+        onSplitEdgeWithNode
+      ) {
+        const dropTarget = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-workflow-edge-drop-target]'
+          )
+        ).find((element) => {
+          const bounds = element.getBoundingClientRect();
+          return (
+            event.clientX >= bounds.left &&
+            event.clientX <= bounds.right &&
+            event.clientY >= bounds.top &&
+            event.clientY <= bounds.bottom
+          );
+        });
+        const edgeId = dropTarget?.dataset.workflowEdgeDropTarget;
+        if (edgeId) {
+          onSplitEdgeWithNode({
+            edgeId,
+            nodeId: draggedNode.id,
+            position: draggedNode.position,
+          });
+          return;
+        }
+      }
+
+      const movedNodeIds =
+        selectedWorkflowNodeIds.length > 0
+          ? selectedWorkflowNodeIds
+          : [draggedNode.id];
+      const positions = Object.fromEntries(
+        nodesRef.current
+          .filter(
+            (node) =>
+              movedNodeIds.includes(node.id) &&
+              isWorkflowNodeKind(String(node.type))
+          )
+          .map((node) => [node.id, node.position])
+      );
+      if (Object.keys(positions).length > 0) onNodesMove?.(positions);
+    },
+    [onNodesMove, onSplitEdgeWithNode, readOnly]
+  );
+
   const onEdgesChange = useCallback(
     (changes: EdgeChange<ReactFlowEdge<WorkflowCanvasEdgeData>>[]) => {
-      const appliedChanges = readOnly
-        ? filterReadOnlyEdgeChanges(changes)
-        : changes;
+      const appliedChanges = (
+        readOnly ? filterReadOnlyEdgeChanges(changes) : changes
+      ).filter((change) => change.type !== 'remove');
       if (appliedChanges.length === 0) return;
       const next = applyEdgeChanges(appliedChanges, edgesRef.current);
       edgesRef.current = next;
       setEdges(next);
-      if (!readOnly && hasGraphAffectingEdgeChanges(appliedChanges)) {
-        reportChange(nodesRef.current, next);
-      }
     },
-    [readOnly, reportChange, setEdges]
+    [readOnly, setEdges]
   );
 
   const emitSelectionChange = useCallback(
     (selection: WorkflowCanvasSelection) => {
       const lastSelection = lastSelectionRef.current;
       if (
+        lastSelection.nodeIds.length === selection.nodeIds.length &&
+        lastSelection.nodeIds.every(
+          (nodeId, index) => nodeId === selection.nodeIds[index]
+        ) &&
         lastSelection.nodeId === selection.nodeId &&
         lastSelection.edgeId === selection.edgeId
       ) {
@@ -1465,7 +1210,10 @@ export function WorkflowCanvas({
     (selection: WorkflowCanvasSelection) => {
       const nextNodes = nodesRef.current.map((node) => ({
         ...node,
-        selected: selection.nodeId === node.id,
+        selected: isWorkflowNodeKind(String(node.type))
+          ? selection.nodeIds.includes(node.id) ||
+            (selection.nodeIds.length === 0 && selection.nodeId === node.id)
+          : selection.nodeId === node.id,
       }));
       const nextEdges = edgesRef.current.map((edge) => ({
         ...edge,
@@ -1481,39 +1229,61 @@ export function WorkflowCanvas({
   );
 
   useEffect(() => {
-    selectEdgeRef.current = (edgeId: string) => {
-      applySelection({ nodeId: null, edgeId });
-    };
-  }, [applySelection]);
-
-  const deleteEdgeById = useCallback(
-    (edgeId: string) => {
-      if (readOnly) return;
-      const nextEdges = edgesRef.current.filter((edge) => edge.id !== edgeId);
-      if (nextEdges.length === edgesRef.current.length) return;
-      edgesRef.current = nextEdges;
-      setEdges(nextEdges);
-      reportChange(nodesRef.current, nextEdges);
-      applySelection({ nodeId: null, edgeId: null });
-    },
-    [applySelection, readOnly, reportChange, setEdges]
-  );
-
-  useEffect(() => {
     if (readOnly) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!WORKFLOW_CANVAS_DELETE_KEYS.includes(event.key)) return;
       if (isEditableKeyboardTarget(event.target)) return;
-      const selectedEdgeId = lastSelectionRef.current.edgeId;
-      if (!selectedEdgeId) return;
+      const selection = lastSelectionRef.current;
+      if (
+        !selection.edgeId &&
+        !selection.nodeId &&
+        selection.nodeIds.length === 0
+      ) {
+        return;
+      }
       event.preventDefault();
-      deleteEdgeById(selectedEdgeId);
+      if (selection.edgeId) {
+        onEdgeDelete?.(selection.edgeId);
+        return;
+      }
+      if (selection.nodeIds.length > 0) {
+        const deletableNodeIds = selection.nodeIds.filter((nodeId) => {
+          const node = nodesRef.current.find(
+            (candidate) => candidate.id === nodeId
+          );
+          return node?.type !== 'start' && node?.type !== 'end';
+        });
+        if (deletableNodeIds.length > 0) {
+          if (onNodesDelete) void onNodesDelete(deletableNodeIds);
+          else if (deletableNodeIds.length === 1) {
+            void onNodeDelete?.(deletableNodeIds[0]);
+          }
+        }
+        return;
+      }
+      const selectedNode = nodesRef.current.find(
+        (node) => node.id === selection.nodeId
+      );
+      if (!selectedNode) return;
+      if (isWorkflowNodeKind(String(selectedNode.type))) {
+        if (selectedNode.type !== 'start' && selectedNode.type !== 'end') {
+          void onNodeDelete?.(selectedNode.id);
+        }
+      } else {
+        deleteCanvasObjectNode(selectedNode.id);
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteEdgeById, readOnly]);
+  }, [
+    deleteCanvasObjectNode,
+    onEdgeDelete,
+    onNodeDelete,
+    onNodesDelete,
+    readOnly,
+  ]);
 
   const onCanvasDoubleClickCapture = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
@@ -1536,7 +1306,7 @@ export function WorkflowCanvas({
       }
 
       event.stopPropagation();
-      applySelection({ nodeId, edgeId: null });
+      applySelection({ nodeIds: [nodeId], nodeId, edgeId: null });
       onNodeOpen(nodeId);
     },
     [applySelection, onNodeOpen]
@@ -1545,39 +1315,47 @@ export function WorkflowCanvas({
   const onConnect = useCallback(
     (connection: Connection) => {
       if (readOnly) return;
+      const sourceHandle = connection.sourceHandle ?? '';
+      const issue = validateWorkflowConnection(graph, {
+        source: connection.source ?? '',
+        sourceHandle,
+        target: connection.target ?? '',
+      });
+      if (issue || !connection.source || !connection.target) {
+        return;
+      }
+      onConnectNodes?.({
+        source: connection.source,
+        sourceHandle,
+        target: connection.target,
+      });
+    },
+    [graph, onConnectNodes, readOnly]
+  );
+
+  const onConnectEnd = useCallback<OnConnectEnd>(
+    (event, connectionState) => {
       if (
-        !isWorkflowCanvasConnectionAllowed(
-          connection,
-          getWorkflowCanvasNodeTypeById(nodesRef.current)
-        )
+        readOnly ||
+        !onConnectDrop ||
+        connectionState.toNode ||
+        !connectionState.fromNode ||
+        connectionState.fromHandle?.type !== 'source'
       ) {
         return;
       }
-      const next = addEdge(
-        {
-          ...connection,
-          id:
-            connection.source && connection.target
-              ? `${connection.source}-${connection.target}`
-              : undefined,
-          type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
-          sourceHandle: normalizeWorkflowPortHandle(
-            connection.sourceHandle,
-            DEFAULT_SOURCE_HANDLE
-          ),
-          targetHandle: normalizeWorkflowPortHandle(
-            connection.targetHandle,
-            DEFAULT_TARGET_HANDLE
-          ),
-          data: { workflowType: 'default' },
-        },
-        edgesRef.current
-      ) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
-      edgesRef.current = next;
-      setEdges(next);
-      reportChange(nodesRef.current, next);
+      const pointer =
+        'changedTouches' in event ? event.changedTouches.item(0) : event;
+      if (!pointer || !connectionState.fromHandle.id) return;
+      const anchorPoint = { x: pointer.clientX, y: pointer.clientY };
+      onConnectDrop({
+        source: connectionState.fromNode.id,
+        sourceHandle: connectionState.fromHandle.id,
+        position: screenToFlowPosition(anchorPoint),
+        anchorPoint,
+      });
     },
-    [readOnly, reportChange, setEdges]
+    [onConnectDrop, readOnly, screenToFlowPosition]
   );
 
   const onReconnect = useCallback(
@@ -1586,38 +1364,26 @@ export function WorkflowCanvas({
       newConnection: Connection
     ) => {
       if (readOnly) return;
+      const sourceHandle = newConnection.sourceHandle ?? '';
       if (
-        !isWorkflowCanvasConnectionAllowed(
-          newConnection,
-          getWorkflowCanvasNodeTypeById(nodesRef.current)
-        )
+        validateWorkflowConnection(graph, {
+          source: newConnection.source ?? '',
+          sourceHandle,
+          target: newConnection.target ?? '',
+          ignoredEdgeId: oldEdge.id,
+        })
       ) {
         return;
       }
-      const normalizedConnection = {
-        ...newConnection,
-        sourceHandle: normalizeWorkflowPortHandle(
-          newConnection.sourceHandle,
-          DEFAULT_SOURCE_HANDLE
-        ),
-        targetHandle: normalizeWorkflowPortHandle(
-          newConnection.targetHandle,
-          DEFAULT_TARGET_HANDLE
-        ),
-      };
-      const next = reconnectEdge(
-        oldEdge,
-        normalizedConnection,
-        edgesRef.current,
-        {
-          shouldReplaceId: false,
-        }
-      ) as ReactFlowEdge<WorkflowCanvasEdgeData>[];
-      edgesRef.current = next;
-      setEdges(next);
-      reportChange(nodesRef.current, next);
+      if (!newConnection.source || !newConnection.target) return;
+      onReconnectEdge?.({
+        edgeId: oldEdge.id,
+        source: newConnection.source,
+        sourceHandle,
+        target: newConnection.target,
+      });
     },
-    [readOnly, reportChange, setEdges]
+    [graph, onReconnectEdge, readOnly]
   );
 
   const onSelectionChangeReactFlow = useCallback(
@@ -1630,9 +1396,24 @@ export function WorkflowCanvas({
     }) => {
       const hasSingleNode = selectedNodes.length === 1;
       const hasSingleEdge = selectedEdges.length === 1;
+      const workflowNodeIds = selectedNodes
+        .filter(
+          (node) =>
+            isWorkflowNodeKind(String(node.type)) &&
+            node.type !== 'start' &&
+            node.type !== 'end'
+        )
+        .map((node) => node.id);
       emitSelectionChange({
-        nodeId: hasSingleNode && !hasSingleEdge ? selectedNodes[0].id : null,
-        edgeId: hasSingleEdge && !hasSingleNode ? selectedEdges[0].id : null,
+        nodeIds: hasSingleEdge ? [] : workflowNodeIds,
+        nodeId:
+          hasSingleNode && !hasSingleEdge && workflowNodeIds.length <= 1
+            ? selectedNodes[0].id
+            : null,
+        edgeId:
+          hasSingleEdge && workflowNodeIds.length === 0
+            ? selectedEdges[0].id
+            : null,
       });
     },
     [emitSelectionChange]
@@ -1674,6 +1455,8 @@ export function WorkflowCanvas({
   return (
     <div
       className={WORKFLOW_CANVAS_CLASS_NAMES.root}
+      data-workflow-canvas-root="true"
+      tabIndex={-1}
       onDoubleClickCapture={onCanvasDoubleClickCapture}
     >
       <ReactFlow
@@ -1682,12 +1465,24 @@ export function WorkflowCanvas({
         nodeTypes={nodeTypes}
         edgeTypes={workflowCanvasEdgeTypes}
         onNodesChange={onNodesChange}
+        onNodeDragStop={onNodeDragStop}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
         onSelectionChange={onSelectionChangeReactFlow}
         onNodeClick={(event, node) => {
-          applySelection({ nodeId: node.id, edgeId: null });
+          const isAuthorableNode =
+            isWorkflowNodeKind(String(node.type)) &&
+            node.type !== 'start' &&
+            node.type !== 'end';
+          const clickResult = getWorkflowCanvasNodeClickResult({
+            nodeId: node.id,
+            currentNodeIds: lastSelectionRef.current.nodeIds,
+            shiftKey: event.shiftKey,
+            isAuthorableNode,
+          });
+          applySelection(clickResult.selection);
           if (
             event.target instanceof Element &&
             event.target.closest('.react-flow__handle')
@@ -1698,7 +1493,8 @@ export function WorkflowCanvas({
             node.type &&
             isWorkflowNodeKind(String(node.type)) &&
             node.type !== 'start' &&
-            node.type !== 'end'
+            node.type !== 'end' &&
+            clickResult.shouldEdit
           ) {
             onNodeEdit?.(node.id);
           }
@@ -1711,7 +1507,7 @@ export function WorkflowCanvas({
           ) {
             return;
           }
-          applySelection({ nodeId: node.id, edgeId: null });
+          applySelection({ nodeIds: [node.id], nodeId: node.id, edgeId: null });
           onNodeOpen?.(node.id);
         }}
         onNodeContextMenu={(event, node) => {
@@ -1724,7 +1520,7 @@ export function WorkflowCanvas({
             return;
           }
           event.preventDefault();
-          applySelection({ nodeId: node.id, edgeId: null });
+          applySelection({ nodeIds: [node.id], nodeId: node.id, edgeId: null });
           onNodeContextMenu?.({
             nodeId: node.id,
             x: event.clientX,
@@ -1732,25 +1528,31 @@ export function WorkflowCanvas({
           });
         }}
         onEdgeClick={(_, edge) =>
-          applySelection({ nodeId: null, edgeId: edge.id })
+          applySelection({ nodeIds: [], nodeId: null, edgeId: edge.id })
         }
-        onPaneClick={() => applySelection({ nodeId: null, edgeId: null })}
+        onPaneClick={() =>
+          applySelection({ nodeIds: [], nodeId: null, edgeId: null })
+        }
         onDragOver={onDragOver}
         onDrop={onDrop}
         isValidConnection={(connection) =>
-          isWorkflowCanvasConnectionAllowed(
-            connection,
-            getWorkflowCanvasNodeTypeById(nodesRef.current)
-          )
+          validateWorkflowConnection(graph, {
+            source: connection.source ?? '',
+            sourceHandle: connection.sourceHandle ?? '',
+            target: connection.target ?? '',
+          }) === null
         }
         defaultEdgeOptions={WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS}
-        nodesDraggable
+        nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
         reconnectRadius={WORKFLOW_CANVAS_RECONNECT_RADIUS}
         elevateEdgesOnSelect
         connectionMode={WORKFLOW_CANVAS_CONNECTION_MODE}
         elementsSelectable={true}
+        selectionMode={SelectionMode.Partial}
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode="Shift"
         connectionLineType={WORKFLOW_CANVAS_CONNECTION_LINE_TYPE}
         connectionLineStyle={{
           stroke: 'hsl(var(--brand))',
@@ -1759,7 +1561,7 @@ export function WorkflowCanvas({
         }}
         snapToGrid
         snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
-        deleteKeyCode={readOnly ? null : WORKFLOW_CANVAS_DELETE_KEYS}
+        deleteKeyCode={null}
         fitView
         className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
       >

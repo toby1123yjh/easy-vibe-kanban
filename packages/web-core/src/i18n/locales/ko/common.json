@@ -797,6 +797,36 @@
         "attemptB": "Attempt B"
       }
     },
+    "nodePicker": {
+      "addNode": "노드 추가",
+      "chooseNodeType": "노드 유형 선택",
+      "descriptions": {
+        "agent": "작업을 수행하는 AI 에이전트",
+        "condition": "연결된 분기로 작업을 라우팅합니다",
+        "human_gate": "사용자 승인을 기다립니다",
+        "transform": "노드 간 데이터를 변환합니다",
+        "arena": "여러 후보 에이전트를 병렬로 실행합니다"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "선택한 개체가 더 이상 존재하지 않습니다.",
+      "selfConnection": "노드를 자기 자신에게 연결할 수 없습니다.",
+      "endSource": "종료 노드에서 연결을 시작할 수 없습니다.",
+      "startTarget": "시작 노드는 연결을 받을 수 없습니다.",
+      "invalidSourceHandle": "소스 노드에서 유효한 경로를 선택하세요.",
+      "occupiedSourceHandle": "이 조건 분기는 이미 연결되어 있습니다.",
+      "duplicateConnection": "이 경로는 이미 대상 노드에 연결되어 있습니다.",
+      "nodeTitleRequired": "이 노드에 제목을 지정하세요.",
+      "taskPromptRequired": "작업 프롬프트를 추가하세요.",
+      "agentRequired": "에이전트를 선택하세요.",
+      "branchesRequired": "모든 조건 분기를 완성하세요.",
+      "unconnectedBranch": "각 조건 분기를 대상 노드에 연결하세요.",
+      "approvalRequestRequired": "승인 요청을 추가하세요.",
+      "transformTemplateRequired": "변환 템플릿을 추가하세요.",
+      "transformRegexRequired": "추출 패턴을 추가하세요.",
+      "transformMaxCharsRequired": "최대 문자 수는 0보다 커야 합니다.",
+      "tooFewCandidates": "Arena에는 후보가 두 개 이상 필요합니다."
+    },
     "edges": {
       "default": "Default",
       "condition": "Condition",
@@ -942,7 +972,20 @@
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "undo": "실행 취소",
+      "redo": "다시 실행",
+      "undoShortcut": "실행 취소 (Ctrl/Cmd + Z)",
+      "redoShortcut": "다시 실행 (Ctrl/Cmd + Shift + Z)",
+      "unsavedChangesTitle": "저장되지 않은 워크플로 변경 사항",
+      "unsavedChangesDescription": "나가기 전에 현재 초안을 저장하거나 버리거나 계속 편집하세요.",
+      "continueEditing": "계속 편집",
+      "discardAndLeave": "버리고 나가기",
+      "saveAndLeave": "저장하고 나가기",
+      "multiSelectionActions": "선택한 노드 작업",
+      "nodesSelected": "{{count}}개 노드 선택됨",
+      "deletedObjects": "{{count}}개 항목 삭제됨",
+      "deletedObjects_other": "{{count}}개 항목 삭제됨"
     },
     "canvas": {
       "openSession": "Open session",
@@ -957,7 +1000,16 @@
       "notePlaceholder": "Write a note...",
       "deleteStageGroup": "Delete stage group",
       "stageDescriptionPlaceholder": "Stage description",
-      "openEdgeActions": "Open edge actions for {{id}}"
+      "openEdgeActions": "Open edge actions for {{id}}",
+      "inputHandle": "입력",
+      "nextHandle": "다음",
+      "connectionIssues": {
+        "missingEndpoint": "연결에 소스 또는 대상 노드가 없습니다.",
+        "missingNode": "연결이 더 이상 존재하지 않는 노드를 참조합니다.",
+        "selfEdge": "노드 {{nodeId}}의 자체 연결을 찾았습니다.",
+        "endSource": "종료 노드에서 나가는 연결을 시작할 수 없습니다.",
+        "startTarget": "시작 노드는 들어오는 연결을 받을 수 없습니다."
+      }
     },
     "agentEdit": {
       "title": "Edit Agent Step",
@@ -1009,7 +1061,9 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "edgeId": "Edge ID"
+      "edgeId": "Edge ID",
+      "deleteNode": "노드 삭제",
+      "deleteNodeDescription": "이 노드와 연결된 에지를 초안에서 제거합니다."
     },
     "agentDraft": {
       "defaultStepName": "Agent step",

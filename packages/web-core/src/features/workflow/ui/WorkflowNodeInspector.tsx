@@ -5,19 +5,22 @@ import type {
   WorkflowNodeData,
   WorkflowNodeKind,
 } from '../model/workflowGraph';
-import { getConditionBranchTargets } from '../model/workflowGraph';
 import type { TFunction } from 'i18next';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   getWorkflowNodeSchema,
   type WorkflowNodeFieldSchema,
 } from '../model/workflowNodeSchemas';
 import { getWorkflowAgentDisplay } from '../model/workflowAgentDisplay';
-import { getWorkflowNodeKindLabel } from '../model/workflowPresentation';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { WorkflowNodeFieldRenderer } from './WorkflowNodeFieldRenderer';
-import { getWorkflowNodeIcon } from './workflowNodeIcons';
+import { WorkflowAgentExecutorField } from './WorkflowAgentExecutorField';
 import { Plus, Settings2, Trash2 } from 'lucide-react';
+import {
+  applyWorkflowTransform,
+  type WorkflowTransformResult,
+} from '../model/workflowAuthoring';
 
 export interface WorkflowNodeInspectorProps {
   node: WorkflowNode | null;
@@ -26,6 +29,7 @@ export interface WorkflowNodeInspectorProps {
   readOnly?: boolean;
   onChange?: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   onConfigureRouter?: () => void;
+  onDelete?: (nodeId: string) => void;
 }
 
 const simpleFieldTypes = new Set(['text', 'textarea', 'select', 'number']);
@@ -78,8 +82,15 @@ export function WorkflowNodeInspector({
   readOnly,
   onChange,
   onConfigureRouter,
+  onDelete,
 }: WorkflowNodeInspectorProps) {
   const { t } = useTranslation('common');
+  const [transformTests, setTransformTests] = useState<
+    Record<
+      string,
+      { open: boolean; input: string; result: WorkflowTransformResult | null }
+    >
+  >({});
   if (!node) {
     return (
       <div className="flex h-full items-center justify-center p-base text-center text-low text-sm">
@@ -94,7 +105,6 @@ export function WorkflowNodeInspector({
   };
 
   const { data, type } = node;
-  const Icon = getWorkflowNodeIcon(type);
   const schema = getWorkflowNodeSchema(type);
   const schemaFields = schema.fields;
   const simpleFields = schemaFields
@@ -108,15 +118,27 @@ export function WorkflowNodeInspector({
     (field) => field.type === 'arena_attempts'
   );
   const branches = data.branches ?? [];
-  const conditionBranchTargets =
-    type === 'condition' && graph
-      ? getConditionBranchTargets(graph, node.id)
-      : [];
   const attempts = data.attempts ?? [];
   const routerDisplay = getWorkflowAgentDisplay({
     executor_config: routerExecutorConfig,
   });
   const hasRouterExecutorConfig = routerDisplay.executorConfig !== null;
+  const transformTest = transformTests[node.id] ?? {
+    open: false,
+    input: '',
+    result: null,
+  };
+  const updateTransformTest = (
+    updates: Partial<(typeof transformTests)[string]>
+  ) => {
+    setTransformTests((current) => ({
+      ...current,
+      [node.id]: {
+        ...(current[node.id] ?? transformTest),
+        ...updates,
+      },
+    }));
+  };
 
   const inputClass =
     'w-full rounded-md border border-secondary bg-primary px-3 py-1.5 text-sm shadow-sm transition-colors focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-50';
@@ -126,21 +148,7 @@ export function WorkflowNodeInspector({
     'inline-flex h-8 w-8 items-center justify-center rounded-md border border-secondary bg-primary text-low shadow-sm transition-colors hover:border-error/70 hover:text-error disabled:cursor-not-allowed disabled:opacity-50';
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto bg-panel/50 p-5 text-sm">
-      <div className="mb-2 flex items-center gap-3 border-b border-secondary pb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-secondary/40 bg-secondary/20 shadow-sm">
-          <Icon className="h-4 w-4 text-high" />
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-low">
-            {t('workflow.inspector.step')}
-          </span>
-          <span className="text-sm font-semibold text-high">
-            {getWorkflowNodeKindLabel(type, t)}
-          </span>
-        </div>
-      </div>
-
+    <div className="flex min-h-full flex-col gap-4 bg-panel/50 p-5 text-sm">
       {simpleFields.map((field) => (
         <WorkflowNodeFieldRenderer
           key={String(field.key)}
@@ -151,6 +159,17 @@ export function WorkflowNodeInspector({
           onChange={handleChange}
         />
       ))}
+
+      {type === 'agent' && onChange ? (
+        <WorkflowAgentExecutorField
+          key={node.id}
+          value={data.executor_config}
+          readOnly={readOnly}
+          onChange={(executorConfig) =>
+            handleChange('executor_config', executorConfig)
+          }
+        />
+      ) : null}
 
       {type === 'condition' ? (
         <div className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm">
@@ -207,31 +226,45 @@ export function WorkflowNodeInspector({
 
       {type === 'condition' && hasConditionBranches ? (
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-high">
-            {t('workflow.inspector.branches')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs font-semibold text-high">
+              {t('workflow.inspector.branches')}
+            </label>
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              disabled={readOnly}
+              onClick={() =>
+                handleChange('branches', [
+                  ...branches,
+                  {
+                    id: `branch-${crypto.randomUUID().slice(0, 8)}`,
+                    condition: '',
+                  },
+                ])
+              }
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('workflow.inspector.addBranch', {
+                defaultValue: 'Add branch',
+              })}
+            </button>
+          </div>
           <p className="text-xs leading-relaxed text-low">
             {t('workflow.inspector.conditionBranchHelp', {
               defaultValue:
-                'Each outgoing line becomes a branch. Describe when the router should choose each target.',
+                'Describe each route, then connect its handle to one or more downstream Nodes on the canvas.',
             })}
           </p>
           {branches.length === 0 ? (
             <div className="rounded-md border border-secondary/60 bg-primary/50 p-3 text-xs text-low shadow-sm">
               {t('workflow.inspector.noConditionBranches', {
                 defaultValue:
-                  'No outgoing targets. Connect this Condition to downstream nodes to create branch rows.',
+                  'Add a branch to create its semantic connection handle.',
               })}
             </div>
           ) : null}
           {branches.map((branch, index) => {
-            const usedTargetIds = new Set(
-              branches
-                .map((candidate, branchIndex) =>
-                  branchIndex === index ? null : candidate.target_node_id
-                )
-                .filter((targetId): targetId is string => Boolean(targetId))
-            );
             const updateBranch = (
               updates: Partial<WorkflowConditionBranch>
             ) => {
@@ -242,6 +275,20 @@ export function WorkflowNodeInspector({
               };
               handleChange('branches', nextBranches);
             };
+            const targetLabels = graph
+              ? graph.edges
+                  .filter(
+                    (edge) =>
+                      edge.source === node.id &&
+                      edge.source_handle === `branch:${branch.id}`
+                  )
+                  .map((edge) => {
+                    const target = graph.nodes.find(
+                      (candidate) => candidate.id === edge.target
+                    );
+                    return String(target?.data.display_name ?? edge.target);
+                  })
+              : [];
 
             return (
               <div
@@ -256,37 +303,32 @@ export function WorkflowNodeInspector({
                 }
                 className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm"
               >
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-high">
-                    {t('workflow.inspector.branchTarget', {
-                      defaultValue: 'Target',
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-high">
+                    {t('workflow.inspector.branchLabel', {
+                      index: index + 1,
+                      defaultValue: 'Branch {{index}}',
                     })}
-                  </label>
-                  <select
-                    className={inputClass}
-                    value={branch.target_node_id ?? ''}
-                    onChange={(event) =>
-                      updateBranch({ target_node_id: event.target.value })
-                    }
+                  </span>
+                  <button
+                    type="button"
+                    className={iconButtonClass}
+                    aria-label={t('workflow.inspector.removeBranch', {
+                      index: index + 1,
+                      defaultValue: 'Remove branch {{index}}',
+                    })}
                     disabled={readOnly}
+                    onClick={() =>
+                      handleChange(
+                        'branches',
+                        branches.filter(
+                          (candidate) => candidate.id !== branch.id
+                        )
+                      )
+                    }
                   >
-                    {!branch.target_node_id ? (
-                      <option value="">
-                        {t('workflow.inspector.selectTarget', {
-                          defaultValue: 'Select target',
-                        })}
-                      </option>
-                    ) : null}
-                    {conditionBranchTargets.map((target) => (
-                      <option
-                        key={target.nodeId}
-                        value={target.nodeId}
-                        disabled={usedTargetIds.has(target.nodeId)}
-                      >
-                        {target.label}
-                      </option>
-                    ))}
-                  </select>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold text-high">
@@ -311,9 +353,85 @@ export function WorkflowNodeInspector({
                     disabled={readOnly}
                   />
                 </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-high">
+                    {t('workflow.inspector.branchTarget', {
+                      defaultValue: 'Connected Nodes',
+                    })}
+                  </span>
+                  <div className="rounded-md border border-secondary/60 bg-panel/60 px-2.5 py-2 text-xs text-low">
+                    {targetLabels.length > 0
+                      ? targetLabels.join(', ')
+                      : t('workflow.inspector.branchNotConnected', {
+                          defaultValue: 'Not connected yet',
+                        })}
+                  </div>
+                </div>
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {type === 'transform' ? (
+        <div className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm">
+          <button
+            type="button"
+            className={secondaryButtonClass}
+            aria-expanded={transformTest.open}
+            onClick={() => updateTransformTest({ open: !transformTest.open })}
+          >
+            {t('workflow.inspector.testTransform', {
+              defaultValue: 'Test transform',
+            })}
+          </button>
+          {transformTest.open ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-high">
+                {t('workflow.inspector.transformSampleInput', {
+                  defaultValue: 'Sample input',
+                })}
+              </label>
+              <textarea
+                className={inputClass}
+                rows={4}
+                value={transformTest.input}
+                onChange={(event) =>
+                  updateTransformTest({
+                    input: event.target.value,
+                    result: null,
+                  })
+                }
+              />
+              <button
+                type="button"
+                className={secondaryButtonClass}
+                onClick={() =>
+                  updateTransformTest({
+                    result: applyWorkflowTransform(data, transformTest.input),
+                  })
+                }
+              >
+                {t('workflow.inspector.runTransformTest', {
+                  defaultValue: 'Run test',
+                })}
+              </button>
+              {transformTest.result ? (
+                <div
+                  role={transformTest.result.ok ? 'status' : 'alert'}
+                  className={
+                    transformTest.result.ok
+                      ? 'whitespace-pre-wrap rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-high'
+                      : 'rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs text-error'
+                  }
+                >
+                  {transformTest.result.ok
+                    ? transformTest.result.output
+                    : transformTest.result.error}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -335,7 +453,6 @@ export function WorkflowNodeInspector({
                     display_name: t('workflow.inspector.attemptLabel', {
                       index: attempts.length + 1,
                     }),
-                    role_template_id: 'custom',
                     prompt_template: '',
                   },
                 ])
@@ -387,20 +504,17 @@ export function WorkflowNodeInspector({
                 }}
                 disabled={readOnly}
               />
-              <input
-                type="text"
-                placeholder={t('workflow.fields.role_template_id')}
-                className={inputClass}
-                value={attempt.role_template_id ?? ''}
-                onChange={(e) => {
+              <WorkflowAgentExecutorField
+                value={attempt.executor_config}
+                readOnly={readOnly}
+                onChange={(executorConfig) => {
                   const newAttempts = [...attempts];
                   newAttempts[i] = {
                     ...newAttempts[i],
-                    role_template_id: e.target.value,
+                    executor_config: executorConfig,
                   };
                   handleChange('attempts', newAttempts);
                 }}
-                disabled={readOnly}
               />
               <textarea
                 placeholder={t('workflow.inspector.promptOverride')}
@@ -421,6 +535,35 @@ export function WorkflowNodeInspector({
           ))}
         </>
       )}
+
+      {type !== 'start' && type !== 'end' ? (
+        <div className="mt-auto flex flex-col gap-2 border-t border-secondary/60 pt-4">
+          <div>
+            <div className="text-xs font-semibold text-high">
+              {t('workflow.inspector.deleteNode', {
+                defaultValue: 'Delete Node',
+              })}
+            </div>
+            <p className="mt-1 text-xs text-low">
+              {t('workflow.inspector.deleteNodeDescription', {
+                defaultValue:
+                  'Remove this Node and its connected Edges from the draft.',
+              })}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-error/30 bg-error/10 px-3 py-2 font-semibold text-error transition-colors hover:bg-error/15 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={readOnly || !onDelete}
+            onClick={() => onDelete?.(node.id)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            {t('workflow.inspector.deleteNode', {
+              defaultValue: 'Delete Node',
+            })}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type {
   WorkflowNodeData,
   WorkflowNodeKind,
 } from '../model/workflowGraph';
+import type { WorkflowAuthoringIssue } from '../model/workflowAuthoring';
 
 export function getWorkflowDefaultGraphLabels(
   t: TFunction<'common'>
@@ -54,6 +55,43 @@ export function getWorkflowDefaultNodeData(
         ],
       };
   }
+}
+
+export function getWorkflowAuthoringIssueMessage(
+  issue: WorkflowAuthoringIssue,
+  t: TFunction<'common'>
+): string {
+  const keyByCode: Partial<Record<WorkflowAuthoringIssue['code'], string>> = {
+    'missing-node': 'missingNode',
+    'self-connection': 'selfConnection',
+    'end-source': 'endSource',
+    'start-target': 'startTarget',
+    'invalid-source-handle': 'invalidSourceHandle',
+    'occupied-source-handle': 'occupiedSourceHandle',
+    'duplicate-connection': 'duplicateConnection',
+    'unconnected-branch': 'unconnectedBranch',
+    'too-few-candidates': 'tooFewCandidates',
+  };
+  const requiredFieldKey: Record<string, string> = {
+    display_name: 'nodeTitleRequired',
+    prompt_template: 'taskPromptRequired',
+    executor_config: 'agentRequired',
+    branches: 'branchesRequired',
+    prompt_to_human: 'approvalRequestRequired',
+    template: 'transformTemplateRequired',
+    regex: 'transformRegexRequired',
+    max_chars: 'transformMaxCharsRequired',
+  };
+  const messageKey =
+    issue.code === 'required-field'
+      ? requiredFieldKey[issue.field ?? '']
+      : keyByCode[issue.code];
+
+  return messageKey
+    ? t(`workflow.authoringErrors.${messageKey}`, {
+        defaultValue: issue.message,
+      })
+    : issue.message;
 }
 
 export function workflowNodeStatusKey(status: string): string {

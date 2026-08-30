@@ -14,6 +14,7 @@ import {
   filterReadOnlyEdgeChanges,
   filterReadOnlyNodeChanges,
   getWorkflowCanvasConnectionIssue,
+  getWorkflowCanvasNodeClickResult,
   getWorkflowSelfLoopPath,
   hasGraphAffectingEdgeChanges,
   hasGraphAffectingNodeChanges,
@@ -30,7 +31,7 @@ describe('workflow canvas interaction settings', () => {
     expect(WORKFLOW_CANVAS_SNAP_GRID).toEqual([15, 15]);
   });
 
-  it('allows common delete keys to remove selected graph elements', () => {
+  it('recognizes common delete keys for guarded command dispatch', () => {
     expect(WORKFLOW_CANVAS_DELETE_KEYS).toEqual(['Backspace', 'Delete']);
   });
 
@@ -87,8 +88,8 @@ describe('workflow canvas interaction settings', () => {
     expect(WORKFLOW_CANVAS_CONNECTION_LINE_TYPE).toBe('smoothstep');
   });
 
-  it('uses loose connection mode so one visible port can start and receive wires', () => {
-    expect(WORKFLOW_CANVAS_CONNECTION_MODE).toBe(ConnectionMode.Loose);
+  it('uses strict connection mode for separate semantic inputs and outputs', () => {
+    expect(WORKFLOW_CANVAS_CONNECTION_MODE).toBe(ConnectionMode.Strict);
   });
 
   it('keeps reconnect handles easy to grab without thickening the visible line', () => {
@@ -96,20 +97,13 @@ describe('workflow canvas interaction settings', () => {
     expect(WORKFLOW_CANVAS_RECONNECT_RADIUS).toBe(16);
   });
 
-  it('keeps object-level node and edge actions discoverable near the object', () => {
+  it('keeps the authoring actions aligned with configuration-first editing', () => {
     expect(WORKFLOW_CANVAS_NODE_ACTIONS).toEqual([
-      'open-session',
-      'edit',
-      'run-step',
+      'configure',
       'duplicate',
       'delete',
     ]);
-    expect(WORKFLOW_CANVAS_EDGE_ACTIONS).toEqual([
-      'insert-agent-step',
-      'reconnect-source',
-      'reconnect-target',
-      'delete-edge',
-    ]);
+    expect(WORKFLOW_CANVAS_EDGE_ACTIONS).toEqual(['delete-edge']);
   });
 
   it('rejects workflow connections that cannot be executed', () => {
@@ -186,5 +180,23 @@ describe('workflow canvas interaction settings', () => {
 
     expect(hasGraphAffectingEdgeChanges([{ type: 'select' }])).toBe(false);
     expect(hasGraphAffectingEdgeChanges([{ type: 'remove' }])).toBe(true);
+  });
+
+  it('does not reopen a Node removed from a multi-selection', () => {
+    expect(
+      getWorkflowCanvasNodeClickResult({
+        nodeId: 'agent-b',
+        currentNodeIds: ['agent-a', 'agent-b'],
+        shiftKey: true,
+        isAuthorableNode: true,
+      })
+    ).toEqual({
+      selection: {
+        nodeIds: ['agent-a'],
+        nodeId: 'agent-a',
+        edgeId: null,
+      },
+      shouldEdit: false,
+    });
   });
 });

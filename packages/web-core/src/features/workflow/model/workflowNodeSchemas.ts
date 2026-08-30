@@ -33,33 +33,33 @@ export const WORKFLOW_NODE_SCHEMAS: Record<
 > = {
   start: {
     type: 'start',
-    label: 'Start Step',
-    fields: [{ key: 'display_name', type: 'text', label: 'Display Name' }],
+    label: 'Start',
+    fields: [{ key: 'display_name', type: 'text', label: 'Title' }],
   },
   end: {
     type: 'end',
-    label: 'End Step',
-    fields: [{ key: 'display_name', type: 'text', label: 'Display Name' }],
+    label: 'End',
+    fields: [{ key: 'display_name', type: 'text', label: 'Title' }],
   },
   agent: {
     type: 'agent',
-    label: 'Agent Step',
+    label: 'Agent',
     fields: [
-      { key: 'display_name', type: 'text', label: 'Display Name' },
-      { key: 'role_template_id', type: 'text', label: 'Role Template ID' },
+      { key: 'display_name', type: 'text', label: 'Task title' },
+      { key: 'role_template_id', type: 'text', label: 'Agent role' },
       {
         key: 'prompt_template',
         type: 'textarea',
-        label: 'Prompt Template',
+        label: 'Task prompt',
         rows: 4,
       },
     ],
   },
   condition: {
     type: 'condition',
-    label: 'Condition Step',
+    label: 'Condition',
     fields: [
-      { key: 'display_name', type: 'text', label: 'Display Name' },
+      { key: 'display_name', type: 'text', label: 'Title' },
       {
         key: 'routing_mode',
         type: 'select',
@@ -74,9 +74,9 @@ export const WORKFLOW_NODE_SCHEMAS: Record<
   },
   human_gate: {
     type: 'human_gate',
-    label: 'Human Gate Step',
+    label: 'Human Gate',
     fields: [
-      { key: 'display_name', type: 'text', label: 'Display Name' },
+      { key: 'display_name', type: 'text', label: 'Title' },
       {
         key: 'prompt_to_human',
         type: 'textarea',
@@ -96,9 +96,9 @@ export const WORKFLOW_NODE_SCHEMAS: Record<
   },
   transform: {
     type: 'transform',
-    label: 'Transform Step',
+    label: 'Transform',
     fields: [
-      { key: 'display_name', type: 'text', label: 'Display Name' },
+      { key: 'display_name', type: 'text', label: 'Title' },
       {
         key: 'mode',
         type: 'select',
@@ -116,13 +116,13 @@ export const WORKFLOW_NODE_SCHEMAS: Record<
   },
   arena: {
     type: 'arena',
-    label: 'Arena Step',
+    label: 'Arena',
     fields: [
-      { key: 'display_name', type: 'text', label: 'Display Name' },
+      { key: 'display_name', type: 'text', label: 'Task title' },
       {
         key: 'prompt_template',
         type: 'textarea',
-        label: 'Prompt Template',
+        label: 'Shared Task prompt',
         rows: 4,
       },
       { key: 'attempts', type: 'arena_attempts', label: 'Attempts' },

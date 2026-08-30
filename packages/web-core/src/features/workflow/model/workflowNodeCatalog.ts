@@ -92,8 +92,10 @@ export const WORKFLOW_NODE_CATALOG: CatalogEntry[] = [
   },
 ];
 
-export function isWorkflowNodeAuthorable(kind: WorkflowNodeKind): boolean {
-  return kind !== 'start' && kind !== 'end' && kind !== 'arena';
+export function isWorkflowNodeAuthorable(
+  kind: WorkflowNodeKind
+): kind is Exclude<WorkflowNodeKind, 'start' | 'end'> {
+  return kind !== 'start' && kind !== 'end';
 }
 
 export function createDefaultNodeData(
@@ -123,13 +125,13 @@ export function getWorkflowNodeCatalogSections(): WorkflowNodeCatalogSection[] {
       id: 'execution',
       label: 'Execution',
       labelKey: 'workflow.editor.sections.execution',
-      types: ['agent'],
+      types: ['agent', 'arena'],
     },
     {
       id: 'control',
       label: 'Control',
       labelKey: 'workflow.editor.sections.control',
-      types: ['condition', 'human_gate'],
+      types: ['condition', 'human_gate', 'transform'],
     },
   ];
 

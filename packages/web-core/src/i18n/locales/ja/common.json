@@ -797,6 +797,36 @@
         "attemptB": "Attempt B"
       }
     },
+    "nodePicker": {
+      "addNode": "ノードを追加",
+      "chooseNodeType": "ノードタイプを選択",
+      "descriptions": {
+        "agent": "タスクを実行する AI エージェント",
+        "condition": "接続された分岐へ処理を振り分けます",
+        "human_gate": "人による承認を待ちます",
+        "transform": "ノード間のデータを変換します",
+        "arena": "複数の候補エージェントを並列実行します"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "選択したオブジェクトは存在しません。",
+      "selfConnection": "ノードを自身に接続することはできません。",
+      "endSource": "終了ノードから接続を開始できません。",
+      "startTarget": "開始ノードは接続を受け取れません。",
+      "invalidSourceHandle": "接続元ノードの有効な経路を選択してください。",
+      "occupiedSourceHandle": "この条件分岐はすでに接続されています。",
+      "duplicateConnection": "この経路はすでに対象ノードへ接続されています。",
+      "nodeTitleRequired": "このノードにタイトルを付けてください。",
+      "taskPromptRequired": "タスクの指示を追加してください。",
+      "agentRequired": "エージェントを選択してください。",
+      "branchesRequired": "すべての条件分岐を完成させてください。",
+      "unconnectedBranch": "各条件分岐を対象ノードへ接続してください。",
+      "approvalRequestRequired": "承認依頼を追加してください。",
+      "transformTemplateRequired": "変換テンプレートを追加してください。",
+      "transformRegexRequired": "抽出パターンを追加してください。",
+      "transformMaxCharsRequired": "最大文字数は 0 より大きい値にしてください。",
+      "tooFewCandidates": "Arena には少なくとも 2 つの候補が必要です。"
+    },
     "edges": {
       "default": "Default",
       "condition": "Condition",
@@ -942,7 +972,20 @@
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "undo": "取り消す",
+      "redo": "やり直す",
+      "undoShortcut": "取り消す (Ctrl/Cmd + Z)",
+      "redoShortcut": "やり直す (Ctrl/Cmd + Shift + Z)",
+      "unsavedChangesTitle": "ワークフローに未保存の変更があります",
+      "unsavedChangesDescription": "移動する前に現在の下書きを保存するか、変更を破棄するか、編集を続けてください。",
+      "continueEditing": "編集を続ける",
+      "discardAndLeave": "破棄して移動",
+      "saveAndLeave": "保存して移動",
+      "multiSelectionActions": "選択したノードの操作",
+      "nodesSelected": "{{count}} 個のノードを選択中",
+      "deletedObjects": "{{count}} 個の項目を削除しました",
+      "deletedObjects_other": "{{count}} 個の項目を削除しました"
     },
     "canvas": {
       "openSession": "Open session",
@@ -957,7 +1000,16 @@
       "notePlaceholder": "Write a note...",
       "deleteStageGroup": "Delete stage group",
       "stageDescriptionPlaceholder": "Stage description",
-      "openEdgeActions": "Open edge actions for {{id}}"
+      "openEdgeActions": "Open edge actions for {{id}}",
+      "inputHandle": "入力",
+      "nextHandle": "次へ",
+      "connectionIssues": {
+        "missingEndpoint": "接続元または接続先ノードがありません。",
+        "missingNode": "接続が存在しないノードを参照しています。",
+        "selfEdge": "ノード {{nodeId}} の自己接続が見つかりました。",
+        "endSource": "終了ノードから接続を開始できません。",
+        "startTarget": "開始ノードは接続を受け取れません。"
+      }
     },
     "agentEdit": {
       "title": "Edit Agent Step",
@@ -1009,7 +1061,9 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "edgeId": "Edge ID"
+      "edgeId": "Edge ID",
+      "deleteNode": "ノードを削除",
+      "deleteNodeDescription": "このノードと接続されたエッジを下書きから削除します。"
     },
     "agentDraft": {
       "defaultStepName": "Agent step",

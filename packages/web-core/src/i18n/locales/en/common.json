@@ -418,6 +418,36 @@
         "attemptB": "Attempt B"
       }
     },
+    "nodePicker": {
+      "addNode": "Add Node",
+      "chooseNodeType": "Choose Node type",
+      "descriptions": {
+        "agent": "AI agent that carries out a Task",
+        "condition": "Route work across connected branches",
+        "human_gate": "Wait for human approval",
+        "transform": "Transform data between Nodes",
+        "arena": "Run multiple candidate Agents in parallel"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "The selected object no longer exists.",
+      "selfConnection": "A Node cannot connect to itself.",
+      "endSource": "End cannot start a connection.",
+      "startTarget": "Start cannot receive a connection.",
+      "invalidSourceHandle": "Choose a valid route from the source Node.",
+      "occupiedSourceHandle": "This Condition branch is already connected.",
+      "duplicateConnection": "This route is already connected to the target Node.",
+      "nodeTitleRequired": "Give this Node a title.",
+      "taskPromptRequired": "Add the Task prompt.",
+      "agentRequired": "Choose an Agent.",
+      "branchesRequired": "Complete every Condition branch.",
+      "unconnectedBranch": "Connect each Condition branch to a target Node.",
+      "approvalRequestRequired": "Add the approval request.",
+      "transformTemplateRequired": "Add the transform template.",
+      "transformRegexRequired": "Add the extraction pattern.",
+      "transformMaxCharsRequired": "Maximum characters must be greater than zero.",
+      "tooFewCandidates": "Arena needs at least two candidates."
+    },
     "edges": {
       "default": "Default",
       "condition": "Condition",
@@ -630,7 +660,20 @@
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "undo": "Undo",
+      "redo": "Redo",
+      "undoShortcut": "Undo (Ctrl/Cmd + Z)",
+      "redoShortcut": "Redo (Ctrl/Cmd + Shift + Z)",
+      "unsavedChangesTitle": "Unsaved workflow changes",
+      "unsavedChangesDescription": "Save the current draft before leaving, discard it, or continue editing.",
+      "continueEditing": "Continue editing",
+      "discardAndLeave": "Discard and leave",
+      "saveAndLeave": "Save and leave",
+      "multiSelectionActions": "Selected Node actions",
+      "nodesSelected": "{{count}} Nodes selected",
+      "deletedObjects": "Deleted {{count}} item",
+      "deletedObjects_other": "Deleted {{count}} items"
     },
     "canvas": {
       "openSession": "Open session",
@@ -645,7 +688,16 @@
       "notePlaceholder": "Write a note...",
       "deleteStageGroup": "Delete stage group",
       "stageDescriptionPlaceholder": "Stage description",
-      "openEdgeActions": "Open edge actions for {{id}}"
+      "openEdgeActions": "Open edge actions for {{id}}",
+      "inputHandle": "Input",
+      "nextHandle": "Next",
+      "connectionIssues": {
+        "missingEndpoint": "Edge is missing a source or target Node.",
+        "missingNode": "Edge references a Node that no longer exists.",
+        "selfEdge": "Self-edge found on Node {{nodeId}}.",
+        "endSource": "End Nodes cannot start outgoing Edges.",
+        "startTarget": "Start Nodes cannot receive incoming Edges."
+      }
     },
     "agentEdit": {
       "title": "Edit Agent Step",
@@ -697,7 +749,9 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "edgeId": "Edge ID"
+      "edgeId": "Edge ID",
+      "deleteNode": "Delete Node",
+      "deleteNodeDescription": "Remove this Node and its connected Edges from the draft."
     },
     "agentDraft": {
       "defaultStepName": "Agent step",

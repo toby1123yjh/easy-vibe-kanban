@@ -797,6 +797,36 @@
         "attemptB": "Attempt B"
       }
     },
+    "nodePicker": {
+      "addNode": "Añadir nodo",
+      "chooseNodeType": "Elegir tipo de nodo",
+      "descriptions": {
+        "agent": "Agente de IA que realiza una tarea",
+        "condition": "Distribuye el trabajo entre ramas conectadas",
+        "human_gate": "Espera la aprobación de una persona",
+        "transform": "Transforma datos entre nodos",
+        "arena": "Ejecuta varios agentes candidatos en paralelo"
+      }
+    },
+    "authoringErrors": {
+      "missingNode": "El objeto seleccionado ya no existe.",
+      "selfConnection": "Un nodo no puede conectarse consigo mismo.",
+      "endSource": "Fin no puede iniciar una conexión.",
+      "startTarget": "Inicio no puede recibir una conexión.",
+      "invalidSourceHandle": "Elige una ruta válida desde el nodo de origen.",
+      "occupiedSourceHandle": "Esta rama de condición ya está conectada.",
+      "duplicateConnection": "Esta ruta ya está conectada al nodo de destino.",
+      "nodeTitleRequired": "Asigna un título a este nodo.",
+      "taskPromptRequired": "Añade las instrucciones de la tarea.",
+      "agentRequired": "Elige un agente.",
+      "branchesRequired": "Completa cada rama de condición.",
+      "unconnectedBranch": "Conecta cada rama de condición con un nodo de destino.",
+      "approvalRequestRequired": "Añade la solicitud de aprobación.",
+      "transformTemplateRequired": "Añade la plantilla de transformación.",
+      "transformRegexRequired": "Añade el patrón de extracción.",
+      "transformMaxCharsRequired": "El número máximo de caracteres debe ser mayor que cero.",
+      "tooFewCandidates": "Arena necesita al menos dos candidatos."
+    },
     "edges": {
       "default": "Default",
       "condition": "Condition",
@@ -942,7 +972,20 @@
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step."
+      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "undoShortcut": "Deshacer (Ctrl/Cmd + Z)",
+      "redoShortcut": "Rehacer (Ctrl/Cmd + Shift + Z)",
+      "unsavedChangesTitle": "Cambios del flujo de trabajo sin guardar",
+      "unsavedChangesDescription": "Guarda el borrador actual antes de salir, descártalo o continúa editando.",
+      "continueEditing": "Seguir editando",
+      "discardAndLeave": "Descartar y salir",
+      "saveAndLeave": "Guardar y salir",
+      "multiSelectionActions": "Acciones de los nodos seleccionados",
+      "nodesSelected": "{{count}} nodos seleccionados",
+      "deletedObjects": "{{count}} elemento eliminado",
+      "deletedObjects_other": "{{count}} elementos eliminados"
     },
     "canvas": {
       "openSession": "Open session",
@@ -957,7 +1000,16 @@
       "notePlaceholder": "Write a note...",
       "deleteStageGroup": "Delete stage group",
       "stageDescriptionPlaceholder": "Stage description",
-      "openEdgeActions": "Open edge actions for {{id}}"
+      "openEdgeActions": "Open edge actions for {{id}}",
+      "inputHandle": "Entrada",
+      "nextHandle": "Siguiente",
+      "connectionIssues": {
+        "missingEndpoint": "A la conexión le falta un nodo de origen o destino.",
+        "missingNode": "La conexión hace referencia a un nodo que ya no existe.",
+        "selfEdge": "Se encontró una conexión del nodo {{nodeId}} consigo mismo.",
+        "endSource": "Los nodos Fin no pueden iniciar conexiones salientes.",
+        "startTarget": "Los nodos Inicio no pueden recibir conexiones entrantes."
+      }
     },
     "agentEdit": {
       "title": "Edit Agent Step",
@@ -1009,7 +1061,9 @@
       "source": "Source",
       "target": "Target",
       "routeType": "Route type",
-      "edgeId": "Edge ID"
+      "edgeId": "Edge ID",
+      "deleteNode": "Eliminar nodo",
+      "deleteNodeDescription": "Elimina este nodo y sus conexiones del borrador."
     },
     "agentDraft": {
       "defaultStepName": "Agent step",

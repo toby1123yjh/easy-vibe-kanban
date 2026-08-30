@@ -1,4 +1,5 @@
 export * from './model/workflowGraph';
+export * from './model/workflowAuthoring';
 export * from './model/workflowNodeCatalog';
 export * from './model/workflowNodeSchemas';
 export * from './model/issueWorkflow';
