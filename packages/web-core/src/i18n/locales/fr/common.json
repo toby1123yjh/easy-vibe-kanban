@@ -817,6 +817,199 @@
     "generic": "An unexpected error occurred"
   },
   "personal": "Personal",
+  "agentCenter": {
+    "eyebrow": "Runtime Agent",
+    "title": "Centre des Agents",
+    "description": "Gérez les Agents installés, la configuration native, les serveurs MCP, les Skills et les Commands d’exécution au même endroit.",
+    "host": "Hôte actuel",
+    "rescan": "Analyser l’hôte",
+    "rescanning": "Analyse...",
+    "tabsLabel": "Sections du Centre des Agents",
+    "tabs": {
+      "providers": "Providers",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "commands": "Commands",
+      "profiles": "Profils de configuration"
+    },
+    "readiness": {
+      "unknown": "Inconnu",
+      "ready": "Prêt",
+      "installed": "Installé",
+      "missing_executable": "Non installé",
+      "auth_required": "Connexion requise",
+      "misconfigured": "Mal configuré",
+      "unsupported": "Non pris en charge",
+      "disabled": "Désactivé",
+      "degraded": "Dégradé"
+    },
+    "capability": {
+      "initial_run": "Exécution initiale",
+      "follow_up": "Suivi",
+      "session_resume": "Reprendre la session",
+      "session_fork": "Dupliquer la session",
+      "graceful_cancel": "Arrêt progressif",
+      "tool_permissions": "Autorisations des outils",
+      "mcp": "MCP",
+      "setup_helper": "Assistant d’installation",
+      "context_usage": "Utilisation du contexte",
+      "model_selector": "Sélecteur de modèle",
+      "observed_config": "Configuration observée",
+      "workflow_agent_step": "Node Agent du Workflow",
+      "team_slot": "Emplacement d’équipe"
+    },
+    "providerListTitle": "Provider",
+    "providerListLabel": "Providers d’Agent",
+    "selectedProvider": "Provider sélectionné",
+    "bundledVersion": "Version intégrée {{version}}",
+    "versionUnavailable": "Version non indiquée",
+    "defaultProvider": "Provider par défaut",
+    "setDefault": "Définir par défaut",
+    "openConfiguration": "Ouvrir la configuration native",
+    "capabilities": "Capacités",
+    "noCapabilities": "Ce Provider n’a signalé aucune capacité.",
+    "enabledTools": "Outils activés",
+    "manageTools": "Gérer les outils",
+    "runtimeManaged": "Géré à l’exécution",
+    "nativeSummary": "Résumé des paramètres natifs",
+    "defaultModel": "Modèle par défaut",
+    "inheritedOrUnset": "Hérité / non défini",
+    "apiAddress": "Adresse API",
+    "apiAddressUnavailable": "Non exposée par cet Adapter",
+    "configurationSource": "Source de configuration",
+    "adapterManaged": "Fichiers natifs observés par l’Adapter",
+    "commands": {
+      "title": "Les Commands suivent la session Agent active",
+      "description": "L’Agent installé expose ses commandes découvertes à l’exécution. Ce Provider n’expose pas d’Adapter de gestion indépendant ; aucun faux contrôle d’ajout, de modification, de suppression ou d’activation n’est affiché.",
+      "noManagementAdapter": "{{provider}} ne signale aucune capacité indépendante de gestion des Commands. Elles restent en lecture seule et sont découvertes par les sessions actives.",
+      "providerUnavailable": "{{provider}} ne peut pas exposer de Commands tant que son état est {{status}}. {{reason}}",
+      "noDiagnostic": "Aucun diagnostic supplémentaire n’a été signalé.",
+      "notManaged": "Aucune gestion indépendante"
+    },
+    "states": {
+      "loadingHosts": "Résolution des hôtes disponibles...",
+      "loadingProvider": "Chargement du Provider...",
+      "noHost": "Aucun hôte administrable n’est connecté.",
+      "offline": "Hors ligne",
+      "hostOfflineTitle": "L’hôte est hors ligne",
+      "hostOffline": "La configuration Agent est indisponible jusqu’à la reconnexion de cet hôte. Les contrôles mis en cache restent désactivés.",
+      "summaryUnavailable": "Indisponible",
+      "summaryLoading": "Chargement...",
+      "summaryError": "Échec du chargement",
+      "summaryDiagnostics": "Diagnostics de configuration Agent"
+    },
+    "errors": {
+      "rescan": "Impossible d’analyser cet hôte.",
+      "setDefault": "Impossible de modifier le Provider par défaut.",
+      "loadProviders": "Impossible de charger les capacités du Provider.",
+      "loadTools": "Impossible d’actualiser le résumé des outils Agent."
+    },
+    "unsaved": {
+      "title": "Ignorer la configuration non enregistrée ?",
+      "message": "Cet Agent contient des modifications de configuration native non enregistrées. Les ignorer avant de changer de contexte ?",
+      "discard": "Ignorer les modifications",
+      "cancel": "Continuer la modification"
+    },
+    "disabled": {
+      "hostUnavailable": "Aucun hôte administrable n’est disponible.",
+      "configLoading": "La configuration de l’application est en cours de chargement.",
+      "configUnavailable": "La configuration de l’application est indisponible.",
+      "providerUnavailable": "Ce Provider n’est pas prêt."
+    },
+    "tools": {
+      "titles": {
+        "all": "Outils Agent",
+        "mcp": "Serveurs MCP",
+        "skills": "Skills"
+      },
+      "descriptions": {
+        "all": "Gérez les serveurs MCP et Skills natifs. Les fichiers du Provider restent la source de vérité.",
+        "mcp": "Gérez les serveurs MCP natifs. Les fichiers du Provider restent la source de vérité.",
+        "skills": "Gérez les Skills natives. Les fichiers du Provider restent la source de vérité."
+      },
+      "actions": {
+        "refresh": "Actualiser",
+        "add": "Ajouter",
+        "save": "Enregistrer",
+        "edit": "Modifier",
+        "copy": "Copier",
+        "replace": "Remplacer",
+        "reveal": "Voir le chemin",
+        "remove": "Supprimer",
+        "toggle": "Activer ou désactiver {{name}}"
+      },
+      "projectPath": {
+        "label": "Chemin du projet (facultatif)",
+        "placeholder": "Chemin absolu des outils du projet",
+        "discover": "Découvrir les outils du projet",
+        "refreshRequired": "Actualisez pour charger les outils de ce chemin."
+      },
+      "kinds": { "mcp": "Serveurs MCP", "skill": "Skills" },
+      "states": {
+        "loading": "Chargement de l’inventaire des outils...",
+        "unavailable": "Inventaire indisponible.",
+        "installed": "Installé",
+        "notDetected": "Non détecté",
+        "updating": "Mise à jour de {{name}}"
+      },
+      "itemCount": "{{count}} éléments",
+      "empty": {
+        "mcp": "Aucun serveur MCP trouvé.",
+        "skills": "Aucune Skill trouvée."
+      },
+      "toolStates": {
+        "not_installed": "Non installé",
+        "enabled": "Activé",
+        "disabled": "Désactivé",
+        "error": "Erreur",
+        "unsupported": "Non pris en charge"
+      },
+      "scopes": { "user": "Utilisateur", "project": "Projet" },
+      "errors": {
+        "noInstalledProvider": "Aucun Provider Agent pris en charge n’est installé.",
+        "noCopyTarget": "Aucun autre Provider Agent pris en charge n’est installé.",
+        "operationFailed": "L’opération sur l’outil Agent a échoué."
+      },
+      "notices": { "pathCopied": "Chemin natif copié : {{path}}" },
+      "remove": {
+        "title": "Supprimer {{name}} ?",
+        "message": "Cette action supprime l’installation native ; elle est différente de la désactivation de l’outil."
+      },
+      "validation": {
+        "nameRequired": "Saisissez un nom d’installation.",
+        "projectPathRequired": "Saisissez un chemin absolu avant d’ajouter un outil de projet.",
+        "invalidMcpJson": "JSON MCP non valide : {{message}}",
+        "invalidSkill": "Définition de Skill non valide : {{message}}"
+      },
+      "editor": {
+        "addTitle": "Ajouter un outil Agent",
+        "editTitle": "Modifier {{name}}",
+        "description": "Modifiez la définition portable. L’Adapter du Provider l’écrit dans son format natif.",
+        "provider": "Provider",
+        "scope": "Portée",
+        "name": "Nom de l’installation",
+        "mcpDefinition": "Définition MCP portable (JSON)",
+        "skillDefinition": "SKILL.md",
+        "projectTarget": "Projet cible : {{path}}",
+        "noProjectPath": "Aucun chemin de projet sélectionné"
+      },
+      "copy": {
+        "title": "Copier {{name}}",
+        "description": "Copiez la définition portable de {{provider}} vers un autre Provider installé.",
+        "target": "Provider cible",
+        "adapterNotice": "L’Adapter cible convertit la définition dans son format natif. Les avertissements apparaissent après la copie.",
+        "replaceWarning": "{{provider}} possède déjà {{name}} dans cette portée. Continuer remplacera cette installation."
+      },
+      "disabled": {
+        "operationPending": "Une autre opération d’outil est en cours.",
+        "notEditable": "Ce Provider n’autorise pas la modification de cette installation.",
+        "copyRequiresEnabled": "Seules les installations activées peuvent être copiées.",
+        "notExportable": "Ce Provider ne peut pas exporter cette installation.",
+        "noCopyTarget": "Aucun autre Provider installé n’est disponible.",
+        "notRemovable": "Ce Provider n’autorise pas la suppression de cette installation."
+      }
+    }
+  },
   "askQuestion": {
     "title": "L'agent pose une question",
     "selectMultiple": "sélection multiple",

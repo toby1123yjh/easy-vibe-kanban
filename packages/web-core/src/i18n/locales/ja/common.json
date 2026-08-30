@@ -817,6 +817,199 @@
     "generic": "An unexpected error occurred"
   },
   "personal": "Personal",
+  "agentCenter": {
+    "eyebrow": "Agent ランタイム",
+    "title": "Agent センター",
+    "description": "インストール済み Agent、ネイティブ設定、MCP、Skills、ランタイム Commands を一か所で管理します。",
+    "host": "現在のホスト",
+    "rescan": "ホストを再スキャン",
+    "rescanning": "スキャン中...",
+    "tabsLabel": "Agent センターのセクション",
+    "tabs": {
+      "providers": "Providers",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "commands": "Commands",
+      "profiles": "設定プロファイル"
+    },
+    "readiness": {
+      "unknown": "不明",
+      "ready": "準備完了",
+      "installed": "インストール済み",
+      "missing_executable": "未インストール",
+      "auth_required": "ログインが必要",
+      "misconfigured": "設定エラー",
+      "unsupported": "未対応",
+      "disabled": "無効",
+      "degraded": "一部利用可能"
+    },
+    "capability": {
+      "initial_run": "初回実行",
+      "follow_up": "フォローアップ",
+      "session_resume": "セッション再開",
+      "session_fork": "セッション分岐",
+      "graceful_cancel": "安全なキャンセル",
+      "tool_permissions": "ツール権限",
+      "mcp": "MCP",
+      "setup_helper": "セットアップ支援",
+      "context_usage": "コンテキスト使用量",
+      "model_selector": "モデル選択",
+      "observed_config": "設定の監視",
+      "workflow_agent_step": "Workflow Agent Node",
+      "team_slot": "チームスロット"
+    },
+    "providerListTitle": "Provider",
+    "providerListLabel": "Agent Providers",
+    "selectedProvider": "選択中の Provider",
+    "bundledVersion": "同梱バージョン {{version}}",
+    "versionUnavailable": "バージョン未報告",
+    "defaultProvider": "既定の Provider",
+    "setDefault": "既定に設定",
+    "openConfiguration": "ネイティブ設定を開く",
+    "capabilities": "機能",
+    "noCapabilities": "この Provider から機能が報告されていません。",
+    "enabledTools": "有効なツール",
+    "manageTools": "ツールを管理",
+    "runtimeManaged": "ランタイム管理",
+    "nativeSummary": "ネイティブ設定の概要",
+    "defaultModel": "既定のモデル",
+    "inheritedOrUnset": "継承 / 未設定",
+    "apiAddress": "API アドレス",
+    "apiAddressUnavailable": "この Adapter では未公開",
+    "configurationSource": "設定ソース",
+    "adapterManaged": "Adapter が監視するネイティブファイル",
+    "commands": {
+      "title": "Commands はアクティブな Agent セッションに従います",
+      "description": "インストール済み Agent は検出したスラッシュコマンドをランタイムで公開します。この Provider には独立した Command 管理 Adapter がないため、追加、編集、削除、有効化の操作は表示しません。",
+      "noManagementAdapter": "{{provider}} は独立した Command 管理機能を報告していません。Commands は読み取り専用で、アクティブなセッションによって検出されます。",
+      "providerUnavailable": "{{provider}} の状態が「{{status}}」のため、ランタイム Commands を公開できません。{{reason}}",
+      "noDiagnostic": "追加の診断情報は報告されていません。",
+      "notManaged": "個別管理なし"
+    },
+    "states": {
+      "loadingHosts": "利用可能なホストを確認中...",
+      "loadingProvider": "Provider の詳細を読み込み中...",
+      "noHost": "管理可能なホストが接続されていません。",
+      "offline": "オフライン",
+      "hostOfflineTitle": "ホストはオフラインです",
+      "hostOffline": "ホストが再接続するまで Agent 設定は利用できません。キャッシュされた操作は有効化されません。",
+      "summaryUnavailable": "利用不可",
+      "summaryLoading": "読み込み中...",
+      "summaryError": "読み込み失敗",
+      "summaryDiagnostics": "Agent 設定の診断"
+    },
+    "errors": {
+      "rescan": "ホストを再スキャンできませんでした。",
+      "setDefault": "既定の Provider を更新できませんでした。",
+      "loadProviders": "Provider の機能を読み込めませんでした。",
+      "loadTools": "Agent Tool の概要を更新できませんでした。"
+    },
+    "unsaved": {
+      "title": "未保存の設定を破棄しますか？",
+      "message": "この Agent には未保存のネイティブ設定があります。コンテキストを切り替える前に破棄しますか？",
+      "discard": "変更を破棄",
+      "cancel": "編集を続ける"
+    },
+    "disabled": {
+      "hostUnavailable": "管理可能なホストがありません。",
+      "configLoading": "アプリ設定を読み込み中です。",
+      "configUnavailable": "アプリ設定を利用できません。",
+      "providerUnavailable": "この Provider は準備できていません。"
+    },
+    "tools": {
+      "titles": {
+        "all": "Agent Tools",
+        "mcp": "MCP サーバー",
+        "skills": "Skills"
+      },
+      "descriptions": {
+        "all": "ネイティブ MCP サーバーと Skills を管理します。Provider のファイルが常に正本です。",
+        "mcp": "ネイティブ MCP サーバーを管理します。Provider のファイルが常に正本です。",
+        "skills": "ネイティブ Skills を管理します。Provider のファイルが常に正本です。"
+      },
+      "actions": {
+        "refresh": "更新",
+        "add": "追加",
+        "save": "保存",
+        "edit": "編集",
+        "copy": "コピー",
+        "replace": "置換",
+        "reveal": "パスを表示",
+        "remove": "削除",
+        "toggle": "{{name}} の有効状態を切り替え"
+      },
+      "projectPath": {
+        "label": "プロジェクトパス（任意）",
+        "placeholder": "プロジェクト用ツールの絶対パス",
+        "discover": "プロジェクトツールを検出",
+        "refreshRequired": "更新してこのパスのツールを読み込んでください。"
+      },
+      "kinds": { "mcp": "MCP サーバー", "skill": "Skills" },
+      "states": {
+        "loading": "Agent Tool の一覧を読み込み中...",
+        "unavailable": "一覧を利用できません。",
+        "installed": "インストール済み",
+        "notDetected": "未検出",
+        "updating": "{{name}} を更新中"
+      },
+      "itemCount": "{{count}} 件",
+      "empty": {
+        "mcp": "MCP サーバーが見つかりません。",
+        "skills": "Skill が見つかりません。"
+      },
+      "toolStates": {
+        "not_installed": "未インストール",
+        "enabled": "有効",
+        "disabled": "無効",
+        "error": "エラー",
+        "unsupported": "未対応"
+      },
+      "scopes": { "user": "ユーザー", "project": "プロジェクト" },
+      "errors": {
+        "noInstalledProvider": "対応する Agent Provider がインストールされていません。",
+        "noCopyTarget": "ほかに対応する Agent Provider がインストールされていません。",
+        "operationFailed": "Agent Tool の操作に失敗しました。"
+      },
+      "notices": { "pathCopied": "ネイティブパスをコピーしました：{{path}}" },
+      "remove": {
+        "title": "{{name}} を削除しますか？",
+        "message": "ネイティブのインストールを削除します。ツールを無効にする操作とは異なります。"
+      },
+      "validation": {
+        "nameRequired": "インストール名を入力してください。",
+        "projectPathRequired": "プロジェクトツールを追加する前に絶対パスを入力してください。",
+        "invalidMcpJson": "MCP JSON が無効です：{{message}}",
+        "invalidSkill": "Skill 定義が無効です：{{message}}"
+      },
+      "editor": {
+        "addTitle": "Agent Tool を追加",
+        "editTitle": "{{name}} を編集",
+        "description": "ポータブル定義を編集します。Provider Adapter がネイティブ形式へ書き込みます。",
+        "provider": "Provider",
+        "scope": "スコープ",
+        "name": "インストール名",
+        "mcpDefinition": "ポータブル MCP 定義（JSON）",
+        "skillDefinition": "SKILL.md",
+        "projectTarget": "対象プロジェクト：{{path}}",
+        "noProjectPath": "プロジェクトパス未選択"
+      },
+      "copy": {
+        "title": "{{name}} をコピー",
+        "description": "{{provider}} のポータブル定義を別のインストール済み Provider にコピーします。",
+        "target": "コピー先 Provider",
+        "adapterNotice": "コピー先 Adapter が定義をネイティブ形式へ変換します。変換時の警告はコピー後に表示されます。",
+        "replaceWarning": "{{provider}} の同じスコープに {{name}} があります。続行すると置き換えます。"
+      },
+      "disabled": {
+        "operationPending": "別のツール操作を実行中です。",
+        "notEditable": "この Provider ではこのインストールを編集できません。",
+        "copyRequiresEnabled": "有効なインストールだけコピーできます。",
+        "notExportable": "この Provider からこのインストールを出力できません。",
+        "noCopyTarget": "ほかに利用可能なインストール済み Provider がありません。",
+        "notRemovable": "この Provider ではこのインストールを削除できません。"
+      }
+    }
+  },
   "askQuestion": {
     "title": "エージェントが質問しています",
     "selectMultiple": "複数選択",

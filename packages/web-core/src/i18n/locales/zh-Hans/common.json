@@ -1464,6 +1464,192 @@
     "generic": "发生了意外错误"
   },
   "personal": "个人",
+  "agentCenter": {
+    "eyebrow": "智能体运行时",
+    "title": "智能体中心",
+    "description": "在一个页面管理已安装的智能体、原生配置、MCP、Skills 与运行时 Commands。",
+    "host": "当前主机",
+    "rescan": "重新扫描本机",
+    "rescanning": "正在扫描...",
+    "tabsLabel": "智能体中心分区",
+    "tabs": {
+      "providers": "Providers",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "commands": "Commands",
+      "profiles": "配置档案"
+    },
+    "readiness": {
+      "unknown": "未知",
+      "ready": "就绪",
+      "installed": "已安装",
+      "missing_executable": "未安装",
+      "auth_required": "需要登录",
+      "misconfigured": "配置错误",
+      "unsupported": "不支持",
+      "disabled": "已停用",
+      "degraded": "部分可用"
+    },
+    "capability": {
+      "initial_run": "首次运行",
+      "follow_up": "继续对话",
+      "session_resume": "恢复会话",
+      "session_fork": "派生会话",
+      "graceful_cancel": "平滑终止",
+      "tool_permissions": "工具权限",
+      "mcp": "MCP",
+      "setup_helper": "安装助手",
+      "context_usage": "上下文用量",
+      "model_selector": "模型选择",
+      "observed_config": "配置观测",
+      "workflow_agent_step": "工作流智能体 Node",
+      "team_slot": "团队席位"
+    },
+    "providerListTitle": "Provider",
+    "providerListLabel": "智能体 Provider",
+    "selectedProvider": "当前 Provider",
+    "bundledVersion": "内置版本 {{version}}",
+    "versionUnavailable": "未报告版本",
+    "defaultProvider": "默认 Provider",
+    "setDefault": "设为默认",
+    "openConfiguration": "打开原生配置",
+    "capabilities": "能力",
+    "noCapabilities": "该 Provider 尚未报告任何能力。",
+    "enabledTools": "已启用工具",
+    "manageTools": "管理工具",
+    "runtimeManaged": "运行时管理",
+    "nativeSummary": "原生设置摘要",
+    "defaultModel": "默认模型",
+    "inheritedOrUnset": "继承 / 未设置",
+    "apiAddress": "API 地址",
+    "apiAddressUnavailable": "当前 Adapter 未暴露",
+    "configurationSource": "配置来源",
+    "adapterManaged": "Adapter 观测的原生文件",
+    "commands": {
+      "title": "Commands 跟随当前智能体会话",
+      "description": "已安装的智能体会在运行时提供发现到的斜杠命令。当前 Provider 没有独立的 Command 管理适配器，因此智能体中心不会伪造增删改或启停操作。",
+      "noManagementAdapter": "{{provider}} 未报告独立的 Command 管理能力。Commands 保持只读，由活动会话在运行时发现。",
+      "providerUnavailable": "{{provider}} 当前状态为“{{status}}”，无法提供运行时 Commands。{{reason}}",
+      "noDiagnostic": "Provider 未报告更多诊断信息。",
+      "notManaged": "不提供独立管理"
+    },
+    "states": {
+      "loadingHosts": "正在获取可用主机...",
+      "loadingProvider": "正在加载 Provider 详情...",
+      "noHost": "当前没有可管理的主机。",
+      "offline": "离线",
+      "hostOfflineTitle": "主机已离线",
+      "hostOffline": "主机重新连接前无法管理智能体配置，缓存内容不会启用操作。",
+      "summaryUnavailable": "不可用",
+      "summaryLoading": "正在加载...",
+      "summaryError": "加载失败",
+      "summaryDiagnostics": "智能体配置诊断"
+    },
+    "errors": {
+      "rescan": "无法重新扫描当前主机。",
+      "setDefault": "无法更新默认 Provider。",
+      "loadProviders": "无法加载 Provider 能力数据。",
+      "loadTools": "无法刷新智能体工具摘要。"
+    },
+    "unsaved": {
+      "title": "放弃未保存的配置？",
+      "message": "该智能体还有未保存的原生配置改动。切换上下文前要放弃这些改动吗？",
+      "discard": "放弃改动",
+      "cancel": "继续编辑"
+    },
+    "disabled": {
+      "hostUnavailable": "当前没有可管理的主机。",
+      "configLoading": "应用配置仍在加载。",
+      "configUnavailable": "应用配置不可用。",
+      "providerUnavailable": "该 Provider 尚未就绪。"
+    },
+    "tools": {
+      "titles": { "all": "智能体工具", "mcp": "MCP 服务器", "skills": "技能" },
+      "descriptions": {
+        "all": "管理原生 MCP 服务器和技能。各 Provider 的文件始终是真实数据源。",
+        "mcp": "管理原生 MCP 服务器。各 Provider 的文件始终是真实数据源。",
+        "skills": "管理原生技能。各 Provider 的文件始终是真实数据源。"
+      },
+      "actions": {
+        "refresh": "刷新",
+        "add": "添加",
+        "save": "保存",
+        "edit": "编辑",
+        "copy": "复制",
+        "replace": "替换",
+        "reveal": "查看路径",
+        "remove": "移除",
+        "toggle": "启停 {{name}}"
+      },
+      "projectPath": {
+        "label": "项目路径（可选）",
+        "placeholder": "项目级工具所在的绝对路径",
+        "discover": "发现项目工具",
+        "refreshRequired": "请刷新以加载该项目路径下的工具。"
+      },
+      "kinds": { "mcp": "MCP 服务器", "skill": "技能" },
+      "states": {
+        "loading": "正在加载智能体工具清单...",
+        "unavailable": "工具清单不可用。",
+        "installed": "已安装",
+        "notDetected": "未检测到",
+        "updating": "正在更新 {{name}}"
+      },
+      "itemCount": "{{count}} 项",
+      "empty": { "mcp": "未发现 MCP 服务器。", "skills": "未发现技能。" },
+      "toolStates": {
+        "not_installed": "未安装",
+        "enabled": "已启用",
+        "disabled": "已停用",
+        "error": "错误",
+        "unsupported": "不支持"
+      },
+      "scopes": { "user": "用户级", "project": "项目级" },
+      "errors": {
+        "noInstalledProvider": "未安装受支持的智能体 Provider。",
+        "noCopyTarget": "没有其他已安装且受支持的智能体 Provider。",
+        "operationFailed": "智能体工具操作失败。"
+      },
+      "notices": { "pathCopied": "已复制原生路径：{{path}}" },
+      "remove": {
+        "title": "移除 {{name}}？",
+        "message": "这会移除原生安装，与停用该工具不同。"
+      },
+      "validation": {
+        "nameRequired": "请输入安装名称。",
+        "projectPathRequired": "添加项目级工具前，请输入项目的绝对路径。",
+        "invalidMcpJson": "MCP JSON 无效：{{message}}",
+        "invalidSkill": "技能定义无效：{{message}}"
+      },
+      "editor": {
+        "addTitle": "添加智能体工具",
+        "editTitle": "编辑 {{name}}",
+        "description": "编辑可移植定义。Provider Adapter 会将它写入对应的原生格式。",
+        "provider": "Provider",
+        "scope": "作用域",
+        "name": "安装名称",
+        "mcpDefinition": "可移植 MCP 定义（JSON）",
+        "skillDefinition": "SKILL.md",
+        "projectTarget": "目标项目：{{path}}",
+        "noProjectPath": "尚未选择项目路径"
+      },
+      "copy": {
+        "title": "复制 {{name}}",
+        "description": "将 {{provider}} 的可移植定义复制到另一个已安装的 Provider。",
+        "target": "目标 Provider",
+        "adapterNotice": "目标 Adapter 会将可移植定义转换为其原生格式。转换警告会在复制后显示。",
+        "replaceWarning": "{{provider}} 的相同作用域中已有 {{name}}。继续操作会替换该安装。"
+      },
+      "disabled": {
+        "operationPending": "另一个工具操作正在进行。",
+        "notEditable": "该 Provider 不允许编辑此安装。",
+        "copyRequiresEnabled": "只能复制已启用的安装。",
+        "notExportable": "该 Provider 无法导出此安装。",
+        "noCopyTarget": "没有其他已安装的 Provider 可用。",
+        "notRemovable": "该 Provider 不允许移除此安装。"
+      }
+    }
+  },
   "askQuestion": {
     "title": "代理正在提问",
     "selectMultiple": "多选",

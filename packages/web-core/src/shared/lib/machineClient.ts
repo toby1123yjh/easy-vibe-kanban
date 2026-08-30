@@ -1,5 +1,6 @@
 import type {
   AgentSettingOperationError,
+  AgentGarageEntry,
   AgentSettingsDiscoveryQuery,
   AgentSettingsInventory,
   AgentSettingsProfilesQuery,
@@ -79,6 +80,7 @@ export interface MachineClient {
     data: UpdateMcpServersBody
   ) => Promise<void>;
   listAgentTools: (projectPath?: string) => Promise<AgentToolInventory>;
+  getAgentGarage: () => Promise<AgentGarageEntry[]>;
   createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentTool>;
   updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentTool>;
   removeAgentTool: (data: RemoveAgentToolRequest) => Promise<void>;
@@ -282,6 +284,12 @@ export function createMachineClient(
         await makeMachineRequest(runtime, target, `/api/agent-tools${query}`)
       );
     },
+    getAgentGarage: async () =>
+      handleApiResponse<AgentGarageEntry[]>(
+        await makeMachineRequest(runtime, target, '/api/agents/garage', {
+          cache: 'no-store',
+        })
+      ),
     createAgentTool: async (data) =>
       handleApiResponse<AgentTool, AgentToolOperationError>(
         await makeMachineRequest(runtime, target, '/api/agent-tools', {

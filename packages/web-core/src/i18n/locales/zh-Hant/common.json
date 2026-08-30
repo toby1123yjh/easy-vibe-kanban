@@ -1374,6 +1374,192 @@
     "generic": "發生了意外錯誤"
   },
   "personal": "個人",
+  "agentCenter": {
+    "eyebrow": "智能體執行階段",
+    "title": "智能體中心",
+    "description": "在同一頁面管理已安裝的智能體、原生設定、MCP、Skills 與執行階段 Commands。",
+    "host": "目前主機",
+    "rescan": "重新掃描主機",
+    "rescanning": "正在掃描...",
+    "tabsLabel": "智能體中心分區",
+    "tabs": {
+      "providers": "Providers",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "commands": "Commands",
+      "profiles": "設定檔案"
+    },
+    "readiness": {
+      "unknown": "未知",
+      "ready": "就緒",
+      "installed": "已安裝",
+      "missing_executable": "未安裝",
+      "auth_required": "需要登入",
+      "misconfigured": "設定錯誤",
+      "unsupported": "不支援",
+      "disabled": "已停用",
+      "degraded": "部分可用"
+    },
+    "capability": {
+      "initial_run": "首次執行",
+      "follow_up": "繼續對話",
+      "session_resume": "恢復工作階段",
+      "session_fork": "衍生工作階段",
+      "graceful_cancel": "平滑終止",
+      "tool_permissions": "工具權限",
+      "mcp": "MCP",
+      "setup_helper": "安裝助手",
+      "context_usage": "上下文用量",
+      "model_selector": "模型選擇",
+      "observed_config": "設定觀測",
+      "workflow_agent_step": "工作流程智能體 Node",
+      "team_slot": "團隊席位"
+    },
+    "providerListTitle": "Provider",
+    "providerListLabel": "智能體 Provider",
+    "selectedProvider": "目前 Provider",
+    "bundledVersion": "內建版本 {{version}}",
+    "versionUnavailable": "未回報版本",
+    "defaultProvider": "預設 Provider",
+    "setDefault": "設為預設",
+    "openConfiguration": "開啟原生設定",
+    "capabilities": "能力",
+    "noCapabilities": "此 Provider 尚未回報任何能力。",
+    "enabledTools": "已啟用工具",
+    "manageTools": "管理工具",
+    "runtimeManaged": "執行階段管理",
+    "nativeSummary": "原生設定摘要",
+    "defaultModel": "預設模型",
+    "inheritedOrUnset": "繼承 / 未設定",
+    "apiAddress": "API 位址",
+    "apiAddressUnavailable": "目前 Adapter 未公開",
+    "configurationSource": "設定來源",
+    "adapterManaged": "Adapter 觀測的原生檔案",
+    "commands": {
+      "title": "Commands 跟隨目前智能體工作階段",
+      "description": "已安裝的智能體會在執行階段提供探索到的斜線命令。目前 Provider 沒有獨立的 Command 管理適配器，因此智能體中心不會假造新增、編輯、刪除或啟停操作。",
+      "noManagementAdapter": "{{provider}} 未回報獨立的 Command 管理能力。Commands 保持唯讀，由使用中的工作階段在執行時探索。",
+      "providerUnavailable": "{{provider}} 目前狀態為「{{status}}」，無法提供執行階段 Commands。{{reason}}",
+      "noDiagnostic": "Provider 未回報更多診斷資訊。",
+      "notManaged": "不提供獨立管理"
+    },
+    "states": {
+      "loadingHosts": "正在取得可用主機...",
+      "loadingProvider": "正在載入 Provider 詳情...",
+      "noHost": "目前沒有可管理的主機。",
+      "offline": "離線",
+      "hostOfflineTitle": "主機已離線",
+      "hostOffline": "主機重新連線前無法管理智能體設定，快取內容不會啟用操作。",
+      "summaryUnavailable": "無法使用",
+      "summaryLoading": "正在載入...",
+      "summaryError": "載入失敗",
+      "summaryDiagnostics": "智能體設定診斷"
+    },
+    "errors": {
+      "rescan": "無法重新掃描目前主機。",
+      "setDefault": "無法更新預設 Provider。",
+      "loadProviders": "無法載入 Provider 能力資料。",
+      "loadTools": "無法重新整理智能體工具摘要。"
+    },
+    "unsaved": {
+      "title": "放棄未儲存的設定？",
+      "message": "此智能體仍有未儲存的原生設定變更。切換內容前要放棄這些變更嗎？",
+      "discard": "放棄變更",
+      "cancel": "繼續編輯"
+    },
+    "disabled": {
+      "hostUnavailable": "目前沒有可管理的主機。",
+      "configLoading": "應用程式設定仍在載入。",
+      "configUnavailable": "應用程式設定無法使用。",
+      "providerUnavailable": "此 Provider 尚未就緒。"
+    },
+    "tools": {
+      "titles": { "all": "智能體工具", "mcp": "MCP 伺服器", "skills": "技能" },
+      "descriptions": {
+        "all": "管理原生 MCP 伺服器和技能。各 Provider 檔案始終是真實資料來源。",
+        "mcp": "管理原生 MCP 伺服器。各 Provider 檔案始終是真實資料來源。",
+        "skills": "管理原生技能。各 Provider 檔案始終是真實資料來源。"
+      },
+      "actions": {
+        "refresh": "重新整理",
+        "add": "新增",
+        "save": "儲存",
+        "edit": "編輯",
+        "copy": "複製",
+        "replace": "取代",
+        "reveal": "查看路徑",
+        "remove": "移除",
+        "toggle": "啟停 {{name}}"
+      },
+      "projectPath": {
+        "label": "專案路徑（選填）",
+        "placeholder": "專案層級工具所在的絕對路徑",
+        "discover": "探索專案工具",
+        "refreshRequired": "請重新整理以載入此專案路徑下的工具。"
+      },
+      "kinds": { "mcp": "MCP 伺服器", "skill": "技能" },
+      "states": {
+        "loading": "正在載入智能體工具清單...",
+        "unavailable": "工具清單無法使用。",
+        "installed": "已安裝",
+        "notDetected": "未偵測到",
+        "updating": "正在更新 {{name}}"
+      },
+      "itemCount": "{{count}} 項",
+      "empty": { "mcp": "未探索到 MCP 伺服器。", "skills": "未探索到技能。" },
+      "toolStates": {
+        "not_installed": "未安裝",
+        "enabled": "已啟用",
+        "disabled": "已停用",
+        "error": "錯誤",
+        "unsupported": "不支援"
+      },
+      "scopes": { "user": "使用者層級", "project": "專案層級" },
+      "errors": {
+        "noInstalledProvider": "未安裝支援的智能體 Provider。",
+        "noCopyTarget": "沒有其他已安裝且支援的智能體 Provider。",
+        "operationFailed": "智能體工具操作失敗。"
+      },
+      "notices": { "pathCopied": "已複製原生路徑：{{path}}" },
+      "remove": {
+        "title": "移除 {{name}}？",
+        "message": "這會移除原生安裝，與停用此工具不同。"
+      },
+      "validation": {
+        "nameRequired": "請輸入安裝名稱。",
+        "projectPathRequired": "新增專案層級工具前，請輸入專案的絕對路徑。",
+        "invalidMcpJson": "MCP JSON 無效：{{message}}",
+        "invalidSkill": "技能定義無效：{{message}}"
+      },
+      "editor": {
+        "addTitle": "新增智能體工具",
+        "editTitle": "編輯 {{name}}",
+        "description": "編輯可攜式定義。Provider Adapter 會將它寫入對應的原生格式。",
+        "provider": "Provider",
+        "scope": "範圍",
+        "name": "安裝名稱",
+        "mcpDefinition": "可攜式 MCP 定義（JSON）",
+        "skillDefinition": "SKILL.md",
+        "projectTarget": "目標專案：{{path}}",
+        "noProjectPath": "尚未選擇專案路徑"
+      },
+      "copy": {
+        "title": "複製 {{name}}",
+        "description": "將 {{provider}} 的可攜式定義複製到另一個已安裝的 Provider。",
+        "target": "目標 Provider",
+        "adapterNotice": "目標 Adapter 會將可攜式定義轉換為其原生格式。轉換警告會在複製後顯示。",
+        "replaceWarning": "{{provider}} 的相同範圍中已有 {{name}}。繼續操作會取代該安裝。"
+      },
+      "disabled": {
+        "operationPending": "另一個工具操作正在進行。",
+        "notEditable": "此 Provider 不允許編輯此安裝。",
+        "copyRequiresEnabled": "只能複製已啟用的安裝。",
+        "notExportable": "此 Provider 無法匯出此安裝。",
+        "noCopyTarget": "沒有其他已安裝的 Provider 可用。",
+        "notRemovable": "此 Provider 不允許移除此安裝。"
+      }
+    }
+  },
   "askQuestion": {
     "title": "代理正在提問",
     "selectMultiple": "多選",

@@ -1476,6 +1476,207 @@
       "description": "Sign in to organise your coding agents with kanban boards."
     }
   },
+  "agentCenter": {
+    "eyebrow": "Agent runtime",
+    "title": "Agent Center",
+    "description": "Manage installed Agent providers, native configuration, MCP servers, Skills, and runtime Commands from one place.",
+    "host": "Current host",
+    "rescan": "Rescan host",
+    "rescanning": "Rescanning...",
+    "tabsLabel": "Agent Center sections",
+    "tabs": {
+      "providers": "Providers",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "commands": "Commands",
+      "profiles": "Configuration Profiles"
+    },
+    "readiness": {
+      "unknown": "Unknown",
+      "ready": "Ready",
+      "installed": "Installed",
+      "missing_executable": "Not installed",
+      "auth_required": "Login required",
+      "misconfigured": "Misconfigured",
+      "unsupported": "Unsupported",
+      "disabled": "Disabled",
+      "degraded": "Degraded"
+    },
+    "capability": {
+      "initial_run": "Initial run",
+      "follow_up": "Follow-up",
+      "session_resume": "Resume session",
+      "session_fork": "Fork session",
+      "graceful_cancel": "Graceful cancel",
+      "tool_permissions": "Tool permissions",
+      "mcp": "MCP",
+      "setup_helper": "Setup helper",
+      "context_usage": "Context usage",
+      "model_selector": "Model selector",
+      "observed_config": "Observed config",
+      "workflow_agent_step": "Workflow Agent Node",
+      "team_slot": "Team slot"
+    },
+    "providerListTitle": "Provider",
+    "providerListLabel": "Agent providers",
+    "selectedProvider": "Selected provider",
+    "bundledVersion": "Bundled version {{version}}",
+    "versionUnavailable": "Version not reported",
+    "defaultProvider": "Default provider",
+    "setDefault": "Set as default",
+    "openConfiguration": "Open native configuration",
+    "capabilities": "Capabilities",
+    "noCapabilities": "This provider has not reported any capabilities.",
+    "enabledTools": "Enabled tools",
+    "manageTools": "Manage tools",
+    "runtimeManaged": "Runtime-managed",
+    "nativeSummary": "Native settings summary",
+    "defaultModel": "Default model",
+    "inheritedOrUnset": "Inherited / not set",
+    "apiAddress": "API address",
+    "apiAddressUnavailable": "Not exposed by this Adapter",
+    "configurationSource": "Configuration source",
+    "adapterManaged": "Adapter-observed native files",
+    "commands": {
+      "title": "Commands follow the active Agent session",
+      "description": "The installed Agent exposes its discovered slash commands at runtime. This provider does not expose an independent Command management adapter, so Agent Center will not invent add, edit, delete, or enable controls.",
+      "noManagementAdapter": "{{provider}} does not report an independent Command management capability. Commands remain read-only and are discovered by active sessions.",
+      "providerUnavailable": "{{provider}} cannot expose runtime Commands while its status is {{status}}. {{reason}}",
+      "noDiagnostic": "No additional diagnostic was reported.",
+      "notManaged": "Not independently managed"
+    },
+    "states": {
+      "loadingHosts": "Resolving available hosts...",
+      "loadingProvider": "Loading provider details...",
+      "noHost": "No manageable host is connected.",
+      "offline": "Offline",
+      "hostOfflineTitle": "Host is offline",
+      "hostOffline": "Agent configuration is unavailable until this host reconnects. No cached controls are enabled.",
+      "summaryUnavailable": "Unavailable",
+      "summaryLoading": "Loading...",
+      "summaryError": "Could not load",
+      "summaryDiagnostics": "Agent configuration diagnostics"
+    },
+    "errors": {
+      "rescan": "Could not rescan this host.",
+      "setDefault": "Could not update the default provider.",
+      "loadProviders": "Could not load provider capability data.",
+      "loadTools": "Could not refresh the Agent Tool summary."
+    },
+    "unsaved": {
+      "title": "Discard unsaved configuration?",
+      "message": "This Agent has unsaved native configuration changes. Discard them before switching context?",
+      "discard": "Discard changes",
+      "cancel": "Keep editing"
+    },
+    "disabled": {
+      "hostUnavailable": "No manageable host is available.",
+      "configLoading": "The application configuration is still loading.",
+      "configUnavailable": "The application configuration is unavailable.",
+      "providerUnavailable": "This provider is not ready."
+    },
+    "tools": {
+      "titles": {
+        "all": "Agent Tools",
+        "mcp": "MCP servers",
+        "skills": "Skills"
+      },
+      "descriptions": {
+        "all": "Manage native MCP servers and Skills. Provider files remain the source of truth.",
+        "mcp": "Manage native MCP servers. Provider files remain the source of truth.",
+        "skills": "Manage native Skills. Provider files remain the source of truth."
+      },
+      "actions": {
+        "refresh": "Refresh",
+        "add": "Add",
+        "save": "Save",
+        "edit": "Edit",
+        "copy": "Copy",
+        "replace": "Replace",
+        "reveal": "Reveal",
+        "remove": "Remove",
+        "toggle": "Toggle {{name}}"
+      },
+      "projectPath": {
+        "label": "Project path (optional)",
+        "placeholder": "Absolute path for project-scoped tools",
+        "discover": "Discover project tools",
+        "refreshRequired": "Refresh to load tools for this project path."
+      },
+      "kinds": {
+        "mcp": "MCP servers",
+        "skill": "Skills"
+      },
+      "states": {
+        "loading": "Loading Agent Tool inventory...",
+        "unavailable": "Inventory unavailable.",
+        "installed": "Installed",
+        "notDetected": "Not detected",
+        "updating": "Updating {{name}}"
+      },
+      "itemCount": "{{count}} items",
+      "empty": {
+        "mcp": "No MCP servers found.",
+        "skills": "No Skills found."
+      },
+      "toolStates": {
+        "not_installed": "Not installed",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "error": "Error",
+        "unsupported": "Unsupported"
+      },
+      "scopes": {
+        "user": "User",
+        "project": "Project"
+      },
+      "errors": {
+        "noInstalledProvider": "No supported Agent provider is installed.",
+        "noCopyTarget": "No other supported Agent provider is installed.",
+        "operationFailed": "The Agent Tool operation failed."
+      },
+      "notices": {
+        "pathCopied": "Native path copied: {{path}}"
+      },
+      "remove": {
+        "title": "Remove {{name}}?",
+        "message": "This removes the native installation. It is different from disabling the tool."
+      },
+      "validation": {
+        "nameRequired": "Enter an installation name.",
+        "projectPathRequired": "Enter an absolute project path before adding a project tool.",
+        "invalidMcpJson": "Invalid MCP JSON: {{message}}",
+        "invalidSkill": "Invalid Skill definition: {{message}}"
+      },
+      "editor": {
+        "addTitle": "Add Agent Tool",
+        "editTitle": "Edit {{name}}",
+        "description": "Edit the portable definition. The provider Adapter writes it to the provider's native format.",
+        "provider": "Provider",
+        "scope": "Scope",
+        "name": "Installation name",
+        "mcpDefinition": "Portable MCP definition (JSON)",
+        "skillDefinition": "SKILL.md",
+        "projectTarget": "Project target: {{path}}",
+        "noProjectPath": "No project path selected"
+      },
+      "copy": {
+        "title": "Copy {{name}}",
+        "description": "Copy the portable definition from {{provider}} to another installed provider.",
+        "target": "Target provider",
+        "adapterNotice": "The target Adapter converts the portable definition to its native format. Any conversion warnings appear after the copy.",
+        "replaceWarning": "{{provider}} already has {{name}} in this scope. Continuing replaces that installation."
+      },
+      "disabled": {
+        "operationPending": "Another tool operation is in progress.",
+        "notEditable": "This provider does not allow editing this installation.",
+        "copyRequiresEnabled": "Only enabled installations can be copied.",
+        "notExportable": "This provider cannot export this installation.",
+        "noCopyTarget": "No other installed provider is available.",
+        "notRemovable": "This provider does not allow removing this installation."
+      }
+    }
+  },
   "askQuestion": {
     "title": "Agent is asking a question",
     "selectMultiple": "select multiple",

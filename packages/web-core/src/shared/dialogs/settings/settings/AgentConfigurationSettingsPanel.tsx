@@ -123,9 +123,11 @@ function parseDraftChange(
 export function AgentConfigurationSettingsPanel({
   executor,
   variant,
+  includeTools = true,
 }: {
   executor: BaseCodingAgent;
   variant: string | null;
+  includeTools?: boolean;
 }) {
   const machineClient = useSettingsMachineClient();
   const { setDirty: setContextDirty } = useSettingsDirty();
@@ -209,10 +211,12 @@ export function AgentConfigurationSettingsPanel({
     void loadProfiles();
   }, [loadProfiles, loadSettings]);
 
-  const sections = useMemo(
-    () => buildAgentSettingsSections(snapshot),
-    [snapshot]
-  );
+  const sections = useMemo(() => {
+    const nextSections = buildAgentSettingsSections(snapshot);
+    return includeTools
+      ? nextSections
+      : nextSections.filter((section) => section.id !== 'tools');
+  }, [includeTools, snapshot]);
 
   useEffect(() => {
     if (
@@ -1170,7 +1174,7 @@ export function AgentConfigurationSettingsPanel({
           {active?.descriptors.length
             ? renderSettings(active.descriptors)
             : null}
-          {activeSection === 'tools' && (
+          {includeTools && activeSection === 'tools' && (
             <AgentToolsSettingsSection provider={provider} />
           )}
           {activeSection === 'profiles' && renderProfiles()}
