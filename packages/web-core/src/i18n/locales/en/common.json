@@ -1542,6 +1542,10 @@
       "nativeProject": "Native project configuration"
     },
     "security": {
+      "sensitiveValueConfigured": "Configured value hidden",
+      "sensitiveValueNotConfigured": "Not configured",
+      "clearSensitiveValue": "Clear stored value",
+      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
       "sensitiveSettingUnavailable": "Existing sensitive values are hidden. Use the provider-native editor until the Settings Adapter supports safe write-only updates.",
       "nativeFilesUnavailable": "Raw native-file editing is unavailable because a file can contain credentials. Typed non-sensitive settings remain editable.",
       "effectiveValueHidden": "Stored value hidden",
@@ -1677,6 +1681,11 @@
         "target": "Target provider",
         "adapterNotice": "The target Adapter converts the portable definition to its native format. Any conversion warnings appear after the copy.",
         "replaceWarning": "{{provider}} already has {{name}} in this scope. Continuing replaces that installation."
+      },
+      "security": {
+        "configured": "Configured",
+        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
+        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
       },
       "disabled": {
         "operationPending": "Another tool operation is in progress.",

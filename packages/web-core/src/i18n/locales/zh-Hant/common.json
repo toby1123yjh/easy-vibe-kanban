@@ -1440,6 +1440,10 @@
       "nativeProject": "專案層級原生設定"
     },
     "security": {
+      "sensitiveValueConfigured": "Configured value hidden",
+      "sensitiveValueNotConfigured": "Not configured",
+      "clearSensitiveValue": "Clear stored value",
+      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
       "sensitiveSettingUnavailable": "既有敏感值已隱藏。在 Settings Adapter 支援安全的唯寫更新前，請使用智能體原生編輯器。",
       "nativeFilesUnavailable": "原生檔案可能包含憑證，因此暫不提供原始檔案編輯；非敏感的型別化設定仍可編輯。",
       "effectiveValueHidden": "已隱藏儲存值",
@@ -1560,6 +1564,11 @@
         "target": "目標 Provider",
         "adapterNotice": "目標 Adapter 會將可攜式定義轉換為其原生格式。轉換警告會在複製後顯示。",
         "replaceWarning": "{{provider}} 的相同範圍中已有 {{name}}。繼續操作會取代該安裝。"
+      },
+      "security": {
+        "configured": "Configured",
+        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
+        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
       },
       "disabled": {
         "operationPending": "另一個工具操作正在進行。",

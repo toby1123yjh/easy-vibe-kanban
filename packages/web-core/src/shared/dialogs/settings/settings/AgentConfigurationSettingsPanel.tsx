@@ -17,13 +17,11 @@ import { Switch } from '@vibe/ui/components/Switch';
 import {
   AgentSettingsProvider,
   BaseCodingAgent,
-  SettingSection,
   SettingScope,
 } from 'shared/types';
 import type {
   ConfigProfile,
   JsonValue,
-  NativeConfigFile,
   ProfileApplyPreviewRequest,
   ProfileCopyPreview,
   SettingDescriptor,
@@ -60,16 +58,6 @@ import { useSettingsMachineClient } from './SettingsHostContext';
 
 type PendingAction =
   | { kind: 'settings'; patch: SettingsPatch }
-  | {
-      kind: 'native';
-      patch: {
-        provider: AgentSettingsProvider;
-        project_path?: string | null;
-        file_id: string;
-        expected_revision: string;
-        content: string;
-      };
-    }
   | { kind: 'profile'; preview: ProfileApplyPreviewRequest };
 
 function newProfileId(): string {
@@ -102,22 +90,12 @@ function sourceLabel(
   descriptor: SettingDescriptor,
   entry: AgentSettingsDraft[string] | undefined
 ): string {
-  if (entry?.action === 'set') return 'Modified';
-  if (entry?.action === 'unset') return 'Inherit';
+  if (entry?.action === 'replace') return 'Modified';
+  if (entry?.action === 'clear') return 'Inherit';
   const setting = snapshot.effective_settings.find(
     (candidate) => settingKeyId(candidate) === settingKeyId(descriptor)
   );
   return setting?.effective_source ?? 'Default';
-}
-
-function isSensitiveDescriptor(descriptor: SettingDescriptor): boolean {
-  const id = settingKeyId(descriptor).toLowerCase();
-  return (
-    descriptor.section === SettingSection.environment ||
-    ['secret', 'token', 'password', 'credential', 'api_key', 'apikey'].some(
-      (marker) => id.includes(marker)
-    )
-  );
 }
 
 function parseDraftChange(
@@ -162,9 +140,6 @@ export function AgentConfigurationSettingsPanel({
   const [copyPreview, setCopyPreview] = useState<ProfileCopyPreview | null>(
     null
   );
-  const [rawFile, setRawFile] = useState<NativeConfigFile | null>(null);
-  const [rawContent, setRawContent] = useState('');
-  const [rawOriginal, setRawOriginal] = useState('');
   const requestSequence = useRef(0);
 
   const loadSettings = useCallback(
@@ -187,7 +162,6 @@ export function AgentConfigurationSettingsPanel({
         setDraft(next ? createAgentSettingsDraft(next) : {});
         setDiff(null);
         setPending(null);
-        setRawFile(null);
         if (inventory.errors.length > 0 && !next) {
           setError(inventory.errors.map((item) => item.message).join(' '));
         }
@@ -264,8 +238,7 @@ export function AgentConfigurationSettingsPanel({
   }, [projectScopeSupported, scope]);
 
   const draftDirty = isAgentSettingsDraftDirty(draft);
-  const rawDirty = rawFile !== null && rawContent !== rawOriginal;
-  const isDirty = draftDirty || rawDirty;
+  const isDirty = draftDirty;
 
   useEffect(() => {
     setContextDirty(`agent-settings:${provider}`, isDirty);
@@ -277,9 +250,6 @@ export function AgentConfigurationSettingsPanel({
     setDraft(createAgentSettingsDraft(next));
     setDiff(null);
     setPending(null);
-    setRawFile(null);
-    setRawContent('');
-    setRawOriginal('');
   };
 
   const patch = useMemo(
@@ -330,11 +300,6 @@ export function AgentConfigurationSettingsPanel({
           patch: pending.patch,
           confirmed: true,
         });
-      } else if (pending.kind === 'native') {
-        nextSnapshot = await machineClient.applyAgentSettingsNativeFile({
-          patch: pending.patch,
-          confirmed: true,
-        });
       } else {
         nextSnapshot = await machineClient.applyAgentSettingsProfile({
           preview: pending.preview,
@@ -355,9 +320,6 @@ export function AgentConfigurationSettingsPanel({
 
   const discardDraft = () => {
     if (snapshot) setDraft(createAgentSettingsDraft(snapshot));
-    if (rawFile) {
-      setRawContent(rawOriginal);
-    }
     setDiff(null);
     setPending(null);
     setNotice(null);
@@ -375,7 +337,8 @@ export function AgentConfigurationSettingsPanel({
       ...previous,
       [id]: {
         ...previous[id],
-        action: 'set',
+        action:
+          raw.length === 0 && descriptor.sensitive ? 'preserve' : 'replace',
         raw,
         value,
         error: parseError,
@@ -391,7 +354,7 @@ export function AgentConfigurationSettingsPanel({
       ...previous,
       [id]: {
         ...previous[id],
-        action: 'unset',
+        action: 'clear',
         raw: '',
         value: undefined,
         error: undefined,
@@ -399,29 +362,6 @@ export function AgentConfigurationSettingsPanel({
     }));
     setDiff(null);
     setPending(null);
-  };
-
-  const previewNativeFile = async () => {
-    if (!machineClient || !snapshot || !rawFile) return;
-    const nextPatch = {
-      provider,
-      project_path: projectPath.trim() || null,
-      file_id: rawFile.id,
-      expected_revision: nativeFileRevision(rawFile),
-      content: rawContent,
-    };
-    setBusy(true);
-    setError(null);
-    try {
-      const nextDiff =
-        await machineClient.diffAgentSettingsNativeFile(nextPatch);
-      setDiff(nextDiff);
-      setPending({ kind: 'native', patch: nextPatch });
-    } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
-    } finally {
-      setBusy(false);
-    }
   };
 
   const saveProfile = async () => {
@@ -432,12 +372,13 @@ export function AgentConfigurationSettingsPanel({
     for (const descriptor of snapshot.descriptors) {
       if (!descriptor.capabilities.profile_storable) continue;
       const entry = draft[settingKeyId(descriptor)];
-      if (entry?.action === 'unset') continue;
+      if (entry?.action === 'clear') continue;
+      if (descriptor.sensitive && entry?.action !== 'replace') continue;
       const effectiveValue = snapshot.effective_settings.find(
         (candidate) => settingKeyId(candidate) === settingKeyId(descriptor)
       )?.effective_value;
       const value =
-        entry?.action === 'set' && entry.value !== undefined
+        entry?.action === 'replace' && entry.value !== undefined
           ? entry.value
           : effectiveValue;
       if (value !== undefined)
@@ -748,7 +689,7 @@ export function AgentConfigurationSettingsPanel({
       <div className="space-y-5">
         {descriptors.map((descriptor) => {
           const id = settingKeyId(descriptor);
-          const entry = draft[id] ?? { action: 'unchanged' as const, raw: '' };
+          const entry = draft[id] ?? { action: 'preserve' as const, raw: '' };
           const resettable = descriptor.capabilities.resettable;
           const scopeSupported = descriptor.supported_scopes.includes(scope);
           const disabled =
@@ -759,15 +700,43 @@ export function AgentConfigurationSettingsPanel({
             const parsed = parseDraftChange(descriptor, raw, nextValue);
             updateDraft(descriptor, raw, parsed.value, parsed.error);
           };
-          if (isSensitiveDescriptor(descriptor)) {
+          if (descriptor.sensitive) {
+            const configured = snapshot?.effective_settings.find(
+              (setting) => settingKeyId(setting) === id
+            )?.configured;
             return (
               <SettingsField
                 key={id}
                 label={descriptor.label}
                 description={descriptor.description}
+                error={entry.error}
               >
-                <div className="rounded-sm border border-border bg-secondary/30 p-3 text-xs text-low">
-                  {t('agentCenter.security.sensitiveSettingUnavailable')}
+                <div className="flex items-center justify-between gap-2 text-xs text-low">
+                  <span>
+                    {configured
+                      ? t('agentCenter.security.sensitiveValueConfigured')
+                      : t('agentCenter.security.sensitiveValueNotConfigured')}
+                  </span>
+                  {configured && descriptor.capabilities.resettable && (
+                    <button
+                      type="button"
+                      className="underline hover:text-normal disabled:opacity-40"
+                      disabled={disabled}
+                      onClick={() => resetDraft(descriptor)}
+                    >
+                      {t('agentCenter.security.clearSensitiveValue')}
+                    </button>
+                  )}
+                </div>
+                <SettingsTextarea
+                  value={entry.raw}
+                  onChange={(raw) => update(raw)}
+                  disabled={disabled}
+                  rows={4}
+                  monospace
+                />
+                <div className="text-xs text-low">
+                  {t('agentCenter.security.writeOnlySettingHelp')}
                 </div>
               </SettingsField>
             );
@@ -808,7 +777,7 @@ export function AgentConfigurationSettingsPanel({
                 <div className="flex items-center gap-3">
                   <Switch
                     checked={
-                      entry.action === 'unset' ? false : Boolean(entry.value)
+                      entry.action === 'clear' ? false : Boolean(entry.value)
                     }
                     disabled={disabled}
                     aria-label={descriptor.label}
@@ -881,72 +850,6 @@ export function AgentConfigurationSettingsPanel({
     </SettingsCard>
   );
 
-  const renderNativeFiles = () => (
-    <SettingsCard
-      title="Native Files"
-      description="Advanced editing is format-aware and requires a revision-protected diff confirmation."
-    >
-      <div className="space-y-3">
-        {snapshot?.native_files.map((file) => (
-          <NativeFileRow
-            key={file.id}
-            file={file}
-            selected={rawFile?.id === file.id}
-            onEdit={() => {
-              setRawFile(file);
-              setRawOriginal(file.raw_content ?? '');
-              setRawContent(file.raw_content ?? '');
-              setError(null);
-              setNotice(null);
-            }}
-          />
-        ))}
-      </div>
-      {rawFile && (
-        <div className="space-y-3 rounded-sm border border-border bg-secondary/20 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-high">
-                {rawFile.path}
-              </div>
-              <div className="font-mono text-xs text-low">
-                Revision: {nativeFileRevision(rawFile)}
-              </div>
-            </div>
-            <button
-              type="button"
-              className="text-xs text-low underline hover:text-normal"
-              onClick={() => setRawFile(null)}
-            >
-              Close editor
-            </button>
-          </div>
-          <SettingsTextarea
-            value={rawContent}
-            onChange={setRawContent}
-            rows={14}
-            monospace
-            disabled={busy}
-          />
-          <div className="flex justify-end gap-2">
-            <PrimaryButton
-              variant="tertiary"
-              value="Discard"
-              onClick={() => setRawContent(rawOriginal)}
-              disabled={busy || rawContent === rawOriginal}
-            />
-            <PrimaryButton
-              value="Preview diff"
-              onClick={() => void previewNativeFile()}
-              disabled={busy || rawContent === rawOriginal}
-              actionIcon={busy ? 'spinner' : undefined}
-            />
-          </div>
-        </div>
-      )}
-    </SettingsCard>
-  );
-
   const renderEffective = () => (
     <SettingsCard
       title="Effective Config"
@@ -975,7 +878,7 @@ export function AgentConfigurationSettingsPanel({
                   {snapshot.descriptors.some(
                     (descriptor) =>
                       settingKeyId(descriptor) === settingKeyId(setting) &&
-                      isSensitiveDescriptor(descriptor)
+                      descriptor.sensitive
                   )
                     ? t('agentCenter.security.effectiveValueHidden')
                     : displayJson(setting.effective_value)}
@@ -1224,9 +1127,6 @@ export function AgentConfigurationSettingsPanel({
             <AgentToolsSettingsSection provider={provider} />
           )}
           {activeSection === 'profiles' && renderProfiles()}
-          {activeSection === 'native_files' &&
-            sections.some((section) => section.id === 'native_files') &&
-            renderNativeFiles()}
           {activeSection === 'effective_config' && renderEffective()}
         </>
       )}
@@ -1269,37 +1169,6 @@ function InfoTile({
       >
         {value}
       </div>
-    </div>
-  );
-}
-
-function NativeFileRow({
-  file,
-  selected,
-  onEdit,
-}: {
-  file: NativeConfigFile;
-  selected: boolean;
-  onEdit: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-sm border border-border bg-secondary/20 px-3 py-2">
-      <div className="min-w-0">
-        <div className="truncate font-mono text-xs text-normal">
-          {file.path}
-        </div>
-        <div className="text-xs text-low">
-          {file.format} · {file.parse_status} ·{' '}
-          {file.exists ? `revision ${nativeFileRevision(file)}` : 'missing'}
-        </div>
-        {file.error && <div className="text-xs text-error">{file.error}</div>}
-      </div>
-      <ToolAction
-        label={selected ? 'Editing' : 'Edit raw'}
-        icon={PencilSimpleIcon}
-        disabled={!file.raw_editable || !file.exists || selected}
-        onClick={onEdit}
-      />
     </div>
   );
 }

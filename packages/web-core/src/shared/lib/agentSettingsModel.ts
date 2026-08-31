@@ -26,7 +26,7 @@ export interface AgentSettingsSection {
 }
 
 export type AgentSettingsDraftEntry = {
-  action: 'unchanged' | 'set' | 'unset';
+  action: 'preserve' | 'replace' | 'clear';
   value?: JsonValue;
   raw: string;
   error?: string;
@@ -236,14 +236,18 @@ export function createAgentSettingsDraft(
       )?.effective_value;
       return [
         settingKeyId(descriptor),
-        { action: 'unchanged', value, raw: valueToInput(value) },
+        {
+          action: 'preserve',
+          value,
+          raw: descriptor.sensitive ? '' : valueToInput(value),
+        },
       ];
     })
   );
 }
 
 export function isAgentSettingsDraftDirty(draft: AgentSettingsDraft): boolean {
-  return Object.values(draft).some((entry) => entry.action !== 'unchanged');
+  return Object.values(draft).some((entry) => entry.action !== 'preserve');
 }
 
 export function hasDraftErrors(draft: AgentSettingsDraft): boolean {
@@ -261,16 +265,16 @@ export function buildAgentSettingsPatch(
     const entry = draft[settingKeyId(descriptor)];
     if (
       !entry ||
-      entry.action === 'unchanged' ||
+      entry.action === 'preserve' ||
       !descriptor.capabilities.writable ||
       !descriptor.supported_scopes.includes(scope)
     )
       continue;
-    if (entry.action === 'unset') {
-      operations.push({ type: 'unset', data: { key: descriptor.key, scope } });
+    if (entry.action === 'clear') {
+      operations.push({ type: 'clear', data: { key: descriptor.key, scope } });
     } else if (entry.value !== undefined) {
       operations.push({
-        type: 'set',
+        type: 'replace',
         data: { key: descriptor.key, scope, value: entry.value },
       });
     }

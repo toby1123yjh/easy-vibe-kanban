@@ -883,6 +883,10 @@
       "nativeProject": "Configuration native du projet"
     },
     "security": {
+      "sensitiveValueConfigured": "Configured value hidden",
+      "sensitiveValueNotConfigured": "Not configured",
+      "clearSensitiveValue": "Clear stored value",
+      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
       "sensitiveSettingUnavailable": "Les valeurs sensibles existantes sont masquées. Utilisez l’éditeur natif de l’Agent jusqu’à ce que le Settings Adapter prenne en charge les mises à jour sécurisées en écriture seule.",
       "nativeFilesUnavailable": "L’édition brute des fichiers natifs est indisponible car ils peuvent contenir des identifiants. Les réglages typés non sensibles restent modifiables.",
       "effectiveValueHidden": "Valeur enregistrée masquée",
@@ -1010,6 +1014,11 @@
         "target": "Provider cible",
         "adapterNotice": "L’Adapter cible convertit la définition dans son format natif. Les avertissements apparaissent après la copie.",
         "replaceWarning": "{{provider}} possède déjà {{name}} dans cette portée. Continuer remplacera cette installation."
+      },
+      "security": {
+        "configured": "Configured",
+        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
+        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
       },
       "disabled": {
         "operationPending": "Une autre opération d’outil est en cours.",

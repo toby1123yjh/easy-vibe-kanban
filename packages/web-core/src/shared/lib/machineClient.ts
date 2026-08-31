@@ -7,11 +7,11 @@ import type {
   ApplyConfigProfileRequest,
   ApplyNativeFileRequest,
   ApplySettingsRequest,
-  AgentToolInventory,
+  AgentToolInventoryView,
   AgentToolLocator,
   AgentToolOperationError,
   AgentToolRevealResponse,
-  AgentTool,
+  AgentToolView,
   CopyAgentToolRequest,
   CopyAgentToolResponse,
   CopyProfilePreviewRequest,
@@ -79,12 +79,12 @@ export interface MachineClient {
     query: McpServerQuery,
     data: UpdateMcpServersBody
   ) => Promise<void>;
-  listAgentTools: (projectPath?: string) => Promise<AgentToolInventory>;
+  listAgentTools: (projectPath?: string) => Promise<AgentToolInventoryView>;
   getAgentGarage: () => Promise<AgentGarageEntry[]>;
-  createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentTool>;
-  updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentTool>;
+  createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentToolView>;
+  updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentToolView>;
   removeAgentTool: (data: RemoveAgentToolRequest) => Promise<void>;
-  toggleAgentTool: (data: ToggleAgentToolRequest) => Promise<AgentTool>;
+  toggleAgentTool: (data: ToggleAgentToolRequest) => Promise<AgentToolView>;
   copyAgentTool: (data: CopyAgentToolRequest) => Promise<CopyAgentToolResponse>;
   revealAgentTool: (data: AgentToolLocator) => Promise<AgentToolRevealResponse>;
   discoverAgentSettings: (
@@ -280,7 +280,7 @@ export function createMachineClient(
       const params = new URLSearchParams();
       if (projectPath) params.set('project_path', projectPath);
       const query = params.size ? `?${params.toString()}` : '';
-      return handleApiResponse<AgentToolInventory, AgentToolOperationError>(
+      return handleApiResponse<AgentToolInventoryView, AgentToolOperationError>(
         await makeMachineRequest(runtime, target, `/api/agent-tools${query}`)
       );
     },
@@ -291,14 +291,14 @@ export function createMachineClient(
         })
       ),
     createAgentTool: async (data) =>
-      handleApiResponse<AgentTool, AgentToolOperationError>(
+      handleApiResponse<AgentToolView, AgentToolOperationError>(
         await makeMachineRequest(runtime, target, '/api/agent-tools', {
           method: 'POST',
           body: JSON.stringify(data),
         })
       ),
     updateAgentTool: async (data) =>
-      handleApiResponse<AgentTool, AgentToolOperationError>(
+      handleApiResponse<AgentToolView, AgentToolOperationError>(
         await makeMachineRequest(runtime, target, '/api/agent-tools', {
           method: 'PUT',
           body: JSON.stringify(data),
@@ -312,7 +312,7 @@ export function createMachineClient(
         })
       ),
     toggleAgentTool: async (data) =>
-      handleApiResponse<AgentTool, AgentToolOperationError>(
+      handleApiResponse<AgentToolView, AgentToolOperationError>(
         await makeMachineRequest(runtime, target, '/api/agent-tools/toggle', {
           method: 'POST',
           body: JSON.stringify(data),

@@ -23,16 +23,16 @@ import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { Switch } from '@vibe/ui/components/Switch';
 import { Textarea } from '@vibe/ui/components/Textarea';
 import type {
-  AgentTool,
-  AgentToolDefinition,
-  AgentToolInventory,
+  AgentToolDefinitionSummary,
+  AgentToolInventoryView,
   AgentToolKind,
   AgentToolLocator,
   AgentToolOperationError,
   AgentToolProvider,
   AgentToolScope,
-  McpServerDefinition,
-  SkillDefinition,
+  AgentToolView,
+  AgentToolWriteDefinition,
+  McpServerWriteDefinition,
 } from 'shared/types';
 import { ApiError } from '@/shared/lib/api';
 import { cn } from '@/shared/lib/utils';
@@ -53,13 +53,14 @@ const PROVIDER_LABELS: Record<AgentToolProvider, string> = {
   oh_my_pi: 'Oh My Pi',
 };
 
-const DEFAULT_MCP_DEFINITION: McpServerDefinition = {
+const DEFAULT_MCP_DEFINITION: McpServerWriteDefinition = {
   transport: 'stdio',
-  command: '',
-  args: [],
-  env: {},
-  headers: {},
-  source_metadata: null,
+  command: { type: 'replace', data: { value: '' } },
+  args: { type: 'replace', data: { value: [] } },
+  cwd: { type: 'clear' },
+  url: { type: 'clear' },
+  env: { type: 'clear' },
+  headers: { type: 'clear' },
 };
 
 const DEFAULT_SKILL_CONTENT =
@@ -72,38 +73,25 @@ type ToolEditorState = {
   scope: AgentToolScope;
   name: string;
   definitionText: string;
-  item: AgentTool | null;
+  item: AgentToolView | null;
   validationError: string | null;
 };
 
 type CopyState = {
-  item: AgentTool;
+  item: AgentToolView;
   target: AgentToolProvider;
 };
 
-function encodeUtf8(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
-
-function decodeUtf8(value: string): string {
-  const binary = atob(value);
-  return new TextDecoder().decode(
-    Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  );
-}
-
-function locatorFor(item: AgentTool, projectPath: string): AgentToolLocator {
+function locatorFor(
+  item: AgentToolView,
+  projectPath: string
+): AgentToolLocator {
   return {
     provider: item.provider,
     scope: item.scope,
     kind: item.kind,
     name: item.name,
-    native_path: item.native_path,
+    installation_id: item.installation_id,
     project_path: item.scope === 'project' ? projectPath : undefined,
   };
 }
@@ -119,63 +107,46 @@ function operationMessage(error: unknown): string {
 
 function definitionText(
   kind: AgentToolKind,
-  definition?: AgentToolDefinition
+  definition?: AgentToolDefinitionSummary
 ): string {
   if (kind === 'mcp_server') {
-    const value =
+    const value: McpServerWriteDefinition =
       definition?.type === 'mcp_server'
-        ? definition.data
+        ? {
+            transport: definition.data.transport,
+            command: { type: 'preserve' },
+            args: { type: 'preserve' },
+            cwd: { type: 'preserve' },
+            url: { type: 'preserve' },
+            env: { type: 'preserve' },
+            headers: { type: 'preserve' },
+          }
         : DEFAULT_MCP_DEFINITION;
     return JSON.stringify(value, null, 2);
   }
 
-  if (definition?.type !== 'skill') return DEFAULT_SKILL_CONTENT;
-  const contract = definition.data.files.find(
-    (file) => file.path === 'SKILL.md'
-  );
-  return contract ? decodeUtf8(contract.content_base64) : DEFAULT_SKILL_CONTENT;
-}
-
-function requiresRedactedMcpEditContract(item: AgentTool): boolean {
-  if (item.definition.type !== 'mcp_server') return false;
-  // Discovery keeps a lossless clone of the provider-native entry in
-  // source_metadata. Rendering that object in the JSON textarea would expose
-  // provider fields (and potentially credentials), while dropping it during
-  // an update would destroy fields the portable model does not understand.
-  const {
-    env,
-    headers,
-    source_metadata: sourceMetadata,
-  } = item.definition.data;
-  return (
-    Object.keys(env).length > 0 ||
-    Object.keys(headers).length > 0 ||
-    (sourceMetadata !== null &&
-      (typeof sourceMetadata !== 'object' ||
-        Object.keys(sourceMetadata).length > 0))
-  );
+  return definition?.type === 'skill' ? '' : DEFAULT_SKILL_CONTENT;
 }
 
 function parseDefinition(
   kind: AgentToolKind,
   value: string,
-  current?: AgentToolDefinition
-): AgentToolDefinition {
+  editing: boolean
+): AgentToolWriteDefinition {
   if (kind === 'mcp_server') {
     return {
       type: 'mcp_server',
-      data: JSON.parse(value) as McpServerDefinition,
+      data: JSON.parse(value) as McpServerWriteDefinition,
     };
   }
 
-  const currentSkill = current?.type === 'skill' ? current.data : undefined;
-  const files =
-    currentSkill?.files.filter((file) => file.path !== 'SKILL.md') ?? [];
-  const data: SkillDefinition = {
-    description: currentSkill?.description ?? null,
-    files: [{ path: 'SKILL.md', content_base64: encodeUtf8(value) }, ...files],
+  if (editing && value.length === 0) {
+    return { type: 'skill', data: { type: 'preserve' } };
+  }
+  return {
+    type: 'skill',
+    data: { type: 'replace_contract', data: { value } },
   };
-  return { type: 'skill', data };
 }
 
 export function AgentToolsSettingsSection({
@@ -197,7 +168,9 @@ export function AgentToolsSettingsSection({
   const machineClient = useSettingsMachineClient();
   const activeClientRef = useRef(machineClient);
   activeClientRef.current = machineClient;
-  const [inventory, setInventory] = useState<AgentToolInventory | null>(null);
+  const [inventory, setInventory] = useState<AgentToolInventoryView | null>(
+    null
+  );
   const [inventoryHostKey, setInventoryHostKey] = useState<string | null>(null);
   const [loadedProjectPath, setLoadedProjectPath] = useState<string | null>(
     null
@@ -399,7 +372,7 @@ export function AgentToolsSettingsSection({
     });
   };
 
-  const openEditDialog = (item: AgentTool) => {
+  const openEditDialog = (item: AgentToolView) => {
     setEditor({
       mode: 'edit',
       kind: item.kind,
@@ -440,12 +413,12 @@ export function AgentToolsSettingsSection({
       return;
     }
 
-    let definition: AgentToolDefinition;
+    let definition: AgentToolWriteDefinition;
     try {
       definition = parseDefinition(
         editor.kind,
         editor.definitionText,
-        editor.item?.definition
+        editor.mode === 'edit'
       );
     } catch (nextError) {
       setEditor((current) =>
@@ -491,7 +464,7 @@ export function AgentToolsSettingsSection({
     if (succeeded) setEditor(null);
   };
 
-  const openCopyDialog = (item: AgentTool) => {
+  const openCopyDialog = (item: AgentToolView) => {
     const target = installedProviders.find(
       (providerId) => providerId !== item.provider
     );
@@ -537,7 +510,7 @@ export function AgentToolsSettingsSection({
     if (succeeded) setCopyState(null);
   };
 
-  const handleReveal = async (item: AgentTool) => {
+  const handleReveal = async (item: AgentToolView) => {
     if (!machineClient) return;
     await run(`reveal:${item.provider}:${item.name}`, async () => {
       const result = await machineClient.revealAgentTool(
@@ -550,7 +523,7 @@ export function AgentToolsSettingsSection({
     });
   };
 
-  const handleRemove = async (item: AgentTool) => {
+  const handleRemove = async (item: AgentToolView) => {
     if (!machineClient) return;
     const result = await ConfirmDialog.show({
       title: t('agentCenter.tools.remove.title', { name: item.name }),
@@ -777,7 +750,6 @@ export function AgentToolsSettingsSection({
                     </div>
                   ) : (
                     items.map((item) => {
-                      const key = `${item.provider}:${item.scope}:${item.kind}:${item.name}`;
                       const busy = busyKey?.endsWith(
                         `:${item.provider}:${item.name}`
                       );
@@ -786,13 +758,9 @@ export function AgentToolsSettingsSection({
                       );
                       const editDisabledReason = busyKey
                         ? t('agentCenter.tools.disabled.operationPending')
-                        : requiresRedactedMcpEditContract(item)
-                          ? t(
-                              'agentCenter.tools.disabled.sensitiveMcpEditUnavailable'
-                            )
-                          : !item.capabilities.editable
-                            ? t('agentCenter.tools.disabled.notEditable')
-                            : undefined;
+                        : !item.capabilities.editable
+                          ? t('agentCenter.tools.disabled.notEditable')
+                          : undefined;
                       const copyDisabledReason = busyKey
                         ? t('agentCenter.tools.disabled.operationPending')
                         : item.state !== 'enabled'
@@ -809,7 +777,7 @@ export function AgentToolsSettingsSection({
                           : undefined;
                       return (
                         <div
-                          key={`${key}:${item.native_path}`}
+                          key={item.installation_id}
                           className="flex flex-col gap-2 border-b border-border/60 px-3 py-3 last:border-0"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -836,9 +804,19 @@ export function AgentToolsSettingsSection({
                                   {t(`agentCenter.tools.scopes.${item.scope}`)}
                                 </span>
                               </div>
-                              <p className="mt-1 truncate font-mono text-xs text-low">
-                                {item.native_path}
-                              </p>
+                              {item.definition.type === 'mcp_server' && (
+                                <p className="mt-1 truncate font-mono text-xs text-low">
+                                  {item.definition.data.transport === 'stdio'
+                                    ? (item.definition.data.command_display ??
+                                      t(
+                                        'agentCenter.tools.security.configured'
+                                      ))
+                                    : (item.definition.data.url_display ??
+                                      t(
+                                        'agentCenter.tools.security.configured'
+                                      ))}
+                                </p>
+                              )}
                               {item.error && (
                                 <p className="mt-1 text-xs text-error">
                                   {item.error}
@@ -919,13 +897,6 @@ export function AgentToolsSettingsSection({
                               onClick={() => void handleRemove(item)}
                             />
                           </div>
-                          {requiresRedactedMcpEditContract(item) && (
-                            <p className="text-xs text-low" role="note">
-                              {t(
-                                'agentCenter.tools.disabled.sensitiveMcpEditUnavailable'
-                              )}
-                            </p>
-                          )}
                         </div>
                       );
                     })
@@ -1044,6 +1015,15 @@ export function AgentToolsSettingsSection({
                     rows={editor.kind === 'mcp_server' ? 14 : 12}
                     className="font-ibm-plex-mono text-xs"
                   />
+                  {editor.mode === 'edit' && (
+                    <span className="block text-xs font-normal text-low">
+                      {t(
+                        editor.kind === 'mcp_server'
+                          ? 'agentCenter.tools.security.writeOnlyMcpHelp'
+                          : 'agentCenter.tools.security.writeOnlySkillHelp'
+                      )}
+                    </span>
+                  )}
                 </label>
                 {editor.scope === 'project' && (
                   <p className="text-xs text-low">

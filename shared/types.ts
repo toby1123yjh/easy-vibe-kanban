@@ -771,17 +771,17 @@ export type SettingCapabilities = { readable: boolean, writable: boolean, resett
 
 export type NativeSettingLocation = { file_id: string, scope: SettingScope, native_path: Array<string>, };
 
-export type SettingDescriptor = { key: SettingKey, section: SettingSection, label: string, description: string, value_type: SettingValueType, control: SettingControl, options: Array<SettingOption>, validation: SettingValidation, supported_scopes: Array<SettingScope>, capabilities: SettingCapabilities, native_locations: Array<NativeSettingLocation>, activation: SettingActivation, };
+export type SettingDescriptor = { key: SettingKey, section: SettingSection, label: string, description: string, value_type: SettingValueType, control: SettingControl, options: Array<SettingOption>, validation: SettingValidation, supported_scopes: Array<SettingScope>, capabilities: SettingCapabilities, native_locations: Array<NativeSettingLocation>, activation: SettingActivation, sensitive: boolean, };
 
 export type SettingsCapabilities = { readable: boolean, native_writable: boolean, profile_storage: boolean, per_run_overrides: boolean, raw_editable: boolean, };
 
-export type NativeConfigFile = { id: string, path: string, format: NativeConfigFormat, scope: SettingScope, exists: boolean, parse_status: NativeParseStatus, revision?: string | null, writable: boolean, raw_editable: boolean, raw_content?: string | null, error?: string | null, };
+export type NativeConfigFile = { id: string, path: string, format: NativeConfigFormat, scope: SettingScope, exists: boolean, parse_status: NativeParseStatus, revision?: string | null, writable: boolean, raw_editable: boolean, error?: string | null, };
 
-export type SettingSourceValue = { source: string, scope: SettingScope, file_id: string, value: JsonValue, revision: string, };
+export type SettingSourceValue = { source: string, scope: SettingScope, file_id: string, value?: JsonValue | null, configured: boolean, revision: string, };
 
-export type EffectiveSetting = { key: SettingKey, sources: Array<SettingSourceValue>, effective_value?: JsonValue | null, effective_source?: string | null, warnings: Array<string>, };
+export type EffectiveSetting = { key: SettingKey, sources: Array<SettingSourceValue>, effective_value?: JsonValue | null, effective_source?: string | null, configured: boolean, warnings: Array<string>, };
 
-export type UnknownNativeNode = { file_id: string, native_path: string, value: JsonValue, };
+export type UnknownNativeNode = { file_id: string, native_path: string, value_kind: string, };
 
 export type AgentSettingIssue = { message: string, file_id?: string | null, setting_key?: string | null, recovery: string, };
 
@@ -791,11 +791,11 @@ export type AgentSettingsProviderError = { provider: AgentSettingsProvider, mess
 
 export type AgentSettingsInventory = { providers: Array<SettingsSnapshot>, errors: Array<AgentSettingsProviderError>, };
 
-export type SettingOperation = { "type": "set", "data": { key: SettingKey, scope: SettingScope, value: JsonValue, } } | { "type": "unset", "data": { key: SettingKey, scope: SettingScope, } };
+export type SettingOperation = { "type": "preserve", "data": { key: SettingKey, scope: SettingScope, } } | { "type": "replace", "data": { key: SettingKey, scope: SettingScope, value: JsonValue, } } | { "type": "clear", "data": { key: SettingKey, scope: SettingScope, } };
 
 export type SettingsPatch = { provider: AgentSettingsProvider, project_path?: string | null, expected_file_revisions: { [key in string]?: string }, operations: Array<SettingOperation>, };
 
-export type NativeFileDiff = { file_id: string, path: string, before: string, after: string, changed: boolean, };
+export type NativeFileDiff = { file_id: string, path: string, changed: boolean, };
 
 export type SettingsDiff = { provider: AgentSettingsProvider, files: Array<NativeFileDiff>, warnings: Array<string>, };
 
@@ -841,27 +841,41 @@ export type AgentToolCapabilities = { editable: boolean, removable: boolean, tog
 
 export type McpTransport = "stdio" | "http";
 
-export type McpServerDefinition = { transport: McpTransport, command?: string | null, args: Array<string>, cwd?: string | null, env: { [key in string]?: string }, url?: string | null, headers: { [key in string]?: string }, source_metadata: JsonValue, };
-
 export type SkillFile = { path: string, content_base64: string, };
 
 export type SkillDefinition = { description: string | null, files: Array<SkillFile>, };
 
-export type AgentToolDefinition = { "type": "mcp_server", "data": McpServerDefinition } | { "type": "skill", "data": SkillDefinition };
-
-export type AgentTool = { provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, native_path: string, state: AgentToolState, capabilities: AgentToolCapabilities, revision: string, definition: AgentToolDefinition, error?: string | null, };
-
 export type AgentToolProviderError = { provider: AgentToolProvider, message: string, };
 
-export type AgentToolProviderInventory = { provider: AgentToolProvider, installed: boolean, items: Array<AgentTool>, limitations: Array<string>, errors: Array<string>, };
+export type SensitiveStringWrite = { "type": "preserve" } | { "type": "replace", "data": { value: string, } } | { "type": "clear" };
 
-export type AgentToolInventory = { providers: Array<AgentToolProviderInventory>, errors: Array<AgentToolProviderError>, };
+export type SensitiveStringListWrite = { "type": "preserve" } | { "type": "replace", "data": { value: Array<string>, } } | { "type": "clear" };
 
-export type AgentToolLocator = { provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, native_path?: string | null, project_path?: string | null, };
+export type SensitiveStringMapWrite = { "type": "preserve" } | { "type": "replace", "data": { value: { [key in string]?: string }, } } | { "type": "clear" };
 
-export type CreateAgentToolRequest = { target: AgentToolLocator, definition: AgentToolDefinition, replace: boolean, expected_revision?: string | null, };
+export type McpServerWriteDefinition = { transport: McpTransport, command: SensitiveStringWrite, args: SensitiveStringListWrite, cwd: SensitiveStringWrite, url: SensitiveStringWrite, env: SensitiveStringMapWrite, headers: SensitiveStringMapWrite, };
 
-export type UpdateAgentToolRequest = { target: AgentToolLocator, expected_revision: string, definition: AgentToolDefinition, };
+export type SkillWriteDefinition = { "type": "preserve" } | { "type": "replace", "data": { value: SkillDefinition, } } | { "type": "replace_contract", "data": { value: string, } };
+
+export type AgentToolWriteDefinition = { "type": "mcp_server", "data": McpServerWriteDefinition } | { "type": "skill", "data": SkillWriteDefinition };
+
+export type McpServerDefinitionSummary = { transport: McpTransport, command_display?: string | null, command_configured: boolean, args_count: number, cwd_configured: boolean, url_display?: string | null, url_configured: boolean, env_count: number, header_count: number, has_provider_extensions: boolean, };
+
+export type SkillDefinitionSummary = { contract_configured: boolean, file_count: number, has_assets: boolean, };
+
+export type AgentToolDefinitionSummary = { "type": "mcp_server", "data": McpServerDefinitionSummary } | { "type": "skill", "data": SkillDefinitionSummary };
+
+export type AgentToolView = { installation_id: string, provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, state: AgentToolState, capabilities: AgentToolCapabilities, revision: string, definition: AgentToolDefinitionSummary, error?: string | null, };
+
+export type AgentToolProviderInventoryView = { provider: AgentToolProvider, installed: boolean, items: Array<AgentToolView>, limitations: Array<string>, errors: Array<string>, };
+
+export type AgentToolInventoryView = { providers: Array<AgentToolProviderInventoryView>, errors: Array<AgentToolProviderError>, };
+
+export type AgentToolLocator = { provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, installation_id?: string | null, native_path?: string | null, project_path?: string | null, };
+
+export type CreateAgentToolRequest = { target: AgentToolLocator, definition: AgentToolWriteDefinition, replace: boolean, expected_revision?: string | null, };
+
+export type UpdateAgentToolRequest = { target: AgentToolLocator, expected_revision: string, definition: AgentToolWriteDefinition, };
 
 export type RemoveAgentToolRequest = { target: AgentToolLocator, expected_revision: string, };
 
@@ -869,7 +883,7 @@ export type ToggleAgentToolRequest = { target: AgentToolLocator, expected_revisi
 
 export type CopyAgentToolRequest = { source: AgentToolLocator, expected_revision: string, target_provider: AgentToolProvider, target_scope: AgentToolScope, target_project_path?: string | null, target_name?: string | null, replace: boolean, target_expected_revision?: string | null, };
 
-export type CopyAgentToolResponse = { item: AgentTool, source_metadata: JsonValue, warnings: Array<string>, };
+export type CopyAgentToolResponse = { item: AgentToolView, warnings: Array<string>, };
 
 export type AgentToolErrorCode = "invalid_request" | "invalid_configuration" | "not_found" | "collision" | "stale_revision" | "unsupported" | "unsafe_path" | "io" | "verification_failed";
 

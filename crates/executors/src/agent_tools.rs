@@ -154,7 +154,7 @@ pub enum McpTransport {
     Http,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpServerDefinition {
     pub transport: McpTransport,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -190,7 +190,7 @@ pub struct SkillDefinition {
     pub files: Vec<SkillFile>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AgentToolDefinition {
     McpServer(McpServerDefinition),
@@ -206,7 +206,7 @@ impl AgentToolDefinition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentTool {
     pub provider: AgentToolProvider,
     pub scope: AgentToolScope,
@@ -217,7 +217,6 @@ pub struct AgentTool {
     pub capabilities: AgentToolCapabilities,
     pub revision: String,
     pub definition: AgentToolDefinition,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -227,21 +226,18 @@ pub struct AgentToolProviderError {
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentToolProviderInventory {
     pub provider: AgentToolProvider,
     pub installed: bool,
     pub items: Vec<AgentTool>,
-    #[serde(default)]
     pub limitations: Vec<String>,
-    #[serde(default)]
     pub errors: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentToolInventory {
     pub providers: Vec<AgentToolProviderInventory>,
-    #[serde(default)]
     pub errors: Vec<AgentToolProviderError>,
 }
 
@@ -252,15 +248,369 @@ pub struct AgentToolLocator {
     pub kind: AgentToolKind,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum SensitiveStringWrite {
+    Preserve,
+    Replace { value: String },
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum SensitiveStringListWrite {
+    Preserve,
+    Replace { value: Vec<String> },
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum SensitiveStringMapWrite {
+    Preserve,
+    Replace { value: BTreeMap<String, String> },
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct McpServerWriteDefinition {
+    pub transport: McpTransport,
+    pub command: SensitiveStringWrite,
+    pub args: SensitiveStringListWrite,
+    pub cwd: SensitiveStringWrite,
+    pub url: SensitiveStringWrite,
+    pub env: SensitiveStringMapWrite,
+    pub headers: SensitiveStringMapWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum SkillWriteDefinition {
+    Preserve,
+    Replace { value: SkillDefinition },
+    ReplaceContract { value: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum AgentToolWriteDefinition {
+    McpServer(McpServerWriteDefinition),
+    Skill(SkillWriteDefinition),
+}
+
+impl AgentToolWriteDefinition {
+    pub const fn kind(&self) -> AgentToolKind {
+        match self {
+            Self::McpServer(_) => AgentToolKind::McpServer,
+            Self::Skill(_) => AgentToolKind::Skill,
+        }
+    }
+
+    fn resolve(
+        self,
+        current: Option<&AgentToolDefinition>,
+    ) -> Result<AgentToolDefinition, AgentToolError> {
+        match self {
+            Self::Skill(definition) => {
+                let current = current.and_then(|definition| match definition {
+                    AgentToolDefinition::Skill(definition) => Some(definition),
+                    AgentToolDefinition::McpServer(_) => None,
+                });
+                Ok(AgentToolDefinition::Skill(resolve_skill_definition(
+                    definition, current,
+                )?))
+            }
+            Self::McpServer(definition) => {
+                let current = current.and_then(|definition| match definition {
+                    AgentToolDefinition::McpServer(definition) => Some(definition),
+                    AgentToolDefinition::Skill(_) => None,
+                });
+                Ok(AgentToolDefinition::McpServer(McpServerDefinition {
+                    transport: definition.transport,
+                    command: resolve_sensitive_optional_string(
+                        definition.command,
+                        current.map(|item| item.command.as_deref()),
+                    )?,
+                    args: resolve_sensitive_list(
+                        definition.args,
+                        current.map(|item| item.args.as_slice()),
+                    )?,
+                    cwd: resolve_sensitive_optional_string(
+                        definition.cwd,
+                        current.map(|item| item.cwd.as_deref()),
+                    )?,
+                    env: resolve_sensitive_map(definition.env, current.map(|item| &item.env))?,
+                    url: resolve_sensitive_optional_string(
+                        definition.url,
+                        current.map(|item| item.url.as_deref()),
+                    )?,
+                    headers: resolve_sensitive_map(
+                        definition.headers,
+                        current.map(|item| &item.headers),
+                    )?,
+                    // Provider-only native state is never accepted from a
+                    // browser request. Same-provider edits preserve it inside
+                    // the Adapter; new items start without extensions.
+                    source_metadata: current
+                        .map(|item| item.source_metadata.clone())
+                        .unwrap_or(Value::Null),
+                }))
+            }
+        }
+    }
+}
+
+fn preserve_requires_existing<T>(current: Option<T>) -> Result<T, AgentToolError> {
+    current.ok_or_else(|| {
+        AgentToolError::InvalidRequest(
+            "new tool definitions must explicitly replace or clear write-only fields".into(),
+        )
+    })
+}
+
+fn resolve_sensitive_optional_string(
+    write: SensitiveStringWrite,
+    current: Option<Option<&str>>,
+) -> Result<Option<String>, AgentToolError> {
+    match write {
+        SensitiveStringWrite::Preserve => {
+            preserve_requires_existing(current.map(|value| value.map(str::to_owned)))
+        }
+        SensitiveStringWrite::Replace { value } => Ok(Some(value)),
+        SensitiveStringWrite::Clear => Ok(None),
+    }
+}
+
+fn resolve_sensitive_list(
+    write: SensitiveStringListWrite,
+    current: Option<&[String]>,
+) -> Result<Vec<String>, AgentToolError> {
+    match write {
+        SensitiveStringListWrite::Preserve => {
+            preserve_requires_existing(current.map(<[String]>::to_vec))
+        }
+        SensitiveStringListWrite::Replace { value } => Ok(value),
+        SensitiveStringListWrite::Clear => Ok(Vec::new()),
+    }
+}
+
+fn resolve_sensitive_map(
+    write: SensitiveStringMapWrite,
+    current: Option<&BTreeMap<String, String>>,
+) -> Result<BTreeMap<String, String>, AgentToolError> {
+    match write {
+        SensitiveStringMapWrite::Preserve => current.cloned().ok_or_else(|| {
+            AgentToolError::InvalidRequest(
+                "new tool definitions must explicitly replace or clear write-only fields".into(),
+            )
+        }),
+        SensitiveStringMapWrite::Replace { value } => Ok(value),
+        SensitiveStringMapWrite::Clear => Ok(BTreeMap::new()),
+    }
+}
+
+fn resolve_skill_definition(
+    write: SkillWriteDefinition,
+    current: Option<&SkillDefinition>,
+) -> Result<SkillDefinition, AgentToolError> {
+    match write {
+        SkillWriteDefinition::Preserve => preserve_requires_existing(current.cloned()),
+        SkillWriteDefinition::Replace { value } => Ok(value),
+        SkillWriteDefinition::ReplaceContract { value } => {
+            let mut definition = current.cloned().unwrap_or(SkillDefinition {
+                description: None,
+                files: Vec::new(),
+            });
+            definition.files.retain(|file| file.path != "SKILL.md");
+            definition.files.insert(
+                0,
+                SkillFile {
+                    path: "SKILL.md".into(),
+                    content_base64: BASE64.encode(value.as_bytes()),
+                },
+            );
+            Ok(definition)
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct McpServerDefinitionSummary {
+    pub transport: McpTransport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_display: Option<String>,
+    pub command_configured: bool,
+    pub args_count: usize,
+    pub cwd_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url_display: Option<String>,
+    pub url_configured: bool,
+    pub env_count: usize,
+    pub header_count: usize,
+    pub has_provider_extensions: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct SkillDefinitionSummary {
+    pub contract_configured: bool,
+    pub file_count: usize,
+    pub has_assets: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum AgentToolDefinitionSummary {
+    McpServer(McpServerDefinitionSummary),
+    Skill(SkillDefinitionSummary),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AgentToolView {
+    pub installation_id: String,
+    pub provider: AgentToolProvider,
+    pub scope: AgentToolScope,
+    pub kind: AgentToolKind,
+    pub name: String,
+    pub state: AgentToolState,
+    pub capabilities: AgentToolCapabilities,
+    pub revision: String,
+    pub definition: AgentToolDefinitionSummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl From<AgentTool> for AgentToolView {
+    fn from(item: AgentTool) -> Self {
+        let installation_id = tool_installation_id(&item);
+        let definition = match item.definition {
+            AgentToolDefinition::McpServer(definition) => {
+                AgentToolDefinitionSummary::McpServer(McpServerDefinitionSummary {
+                    transport: definition.transport,
+                    command_display: definition.command.as_deref().and_then(safe_command_display),
+                    command_configured: definition.command.is_some(),
+                    args_count: definition.args.len(),
+                    cwd_configured: definition.cwd.is_some(),
+                    url_display: definition.url.as_deref().and_then(safe_url_display),
+                    url_configured: definition.url.is_some(),
+                    env_count: definition.env.len(),
+                    header_count: definition.headers.len(),
+                    has_provider_extensions: !definition.source_metadata.is_null(),
+                })
+            }
+            AgentToolDefinition::Skill(definition) => {
+                AgentToolDefinitionSummary::Skill(SkillDefinitionSummary {
+                    contract_configured: definition
+                        .files
+                        .iter()
+                        .any(|file| file.path == "SKILL.md"),
+                    file_count: definition.files.len(),
+                    has_assets: definition.files.iter().any(|file| file.path != "SKILL.md"),
+                })
+            }
+        };
+        Self {
+            installation_id,
+            provider: item.provider,
+            scope: item.scope,
+            kind: item.kind,
+            name: item.name,
+            state: item.state,
+            capabilities: item.capabilities,
+            revision: item.revision,
+            definition,
+            error: item.error,
+        }
+    }
+}
+
+fn tool_installation_id(item: &AgentTool) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(item.provider.id().as_bytes());
+    hasher.update([0]);
+    hasher.update(item.scope.store_name().as_bytes());
+    hasher.update([0]);
+    hasher.update(item.kind.store_name().as_bytes());
+    hasher.update([0]);
+    hasher.update(item.name.as_bytes());
+    hasher.update([0]);
+    hasher.update(item.native_path.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn safe_command_display(command: &str) -> Option<String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+}
+
+fn safe_url_display(value: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(value).ok()?;
+    let host = parsed.host_str()?;
+    let mut display = format!("{}://{}", parsed.scheme(), host);
+    if let Some(port) = parsed.port() {
+        display.push(':');
+        display.push_str(&port.to_string());
+    }
+    Some(display)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AgentToolProviderInventoryView {
+    pub provider: AgentToolProvider,
+    pub installed: bool,
+    pub items: Vec<AgentToolView>,
+    #[serde(default)]
+    pub limitations: Vec<String>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AgentToolInventoryView {
+    pub providers: Vec<AgentToolProviderInventoryView>,
+    #[serde(default)]
+    pub errors: Vec<AgentToolProviderError>,
+}
+
+impl From<AgentToolInventory> for AgentToolInventoryView {
+    fn from(inventory: AgentToolInventory) -> Self {
+        Self {
+            providers: inventory
+                .providers
+                .into_iter()
+                .map(|provider| AgentToolProviderInventoryView {
+                    provider: provider.provider,
+                    installed: provider.installed,
+                    items: provider
+                        .items
+                        .into_iter()
+                        .map(AgentToolView::from)
+                        .collect(),
+                    limitations: provider.limitations,
+                    errors: provider.errors,
+                })
+                .collect(),
+            errors: inventory.errors,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct CreateAgentToolRequest {
     pub target: AgentToolLocator,
-    pub definition: AgentToolDefinition,
+    pub definition: AgentToolWriteDefinition,
     #[serde(default)]
     pub replace: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -271,7 +621,7 @@ pub struct CreateAgentToolRequest {
 pub struct UpdateAgentToolRequest {
     pub target: AgentToolLocator,
     pub expected_revision: String,
-    pub definition: AgentToolDefinition,
+    pub definition: AgentToolWriteDefinition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -303,11 +653,9 @@ pub struct CopyAgentToolRequest {
     pub target_expected_revision: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct CopyAgentToolResponse {
-    pub item: AgentTool,
-    #[serde(default)]
-    pub source_metadata: Value,
+    pub item: AgentToolView,
     #[serde(default)]
     pub warnings: Vec<String>,
 }
@@ -390,6 +738,19 @@ pub struct AgentToolService {
     disabled_root: PathBuf,
 }
 
+struct ResolvedCreateAgentToolRequest {
+    target: AgentToolLocator,
+    definition: AgentToolDefinition,
+    replace: bool,
+    expected_revision: Option<String>,
+}
+
+struct ResolvedUpdateAgentToolRequest {
+    target: AgentToolLocator,
+    expected_revision: String,
+    definition: AgentToolDefinition,
+}
+
 impl AgentToolService {
     pub fn new(home_dir: PathBuf, disabled_root: PathBuf) -> Self {
         Self {
@@ -451,7 +812,33 @@ impl AgentToolService {
                 "locator kind does not match definition".into(),
             ));
         }
-        self.manager_for_locator(&request.target).create(request)
+        let manager = self.manager_for_locator(&request.target);
+        let current = if request.replace {
+            match manager.find(&request.target) {
+                Ok(current) => Some(current),
+                Err(AgentToolError::NotFound(_)) => None,
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+        if let Some(current) = &current {
+            let expected = request.expected_revision.as_deref().ok_or_else(|| {
+                AgentToolError::InvalidRequest(
+                    "replace requires the current target revision".into(),
+                )
+            })?;
+            ensure_revision(&current.revision, expected)?;
+        }
+        let definition = request
+            .definition
+            .resolve(current.as_ref().map(|item| &item.definition))?;
+        manager.create(ResolvedCreateAgentToolRequest {
+            target: request.target,
+            definition,
+            replace: request.replace,
+            expected_revision: request.expected_revision,
+        })
     }
 
     pub fn update(&self, request: UpdateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
@@ -461,7 +848,15 @@ impl AgentToolService {
                 "locator kind does not match definition".into(),
             ));
         }
-        self.manager_for_locator(&request.target).update(request)
+        let manager = self.manager_for_locator(&request.target);
+        let current = manager.find(&request.target)?;
+        ensure_revision(&current.revision, &request.expected_revision)?;
+        let definition = request.definition.resolve(Some(&current.definition))?;
+        manager.update(ResolvedUpdateAgentToolRequest {
+            target: request.target,
+            expected_revision: request.expected_revision,
+            definition,
+        })
     }
 
     pub fn remove(&self, request: RemoveAgentToolRequest) -> Result<(), AgentToolError> {
@@ -502,9 +897,12 @@ impl AgentToolService {
             AgentToolDefinition::Skill(_) => Value::Null,
         };
         let mut definition = source.definition.clone();
-        if let AgentToolDefinition::McpServer(mcp) = &mut definition {
+        if source.provider != request.target_provider
+            && let AgentToolDefinition::McpServer(mcp) = &mut definition
+        {
             // Cross-provider installs only render the portable intersection.
-            // Source-only data remains on the copy response for audit/display.
+            // Source-only data stays inside the source Adapter and never
+            // enters the target definition or public copy response.
             mcp.source_metadata = Value::Null;
         }
         let target = AgentToolLocator {
@@ -512,23 +910,25 @@ impl AgentToolService {
             scope: request.target_scope,
             kind: source.kind,
             name: target_name,
+            installation_id: None,
             native_path: None,
             project_path: request.target_project_path,
         };
-        let item = self.create(CreateAgentToolRequest {
-            target,
-            definition,
-            replace: request.replace,
-            expected_revision: request.target_expected_revision,
-        })?;
+        let item = self
+            .manager_for_locator(&target)
+            .create(ResolvedCreateAgentToolRequest {
+                target,
+                definition,
+                replace: request.replace,
+                expected_revision: request.target_expected_revision,
+            })?;
         let warnings = if source.provider != request.target_provider && !source_metadata.is_null() {
-            vec!["Provider-specific source fields were retained as copy metadata and were not written to the target provider.".into()]
+            vec!["Provider-specific source fields were not copied to the target provider.".into()]
         } else {
             Vec::new()
         };
         Ok(CopyAgentToolResponse {
-            item,
-            source_metadata,
+            item: item.into(),
             warnings,
         })
     }
@@ -632,6 +1032,10 @@ impl ProviderToolManager {
                     && item.kind == locator.kind
                     && item.name == locator.name
                     && locator
+                        .installation_id
+                        .as_deref()
+                        .is_none_or(|id| id == tool_installation_id(item))
+                    && locator
                         .native_path
                         .as_deref()
                         .is_none_or(|path| path == item.native_path)
@@ -639,7 +1043,7 @@ impl ProviderToolManager {
             .ok_or_else(|| AgentToolError::NotFound(locator.name.clone()))
     }
 
-    pub fn create(&self, request: CreateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
+    fn create(&self, request: ResolvedCreateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
         if !self.is_installed()? {
             return Err(AgentToolError::Unsupported(format!(
                 "{} is not installed",
@@ -657,10 +1061,12 @@ impl ProviderToolManager {
                 )
             })?;
             ensure_revision(&existing.revision, expected)?;
-            return self.update(UpdateAgentToolRequest {
+            let mut definition = request.definition;
+            preserve_target_provider_extensions(&mut definition, &existing.definition);
+            return self.update(ResolvedUpdateAgentToolRequest {
                 target: request.target,
                 expected_revision: expected.to_string(),
-                definition: request.definition,
+                definition,
             });
         }
 
@@ -681,7 +1087,7 @@ impl ProviderToolManager {
         })
     }
 
-    pub fn update(&self, request: UpdateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
+    fn update(&self, request: ResolvedUpdateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
         let current = self.find(&request.target)?;
         ensure_revision(&current.revision, &request.expected_revision)?;
         if current.state != AgentToolState::Enabled {
@@ -767,6 +1173,7 @@ impl ProviderToolManager {
             self.move_to_disabled(&request.target, &current)?;
         }
         let mut observed_locator = request.target;
+        observed_locator.installation_id = None;
         observed_locator.native_path = None;
         self.find(&observed_locator).map_err(|error| {
             AgentToolError::VerificationFailed(format!("toggle result was not observable: {error}"))
@@ -1305,6 +1712,17 @@ impl ProviderToolManager {
             }
         }
         Ok(())
+    }
+}
+
+fn preserve_target_provider_extensions(
+    replacement: &mut AgentToolDefinition,
+    current: &AgentToolDefinition,
+) {
+    if let (AgentToolDefinition::McpServer(replacement), AgentToolDefinition::McpServer(current)) =
+        (replacement, current)
+    {
+        replacement.source_metadata = current.source_metadata.clone();
     }
 }
 
@@ -2040,12 +2458,13 @@ mod tests {
             scope: AgentToolScope::User,
             kind,
             name: name.into(),
+            installation_id: None,
             native_path: None,
             project_path: None,
         }
     }
 
-    fn stdio(command: &str) -> AgentToolDefinition {
+    fn native_stdio(command: &str) -> AgentToolDefinition {
         AgentToolDefinition::McpServer(McpServerDefinition {
             transport: McpTransport::Stdio,
             command: Some(command.into()),
@@ -2058,8 +2477,26 @@ mod tests {
         })
     }
 
-    fn skill_with_binary() -> AgentToolDefinition {
-        AgentToolDefinition::Skill(SkillDefinition {
+    fn stdio(command: &str) -> AgentToolWriteDefinition {
+        AgentToolWriteDefinition::McpServer(McpServerWriteDefinition {
+            transport: McpTransport::Stdio,
+            command: SensitiveStringWrite::Replace {
+                value: command.into(),
+            },
+            args: SensitiveStringListWrite::Replace {
+                value: vec!["--serve".into()],
+            },
+            cwd: SensitiveStringWrite::Clear,
+            env: SensitiveStringMapWrite::Replace {
+                value: BTreeMap::from([("RAW_TOKEN".into(), "${TOKEN}".into())]),
+            },
+            url: SensitiveStringWrite::Clear,
+            headers: SensitiveStringMapWrite::Clear,
+        })
+    }
+
+    fn native_skill_with_binary() -> SkillDefinition {
+        SkillDefinition {
             description: Some("test Skill".into()),
             files: vec![
                 SkillFile {
@@ -2071,6 +2508,12 @@ mod tests {
                     content_base64: BASE64.encode([0, 159, 146, 150, 255]),
                 },
             ],
+        }
+    }
+
+    fn skill_with_binary() -> AgentToolWriteDefinition {
+        AgentToolWriteDefinition::Skill(SkillWriteDefinition::Replace {
+            value: native_skill_with_binary(),
         })
     }
 
@@ -2092,6 +2535,67 @@ mod tests {
         assert_eq!(
             codex.skill_root(AgentToolScope::Project).unwrap(),
             fs::canonicalize(project).unwrap().join(".agents/skills")
+        );
+    }
+
+    #[test]
+    fn opaque_installation_id_disambiguates_omp_canonical_and_legacy_entries() {
+        let (_root, service) = harness();
+        let omp_root = service.home_dir.join(".omp/agent");
+        fs::create_dir_all(&omp_root).unwrap();
+        let canonical_path = omp_root.join("mcp.json");
+        let legacy_path = omp_root.join(".mcp.json");
+        fs::write(
+            &canonical_path,
+            r#"{"mcpServers":{"duplicate":{"command":"canonical"}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            &legacy_path,
+            r#"{"mcpServers":{"duplicate":{"command":"legacy"}}}"#,
+        )
+        .unwrap();
+
+        let legacy = service
+            .manager(AgentToolProvider::OhMyPi, None)
+            .discover()
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|item| Path::new(&item.native_path) == legacy_path)
+            .unwrap();
+        let installation_id = tool_installation_id(&legacy);
+        service
+            .update(UpdateAgentToolRequest {
+                target: AgentToolLocator {
+                    installation_id: Some(installation_id),
+                    ..locator(
+                        AgentToolProvider::OhMyPi,
+                        AgentToolKind::McpServer,
+                        "duplicate",
+                    )
+                },
+                expected_revision: legacy.revision,
+                definition: AgentToolWriteDefinition::McpServer(McpServerWriteDefinition {
+                    transport: McpTransport::Stdio,
+                    command: SensitiveStringWrite::Replace {
+                        value: "updated-legacy".into(),
+                    },
+                    args: SensitiveStringListWrite::Preserve,
+                    cwd: SensitiveStringWrite::Preserve,
+                    env: SensitiveStringMapWrite::Preserve,
+                    url: SensitiveStringWrite::Preserve,
+                    headers: SensitiveStringMapWrite::Preserve,
+                }),
+            })
+            .unwrap();
+
+        let canonical: Value = serde_json::from_slice(&fs::read(canonical_path).unwrap()).unwrap();
+        let legacy: Value = serde_json::from_slice(&fs::read(legacy_path).unwrap()).unwrap();
+        assert_eq!(canonical["mcpServers"]["duplicate"]["command"], "canonical");
+        assert_eq!(
+            legacy["mcpServers"]["duplicate"]["command"],
+            "updated-legacy"
         );
     }
 
@@ -2147,7 +2651,7 @@ mod tests {
         )
         .unwrap();
 
-        let AgentToolDefinition::McpServer(definition) = stdio("new") else {
+        let AgentToolDefinition::McpServer(definition) = native_stdio("new") else {
             unreachable!()
         };
         manager
@@ -2230,12 +2734,14 @@ mod tests {
 
         let invalid = service.create(CreateAgentToolRequest {
             target: locator(AgentToolProvider::Gemini, AgentToolKind::Skill, "escape"),
-            definition: AgentToolDefinition::Skill(SkillDefinition {
-                description: None,
-                files: vec![SkillFile {
-                    path: "../SKILL.md".into(),
-                    content_base64: BASE64.encode("bad"),
-                }],
+            definition: AgentToolWriteDefinition::Skill(SkillWriteDefinition::Replace {
+                value: SkillDefinition {
+                    description: None,
+                    files: vec![SkillFile {
+                        path: "../SKILL.md".into(),
+                        content_base64: BASE64.encode("bad"),
+                    }],
+                },
             }),
             replace: false,
             expected_revision: None,
@@ -2293,11 +2799,14 @@ mod tests {
             .unwrap();
         let disabled = service
             .set_enabled(ToggleAgentToolRequest {
-                target: locator(
-                    AgentToolProvider::ClaudeCode,
-                    AgentToolKind::Skill,
-                    "toggle",
-                ),
+                target: AgentToolLocator {
+                    installation_id: Some(tool_installation_id(&created)),
+                    ..locator(
+                        AgentToolProvider::ClaudeCode,
+                        AgentToolKind::Skill,
+                        "toggle",
+                    )
+                },
                 expected_revision: created.revision,
                 enabled: false,
             })
@@ -2308,7 +2817,7 @@ mod tests {
         let enabled = service
             .set_enabled(ToggleAgentToolRequest {
                 target: AgentToolLocator {
-                    native_path: Some(disabled.native_path.clone()),
+                    installation_id: Some(tool_installation_id(&disabled)),
                     ..locator(
                         AgentToolProvider::ClaudeCode,
                         AgentToolKind::Skill,
@@ -2415,10 +2924,110 @@ mod tests {
             Err(AgentToolError::StaleRevision)
         ));
         let replaced = copy(true, Some(target.revision)).unwrap();
-        let AgentToolDefinition::McpServer(definition) = replaced.item.definition else {
+        let AgentToolDefinitionSummary::McpServer(definition) = replaced.item.definition else {
             unreachable!()
         };
-        assert_eq!(definition.command.as_deref(), Some("source"));
+        assert_eq!(definition.command_display.as_deref(), Some("source"));
+    }
+
+    #[test]
+    fn mcp_copy_keeps_only_the_destination_providers_native_extensions() {
+        let (_root, service) = harness();
+        let source_locator = locator(
+            AgentToolProvider::Gemini,
+            AgentToolKind::McpServer,
+            "source-extensions",
+        );
+        service
+            .create(CreateAgentToolRequest {
+                target: source_locator.clone(),
+                definition: stdio("source-command"),
+                replace: false,
+                expected_revision: None,
+            })
+            .unwrap();
+        let source_path = service.home_dir.join(".gemini/settings.json");
+        let mut source_native: Value =
+            serde_json::from_slice(&fs::read(&source_path).unwrap()).unwrap();
+        source_native["mcpServers"]["source-extensions"]["source_extension"] =
+            Value::String("source-only-value".into());
+        fs::write(
+            &source_path,
+            serde_json::to_vec_pretty(&source_native).unwrap(),
+        )
+        .unwrap();
+        let source = service.get(&source_locator).unwrap();
+
+        let same_provider = service
+            .copy(CopyAgentToolRequest {
+                source: source_locator.clone(),
+                expected_revision: source.revision.clone(),
+                target_provider: AgentToolProvider::Gemini,
+                target_scope: AgentToolScope::User,
+                target_project_path: None,
+                target_name: Some("same-provider-copy".into()),
+                replace: false,
+                target_expected_revision: None,
+            })
+            .unwrap();
+        let same_provider_native: Value =
+            serde_json::from_slice(&fs::read(&source_path).unwrap()).unwrap();
+        assert_eq!(
+            same_provider_native["mcpServers"]["same-provider-copy"]["source_extension"],
+            "source-only-value"
+        );
+        assert!(
+            !serde_json::to_string(&same_provider)
+                .unwrap()
+                .contains("source-only-value")
+        );
+        let refreshed_source = service.get(&source_locator).unwrap();
+
+        let target_locator = locator(
+            AgentToolProvider::ClaudeCode,
+            AgentToolKind::McpServer,
+            "target-extensions",
+        );
+        service
+            .create(CreateAgentToolRequest {
+                target: target_locator.clone(),
+                definition: stdio("target-command"),
+                replace: false,
+                expected_revision: None,
+            })
+            .unwrap();
+        let target_path = service.home_dir.join(".claude.json");
+        let mut target_native: Value =
+            serde_json::from_slice(&fs::read(&target_path).unwrap()).unwrap();
+        target_native["mcpServers"]["target-extensions"]["target_extension"] =
+            Value::String("target-only-value".into());
+        fs::write(
+            &target_path,
+            serde_json::to_vec_pretty(&target_native).unwrap(),
+        )
+        .unwrap();
+        let target = service.get(&target_locator).unwrap();
+
+        let cross_provider = service
+            .copy(CopyAgentToolRequest {
+                source: source_locator,
+                expected_revision: refreshed_source.revision,
+                target_provider: AgentToolProvider::ClaudeCode,
+                target_scope: AgentToolScope::User,
+                target_project_path: None,
+                target_name: Some("target-extensions".into()),
+                replace: true,
+                target_expected_revision: Some(target.revision),
+            })
+            .unwrap();
+        let target_native: Value =
+            serde_json::from_slice(&fs::read(&target_path).unwrap()).unwrap();
+        let target_entry = &target_native["mcpServers"]["target-extensions"];
+        assert_eq!(target_entry["target_extension"], "target-only-value");
+        assert!(target_entry.get("source_extension").is_none());
+        let public_response = serde_json::to_string(&cross_provider).unwrap();
+        assert!(!public_response.contains("target-only-value"));
+        assert!(!public_response.contains("source-only-value"));
     }
 
     #[test]
@@ -2460,30 +3069,34 @@ mod tests {
                         target_expected_revision: None,
                     })
                     .unwrap();
-                let AgentToolDefinition::McpServer(definition) = copied.item.definition else {
+                let AgentToolDefinitionSummary::McpServer(definition) = copied.item.definition
+                else {
                     panic!("expected MCP definition")
                 };
-                assert_eq!(definition.command.as_deref(), Some("npx"));
-                assert_eq!(
-                    definition.env.get("RAW_TOKEN").map(String::as_str),
-                    Some("${TOKEN}")
-                );
+                assert_eq!(definition.command_display.as_deref(), Some("npx"));
+                assert_eq!(definition.env_count, 1);
 
-                let copied_skill = service
+                service
                     .copy(CopyAgentToolRequest {
                         source: locator(source_provider, AgentToolKind::Skill, &source_name),
                         expected_revision: source_skill.revision.clone(),
                         target_provider,
                         target_scope: AgentToolScope::User,
                         target_project_path: None,
-                        target_name: Some(target_name),
+                        target_name: Some(target_name.clone()),
                         replace: false,
                         target_expected_revision: None,
                     })
                     .unwrap();
+                let copied_skill = service
+                    .get(&locator(
+                        target_provider,
+                        AgentToolKind::Skill,
+                        &target_name,
+                    ))
+                    .unwrap();
                 assert_eq!(
-                    fs::read(Path::new(&copied_skill.item.native_path).join("assets/icon.bin"))
-                        .unwrap(),
+                    fs::read(Path::new(&copied_skill.native_path).join("assets/icon.bin")).unwrap(),
                     [0, 159, 146, 150, 255]
                 );
             }
@@ -2522,5 +3135,141 @@ mod tests {
         )
         .unwrap();
         assert_eq!(native["mcpServers"]["native-toggle"]["enabled"], false);
+    }
+
+    #[test]
+    fn public_tool_views_redact_native_mcp_and_skill_payloads() {
+        let secret = "do-not-project-this-secret";
+        let mcp = AgentTool {
+            provider: AgentToolProvider::Codex,
+            scope: AgentToolScope::User,
+            kind: AgentToolKind::McpServer,
+            name: "safe-name".into(),
+            native_path: "C:/Users/private/.codex/config.toml".into(),
+            state: AgentToolState::Enabled,
+            capabilities: AgentToolCapabilities::default(),
+            revision: "revision".into(),
+            definition: AgentToolDefinition::McpServer(McpServerDefinition {
+                transport: McpTransport::Http,
+                command: Some(format!("C:/private/{secret}/server.exe")),
+                args: vec!["--token".into(), secret.into()],
+                cwd: Some(format!("C:/private/{secret}")),
+                env: BTreeMap::from([("TOKEN".into(), secret.into())]),
+                url: Some(format!(
+                    "https://user:{secret}@example.com/mcp?token={secret}#x"
+                )),
+                headers: BTreeMap::from([("Authorization".into(), secret.into())]),
+                source_metadata: serde_json::json!({ "provider_secret": secret }),
+            }),
+            error: None,
+        };
+        let payload = serde_json::to_string(&AgentToolView::from(mcp)).unwrap();
+        assert!(!payload.contains(secret));
+        assert!(!payload.contains("C:/Users/private"));
+        assert!(payload.contains("https://example.com"));
+        assert!(!payload.contains("userinfo"));
+
+        let skill = AgentTool {
+            provider: AgentToolProvider::Gemini,
+            scope: AgentToolScope::User,
+            kind: AgentToolKind::Skill,
+            name: "safe-skill".into(),
+            native_path: "C:/private/skill".into(),
+            state: AgentToolState::Enabled,
+            capabilities: AgentToolCapabilities::default(),
+            revision: "revision".into(),
+            definition: AgentToolDefinition::Skill(SkillDefinition {
+                description: Some(secret.into()),
+                files: vec![SkillFile {
+                    path: "SKILL.md".into(),
+                    content_base64: BASE64.encode(secret),
+                }],
+            }),
+            error: None,
+        };
+        assert!(
+            !serde_json::to_string(&AgentToolView::from(skill))
+                .unwrap()
+                .contains(secret)
+        );
+    }
+
+    #[test]
+    fn mcp_write_only_fields_preserve_replace_and_clear_native_values() {
+        let (_root, service) = harness();
+        let target = locator(
+            AgentToolProvider::Gemini,
+            AgentToolKind::McpServer,
+            "write-only",
+        );
+        let created = service
+            .create(CreateAgentToolRequest {
+                target: target.clone(),
+                definition: AgentToolWriteDefinition::McpServer(McpServerWriteDefinition {
+                    transport: McpTransport::Stdio,
+                    command: SensitiveStringWrite::Replace {
+                        value: "original-command".into(),
+                    },
+                    args: SensitiveStringListWrite::Replace {
+                        value: vec!["--token".into(), "original-secret".into()],
+                    },
+                    cwd: SensitiveStringWrite::Replace {
+                        value: "C:/private/work".into(),
+                    },
+                    env: SensitiveStringMapWrite::Replace {
+                        value: BTreeMap::from([("TOKEN".into(), "original-secret".into())]),
+                    },
+                    url: SensitiveStringWrite::Clear,
+                    headers: SensitiveStringMapWrite::Clear,
+                }),
+                replace: false,
+                expected_revision: None,
+            })
+            .unwrap();
+
+        let preserved = service
+            .update(UpdateAgentToolRequest {
+                target: target.clone(),
+                expected_revision: created.revision,
+                definition: AgentToolWriteDefinition::McpServer(McpServerWriteDefinition {
+                    transport: McpTransport::Stdio,
+                    command: SensitiveStringWrite::Preserve,
+                    args: SensitiveStringListWrite::Preserve,
+                    cwd: SensitiveStringWrite::Preserve,
+                    env: SensitiveStringMapWrite::Preserve,
+                    url: SensitiveStringWrite::Preserve,
+                    headers: SensitiveStringMapWrite::Preserve,
+                }),
+            })
+            .unwrap();
+        let native = service.get(&target).unwrap();
+        let AgentToolDefinition::McpServer(native) = native.definition else {
+            unreachable!()
+        };
+        assert_eq!(native.command.as_deref(), Some("original-command"));
+        assert_eq!(native.args[1], "original-secret");
+        assert_eq!(native.env["TOKEN"], "original-secret");
+
+        service
+            .update(UpdateAgentToolRequest {
+                target,
+                expected_revision: preserved.revision,
+                definition: AgentToolWriteDefinition::McpServer(McpServerWriteDefinition {
+                    transport: McpTransport::Stdio,
+                    command: SensitiveStringWrite::Replace {
+                        value: "replacement-command".into(),
+                    },
+                    args: SensitiveStringListWrite::Clear,
+                    cwd: SensitiveStringWrite::Clear,
+                    env: SensitiveStringMapWrite::Clear,
+                    url: SensitiveStringWrite::Clear,
+                    headers: SensitiveStringMapWrite::Clear,
+                }),
+            })
+            .unwrap();
+        let content = fs::read_to_string(service.home_dir.join(".gemini/settings.json")).unwrap();
+        assert!(content.contains("replacement-command"));
+        assert!(!content.contains("original-secret"));
+        assert!(!content.contains("C:/private/work"));
     }
 }

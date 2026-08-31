@@ -240,6 +240,7 @@ pub struct SettingDescriptor {
     pub capabilities: SettingCapabilities,
     pub native_locations: Vec<NativeSettingLocation>,
     pub activation: SettingActivation,
+    pub sensitive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -264,8 +265,6 @@ pub struct NativeConfigFile {
     pub writable: bool,
     pub raw_editable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw_content: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -274,7 +273,9 @@ pub struct SettingSourceValue {
     pub source: String,
     pub scope: SettingScope,
     pub file_id: String,
-    pub value: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+    pub configured: bool,
     pub revision: String,
 }
 
@@ -287,6 +288,7 @@ pub struct EffectiveSetting {
     pub effective_value: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effective_source: Option<String>,
+    pub configured: bool,
     #[serde(default)]
     pub warnings: Vec<String>,
 }
@@ -295,7 +297,7 @@ pub struct EffectiveSetting {
 pub struct UnknownNativeNode {
     pub file_id: String,
     pub native_path: String,
-    pub value: Value,
+    pub value_kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -329,6 +331,26 @@ pub struct SettingsSnapshot {
     pub errors: Vec<AgentSettingIssue>,
 }
 
+impl SettingsSnapshot {
+    fn with_sensitive_values_redacted(mut self) -> Self {
+        let sensitive_keys: BTreeSet<_> = self
+            .descriptors
+            .iter()
+            .filter(|descriptor| descriptor.sensitive)
+            .map(|descriptor| descriptor.key.id())
+            .collect();
+        for setting in &mut self.effective_settings {
+            if sensitive_keys.contains(&setting.key.id()) {
+                setting.effective_value = None;
+                for source in &mut setting.sources {
+                    source.value = None;
+                }
+            }
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct AgentSettingsInventory {
     pub providers: Vec<SettingsSnapshot>,
@@ -345,12 +367,16 @@ pub struct AgentSettingsProviderError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum SettingOperation {
-    Set {
+    Preserve {
+        key: SettingKey,
+        scope: SettingScope,
+    },
+    Replace {
         key: SettingKey,
         scope: SettingScope,
         value: Value,
     },
-    Unset {
+    Clear {
         key: SettingKey,
         scope: SettingScope,
     },
@@ -369,8 +395,6 @@ pub struct SettingsPatch {
 pub struct NativeFileDiff {
     pub file_id: String,
     pub path: String,
-    pub before: String,
-    pub after: String,
     pub changed: bool,
 }
 
@@ -895,7 +919,7 @@ fn profile_patch(profile: ConfigProfile, request: &ProfileApplyPreviewRequest) -
             .into_iter()
             .filter_map(|(key, value)| {
                 let (namespace, name) = key.split_once('.')?;
-                Some(SettingOperation::Set {
+                Some(SettingOperation::Replace {
                     key: SettingKey::new(namespace, name),
                     scope: request.scope,
                     value,
@@ -1074,6 +1098,13 @@ impl ProviderSettingsManager {
     }
 
     pub fn discover(&self) -> Result<SettingsSnapshot, AgentSettingError> {
+        self.discover_with_sensitive_values(false)
+    }
+
+    fn discover_with_sensitive_values(
+        &self,
+        include_sensitive_values: bool,
+    ) -> Result<SettingsSnapshot, AgentSettingError> {
         self.validate_project_path()?;
         let descriptors = self.descriptors();
         let parsed_files: Vec<_> = self
@@ -1128,19 +1159,19 @@ impl ProviderSettingsManager {
                 },
                 revision: Some(file.revision.clone()),
                 writable: file.spec.writable,
-                raw_editable: file.spec.raw_editable,
-                raw_content: file
-                    .spec
-                    .raw_editable
-                    .then(|| file.content.clone())
-                    .filter(|_| file.bytes.is_some()),
+                // Raw files can mix settings, credentials, and unknown
+                // provider nodes. Until a field-level raw editor exists they
+                // are never exposed as browser-editable.
+                raw_editable: false,
                 error: file.error.clone(),
             });
         }
 
         let effective_settings = descriptors
             .iter()
-            .map(|descriptor| effective_setting(descriptor, &parsed_files))
+            .map(|descriptor| {
+                effective_setting(descriptor, &parsed_files, include_sensitive_values)
+            })
             .collect();
         let unknown_native_nodes = unknown_native_nodes(&descriptors, &parsed_files);
 
@@ -1159,7 +1190,7 @@ impl ProviderSettingsManager {
                 per_run_overrides: descriptors
                     .iter()
                     .any(|descriptor| descriptor.capabilities.run_override),
-                raw_editable: parsed_files.iter().any(|file| file.spec.raw_editable),
+                raw_editable: false,
             },
             descriptors,
             native_files,
@@ -1216,13 +1247,6 @@ impl ProviderSettingsManager {
                 .map(|file| NativeFileDiff {
                     file_id: file.spec.id,
                     path: file.spec.path.display().to_string(),
-                    before: file
-                        .before
-                        .as_deref()
-                        .map(String::from_utf8_lossy)
-                        .unwrap_or_default()
-                        .into_owned(),
-                    after: String::from_utf8_lossy(&file.after).into_owned(),
                     changed: file.before.as_deref() != Some(file.after.as_slice()),
                 })
                 .collect(),
@@ -1236,10 +1260,12 @@ impl ProviderSettingsManager {
     pub fn apply(&self, patch: &SettingsPatch) -> Result<SettingsSnapshot, AgentSettingError> {
         let rendered = self.render_patch(patch)?;
         write_all_or_restore(&rendered)?;
-        match self.discover().and_then(|snapshot| {
-            verify_operations(&snapshot, &patch.operations)?;
-            Ok(snapshot)
-        }) {
+        match self
+            .discover_with_sensitive_values(true)
+            .and_then(|snapshot| {
+                verify_operations(&snapshot, &patch.operations)?;
+                Ok(snapshot.with_sensitive_values_redacted())
+            }) {
             Ok(snapshot) => Ok(snapshot),
             Err(error) => match rollback_files(&rendered) {
                 Ok(()) => Err(error),
@@ -1260,14 +1286,7 @@ impl ProviderSettingsManager {
             files: vec![NativeFileDiff {
                 file_id: rendered.spec.id,
                 path: rendered.spec.path.display().to_string(),
-                before: rendered
-                    .before
-                    .as_deref()
-                    .map(String::from_utf8_lossy)
-                    .unwrap_or_default()
-                    .into_owned(),
                 changed: rendered.before.as_deref() != Some(rendered.after.as_slice()),
-                after: String::from_utf8_lossy(&rendered.after).into_owned(),
             }],
             warnings: vec![
                 "Raw editing can change provider-native fields that Vibe Kanban does not interpret."
@@ -1323,19 +1342,31 @@ impl ProviderSettingsManager {
         let mut file_operations: BTreeMap<String, Vec<&SettingOperation>> = BTreeMap::new();
         for operation in &patch.operations {
             let (key, scope, value) = match operation {
-                SettingOperation::Set { key, scope, value } => (key, *scope, Some(value)),
-                SettingOperation::Unset { key, scope } => (key, *scope, None),
+                SettingOperation::Preserve { key, scope } => (key, *scope, None),
+                SettingOperation::Replace { key, scope, value } => (key, *scope, Some(value)),
+                SettingOperation::Clear { key, scope } => (key, *scope, None),
             };
             let key_id = key.id();
             let descriptor = by_key.get(&key_id).ok_or_else(|| {
                 AgentSettingError::ValidationFailed(format!("unknown setting {key_id}"))
             })?;
+            if matches!(operation, SettingOperation::Preserve { .. }) {
+                if !descriptor.supported_scopes.contains(&scope) {
+                    return Err(AgentSettingError::Unsupported(format!(
+                        "{key_id} is not available at {} scope",
+                        scope.label()
+                    )));
+                }
+                continue;
+            }
             if !descriptor.capabilities.writable {
                 return Err(AgentSettingError::Unsupported(format!(
                     "{key_id} is read-only"
                 )));
             }
-            if value.is_none() && !descriptor.capabilities.resettable {
+            if matches!(operation, SettingOperation::Clear { .. })
+                && !descriptor.capabilities.resettable
+            {
                 return Err(AgentSettingError::Unsupported(format!(
                     "{key_id} cannot be reset"
                 )));
@@ -1384,10 +1415,13 @@ impl ProviderSettingsManager {
                 &parsed.content,
                 operations.into_iter().map(|operation| {
                     let (key, scope, value) = match operation {
-                        SettingOperation::Set { key, scope, value } => {
+                        SettingOperation::Replace { key, scope, value } => {
                             (key, *scope, Some(value.clone()))
                         }
-                        SettingOperation::Unset { key, scope } => (key, *scope, None),
+                        SettingOperation::Clear { key, scope } => (key, *scope, None),
+                        SettingOperation::Preserve { .. } => {
+                            unreachable!("preserve operations do not render files")
+                        }
                     };
                     let descriptor = by_key
                         .get(&key.id())
@@ -1522,6 +1556,7 @@ fn descriptor(
             })
             .collect(),
         activation: SettingActivation::NextSession,
+        sensitive: section == SettingSection::Environment,
     }
 }
 
@@ -2250,6 +2285,7 @@ fn value_at_path<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
 fn effective_setting(
     descriptor: &SettingDescriptor,
     files: &[ParsedNativeFile],
+    include_sensitive_values: bool,
 ) -> EffectiveSetting {
     let mut sources = Vec::new();
     let mut warnings = Vec::new();
@@ -2274,7 +2310,8 @@ fn effective_setting(
                 source: format!("native_{}", location.scope.label()),
                 scope: location.scope,
                 file_id: file.spec.id.clone(),
-                value: value.clone(),
+                value: (!descriptor.sensitive || include_sensitive_values).then(|| value.clone()),
+                configured: true,
                 revision: file.revision.clone(),
             });
         }
@@ -2285,8 +2322,9 @@ fn effective_setting(
     let effective = sources.last();
     EffectiveSetting {
         key: descriptor.key.clone(),
-        effective_value: effective.map(|source| source.value.clone()),
+        effective_value: effective.and_then(|source| source.value.clone()),
         effective_source: effective.map(|source| source.source.clone()),
+        configured: effective.is_some(),
         sources,
         warnings,
     }
@@ -2317,12 +2355,23 @@ fn unknown_native_nodes(
                 output.push(UnknownNativeNode {
                     file_id: file.spec.id.clone(),
                     native_path: path,
-                    value,
+                    value_kind: json_value_kind(&value).to_string(),
                 });
             }
         }
     }
     output
+}
+
+fn json_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 fn collect_leaf_nodes(value: &Value, prefix: String, output: &mut Vec<(String, Value)>) {
@@ -2432,8 +2481,9 @@ fn verify_operations(
 ) -> Result<(), AgentSettingError> {
     for operation in operations {
         let (key, scope, expected) = match operation {
-            SettingOperation::Set { key, scope, value } => (key, scope, Some(value)),
-            SettingOperation::Unset { key, scope } => (key, scope, None),
+            SettingOperation::Preserve { .. } => continue,
+            SettingOperation::Replace { key, scope, value } => (key, scope, Some(value)),
+            SettingOperation::Clear { key, scope } => (key, scope, None),
         };
         let observed = snapshot
             .effective_settings
@@ -2441,7 +2491,9 @@ fn verify_operations(
             .find(|setting| setting.key == *key)
             .and_then(|setting| setting.sources.iter().find(|source| source.scope == *scope));
         let matches = match expected {
-            Some(expected) => observed.is_some_and(|source| source.value == *expected),
+            Some(expected) => observed
+                .and_then(|source| source.value.as_ref())
+                .is_some_and(|value| value == expected),
             None => observed.is_none(),
         };
         if !matches {
@@ -2641,19 +2693,22 @@ mod tests {
             project_path: Some(harness.project.display().to_string()),
             expected_file_revisions: BTreeMap::from([("user_config".into(), revision)]),
             operations: vec![
-                SettingOperation::Set {
+                SettingOperation::Replace {
                     key: SettingKey::new("common", "model"),
                     scope: SettingScope::User,
                     value: json!("gpt-5.6"),
                 },
-                SettingOperation::Unset {
+                SettingOperation::Clear {
                     key: SettingKey::new("codex", "web_search"),
                     scope: SettingScope::User,
                 },
             ],
         };
         let diff = manager.diff(&patch).unwrap();
-        assert!(diff.files[0].after.contains("# user comment"));
+        assert!(diff.files[0].changed);
+        let public_diff = serde_json::to_string(&diff).unwrap();
+        assert!(!public_diff.contains("# user comment"));
+        assert!(!public_diff.contains("gpt-5.6"));
         let result = manager.apply(&patch).unwrap();
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("# user comment"));
@@ -2684,7 +2739,7 @@ mod tests {
             provider: AgentSettingsProvider::ClaudeCode,
             project_path: Some(harness.project.display().to_string()),
             expected_file_revisions: BTreeMap::from([("user_settings".into(), revision)]),
-            operations: vec![SettingOperation::Set {
+            operations: vec![SettingOperation::Replace {
                 key: SettingKey::new("common", "model"),
                 scope: SettingScope::User,
                 value: json!("requested"),
@@ -2736,7 +2791,7 @@ mod tests {
                     provider,
                     project_path: Some(harness.project.display().to_string()),
                     expected_file_revisions: BTreeMap::from([(file_id.into(), revision)]),
-                    operations: vec![SettingOperation::Set {
+                    operations: vec![SettingOperation::Replace {
                         key,
                         scope: SettingScope::User,
                         value,
@@ -2814,7 +2869,8 @@ mod tests {
                 expected_file_revisions: BTreeMap::from([("user_config".into(), revision)]),
             })
             .unwrap();
-        assert!(preview.files[0].after.contains("gpt-5.6"));
+        assert!(preview.files[0].changed);
+        assert!(!serde_json::to_string(&preview).unwrap().contains("gpt-5.6"));
 
         harness
             .service

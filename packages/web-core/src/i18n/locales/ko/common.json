@@ -883,6 +883,10 @@
       "nativeProject": "프로젝트 네이티브 설정"
     },
     "security": {
+      "sensitiveValueConfigured": "Configured value hidden",
+      "sensitiveValueNotConfigured": "Not configured",
+      "clearSensitiveValue": "Clear stored value",
+      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
       "sensitiveSettingUnavailable": "기존 민감한 값은 숨겨집니다. Settings Adapter가 안전한 쓰기 전용 업데이트를 지원할 때까지 Agent 네이티브 편집기를 사용하세요.",
       "nativeFilesUnavailable": "네이티브 파일에 자격 증명이 포함될 수 있으므로 원시 파일 편집을 사용할 수 없습니다. 민감하지 않은 형식화된 설정은 계속 편집할 수 있습니다.",
       "effectiveValueHidden": "저장된 값 숨김",
@@ -1003,6 +1007,11 @@
         "target": "대상 Provider",
         "adapterNotice": "대상 Adapter가 정의를 네이티브 형식으로 변환합니다. 변환 경고는 복사 후 표시됩니다.",
         "replaceWarning": "{{provider}}의 같은 범위에 {{name}}이(가) 있습니다. 계속하면 해당 설치를 교체합니다."
+      },
+      "security": {
+        "configured": "Configured",
+        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
+        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
       },
       "disabled": {
         "operationPending": "다른 도구 작업이 진행 중입니다.",

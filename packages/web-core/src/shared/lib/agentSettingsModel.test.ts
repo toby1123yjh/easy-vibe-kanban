@@ -21,7 +21,7 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
       native_writable: true,
       profile_storage: true,
       per_run_overrides: true,
-      raw_editable: true,
+      raw_editable: false,
     },
     descriptors: [
       {
@@ -43,6 +43,7 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
         },
         native_locations: [],
         activation: 'next_session',
+        sensitive: false,
       },
     ],
     native_files: [
@@ -55,8 +56,7 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
         parse_status: 'parsed',
         revision: 'rev-1',
         writable: true,
-        raw_editable: true,
-        raw_content: 'model = "old"',
+        raw_editable: false,
       },
     ],
     effective_settings: [
@@ -65,6 +65,7 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
         sources: [],
         effective_value: 'old',
         effective_source: 'user',
+        configured: true,
         warnings: [],
       },
     ],
@@ -107,7 +108,7 @@ describe('agent settings model', () => {
     const current = snapshot();
     const draft = createAgentSettingsDraft(current);
     draft['common.model'] = {
-      action: 'set',
+      action: 'replace',
       value: 'new-model',
       raw: 'new-model',
     };
@@ -116,7 +117,7 @@ describe('agent settings model', () => {
     expect(patch.expected_file_revisions).toEqual({ 'user-config': 'rev-1' });
     expect(patch.operations).toEqual([
       {
-        type: 'set',
+        type: 'replace',
         data: {
           key: { namespace: 'common', name: 'model' },
           scope: 'user',
@@ -125,16 +126,16 @@ describe('agent settings model', () => {
       },
     ]);
 
-    draft['common.model'] = { action: 'unset', raw: '' };
+    draft['common.model'] = { action: 'clear', raw: '' };
     expect(
       buildAgentSettingsPatch(current, draft, 'user').operations[0]
     ).toMatchObject({
-      type: 'unset',
+      type: 'clear',
     });
 
     current.descriptors[0].supported_scopes = ['user'];
     draft['common.model'] = {
-      action: 'set',
+      action: 'replace',
       value: 'project-model',
       raw: 'project-model',
     };
@@ -155,12 +156,12 @@ describe('agent settings model', () => {
           parse_status: 'missing',
           revision: null,
           writable: true,
-          raw_editable: true,
+          raw_editable: false,
         },
       ],
     });
     const draft = createAgentSettingsDraft(current);
-    draft['common.model'] = { action: 'unset', raw: '' };
+    draft['common.model'] = { action: 'clear', raw: '' };
     expect(
       buildAgentSettingsPatch(current, draft, 'user').expected_file_revisions
     ).toEqual({
@@ -189,13 +190,25 @@ describe('agent settings model', () => {
           {
             file_id: 'f',
             path: 'config.toml',
-            before: 'a',
-            after: 'b',
             changed: true,
           },
         ],
         warnings: [],
       })
     ).toBe(true);
+  });
+
+  it('keeps sensitive values out of the browser draft', () => {
+    const current = snapshot();
+    current.descriptors[0].sensitive = true;
+    current.effective_settings[0].effective_value = null;
+    current.effective_settings[0].configured = true;
+    const draft = createAgentSettingsDraft(current);
+    expect(draft['common.model']).toEqual({
+      action: 'preserve',
+      value: null,
+      raw: '',
+    });
+    expect(JSON.stringify(draft)).not.toContain('old');
   });
 });

@@ -883,6 +883,10 @@
       "nativeProject": "プロジェクトのネイティブ設定"
     },
     "security": {
+      "sensitiveValueConfigured": "Configured value hidden",
+      "sensitiveValueNotConfigured": "Not configured",
+      "clearSensitiveValue": "Clear stored value",
+      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
       "sensitiveSettingUnavailable": "既存の機密値は非表示です。Settings Adapter が安全な書き込み専用更新に対応するまでは、Agent のネイティブエディターを使用してください。",
       "nativeFilesUnavailable": "ネイティブファイルには認証情報が含まれる可能性があるため、raw 編集は利用できません。機密でない型付き設定は引き続き編集できます。",
       "effectiveValueHidden": "保存値は非表示です",
@@ -1010,6 +1014,11 @@
         "target": "コピー先 Provider",
         "adapterNotice": "コピー先 Adapter が定義をネイティブ形式へ変換します。変換時の警告はコピー後に表示されます。",
         "replaceWarning": "{{provider}} の同じスコープに {{name}} があります。続行すると置き換えます。"
+      },
+      "security": {
+        "configured": "Configured",
+        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
+        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
       },
       "disabled": {
         "operationPending": "別のツール操作を実行中です。",
