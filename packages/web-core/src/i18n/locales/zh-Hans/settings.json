@@ -43,6 +43,16 @@
         "hostOffline": "请先重新连接此主机，再查看或修改它的设置。",
         "noHost": "请选择一台可用主机来管理主机设置。"
       },
+      "version": {
+        "title": "版本与更新",
+        "description": "查看此主机报告的版本和已下载的桌面更新。",
+        "current": "当前版本",
+        "unknown": "不可用",
+        "update": "已下载的更新",
+        "ready": "版本 {{version}} 已准备好安装。",
+        "notReady": "没有可安装的已下载更新。此处暂不支持检查更新和更新通道。",
+        "restart": "重启并安装"
+      },
       "unavailable": {
         "title": "规划中的设置",
         "description": "这些设置暂不可配置，当前仅用于明确产品范围。",

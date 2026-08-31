@@ -5,6 +5,7 @@ import type { AppShellCapabilityAdapter } from "@/features/app-shell/model/appSh
 import { useAppNavigation } from "@/shared/hooks/useAppNavigation";
 import { useUserSystem } from "@/shared/hooks/useUserSystem";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
+import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
 import { CloudShutdownExportBanner } from "@/shared/components/CloudShutdownExportBanner";
 
 interface RemoteAppShellProps {
@@ -17,6 +18,7 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
   const appNavigation = useAppNavigation();
   const { appVersion, environment } = useUserSystem();
   const { isSignedIn } = useAuth();
+  const { openSettings } = useSettingsNavigation();
   const showCloudShutdownBanner =
     location.pathname === "/export" ||
     (isSignedIn && /^\/projects\/[^/]+/.test(location.pathname));
@@ -74,10 +76,10 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
         else if (route === "/projects") void navigate({ to: "/projects" });
         else if (route === "/workflows") void navigate({ to: "/workflows" });
       },
-      openSettings: () => void navigate({ to: "/settings" }),
+      openSettings: () => openSettings(),
       openUser: () => void navigate({ to: "/account" }),
     }),
-    [appNavigation, appVersion, environment, navigate],
+    [appNavigation, appVersion, environment, navigate, openSettings],
   );
 
   return (

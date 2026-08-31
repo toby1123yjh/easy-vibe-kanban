@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
-import { SettingsDialog } from "@/shared/dialogs/settings/SettingsDialog";
+import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
 
 interface BlockedHostState {
   id: string;
@@ -18,6 +18,7 @@ export default function WorkspacesUnavailablePage({
   isCheckingBlockedHost = false,
 }: WorkspacesUnavailablePageProps) {
   const { hostId } = useParams({ strict: false });
+  const { openSettings } = useSettingsNavigation();
 
   const selectedHostId = useMemo(
     () => blockedHost?.id ?? hostId ?? null,
@@ -32,9 +33,7 @@ export default function WorkspacesUnavailablePage({
   const isBlockedHostState = Boolean(blockedHost);
 
   const openRelaySettings = () => {
-    void SettingsDialog.show({
-      initialSection: "relay",
-    });
+    openSettings("relay", { hostId: selectedHostId });
   };
 
   return (

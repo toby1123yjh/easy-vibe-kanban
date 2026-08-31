@@ -3,7 +3,7 @@ import { CheckIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -39,6 +39,7 @@ export function WorkflowAgentExecutorField({
   onChange,
 }: WorkflowAgentExecutorFieldProps) {
   const { t } = useTranslation('common');
+  const { openAgentCenter } = useSettingsNavigation();
   const { profiles, config } = useUserSystem();
   const [hasExplicitSelection, setHasExplicitSelection] = useState(false);
   const storedExecutorConfig = useMemo(
@@ -143,9 +144,7 @@ export function WorkflowAgentExecutorField({
             <ModelSelectorContainer
               agent={selectedExecutor}
               workspaceId={undefined}
-              onAdvancedSettings={() =>
-                SettingsDialog.show({ initialSection: 'agents' })
-              }
+              onAdvancedSettings={openAgentCenter}
               presets={variantOptions}
               selectedPreset={selectedVariant}
               onPresetSelect={setVariant}

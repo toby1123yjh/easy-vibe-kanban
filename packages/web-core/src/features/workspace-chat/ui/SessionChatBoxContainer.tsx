@@ -69,7 +69,7 @@ import {
   isActionVisible,
   type ActionDefinition,
 } from '@/shared/types/actions';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
@@ -164,6 +164,7 @@ type SessionChatBoxContainerProps =
   | PlaceholderProps;
 
 export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
+  const { openAgentCenter } = useSettingsNavigation();
   const {
     mode,
     sessions,
@@ -541,7 +542,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Navigate to agent settings to customise variants
   const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
+    openAgentCenter();
   };
 
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);

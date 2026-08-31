@@ -10,6 +10,7 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { GeneralSettingsSection } from '@/shared/dialogs/settings/settings/GeneralSettingsSection';
 import { OrganizationsSettingsSection } from '@/shared/dialogs/settings/settings/OrganizationsSettingsSection';
 import { RelaySettingsSectionContent } from '@/shared/dialogs/settings/settings/RelaySettingsSection';
@@ -24,6 +25,8 @@ import {
 import { useSettingsDirty } from '@/shared/dialogs/settings/settings/SettingsDirtyContext';
 import { SettingsMachineUserSystemProvider } from '@/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
 import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
+import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { useAppUpdateStore } from '@/shared/stores/useAppUpdateStore';
 import {
   isCanonicalSettingsSearch,
   resolveSettingsRoute,
@@ -170,7 +173,14 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
 
   const navigateTo = (next: ResolvedSettingsRoute) => {
     if (next.tab === route.tab && next.section === route.section) return;
-    void runAfterDirtyConfirmation(() => onSearchChange(next), true);
+    void runAfterDirtyConfirmation(
+      () =>
+        onSearchChange({
+          ...next,
+          ...(route.host ? { host: route.host } : {}),
+        }),
+      true
+    );
   };
 
   if (!hostsResolved) {
@@ -211,7 +221,10 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
               onChange={(event) => {
                 const hostId = event.target.value;
                 if (hostId === selectedHostId) return;
-                void runAfterDirtyConfirmation(() => setSelectedHostId(hostId));
+                void runAfterDirtyConfirmation(() => {
+                  setSelectedHostId(hostId);
+                  onSearchChange({ ...route, host: hostId });
+                }, true);
               }}
             >
               {availableHosts.map((host) => (
@@ -272,6 +285,7 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
           <SettingsContent
             key={`${selectedHostId ?? 'unselected'}:${route.section}`}
             section={route.section}
+            hostId={route.host}
           />
         )}
       </div>
@@ -279,19 +293,26 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
   );
 }
 
-function SettingsContent({ section }: { section: SettingsSection }) {
+function SettingsContent({
+  section,
+  hostId,
+}: {
+  section: SettingsSection;
+  hostId?: string;
+}) {
   switch (section) {
     case 'application':
       return (
         <>
           <GeneralSettingsSection includeAgentSettings={false} />
+          <VersionSettings />
           <UnavailableSettings />
         </>
       );
     case 'repositories':
       return <ReposSettingsSection />;
     case 'relay':
-      return <RelaySettingsContent />;
+      return <RelaySettingsContent hostId={hostId} />;
     case 'organizations':
       return <OrganizationsSettingsSection />;
     case 'projects':
@@ -299,11 +320,63 @@ function SettingsContent({ section }: { section: SettingsSection }) {
   }
 }
 
-function RelaySettingsContent() {
+function VersionSettings() {
+  const { t } = useTranslation('settings');
+  const runtime = useAppRuntime();
+  const { selectedHost } = useSettingsHost();
+  const { appVersion } = useUserSystem();
+  const updateVersion = useAppUpdateStore((state) => state.updateVersion);
+  const restart = useAppUpdateStore((state) => state.restart);
+  const canInstallUpdate =
+    runtime === 'local' &&
+    selectedHost?.kind === 'local' &&
+    Boolean(updateVersion && restart);
+
+  return (
+    <SettingsCard
+      title={t('settings.page.version.title', 'Version and updates')}
+      description={t(
+        'settings.page.version.description',
+        'Review the version reported by this host and any downloaded desktop update.'
+      )}
+    >
+      <div className="vk-settings-page__version-row">
+        <div>
+          <span>{t('settings.page.version.current', 'Current version')}</span>
+          <strong>
+            {appVersion || t('settings.page.version.unknown', 'Unavailable')}
+          </strong>
+        </div>
+        <div>
+          <span>{t('settings.page.version.update', 'Downloaded update')}</span>
+          <p>
+            {canInstallUpdate
+              ? t(
+                  'settings.page.version.ready',
+                  'Version {{version}} is ready to install.',
+                  { version: updateVersion }
+                )
+              : t(
+                  'settings.page.version.notReady',
+                  'No downloaded update is ready. Update checks and channels are unavailable here.'
+                )}
+          </p>
+        </div>
+        {canInstallUpdate && (
+          <PrimaryButton onClick={() => restart?.()}>
+            {t('settings.page.version.restart', 'Restart and install')}
+          </PrimaryButton>
+        )}
+      </div>
+    </SettingsCard>
+  );
+}
+
+function RelaySettingsContent({ hostId }: { hostId?: string }) {
   const runtime = useAppRuntime();
 
   if (runtime !== 'local') {
-    return <RelaySettingsSectionContent />;
+    return <RelaySettingsSectionContent initialState={{ hostId }} />;
   }
 
   // Local Relay APIs always address this process. Isolate the section from

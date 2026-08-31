@@ -22,7 +22,7 @@ function SettingsRoute() {
 
   return (
     <SettingsDirtyProvider>
-      <SettingsHostProvider>
+      <SettingsHostProvider initialHostId={search.host}>
         <SettingsMachineUserSystemProvider>
           <SettingsPage search={search} onSearchChange={handleSearchChange} />
         </SettingsMachineUserSystemProvider>

@@ -10,7 +10,10 @@ import type { Workspace as RemoteWorkspace } from 'shared/remote-types';
 import type { DiffViewMode } from '@/shared/stores/useDiffViewStore';
 import type { LayoutMode } from '@/shared/stores/useUiPreferencesStore';
 import { RIGHT_MAIN_PANEL_MODES } from '@/shared/stores/useUiPreferencesStore';
-import type { AppNavigation } from '@/shared/lib/routes/appNavigation';
+import type {
+  AppNavigation,
+  SettingsNavigationSection,
+} from '@/shared/lib/routes/appNavigation';
 import type { ProjectIssueCreateOptions } from '@/shared/stores/useKanbanIssueComposerStore';
 import type { AppRuntime } from '@/shared/hooks/useAppRuntime';
 
@@ -56,6 +59,10 @@ export interface ActionExecutorContext {
   appRuntime: AppRuntime;
   currentHostId: string | null;
   appNavigation: AppNavigation;
+  openSettings: (
+    section: SettingsNavigationSection,
+    options?: { hostId?: string | null; replace?: boolean }
+  ) => void;
   queryClient: QueryClient;
   selectWorkspace: (workspaceId: string) => void;
   activeWorkspaces: SidebarWorkspace[];

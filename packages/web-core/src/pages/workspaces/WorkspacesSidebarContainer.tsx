@@ -21,7 +21,7 @@ import {
 } from '@/shared/stores/useUiPreferencesStore';
 import type { Workspace } from '@/shared/hooks/useWorkspaces';
 import { CommandBarDialog } from '@/shared/dialogs/command-bar/CommandBarDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import {
   WorkspacesSidebar,
   type WorkspacesSidebarPersistKeys,
@@ -254,6 +254,7 @@ function getWorkspaceSortTimestamp(
 export function WorkspacesSidebarContainer({
   onScrollToBottom = () => {},
 }: WorkspacesSidebarContainerProps) {
+  const { openSettings } = useSettingsNavigation();
   const {
     workspaceId: selectedWorkspaceId,
     activeWorkspaces,
@@ -671,11 +672,8 @@ export function WorkspacesSidebarContainer({
   }, [routeHostId, remoteCloudHosts]);
 
   const handleOpenRemoteHostSettings = useCallback(() => {
-    void SettingsDialog.show({
-      initialSection: 'relay',
-      ...(routeHostId ? { initialState: { hostId: routeHostId } } : {}),
-    });
-  }, [routeHostId]);
+    openSettings('relay', { hostId: routeHostId });
+  }, [openSettings, routeHostId]);
 
   return (
     <WorkspacesSidebar

@@ -3,6 +3,7 @@ import {
   isCanonicalSettingsSearch,
   parseSettingsSearch,
   resolveSettingsRoute,
+  settingsRouteForSection,
 } from './settingsRoute';
 
 test.describe('Settings route model', () => {
@@ -48,7 +49,27 @@ test.describe('Settings route model', () => {
 
   test('drops non-string and empty search values', () => {
     expect(
-      parseSettingsSearch({ tab: ['cloud'], section: '', extra: 'ignored' })
-    ).toEqual({ tab: undefined, section: undefined });
+      parseSettingsSearch({
+        tab: ['cloud'],
+        section: '',
+        host: 42,
+        extra: 'ignored',
+      })
+    ).toEqual({ tab: undefined, section: undefined, host: undefined });
+  });
+
+  test('preserves a selected host while canonicalizing the section', () => {
+    expect(
+      resolveSettingsRoute({ section: 'repos', host: 'remote-host-id' })
+    ).toEqual({
+      tab: 'host',
+      section: 'repositories',
+      host: 'remote-host-id',
+    });
+    expect(settingsRouteForSection('organizations', 'remote-host-id')).toEqual({
+      tab: 'cloud',
+      section: 'organizations',
+      host: 'remote-host-id',
+    });
   });
 });

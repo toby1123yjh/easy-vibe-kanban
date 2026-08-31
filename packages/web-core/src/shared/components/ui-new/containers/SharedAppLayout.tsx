@@ -5,7 +5,7 @@ import type { AppShellCapabilityAdapter } from '@/features/app-shell/model/appSh
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 
@@ -14,6 +14,7 @@ export function SharedAppLayout() {
   const appNavigation = useAppNavigation();
   const { appVersion, environment } = useUserSystem();
   const { isSignedIn } = useAuth();
+  const { openSettings } = useSettingsNavigation();
 
   const adapter = useMemo<AppShellCapabilityAdapter>(
     () => ({
@@ -68,14 +69,13 @@ export function SharedAppLayout() {
         else if (route === '/projects') void navigate({ to: '/projects' });
         else if (route === '/workflows') void navigate({ to: '/workflows' });
       },
-      openSettings: () => void navigate({ to: '/settings' }),
+      openSettings: () => openSettings(),
       openUser: () => {
-        if (isSignedIn)
-          void SettingsDialog.show({ initialSection: 'organizations' });
+        if (isSignedIn) openSettings('organizations');
         else void OAuthDialog.show({});
       },
     }),
-    [appNavigation, appVersion, environment, isSignedIn, navigate]
+    [appNavigation, appVersion, environment, isSignedIn, navigate, openSettings]
   );
 
   return (

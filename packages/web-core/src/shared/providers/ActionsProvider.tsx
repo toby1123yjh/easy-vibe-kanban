@@ -34,6 +34,7 @@ import { useLogStream } from '@/shared/hooks/useLogStream';
 import { ActionsContext } from '@/shared/hooks/useActions';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 
 interface ActionsProviderProps {
   children: ReactNode;
@@ -42,6 +43,7 @@ interface ActionsProviderProps {
 export function ActionsProvider({ children }: ActionsProviderProps) {
   const appRuntime = useAppRuntime();
   const appNavigation = useAppNavigation();
+  const { openSettings } = useSettingsNavigation();
   const { projectId } = useParams({ strict: false });
   const hostId = useHostId();
   const queryClient = useQueryClient();
@@ -204,6 +206,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       appRuntime,
       currentHostId: hostId,
       appNavigation,
+      openSettings,
       queryClient,
       selectWorkspace,
       activeWorkspaces,
@@ -236,6 +239,8 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
     };
   }, [
     appRuntime,
+    appNavigation,
+    openSettings,
     hostId,
     queryClient,
     selectWorkspace,

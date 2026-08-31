@@ -110,7 +110,7 @@ const STATIC_DESTINATIONS: readonly SearchableDestination[] = [
     group: 'config',
     title: 'Appearance',
     path: 'Settings / Appearance',
-    route: '/settings?section=appearance',
+    route: '/settings?tab=general&section=application',
     keywords: ['theme', 'light', 'dark'],
   },
   {

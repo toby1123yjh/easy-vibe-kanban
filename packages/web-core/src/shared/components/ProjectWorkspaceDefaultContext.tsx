@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Folder, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -9,7 +9,7 @@ import {
 import { repoApi } from '@/shared/lib/api';
 import { buildWorkspaceContext } from '@/shared/lib/workspaceContext';
 import { cn } from '@/shared/lib/utils';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { Tooltip } from '@vibe/ui/components/Tooltip';
 
 interface ProjectWorkspaceDefaultContextProps {
@@ -22,13 +22,12 @@ interface ProjectWorkspaceDefaultContextProps {
 
 export function ProjectWorkspaceDefaultContext({
   projectId,
-  organizationId,
   hostId,
   variant = 'bar',
   className,
 }: ProjectWorkspaceDefaultContextProps) {
   const { t } = useTranslation('common');
-  const queryClient = useQueryClient();
+  const { openSettings } = useSettingsNavigation();
   const defaultContextQuery = useQuery({
     queryKey: projectWorkspaceDefaultQueryKey(projectId, hostId),
     queryFn: async () => {
@@ -68,15 +67,8 @@ export function ProjectWorkspaceDefaultContext({
     [parts]
   );
 
-  const openConfiguration = async () => {
-    await SettingsDialog.show({
-      initialSection: 'remote-projects',
-      initialState: { organizationId, projectId },
-      initialHostId: hostId ?? 'local',
-    });
-    await queryClient.invalidateQueries({
-      queryKey: projectWorkspaceDefaultQueryKey(projectId, hostId),
-    });
+  const openConfiguration = () => {
+    openSettings('projects', { hostId: hostId ?? 'local' });
   };
 
   const isPanel = variant === 'panel';
@@ -190,7 +182,7 @@ export function ProjectWorkspaceDefaultContext({
 
       <button
         type="button"
-        onClick={() => void openConfiguration()}
+        onClick={openConfiguration}
         className={cn(
           'flex shrink-0 cursor-pointer items-center gap-half rounded-sm text-xs font-medium',
           isInline ? 'size-7 justify-center p-0' : 'min-h-9 px-base',

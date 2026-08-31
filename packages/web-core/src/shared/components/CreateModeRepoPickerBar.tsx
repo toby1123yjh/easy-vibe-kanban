@@ -14,8 +14,8 @@ import type { BranchItem, RepoItem } from '@/shared/types/selectionItems';
 import { repoApi } from '@/shared/lib/api';
 import { cn } from '@/shared/lib/utils';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { FolderPickerDialog } from '@/shared/dialogs/shared/FolderPickerDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { CreateRepoDialog } from '@vibe/ui/components/CreateRepoDialog';
 import {
@@ -76,6 +76,7 @@ export function CreateModeRepoPickerBar({
   continueLabel,
 }: CreateModeRepoPickerBarProps) {
   const { t } = useTranslation('common');
+  const { openSettings } = useSettingsNavigation();
   const queryClient = useQueryClient();
   const { repos, targetBranches, addRepo, removeRepo, setTargetBranch } =
     useCreateMode();
@@ -202,7 +203,7 @@ export function CreateModeRepoPickerBar({
       },
       t('createMode.repoPicker.errors.registerRepository')
     );
-  }, [addRepoWithBranchSelection, runPickerAction, t]);
+  }, [addRepoWithBranchSelection, queryClient, runPickerAction, t]);
 
   const handleCreateRepo = useCallback(async () => {
     await runPickerAction(
@@ -227,7 +228,7 @@ export function CreateModeRepoPickerBar({
       },
       t('createMode.repoPicker.errors.createRepository')
     );
-  }, [addRepoWithBranchSelection, runPickerAction, t]);
+  }, [addRepoWithBranchSelection, queryClient, runPickerAction, t]);
 
   const handleChangeBranch = useCallback(
     async (repo: Repo) => {
@@ -378,15 +379,7 @@ export function CreateModeRepoPickerBar({
             <button
               type="button"
               className="mt-quarter cursor-pointer text-sm font-medium text-brand underline hover:text-brand/80"
-              onClick={() => {
-                const unconfiguredRepo = repos.find(
-                  (repo) => !repo.setup_script
-                );
-                SettingsDialog.show({
-                  initialSection: 'repos',
-                  initialState: { repoId: unconfiguredRepo?.id },
-                });
-              }}
+              onClick={() => openSettings('repositories')}
             >
               {t('createMode.repoPicker.setupHintLink')}
             </button>

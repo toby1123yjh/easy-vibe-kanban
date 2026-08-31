@@ -13,7 +13,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { mergeStableCursorItems } from '@/features/app-shell/model/appShell';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import './project-surfaces.css';
@@ -110,6 +110,7 @@ function ProjectCard({
 
 export function ProjectDirectoryPage() {
   const navigation = useAppNavigation();
+  const { openSettings } = useSettingsNavigation();
   const { data: organizationData } = useUserOrganizations();
   const selectedOrganizationId = useOrganizationStore(
     (state) => state.selectedOrgId
@@ -236,11 +237,7 @@ export function ProjectDirectoryPage() {
                 key={project.id}
                 project={project}
                 onOpen={() => navigation.goToProject(project.id)}
-                onManage={() =>
-                  void SettingsDialog.show({
-                    initialSection: 'organizations',
-                  })
-                }
+                onManage={() => openSettings('organizations')}
               />
             ))}
           </div>

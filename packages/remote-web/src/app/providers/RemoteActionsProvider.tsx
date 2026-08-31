@@ -21,7 +21,7 @@ import {
   resolveLabel,
   type ProjectMutations,
 } from "@/shared/types/actions";
-import { SettingsDialog } from "@/shared/dialogs/settings/SettingsDialog";
+import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
 import { useAppNavigation } from "@/shared/hooks/useAppNavigation";
 import { useAppRuntime } from "@/shared/hooks/useAppRuntime";
 import { useOrganizationStore } from "@/shared/stores/useOrganizationStore";
@@ -44,6 +44,7 @@ export function RemoteActionsProvider({
 }: RemoteActionsProviderProps) {
   const appRuntime = useAppRuntime();
   const appNavigation = useAppNavigation();
+  const { openSettings } = useSettingsNavigation();
   const queryClient = useQueryClient();
   const { projectId, hostId } = useParams({ strict: false });
   const userCtx = useContext(UserContext);
@@ -102,6 +103,7 @@ export function RemoteActionsProvider({
       appRuntime,
       currentHostId: hostId ?? null,
       appNavigation,
+      openSettings,
       queryClient,
       selectWorkspace: () => {
         noOpSelection("Workspace actions");
@@ -133,6 +135,8 @@ export function RemoteActionsProvider({
     }),
     [
       appRuntime,
+      appNavigation,
+      openSettings,
       hostId,
       queryClient,
       openStatusSelection,
@@ -153,20 +157,12 @@ export function RemoteActionsProvider({
   const executeAction = useCallback(
     async (action: ActionDefinition): Promise<void> => {
       if (action.id === "settings") {
-        await SettingsDialog.show({
-          initialSection: "organizations",
-        });
+        openSettings("application");
         return;
       }
 
       if (action.id === "project-settings") {
-        await SettingsDialog.show({
-          initialSection: "remote-projects",
-          initialState: {
-            organizationId: selectedOrgId ?? undefined,
-            projectId: projectId ?? undefined,
-          },
-        });
+        openSettings("projects");
         return;
       }
 
@@ -174,7 +170,7 @@ export function RemoteActionsProvider({
         `[RemoteActionsProvider] Action "${action.id}" is unavailable in remote web.`,
       );
     },
-    [projectId, selectedOrgId],
+    [openSettings],
   );
 
   const getLabel = useCallback(

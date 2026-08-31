@@ -72,7 +72,6 @@ import { EditorSelectionDialog } from '@/shared/dialogs/command-bar/EditorSelect
 import { StartReviewDialog } from '@/shared/dialogs/command-bar/StartReviewDialog';
 import posthog from 'posthog-js';
 import { WorkspacesGuideDialog } from '@/shared/dialogs/shared/WorkspacesGuideDialog';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateWorkspaceFromPrDialog } from '@/shared/dialogs/command-bar/CreateWorkspaceFromPrDialog';
 import { buildWorkspaceCreateInitialState } from '@/shared/lib/workspaceCreateState';
 import { setCreateModeSeedState } from '@/features/create-mode/model/createModeSeedStore';
@@ -419,8 +418,8 @@ export const Actions = {
     icon: GearIcon,
     shortcut: 'G S',
     requiresTarget: ActionTargetType.NONE,
-    execute: async () => {
-      await SettingsDialog.show();
+    execute: (ctx) => {
+      ctx.openSettings('application');
     },
   },
 
@@ -430,14 +429,8 @@ export const Actions = {
     icon: GearIcon,
     requiresTarget: ActionTargetType.NONE,
     isVisible: (ctx) => ctx.layoutMode === 'kanban',
-    execute: async (ctx) => {
-      await SettingsDialog.show({
-        initialSection: 'remote-projects',
-        initialState: {
-          organizationId: ctx.kanbanOrgId,
-          projectId: ctx.kanbanProjectId,
-        },
-      });
+    execute: (ctx) => {
+      ctx.openSettings('projects');
     },
   } satisfies GlobalActionDefinition,
 
@@ -1165,13 +1158,8 @@ export const Actions = {
     icon: GearIcon,
     requiresTarget: ActionTargetType.GIT,
     isVisible: (ctx) => ctx.hasWorkspace && ctx.hasGitRepos,
-    execute: async (_ctx, _workspaceId, repoId) => {
-      await SettingsDialog.show({
-        initialSection: 'repos',
-        initialState: {
-          repoId,
-        },
-      });
+    execute: (ctx) => {
+      ctx.openSettings('repositories', { hostId: ctx.currentHostId });
     },
   },
 

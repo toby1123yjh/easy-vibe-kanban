@@ -208,6 +208,32 @@
   animation: vk-settings-spin 0.8s linear infinite;
 }
 
+.vk-settings-page__version-row {
+  display: grid;
+  gap: 16px;
+}
+
+.vk-settings-page__version-row > div {
+  display: grid;
+  gap: 4px;
+}
+
+.vk-settings-page__version-row span {
+  color: var(--vk-text-low);
+  font-size: 12px;
+}
+
+.vk-settings-page__version-row strong,
+.vk-settings-page__version-row p {
+  margin: 0;
+  color: var(--vk-text-high);
+  font-size: 13px;
+}
+
+.vk-settings-page__version-row > button {
+  justify-self: start;
+}
+
 @keyframes vk-settings-spin {
   to {
     transform: rotate(360deg);

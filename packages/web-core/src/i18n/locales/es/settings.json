@@ -43,6 +43,16 @@
         "hostOffline": "Vuelve a conectar este host antes de ver o cambiar su configuración.",
         "noHost": "Selecciona un host disponible para administrar su configuración."
       },
+      "version": {
+        "title": "Versión y actualizaciones",
+        "description": "Consulta la versión indicada por este host y cualquier actualización de escritorio descargada.",
+        "current": "Versión actual",
+        "unknown": "No disponible",
+        "update": "Actualización descargada",
+        "ready": "La versión {{version}} está lista para instalarse.",
+        "notReady": "No hay ninguna actualización descargada lista. Las comprobaciones y los canales de actualización no están disponibles aquí.",
+        "restart": "Reiniciar e instalar"
+      },
       "unavailable": {
         "title": "Configuración planificada",
         "description": "Estas opciones se muestran para mayor claridad, pero aún no se pueden configurar.",

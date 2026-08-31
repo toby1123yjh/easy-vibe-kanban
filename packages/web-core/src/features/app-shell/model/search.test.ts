@@ -36,7 +36,11 @@ test.describe('Global Search projection', () => {
       sessions: [],
     });
     expect(results.some((result) => result.title === 'Codex')).toBe(true);
-    expect(results.some((result) => result.title === 'Appearance')).toBe(true);
+    expect(
+      results.find((result) => result.title === 'Appearance')
+    ).toMatchObject({
+      route: '/settings?tab=general&section=application',
+    });
   });
 
   test('groups results in the approved presentation order', () => {

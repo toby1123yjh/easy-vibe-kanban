@@ -1,31 +1,27 @@
-export const SETTINGS_TABS = ['general', 'host', 'cloud'] as const;
+import {
+  getSettingsNavigationTarget,
+  SETTINGS_NAVIGATION_SECTIONS,
+  SETTINGS_NAVIGATION_TABS,
+  type SettingsNavigationSection,
+  type SettingsNavigationTab,
+  type SettingsNavigationTarget,
+} from '@/shared/lib/routes/appNavigation';
 
-export type SettingsTab = (typeof SETTINGS_TABS)[number];
+export const SETTINGS_TABS = SETTINGS_NAVIGATION_TABS;
 
-export type SettingsSection =
-  | 'application'
-  | 'repositories'
-  | 'relay'
-  | 'organizations'
-  | 'projects';
+export type SettingsTab = SettingsNavigationTab;
+
+export type SettingsSection = SettingsNavigationSection;
 
 export interface SettingsSearchParams {
   tab?: string;
   section?: string;
+  host?: string;
 }
 
-export interface ResolvedSettingsRoute {
-  tab: SettingsTab;
-  section: SettingsSection;
-}
+export type ResolvedSettingsRoute = SettingsNavigationTarget;
 
-export const SETTINGS_SECTIONS: Readonly<
-  Record<SettingsTab, readonly SettingsSection[]>
-> = {
-  general: ['application'],
-  host: ['repositories'],
-  cloud: ['relay', 'organizations', 'projects'],
-};
+export const SETTINGS_SECTIONS = SETTINGS_NAVIGATION_SECTIONS;
 
 const SECTION_ALIASES: Readonly<Record<string, SettingsSection>> = {
   general: 'application',
@@ -44,6 +40,7 @@ export function parseSettingsSearch(
   return {
     tab: stringParam(search.tab),
     section: stringParam(search.section),
+    host: stringParam(search.host),
   };
 }
 
@@ -72,12 +69,23 @@ export function resolveSettingsRoute(
       ? (normalizedSection as SettingsSection)
       : SETTINGS_SECTIONS[tab][0];
 
-  return { tab, section };
+  return { tab, section, ...(search.host ? { host: search.host } : {}) };
 }
 
 export function isCanonicalSettingsSearch(
   search: SettingsSearchParams,
   route: ResolvedSettingsRoute
 ): boolean {
-  return search.tab === route.tab && search.section === route.section;
+  return (
+    search.tab === route.tab &&
+    search.section === route.section &&
+    search.host === route.host
+  );
+}
+
+export function settingsRouteForSection(
+  section: SettingsSection,
+  host?: string | null
+): ResolvedSettingsRoute {
+  return getSettingsNavigationTarget(section, host);
 }

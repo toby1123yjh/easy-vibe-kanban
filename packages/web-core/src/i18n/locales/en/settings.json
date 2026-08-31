@@ -43,6 +43,16 @@
         "hostOffline": "Reconnect this host before viewing or changing its settings.",
         "noHost": "Select an available host to manage host-owned settings."
       },
+      "version": {
+        "title": "Version and updates",
+        "description": "Review the version reported by this host and any downloaded desktop update.",
+        "current": "Current version",
+        "unknown": "Unavailable",
+        "update": "Downloaded update",
+        "ready": "Version {{version}} is ready to install.",
+        "notReady": "No downloaded update is ready. Update checks and channels are unavailable here.",
+        "restart": "Restart and install"
+      },
       "unavailable": {
         "title": "Planned settings",
         "description": "These settings are visible for clarity but are not configurable yet.",

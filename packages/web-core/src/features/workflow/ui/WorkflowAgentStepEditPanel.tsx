@@ -5,7 +5,7 @@ import { Loader2, X } from 'lucide-react';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -63,6 +63,7 @@ export function WorkflowAgentStepEditPanel({
   onSave,
 }: WorkflowAgentStepEditPanelProps) {
   const { t } = useTranslation('common');
+  const { openAgentCenter } = useSettingsNavigation();
   const { profiles, config } = useUserSystem();
   const [displayName, setDisplayName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -301,9 +302,7 @@ export function WorkflowAgentStepEditPanel({
                 <ModelSelectorContainer
                   agent={effectiveExecutor}
                   workspaceId={undefined}
-                  onAdvancedSettings={() =>
-                    SettingsDialog.show({ initialSection: 'agents' })
-                  }
+                  onAdvancedSettings={openAgentCenter}
                   presets={variantOptions}
                   selectedPreset={selectedVariant}
                   onPresetSelect={setVariant}

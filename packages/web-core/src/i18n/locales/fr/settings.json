@@ -43,6 +43,16 @@
         "hostOffline": "Reconnectez cet hôte avant d’afficher ou de modifier ses paramètres.",
         "noHost": "Sélectionnez un hôte disponible pour gérer ses paramètres."
       },
+      "version": {
+        "title": "Version et mises à jour",
+        "description": "Consultez la version signalée par cet hôte et toute mise à jour de bureau téléchargée.",
+        "current": "Version actuelle",
+        "unknown": "Indisponible",
+        "update": "Mise à jour téléchargée",
+        "ready": "La version {{version}} est prête à être installée.",
+        "notReady": "Aucune mise à jour téléchargée n'est prête. Les recherches et canaux de mise à jour ne sont pas disponibles ici.",
+        "restart": "Redémarrer et installer"
+      },
       "unavailable": {
         "title": "Paramètres prévus",
         "description": "Ces paramètres sont visibles à titre indicatif, mais ne sont pas encore configurables.",

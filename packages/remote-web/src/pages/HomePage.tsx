@@ -10,7 +10,7 @@ import type { Project } from "shared/remote-types";
 import type { OrganizationWithRole } from "shared/types";
 import { listOrganizationProjects } from "@remote/shared/lib/api";
 import { clearTokens } from "@remote/shared/lib/auth";
-import { SettingsDialog } from "@/shared/dialogs/settings/SettingsDialog";
+import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
 import { useOrganizationStore } from "@/shared/stores/useOrganizationStore";
 import { useUserOrganizations } from "@/shared/hooks/useUserOrganizations";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
@@ -37,6 +37,7 @@ function getHostInitials(name: string): string {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { openSettings } = useSettingsNavigation();
   const search = useSearch({ from: "/" });
   const setSelectedOrgId = useOrganizationStore((s) => s.setSelectedOrgId);
   const {
@@ -56,12 +57,12 @@ export default function HomePage() {
     [hosts],
   );
 
-  const openRelaySettings = useCallback((hostId?: string) => {
-    void SettingsDialog.show({
-      initialSection: "relay",
-      ...(hostId ? { initialState: { hostId } } : {}),
-    });
-  }, []);
+  const openRelaySettings = useCallback(
+    (hostId?: string) => {
+      openSettings("relay", { hostId });
+    },
+    [openSettings],
+  );
 
   useEffect(() => {
     const legacyOrgId = search.legacyOrgSettingsOrgId;
@@ -70,17 +71,8 @@ export default function HomePage() {
     }
 
     setSelectedOrgId(legacyOrgId);
-    navigate({
-      to: "/",
-      search: {},
-      replace: true,
-    });
-
-    void SettingsDialog.show({
-      initialSection: "organizations",
-      initialState: { organizationId: legacyOrgId },
-    });
-  }, [navigate, search.legacyOrgSettingsOrgId, setSelectedOrgId]);
+    openSettings("organizations", { replace: true });
+  }, [openSettings, search.legacyOrgSettingsOrgId, setSelectedOrgId]);
 
   const handleSignInAgain = async () => {
     await clearTokens();

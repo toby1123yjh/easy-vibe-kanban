@@ -72,11 +72,14 @@ function getInitialHostId(
   routeHostId: string | null,
   initialHostId?: SettingsHostTargetId
 ): SettingsHostTargetId | null {
-  if (initialHostId && hosts.some((host) => host.id === initialHostId)) {
+  // An explicit deep-link target must fail closed until that exact Host is
+  // available. Falling back here would make a routed settings link edit a
+  // different machine than the URL names.
+  if (initialHostId) {
     return initialHostId;
   }
 
-  if (routeHostId && hosts.some((host) => host.id === routeHostId)) {
+  if (routeHostId) {
     return routeHostId;
   }
 
@@ -165,6 +168,9 @@ export function SettingsHostProvider({
     );
 
     setSelectedHostId((current) => {
+      if (initialHostId || routeHostId) {
+        return nextHostId;
+      }
       if (current && availableHosts.some((host) => host.id === current)) {
         return current;
       }

@@ -26,7 +26,7 @@ import type {
   SelectedSkill,
 } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import {
   WorkspaceTargetDialog,
   type WorkspaceTargetMode,
@@ -59,6 +59,7 @@ export function CreateChatBoxContainer({
   onWorkspaceCreated,
 }: CreateChatBoxContainerProps) {
   const { t } = useTranslation('common');
+  const { openAgentCenter } = useSettingsNavigation();
   const { profiles, config } = useUserSystem();
   const {
     repos,
@@ -308,7 +309,7 @@ export function CreateChatBoxContainer({
   };
 
   const handleCustomise = () => {
-    SettingsDialog.show({ initialSection: 'agents' });
+    openAgentCenter();
   };
 
   const resumeScopePath = resolveWorkspaceWorkingDirectory({

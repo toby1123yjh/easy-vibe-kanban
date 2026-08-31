@@ -47,6 +47,45 @@ export type NavigationTransition = {
   replace?: boolean;
 };
 
+export type SettingsNavigationSection =
+  | 'application'
+  | 'repositories'
+  | 'relay'
+  | 'organizations'
+  | 'projects';
+
+export const SETTINGS_NAVIGATION_TABS = ['general', 'host', 'cloud'] as const;
+
+export type SettingsNavigationTab = (typeof SETTINGS_NAVIGATION_TABS)[number];
+
+export const SETTINGS_NAVIGATION_SECTIONS: Readonly<
+  Record<SettingsNavigationTab, readonly SettingsNavigationSection[]>
+> = {
+  general: ['application'],
+  host: ['repositories'],
+  cloud: ['relay', 'organizations', 'projects'],
+};
+
+export interface SettingsNavigationTarget {
+  tab: SettingsNavigationTab;
+  section: SettingsNavigationSection;
+  host?: string;
+}
+
+export function getSettingsNavigationTarget(
+  section: SettingsNavigationSection,
+  host?: string | null
+): SettingsNavigationTarget {
+  const tab = SETTINGS_NAVIGATION_TABS.find((candidate) =>
+    SETTINGS_NAVIGATION_SECTIONS[candidate].includes(section)
+  );
+  if (!tab) {
+    throw new Error(`Settings section has no owner: ${section}`);
+  }
+
+  return { tab, section, ...(host ? { host } : {}) };
+}
+
 export interface AppNavigation {
   /**
    * Present when the current deployment cannot open or create Agent execution

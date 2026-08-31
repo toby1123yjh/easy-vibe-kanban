@@ -43,6 +43,16 @@
         "hostOffline": "請先重新連接此主機，再檢視或修改它的設定。",
         "noHost": "請選擇一台可用主機來管理主機設定。"
       },
+      "version": {
+        "title": "版本與更新",
+        "description": "查看此主機回報的版本和已下載的桌面更新。",
+        "current": "目前版本",
+        "unknown": "無法使用",
+        "update": "已下載的更新",
+        "ready": "版本 {{version}} 已準備好安裝。",
+        "notReady": "沒有可安裝的已下載更新。此處暫不支援檢查更新和更新頻道。",
+        "restart": "重新啟動並安裝"
+      },
       "unavailable": {
         "title": "規劃中的設定",
         "description": "這些設定暫時無法配置，目前僅用於明確產品範圍。",

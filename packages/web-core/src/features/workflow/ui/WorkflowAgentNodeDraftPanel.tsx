@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
-import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
+import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { useAgentProviderOptions } from '@/shared/hooks/useAgentProviderPolicy';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -63,6 +63,7 @@ export function WorkflowAgentNodeDraftPanel({
   submitError,
 }: WorkflowAgentNodeDraftPanelProps) {
   const { t } = useTranslation('common');
+  const { openAgentCenter } = useSettingsNavigation();
   const { profiles, config } = useUserSystem();
   const prompt =
     typeof node.data.prompt_template === 'string'
@@ -289,9 +290,7 @@ export function WorkflowAgentNodeDraftPanel({
                 <ModelSelectorContainer
                   agent={effectiveExecutor}
                   workspaceId={undefined}
-                  onAdvancedSettings={() =>
-                    SettingsDialog.show({ initialSection: 'agents' })
-                  }
+                  onAdvancedSettings={openAgentCenter}
                   presets={variantOptions}
                   selectedPreset={selectedVariant}
                   onPresetSelect={setVariant}
