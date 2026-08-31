@@ -23,7 +23,10 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    executors::provider_adapter::DirectProvider, mcp_config::update_jsonc_content,
+    executors::{
+        codex::codex_home_for, oh_my_pi::oh_my_pi_agent_root_for, provider_adapter::DirectProvider,
+    },
+    mcp_config::update_jsonc_content,
     profile::ExecutorProfileId,
 };
 
@@ -413,6 +416,24 @@ pub struct ApplySettingsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RevealAgentSettingRequest {
+    pub provider: AgentSettingsProvider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    pub key: SettingKey,
+    pub scope: SettingScope,
+    pub expected_revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RevealAgentSettingResponse {
+    pub key: SettingKey,
+    pub scope: SettingScope,
+    pub value: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct NativeFilePatch {
     pub provider: AgentSettingsProvider,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -706,6 +727,17 @@ impl AgentSettingsService {
         .apply(&request.patch)
     }
 
+    pub fn reveal(
+        &self,
+        request: RevealAgentSettingRequest,
+    ) -> Result<RevealAgentSettingResponse, AgentSettingError> {
+        self.manager(
+            request.provider,
+            request.project_path.as_deref().map(Path::new),
+        )
+        .reveal(&request.key, request.scope, &request.expected_revision)
+    }
+
     pub fn diff_native_file(
         &self,
         patch: &NativeFilePatch,
@@ -747,10 +779,19 @@ impl AgentSettingsService {
         request: SaveConfigProfileRequest,
     ) -> Result<ConfigProfile, AgentSettingError> {
         let mut profile = request.profile;
-        validate_profile(
-            &profile,
-            &self.manager(profile.provider, None).descriptors(),
-        )?;
+        let descriptors = self.manager(profile.provider, None).descriptors();
+        // Profile environment is its own canonical, provider-neutral field.
+        // Do not retain a second copy in setting_overrides; profile Apply
+        // projects it to common.environment only when the target Adapter owns
+        // that native setting.
+        profile.setting_overrides.remove("common.environment");
+        validate_profile(&profile, &descriptors)?;
+        if let Some(descriptor) = descriptors
+            .iter()
+            .find(|descriptor| descriptor.key.id() == "common.environment")
+        {
+            validate_setting_value(descriptor, &profile_environment_value(&profile))?;
+        }
         profile.schema_version = SETTINGS_PROFILE_STORE_VERSION;
         profile.updated_at = Utc::now();
         let mut store = self.load_profile_store()?;
@@ -853,8 +894,30 @@ impl AgentSettingsService {
             .into_iter()
             .find(|profile| profile.id == request.id)
             .ok_or_else(|| AgentSettingError::NotFound(request.id.to_string()))?;
-        let patch = profile_patch(profile, request);
-        self.diff(&patch)
+        let manager = self.manager(
+            profile.provider,
+            request.project_path.as_deref().map(Path::new),
+        );
+        let descriptors = manager.descriptors();
+        let patch = profile_patch(&profile, request, &descriptors);
+        let mut diff = manager.diff(&patch)?;
+        if !profile.custom_args.is_empty() {
+            diff.warnings.push(
+                "Custom arguments remain profile/run configuration and are not written to native settings."
+                    .to_string(),
+            );
+        }
+        if !profile.environment.is_empty()
+            && !descriptors
+                .iter()
+                .any(|descriptor| descriptor.key.id() == "common.environment")
+        {
+            diff.warnings.push(
+                "This provider does not expose native Environment settings; profile Environment remains stored for run configuration."
+                    .to_string(),
+            );
+        }
+        Ok(diff)
     }
 
     pub fn apply_profile(
@@ -872,8 +935,13 @@ impl AgentSettingsService {
             .into_iter()
             .find(|profile| profile.id == request.preview.id)
             .ok_or_else(|| AgentSettingError::NotFound(request.preview.id.to_string()))?;
+        let manager = self.manager(
+            profile.provider,
+            request.preview.project_path.as_deref().map(Path::new),
+        );
+        let descriptors = manager.descriptors();
         self.apply(ApplySettingsRequest {
-            patch: profile_patch(profile, &request.preview),
+            patch: profile_patch(&profile, &request.preview, &descriptors),
             confirmed: true,
         })
     }
@@ -909,23 +977,49 @@ impl AgentSettingsService {
     }
 }
 
-fn profile_patch(profile: ConfigProfile, request: &ProfileApplyPreviewRequest) -> SettingsPatch {
+fn profile_environment_value(profile: &ConfigProfile) -> Value {
+    Value::Object(
+        profile
+            .environment
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect(),
+    )
+}
+
+fn profile_patch(
+    profile: &ConfigProfile,
+    request: &ProfileApplyPreviewRequest,
+    descriptors: &[SettingDescriptor],
+) -> SettingsPatch {
+    let mut operations: Vec<_> = profile
+        .setting_overrides
+        .iter()
+        .filter_map(|(key, value)| {
+            let (namespace, name) = key.split_once('.')?;
+            Some(SettingOperation::Replace {
+                key: SettingKey::new(namespace, name),
+                scope: request.scope,
+                value: value.clone(),
+            })
+        })
+        .collect();
+    if descriptors.iter().any(|descriptor| {
+        descriptor.key.id() == "common.environment"
+            && descriptor.capabilities.profile_storable
+            && descriptor.supported_scopes.contains(&request.scope)
+    }) {
+        operations.push(SettingOperation::Replace {
+            key: SettingKey::new("common", "environment"),
+            scope: request.scope,
+            value: profile_environment_value(profile),
+        });
+    }
     SettingsPatch {
         provider: profile.provider,
         project_path: request.project_path.clone(),
         expected_file_revisions: request.expected_file_revisions.clone(),
-        operations: profile
-            .setting_overrides
-            .into_iter()
-            .filter_map(|(key, value)| {
-                let (namespace, name) = key.split_once('.')?;
-                Some(SettingOperation::Replace {
-                    key: SettingKey::new(namespace, name),
-                    scope: request.scope,
-                    value,
-                })
-            })
-            .collect(),
+        operations,
     }
 }
 
@@ -959,7 +1053,7 @@ fn validate_profile(
 #[derive(Debug, Clone)]
 pub struct ProviderSettingsManager {
     provider: AgentSettingsProvider,
-    home_dir: PathBuf,
+    user_root: PathBuf,
     project_path: Option<PathBuf>,
 }
 
@@ -997,9 +1091,15 @@ impl ProviderSettingsManager {
         project_path: Option<PathBuf>,
     ) -> Self {
         let project_path = project_path.map(|path| fs::canonicalize(&path).unwrap_or(path));
+        let user_root = match provider {
+            AgentSettingsProvider::Codex => codex_home_for(&home_dir),
+            AgentSettingsProvider::ClaudeCode => home_dir.join(".claude"),
+            AgentSettingsProvider::Gemini => home_dir.join(".gemini"),
+            AgentSettingsProvider::OhMyPi => oh_my_pi_agent_root_for(&home_dir),
+        };
         Self {
             provider,
-            home_dir,
+            user_root,
             project_path,
         }
     }
@@ -1009,7 +1109,33 @@ impl ProviderSettingsManager {
     }
 
     pub fn descriptors(&self) -> Vec<SettingDescriptor> {
-        provider_descriptors(self.provider)
+        let parsed_files: Vec<_> = self
+            .file_specs()
+            .into_iter()
+            .map(read_native_file)
+            .collect();
+        self.descriptors_for_files(&parsed_files)
+    }
+
+    fn descriptors_for_files(&self, parsed_files: &[ParsedNativeFile]) -> Vec<SettingDescriptor> {
+        let connection_provider = match self.provider {
+            AgentSettingsProvider::Codex => {
+                effective_string_at_path(parsed_files, &["model_provider"])
+                    .unwrap_or_else(|| "openai".to_string())
+            }
+            AgentSettingsProvider::OhMyPi => {
+                effective_string_at_path(parsed_files, &["modelRoles", "default"])
+                    .and_then(|model| {
+                        model
+                            .split_once('/')
+                            .map(|(provider, _)| provider.trim().to_string())
+                    })
+                    .filter(|provider| !provider.is_empty())
+                    .unwrap_or_else(|| "openai".to_string())
+            }
+            AgentSettingsProvider::ClaudeCode | AgentSettingsProvider::Gemini => String::new(),
+        };
+        provider_descriptors(self.provider, &connection_provider)
     }
 
     fn validate_project_path(&self) -> Result<(), AgentSettingError> {
@@ -1032,30 +1158,54 @@ impl ProviderSettingsManager {
 
     fn file_specs(&self) -> Vec<NativeFileSpec> {
         let mut files = match self.provider {
-            AgentSettingsProvider::Codex => vec![file_spec(
-                "user_config",
-                self.home_dir.join(".codex/config.toml"),
-                NativeConfigFormat::Toml,
-                SettingScope::User,
-            )],
+            AgentSettingsProvider::Codex => vec![
+                file_spec(
+                    "user_config",
+                    self.user_root.join("config.toml"),
+                    NativeConfigFormat::Toml,
+                    SettingScope::User,
+                ),
+                file_spec(
+                    "user_auth",
+                    self.user_root.join("auth.json"),
+                    NativeConfigFormat::Json,
+                    SettingScope::User,
+                ),
+            ],
             AgentSettingsProvider::ClaudeCode => vec![file_spec(
                 "user_settings",
-                self.home_dir.join(".claude/settings.json"),
+                self.user_root.join("settings.json"),
                 NativeConfigFormat::Json,
                 SettingScope::User,
             )],
-            AgentSettingsProvider::Gemini => vec![file_spec(
-                "user_settings",
-                self.home_dir.join(".gemini/settings.json"),
-                NativeConfigFormat::Json,
-                SettingScope::User,
-            )],
-            AgentSettingsProvider::OhMyPi => vec![file_spec(
-                "user_config",
-                self.home_dir.join(".omp/agent/config.yml"),
-                NativeConfigFormat::Yaml,
-                SettingScope::User,
-            )],
+            AgentSettingsProvider::Gemini => vec![
+                file_spec(
+                    "user_settings",
+                    self.user_root.join("settings.json"),
+                    NativeConfigFormat::Json,
+                    SettingScope::User,
+                ),
+                file_spec(
+                    "user_env",
+                    self.user_root.join(".env"),
+                    NativeConfigFormat::Dotenv,
+                    SettingScope::User,
+                ),
+            ],
+            AgentSettingsProvider::OhMyPi => vec![
+                file_spec(
+                    "user_config",
+                    self.user_root.join("config.yml"),
+                    NativeConfigFormat::Yaml,
+                    SettingScope::User,
+                ),
+                file_spec(
+                    "user_models",
+                    self.user_root.join("models.yml"),
+                    NativeConfigFormat::Yaml,
+                    SettingScope::User,
+                ),
+            ],
         };
         if let Some(project_path) = &self.project_path {
             let spec = match self.provider {
@@ -1093,6 +1243,14 @@ impl ProviderSettingsManager {
                 }
             };
             files.push(spec);
+            if self.provider == AgentSettingsProvider::Gemini {
+                files.push(file_spec(
+                    "project_env",
+                    project_path.join(".gemini/.env"),
+                    NativeConfigFormat::Dotenv,
+                    SettingScope::Project,
+                ));
+            }
         }
         files
     }
@@ -1106,12 +1264,12 @@ impl ProviderSettingsManager {
         include_sensitive_values: bool,
     ) -> Result<SettingsSnapshot, AgentSettingError> {
         self.validate_project_path()?;
-        let descriptors = self.descriptors();
         let parsed_files: Vec<_> = self
             .file_specs()
             .into_iter()
             .map(read_native_file)
             .collect();
+        let descriptors = self.descriptors_for_files(&parsed_files);
         let installed = self.provider_root().exists()
             || parsed_files.iter().any(|file| file.bytes.is_some())
             || workspace_utils::shell::resolve_executable_path_blocking(self.provider.executable())
@@ -1170,7 +1328,12 @@ impl ProviderSettingsManager {
         let effective_settings = descriptors
             .iter()
             .map(|descriptor| {
-                effective_setting(descriptor, &parsed_files, include_sensitive_values)
+                effective_setting(
+                    descriptor,
+                    &descriptors,
+                    &parsed_files,
+                    include_sensitive_values,
+                )
             })
             .collect();
         let unknown_native_nodes = unknown_native_nodes(&descriptors, &parsed_files);
@@ -1274,6 +1437,67 @@ impl ProviderSettingsManager {
                 ))),
             },
         }
+    }
+
+    pub fn reveal(
+        &self,
+        key: &SettingKey,
+        scope: SettingScope,
+        expected_revision: &str,
+    ) -> Result<RevealAgentSettingResponse, AgentSettingError> {
+        self.validate_project_path()?;
+        let parsed_files: Vec<_> = self
+            .file_specs()
+            .into_iter()
+            .map(read_native_file)
+            .collect();
+        let descriptors = self.descriptors_for_files(&parsed_files);
+        let key_id = key.id();
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| descriptor.key == *key)
+            .ok_or_else(|| AgentSettingError::NotFound(key_id.clone()))?;
+        if !descriptor.sensitive {
+            return Err(AgentSettingError::Unsupported(format!(
+                "{key_id} is available through ordinary settings discovery"
+            )));
+        }
+        let location = descriptor
+            .native_locations
+            .iter()
+            .find(|location| location.scope == scope)
+            .ok_or_else(|| {
+                AgentSettingError::Unsupported(format!(
+                    "{key_id} is not available at {} scope",
+                    scope.label()
+                ))
+            })?;
+        let file = parsed_files
+            .iter()
+            .find(|file| file.spec.id == location.file_id)
+            .ok_or_else(|| AgentSettingError::NotFound(location.file_id.clone()))?;
+        if let Some(error) = &file.error {
+            return Err(AgentSettingError::InvalidConfiguration(format!(
+                "{} could not be read: {error}",
+                location.file_id
+            )));
+        }
+        if file.revision != expected_revision {
+            return Err(AgentSettingError::StaleRevision);
+        }
+        let value = file
+            .value
+            .as_ref()
+            .and_then(|value| value_at_path(value, &location.native_path))
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| AgentSettingError::NotFound(key_id.clone()))?;
+        Ok(RevealAgentSettingResponse {
+            key: key.clone(),
+            scope,
+            value: value.to_string(),
+            revision: file.revision.clone(),
+        })
     }
 
     pub fn diff_native_file(
@@ -1410,10 +1634,9 @@ impl ProviderSettingsManager {
                     spec.path.display()
                 )));
             }
-            let after = render_document(
-                spec.format,
-                &parsed.content,
-                operations.into_iter().map(|operation| {
+            let mut native_operations = operations
+                .into_iter()
+                .map(|operation| {
                     let (key, scope, value) = match operation {
                         SettingOperation::Replace { key, scope, value } => {
                             (key, *scope, Some(value.clone()))
@@ -1433,9 +1656,37 @@ impl ProviderSettingsManager {
                         .expect("validated location remains available")
                         .native_path
                         .clone();
-                    (path, value)
-                }),
-            )?;
+                    (path, value, descriptor, scope)
+                })
+                .collect::<Vec<_>>();
+            // Parent maps are always rendered before their explicitly managed
+            // child settings. This lets a normal Environment edit retain API
+            // and credential fields without bypassing their own validation.
+            native_operations.sort_by_key(|(path, _, _, _)| path.len());
+            let explicitly_mutated_paths: BTreeSet<_> = native_operations
+                .iter()
+                .map(|(path, _, _, _)| path.clone())
+                .collect();
+            let original_value = parsed.value.as_ref();
+            let native_operations = native_operations
+                .into_iter()
+                .map(|(path, value, descriptor, scope)| {
+                    Ok((
+                        path.clone(),
+                        preserve_managed_descendants(
+                            descriptor,
+                            &descriptors,
+                            &spec.id,
+                            scope,
+                            &path,
+                            original_value,
+                            &explicitly_mutated_paths,
+                            value,
+                        )?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, AgentSettingError>>()?;
+            let after = render_document(spec.format, &parsed.content, native_operations)?;
             rendered.push(RenderedFile {
                 spec,
                 before: parsed.bytes,
@@ -1485,12 +1736,7 @@ impl ProviderSettingsManager {
     }
 
     fn provider_root(&self) -> PathBuf {
-        match self.provider {
-            AgentSettingsProvider::Codex => self.home_dir.join(".codex"),
-            AgentSettingsProvider::ClaudeCode => self.home_dir.join(".claude"),
-            AgentSettingsProvider::Gemini => self.home_dir.join(".gemini"),
-            AgentSettingsProvider::OhMyPi => self.home_dir.join(".omp"),
-        }
+        self.user_root.clone()
     }
 }
 
@@ -1510,12 +1756,15 @@ fn file_spec(
     }
 }
 
-fn provider_descriptors(provider: AgentSettingsProvider) -> Vec<SettingDescriptor> {
+fn provider_descriptors(
+    provider: AgentSettingsProvider,
+    connection_provider: &str,
+) -> Vec<SettingDescriptor> {
     match provider {
-        AgentSettingsProvider::Codex => codex_descriptors(),
+        AgentSettingsProvider::Codex => codex_descriptors(connection_provider),
         AgentSettingsProvider::ClaudeCode => claude_descriptors(),
         AgentSettingsProvider::Gemini => gemini_descriptors(),
-        AgentSettingsProvider::OhMyPi => oh_my_pi_descriptors(),
+        AgentSettingsProvider::OhMyPi => oh_my_pi_descriptors(connection_provider),
     }
 }
 
@@ -1556,8 +1805,54 @@ fn descriptor(
             })
             .collect(),
         activation: SettingActivation::NextSession,
-        sensitive: section == SettingSection::Environment,
+        sensitive: false,
     }
+}
+
+fn sensitive_descriptor(mut descriptor: SettingDescriptor) -> SettingDescriptor {
+    descriptor.sensitive = true;
+    descriptor.capabilities.profile_storable = false;
+    descriptor.capabilities.run_override = false;
+    descriptor
+}
+
+fn api_address_descriptor(
+    description: &str,
+    locations: &[(&str, SettingScope, &[&str])],
+) -> SettingDescriptor {
+    let mut descriptor = descriptor(
+        "common",
+        "api_address",
+        SettingSection::General,
+        "API address",
+        description,
+        SettingValueType::String,
+        SettingControl::Text,
+        locations,
+        false,
+    );
+    descriptor.validation.max_length = Some(2048);
+    descriptor
+}
+
+fn credential_descriptor(
+    namespace: &str,
+    name: &str,
+    label: &str,
+    description: &str,
+    locations: &[(&str, SettingScope, &[&str])],
+) -> SettingDescriptor {
+    sensitive_descriptor(descriptor(
+        namespace,
+        name,
+        SettingSection::General,
+        label,
+        description,
+        SettingValueType::String,
+        SettingControl::Text,
+        locations,
+        false,
+    ))
 }
 
 fn common_locations<'a>(path: &'a [&'a str]) -> [(&'a str, SettingScope, &'a [&'a str]); 2] {
@@ -1576,6 +1871,13 @@ fn common_settings_locations<'a>(
     ]
 }
 
+fn gemini_env_locations<'a>(path: &'a [&'a str]) -> [(&'a str, SettingScope, &'a [&'a str]); 2] {
+    [
+        ("user_env", SettingScope::User, path),
+        ("project_env", SettingScope::Project, path),
+    ]
+}
+
 fn select_options(mut descriptor: SettingDescriptor, values: &[(&str, &str)]) -> SettingDescriptor {
     descriptor.options = values
         .iter()
@@ -1588,8 +1890,8 @@ fn select_options(mut descriptor: SettingDescriptor, values: &[(&str, &str)]) ->
     descriptor
 }
 
-fn codex_descriptors() -> Vec<SettingDescriptor> {
-    vec![
+fn codex_descriptors(connection_provider: &str) -> Vec<SettingDescriptor> {
+    let mut descriptors = vec![
         descriptor(
             "common",
             "model",
@@ -1679,11 +1981,35 @@ fn codex_descriptors() -> Vec<SettingDescriptor> {
             &common_locations(&["shell_environment_policy", "set"]),
             true,
         ),
-    ]
+        descriptor(
+            "codex",
+            "model_provider",
+            SettingSection::ProviderSettings,
+            "Model provider",
+            "Provider identifier used to resolve the default Codex connection.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &common_locations(&["model_provider"]),
+            false,
+        ),
+    ];
+    let api_address_path = ["model_providers", connection_provider, "base_url"];
+    descriptors.push(api_address_descriptor(
+        "Complete base URL for the selected Codex model provider. Paths are preserved.",
+        &common_locations(&api_address_path),
+    ));
+    descriptors.push(credential_descriptor(
+        "common",
+        "api_key",
+        "API key",
+        "OpenAI API key stored in Codex's native authentication file.",
+        &[("user_auth", SettingScope::User, &["OPENAI_API_KEY"])],
+    ));
+    descriptors
 }
 
 fn claude_descriptors() -> Vec<SettingDescriptor> {
-    vec![
+    let mut descriptors = vec![
         descriptor(
             "common",
             "model",
@@ -1806,11 +2132,30 @@ fn claude_descriptors() -> Vec<SettingDescriptor> {
             &common_settings_locations(&["statusLine"]),
             false,
         ),
-    ]
+    ];
+    descriptors.push(api_address_descriptor(
+        "Complete Anthropic-compatible base URL used by Claude Code.",
+        &common_settings_locations(&["env", "ANTHROPIC_BASE_URL"]),
+    ));
+    descriptors.push(credential_descriptor(
+        "common",
+        "api_key",
+        "API key",
+        "Anthropic API key used by Claude Code.",
+        &common_settings_locations(&["env", "ANTHROPIC_API_KEY"]),
+    ));
+    descriptors.push(credential_descriptor(
+        "claude_code",
+        "auth_token",
+        "Auth token",
+        "Bearer credential used by Anthropic-compatible Claude Code gateways.",
+        &common_settings_locations(&["env", "ANTHROPIC_AUTH_TOKEN"]),
+    ));
+    descriptors
 }
 
 fn gemini_descriptors() -> Vec<SettingDescriptor> {
-    vec![
+    let mut descriptors = vec![
         descriptor(
             "common",
             "model",
@@ -1877,12 +2222,57 @@ fn gemini_descriptors() -> Vec<SettingDescriptor> {
             &common_settings_locations(&["telemetry", "enabled"]),
             false,
         ),
-    ]
+        descriptor(
+            "gemini",
+            "auth_type",
+            SettingSection::ProviderSettings,
+            "Authentication type",
+            "Gemini CLI native authentication selection.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &common_settings_locations(&["security", "auth", "selectedType"]),
+            false,
+        ),
+    ];
+    descriptors.push(api_address_descriptor(
+        "Complete Gemini API base URL. Normal base paths remain visible.",
+        &gemini_env_locations(&["GOOGLE_GEMINI_BASE_URL"]),
+    ));
+    descriptors.push(credential_descriptor(
+        "common",
+        "api_key",
+        "API key",
+        "Gemini API key from the provider-native .env file.",
+        &gemini_env_locations(&["GEMINI_API_KEY"]),
+    ));
+    descriptors
 }
 
-fn oh_my_pi_descriptors() -> Vec<SettingDescriptor> {
+fn oh_my_pi_descriptors(connection_provider: &str) -> Vec<SettingDescriptor> {
     let user = |path: &'static [&'static str]| [("user_config", SettingScope::User, path)];
-    vec![
+    let mut descriptors = vec![
+        descriptor(
+            "common",
+            "model",
+            SettingSection::General,
+            "Model",
+            "Default provider/model selector used by new Oh My Pi sessions.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &[
+                (
+                    "user_config",
+                    SettingScope::User,
+                    &["modelRoles", "default"],
+                ),
+                (
+                    "project_config",
+                    SettingScope::Project,
+                    &["modelRoles", "default"],
+                ),
+            ],
+            true,
+        ),
         descriptor(
             "oh_my_pi",
             "extensions",
@@ -1949,7 +2339,21 @@ fn oh_my_pi_descriptors() -> Vec<SettingDescriptor> {
             &user(&["startup", "quiet"]),
             false,
         ),
-    ]
+    ];
+    let api_address_path = ["providers", connection_provider, "baseUrl"];
+    descriptors.push(api_address_descriptor(
+        "Complete base URL for the provider selected by the default Oh My Pi model.",
+        &[("user_models", SettingScope::User, &api_address_path)],
+    ));
+    let api_key_path = ["providers", connection_provider, "apiKey"];
+    descriptors.push(credential_descriptor(
+        "common",
+        "api_key",
+        "API key",
+        "Credential value or environment-variable reference for the selected Oh My Pi provider.",
+        &[("user_models", SettingScope::User, &api_key_path)],
+    ));
+    descriptors
 }
 
 fn provider_limitations(provider: AgentSettingsProvider) -> Vec<String> {
@@ -1964,7 +2368,7 @@ fn provider_limitations(provider: AgentSettingsProvider) -> Vec<String> {
             "Extensions and version-dependent policy nodes remain native-only and are preserved by targeted writes.".to_string(),
         ],
         AgentSettingsProvider::OhMyPi => vec![
-            "Management targets the canonical ~/.omp/agent/config.yml profile; project config and alternate profiles are discovery-only.".to_string(),
+            "Management targets the active Oh My Pi agent profile resolved by the runtime; project config remains discovery-only.".to_string(),
             "Model registry and prompt-template files are reported as native extensions rather than guessed into config.yml fields.".to_string(),
         ],
     }
@@ -2259,6 +2663,9 @@ fn update_json_path(
         let object = current.as_object_mut().ok_or_else(|| {
             AgentSettingError::InvalidConfiguration(format!("{} must be an object", path.join(".")))
         })?;
+        if replacement.is_none() && !object.contains_key(segment) {
+            return Ok(());
+        }
         current = object
             .entry(segment.clone())
             .or_insert_with(|| Value::Object(Map::new()));
@@ -2282,8 +2689,126 @@ fn value_at_path<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
         .try_fold(value, |current, segment| current.get(segment))
 }
 
+fn value_at_segments<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter()
+        .try_fold(value, |current, segment| current.get(*segment))
+}
+
+fn effective_string_at_path(files: &[ParsedNativeFile], path: &[&str]) -> Option<String> {
+    files.iter().rev().find_map(|file| {
+        file.value
+            .as_ref()
+            .and_then(|value| value_at_segments(value, path))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn managed_descendant_paths(
+    descriptor: &SettingDescriptor,
+    descriptors: &[SettingDescriptor],
+    file_id: &str,
+    scope: SettingScope,
+    parent_path: &[String],
+) -> Vec<Vec<String>> {
+    descriptors
+        .iter()
+        .filter(|candidate| candidate.key != descriptor.key)
+        .flat_map(|candidate| candidate.native_locations.iter())
+        .filter(|location| {
+            location.file_id == file_id
+                && location.scope == scope
+                && location.native_path.len() > parent_path.len()
+                && location.native_path.starts_with(parent_path)
+        })
+        .map(|location| location.native_path[parent_path.len()..].to_vec())
+        .collect()
+}
+
+fn remove_value_at_path(root: &mut Value, path: &[String]) -> bool {
+    let Some((leaf, parents)) = path.split_last() else {
+        return false;
+    };
+    let mut current = root;
+    for segment in parents {
+        let Some(next) = current
+            .as_object_mut()
+            .and_then(|object| object.get_mut(segment))
+        else {
+            return false;
+        };
+        current = next;
+    }
+    current
+        .as_object_mut()
+        .and_then(|object| object.remove(leaf))
+        .is_some()
+}
+
+fn projected_setting_value(
+    descriptor: &SettingDescriptor,
+    descriptors: &[SettingDescriptor],
+    file_id: &str,
+    scope: SettingScope,
+    native_path: &[String],
+    value: &Value,
+) -> Option<Value> {
+    let mut projected = value.clone();
+    let mut removed_managed_value = false;
+    for path in managed_descendant_paths(descriptor, descriptors, file_id, scope, native_path) {
+        removed_managed_value |= remove_value_at_path(&mut projected, &path);
+    }
+    if removed_managed_value && projected.as_object().is_some_and(serde_json::Map::is_empty) {
+        None
+    } else {
+        Some(projected)
+    }
+}
+
+fn preserve_managed_descendants(
+    descriptor: &SettingDescriptor,
+    descriptors: &[SettingDescriptor],
+    file_id: &str,
+    scope: SettingScope,
+    parent_path: &[String],
+    original_root: Option<&Value>,
+    explicitly_mutated_paths: &BTreeSet<Vec<String>>,
+    replacement: Option<Value>,
+) -> Result<Option<Value>, AgentSettingError> {
+    let managed_paths =
+        managed_descendant_paths(descriptor, descriptors, file_id, scope, parent_path);
+    if managed_paths.is_empty() {
+        return Ok(replacement);
+    }
+
+    let mut replacement = replacement;
+    for relative_path in managed_paths {
+        // A parent map payload never owns a field with its own descriptor.
+        // Strip such values from the parent operation, then retain the native
+        // value unless this patch contains an explicit child operation.
+        if let Some(value) = replacement.as_mut() {
+            remove_value_at_path(value, &relative_path);
+        }
+        let mut absolute_path = parent_path.to_vec();
+        absolute_path.extend(relative_path.iter().cloned());
+        if explicitly_mutated_paths.contains(&absolute_path) {
+            continue;
+        }
+        let Some(existing) = original_root.and_then(|value| value_at_path(value, &absolute_path))
+        else {
+            continue;
+        };
+        let target = replacement.get_or_insert_with(|| Value::Object(Map::new()));
+        update_json_path(target, &relative_path, Some(existing.clone()))?;
+    }
+    Ok(replacement)
+}
+
 fn effective_setting(
     descriptor: &SettingDescriptor,
+    descriptors: &[SettingDescriptor],
     files: &[ParsedNativeFile],
     include_sensitive_values: bool,
 ) -> EffectiveSetting {
@@ -2306,11 +2831,26 @@ fn effective_setting(
             .as_ref()
             .and_then(|value| value_at_path(value, &location.native_path))
         {
+            let value = if descriptor.sensitive {
+                include_sensitive_values.then(|| value.clone())
+            } else {
+                projected_setting_value(
+                    descriptor,
+                    descriptors,
+                    &file.spec.id,
+                    location.scope,
+                    &location.native_path,
+                    value,
+                )
+            };
+            if !descriptor.sensitive && value.is_none() {
+                continue;
+            }
             sources.push(SettingSourceValue {
                 source: format!("native_{}", location.scope.label()),
                 scope: location.scope,
                 file_id: file.spec.id.clone(),
-                value: (!descriptor.sensitive || include_sensitive_values).then(|| value.clone()),
+                value,
                 configured: true,
                 revision: file.revision.clone(),
             });
@@ -2414,6 +2954,34 @@ fn validate_setting_value(
             descriptor.value_type
         )));
     }
+    if descriptor.sensitive {
+        let credential = value.as_str().ok_or_else(|| {
+            AgentSettingError::ValidationFailed(format!(
+                "{} expects a credential string",
+                descriptor.key.id()
+            ))
+        })?;
+        let trimmed = credential.trim();
+        if trimmed.is_empty() {
+            return Err(AgentSettingError::ValidationFailed(format!(
+                "{} cannot be replaced with an empty value; use clear instead",
+                descriptor.key.id()
+            )));
+        }
+        if trimmed.chars().count() >= 3
+            && trimmed
+                .chars()
+                .all(|character| matches!(character, '*' | '•'))
+        {
+            return Err(AgentSettingError::ValidationFailed(format!(
+                "{} cannot be replaced with a redacted display value",
+                descriptor.key.id()
+            )));
+        }
+    }
+    if descriptor.key.namespace == "common" && descriptor.key.name == "api_address" {
+        validate_api_address(value.as_str().expect("API address descriptor is a string"))?;
+    }
     if !descriptor.options.is_empty()
         && !descriptor
             .options
@@ -2455,6 +3023,30 @@ fn validate_setting_value(
                 descriptor.key.id()
             )));
         }
+    }
+    Ok(())
+}
+
+fn validate_api_address(value: &str) -> Result<(), AgentSettingError> {
+    let parsed = reqwest::Url::parse(value).map_err(|_| {
+        AgentSettingError::ValidationFailed(
+            "API address must be a complete HTTP or HTTPS URL".to_string(),
+        )
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(AgentSettingError::ValidationFailed(
+            "API address must be a complete HTTP or HTTPS URL".to_string(),
+        ));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AgentSettingError::ValidationFailed(
+            "API address must not contain embedded credentials".to_string(),
+        ));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(AgentSettingError::ValidationFailed(
+            "API address must not contain a query or fragment".to_string(),
+        ));
     }
     Ok(())
 }
@@ -2615,6 +3207,22 @@ mod tests {
             .unwrap()
     }
 
+    fn setting<'a>(snapshot: &'a SettingsSnapshot, key: &str) -> &'a EffectiveSetting {
+        snapshot
+            .effective_settings
+            .iter()
+            .find(|setting| setting.key.id() == key)
+            .unwrap()
+    }
+
+    fn descriptor_for<'a>(snapshot: &'a SettingsSnapshot, key: &str) -> &'a SettingDescriptor {
+        snapshot
+            .descriptors
+            .iter()
+            .find(|descriptor| descriptor.key.id() == key)
+            .unwrap()
+    }
+
     #[test]
     fn four_provider_discovery_is_read_only_and_isolates_malformed_files() {
         let harness = harness();
@@ -2673,6 +3281,292 @@ mod tests {
                 .iter()
                 .any(|node| node.native_path == "unknown")
         );
+    }
+
+    #[test]
+    fn connection_descriptors_follow_each_provider_native_strategy() {
+        let harness = harness();
+        write(
+            &harness.home.join(".codex/config.toml"),
+            "model_provider = \"azure\"\n",
+        );
+        write(
+            &harness.home.join(".omp/agent/config.yml"),
+            "modelRoles:\n  default: openrouter/anthropic/claude-sonnet\n",
+        );
+
+        let inventory = harness.service.discover(None, Some(&harness.project));
+        let expected = [
+            (
+                AgentSettingsProvider::Codex,
+                "user_config",
+                vec!["model_providers", "azure", "base_url"],
+                "user_auth",
+                vec!["OPENAI_API_KEY"],
+            ),
+            (
+                AgentSettingsProvider::ClaudeCode,
+                "user_settings",
+                vec!["env", "ANTHROPIC_BASE_URL"],
+                "user_settings",
+                vec!["env", "ANTHROPIC_API_KEY"],
+            ),
+            (
+                AgentSettingsProvider::Gemini,
+                "user_env",
+                vec!["GOOGLE_GEMINI_BASE_URL"],
+                "user_env",
+                vec!["GEMINI_API_KEY"],
+            ),
+            (
+                AgentSettingsProvider::OhMyPi,
+                "user_models",
+                vec!["providers", "openrouter", "baseUrl"],
+                "user_models",
+                vec!["providers", "openrouter", "apiKey"],
+            ),
+        ];
+        for (provider, address_file, address_path, key_file, key_path) in expected {
+            let snapshot = snapshot(&inventory, provider);
+            let address = descriptor_for(snapshot, "common.api_address");
+            let key = descriptor_for(snapshot, "common.api_key");
+            assert!(!address.sensitive);
+            assert!(key.sensitive);
+            assert_eq!(address.native_locations[0].file_id, address_file);
+            assert_eq!(address.native_locations[0].native_path, address_path);
+            assert_eq!(key.native_locations[0].file_id, key_file);
+            assert_eq!(key.native_locations[0].native_path, key_path);
+        }
+    }
+
+    #[test]
+    fn settings_files_follow_the_runtime_provider_roots() {
+        let harness = harness();
+        let codex = harness
+            .service
+            .manager(AgentSettingsProvider::Codex, Some(&harness.project));
+        let codex_files = codex.file_specs();
+        assert_eq!(
+            codex_files
+                .iter()
+                .find(|file| file.id == "user_config")
+                .unwrap()
+                .path,
+            codex_home_for(&harness.home).join("config.toml")
+        );
+
+        let oh_my_pi = harness
+            .service
+            .manager(AgentSettingsProvider::OhMyPi, Some(&harness.project));
+        let oh_my_pi_files = oh_my_pi.file_specs();
+        assert_eq!(
+            oh_my_pi_files
+                .iter()
+                .find(|file| file.id == "user_config")
+                .unwrap()
+                .path,
+            oh_my_pi_agent_root_for(&harness.home).join("config.yml")
+        );
+    }
+
+    #[test]
+    fn ordinary_environment_is_visible_while_credentials_require_explicit_reveal() {
+        let harness = harness();
+        write(
+            &harness.home.join(".claude/settings.json"),
+            r#"{
+                "model":"sonnet",
+                "env":{
+                    "NORMAL":"visible",
+                    "ANTHROPIC_BASE_URL":"https://gateway.example/proxy/v1",
+                    "ANTHROPIC_API_KEY":"secret-key",
+                    "ANTHROPIC_AUTH_TOKEN":"secret-token"
+                }
+            }"#,
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::ClaudeCode, Some(&harness.project));
+        let snapshot = manager.discover().unwrap();
+
+        assert_eq!(
+            setting(&snapshot, "common.environment").effective_value,
+            Some(json!({"NORMAL": "visible"}))
+        );
+        assert_eq!(
+            setting(&snapshot, "common.api_address").effective_value,
+            Some(json!("https://gateway.example/proxy/v1"))
+        );
+        assert!(setting(&snapshot, "common.api_key").configured);
+        assert_eq!(setting(&snapshot, "common.api_key").effective_value, None);
+        let serialized = serde_json::to_string(&snapshot).unwrap();
+        assert!(!serialized.contains("secret-key"));
+        assert!(!serialized.contains("secret-token"));
+        let revision = snapshot
+            .effective_settings
+            .iter()
+            .find(|setting| setting.key.id() == "common.api_key")
+            .and_then(|setting| setting.sources.first())
+            .map(|source| source.revision.clone())
+            .unwrap();
+
+        let revealed = manager
+            .reveal(
+                &SettingKey::new("common", "api_key"),
+                SettingScope::User,
+                &revision,
+            )
+            .unwrap();
+        assert_eq!(revealed.value, "secret-key");
+        assert!(matches!(
+            manager.reveal(
+                &SettingKey::new("common", "api_key"),
+                SettingScope::User,
+                "stale-revision",
+            ),
+            Err(AgentSettingError::StaleRevision)
+        ));
+        assert!(matches!(
+            manager.reveal(
+                &SettingKey::new("common", "model"),
+                SettingScope::User,
+                &revision,
+            ),
+            Err(AgentSettingError::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn environment_edits_preserve_connection_fields_and_key_clear_is_explicit() {
+        let harness = harness();
+        let path = harness.home.join(".claude/settings.json");
+        write(
+            &path,
+            r#"{"env":{"NORMAL":"old","ANTHROPIC_BASE_URL":"https://old.example/v1","ANTHROPIC_API_KEY":"old-secret"}}"#,
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::ClaudeCode, Some(&harness.project));
+        let revision = manager.discover().unwrap().native_files[0]
+            .revision
+            .clone()
+            .unwrap();
+        let result = manager
+            .apply(&SettingsPatch {
+                provider: AgentSettingsProvider::ClaudeCode,
+                project_path: Some(harness.project.display().to_string()),
+                expected_file_revisions: BTreeMap::from([("user_settings".into(), revision)]),
+                operations: vec![SettingOperation::Replace {
+                    key: SettingKey::new("common", "environment"),
+                    scope: SettingScope::User,
+                    value: json!({"NORMAL": "new"}),
+                }],
+            })
+            .unwrap();
+        assert_eq!(
+            setting(&result, "common.environment").effective_value,
+            Some(json!({"NORMAL": "new"}))
+        );
+        let native: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(native["env"]["ANTHROPIC_API_KEY"], "old-secret");
+        assert_eq!(
+            native["env"]["ANTHROPIC_BASE_URL"],
+            "https://old.example/v1"
+        );
+
+        let revision = result.native_files[0].revision.clone().unwrap();
+        let replaced = manager
+            .apply(&SettingsPatch {
+                provider: AgentSettingsProvider::ClaudeCode,
+                project_path: Some(harness.project.display().to_string()),
+                expected_file_revisions: BTreeMap::from([("user_settings".into(), revision)]),
+                operations: vec![
+                    SettingOperation::Replace {
+                        key: SettingKey::new("common", "api_address"),
+                        scope: SettingScope::User,
+                        value: json!("https://new.example/base/v2"),
+                    },
+                    SettingOperation::Replace {
+                        key: SettingKey::new("common", "api_key"),
+                        scope: SettingScope::User,
+                        value: json!("new-secret"),
+                    },
+                ],
+            })
+            .unwrap();
+        assert_eq!(
+            setting(&replaced, "common.api_address").effective_value,
+            Some(json!("https://new.example/base/v2"))
+        );
+        assert!(
+            !serde_json::to_string(&replaced)
+                .unwrap()
+                .contains("new-secret")
+        );
+
+        let revision = replaced.native_files[0].revision.clone().unwrap();
+        manager
+            .apply(&SettingsPatch {
+                provider: AgentSettingsProvider::ClaudeCode,
+                project_path: Some(harness.project.display().to_string()),
+                expected_file_revisions: BTreeMap::from([("user_settings".into(), revision)]),
+                operations: vec![SettingOperation::Clear {
+                    key: SettingKey::new("common", "api_key"),
+                    scope: SettingScope::User,
+                }],
+            })
+            .unwrap();
+        let native: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert!(native["env"].get("ANTHROPIC_API_KEY").is_none());
+        assert_eq!(native["env"]["NORMAL"], "new");
+    }
+
+    #[test]
+    fn connection_validation_rejects_embedded_credentials_query_and_masked_keys() {
+        let harness = harness();
+        let path = harness.home.join(".claude/settings.json");
+        write(&path, r#"{"env":{}}"#);
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::ClaudeCode, Some(&harness.project));
+        let revision = manager.discover().unwrap().native_files[0]
+            .revision
+            .clone()
+            .unwrap();
+        let patch = |key: SettingKey, value: Value| SettingsPatch {
+            provider: AgentSettingsProvider::ClaudeCode,
+            project_path: Some(harness.project.display().to_string()),
+            expected_file_revisions: BTreeMap::from([("user_settings".into(), revision.clone())]),
+            operations: vec![SettingOperation::Replace {
+                key,
+                scope: SettingScope::User,
+                value,
+            }],
+        };
+        for address in [
+            "https://user:pass@example.com/v1",
+            "https://example.com/v1?token=secret",
+            "https://example.com/v1#token",
+            "ftp://example.com/v1",
+        ] {
+            assert!(matches!(
+                manager.diff(&patch(
+                    SettingKey::new("common", "api_address"),
+                    json!(address)
+                )),
+                Err(AgentSettingError::ValidationFailed(_))
+            ));
+        }
+        for credential in ["", "******", "••••••"] {
+            assert!(matches!(
+                manager.diff(&patch(
+                    SettingKey::new("common", "api_key"),
+                    json!(credential)
+                )),
+                Err(AgentSettingError::ValidationFailed(_))
+            ));
+        }
+        assert_eq!(fs::read_to_string(path).unwrap(), r#"{"env":{}}"#);
     }
 
     #[test]
@@ -2851,26 +3745,46 @@ mod tests {
         assert!(copy.profile.provider_extensions.is_empty());
         assert_eq!(copy.profile.environment["EXACT"], "a=b c");
 
-        let revision = harness
-            .service
-            .manager(AgentSettingsProvider::Codex, Some(&harness.project))
-            .discover()
-            .unwrap()
-            .native_files[0]
-            .revision
-            .clone()
-            .unwrap();
+        let apply_preview = ProfileApplyPreviewRequest {
+            id: saved.id,
+            project_path: Some(harness.project.display().to_string()),
+            scope: SettingScope::User,
+            expected_file_revisions: BTreeMap::from([(
+                "user_config".into(),
+                harness
+                    .service
+                    .manager(AgentSettingsProvider::Codex, Some(&harness.project))
+                    .discover()
+                    .unwrap()
+                    .native_files[0]
+                    .revision
+                    .clone()
+                    .unwrap(),
+            )]),
+        };
         let preview = harness
             .service
-            .preview_profile_apply(&ProfileApplyPreviewRequest {
-                id: saved.id,
-                project_path: Some(harness.project.display().to_string()),
-                scope: SettingScope::User,
-                expected_file_revisions: BTreeMap::from([("user_config".into(), revision)]),
-            })
+            .preview_profile_apply(&apply_preview)
             .unwrap();
         assert!(preview.files[0].changed);
+        assert!(
+            preview
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Custom arguments"))
+        );
         assert!(!serde_json::to_string(&preview).unwrap().contains("gpt-5.6"));
+
+        harness
+            .service
+            .apply_profile(ApplyConfigProfileRequest {
+                preview: apply_preview,
+                confirmed: true,
+            })
+            .unwrap();
+        let applied = fs::read_to_string(&codex).unwrap();
+        assert!(applied.contains("model = \"gpt-5.6\""));
+        assert!(applied.contains("EXACT = \"a=b c\""));
 
         harness
             .service

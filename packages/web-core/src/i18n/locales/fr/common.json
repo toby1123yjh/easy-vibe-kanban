@@ -883,15 +883,30 @@
       "nativeProject": "Configuration native du projet"
     },
     "security": {
-      "sensitiveValueConfigured": "Configured value hidden",
-      "sensitiveValueNotConfigured": "Not configured",
-      "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "sensitiveValueConfigured": "Configuré, valeur masquée",
+      "sensitiveValueNotConfigured": "Non configuré",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "Afficher l’identifiant enregistré",
+      "hideSensitiveValue": "Masquer l’identifiant",
+      "clearSensitiveValue": "Effacer la valeur enregistrée",
+      "writeOnlySettingHelp": "Utilisez l’icône œil pour afficher l’identifiant enregistré. Masquez-le avant de saisir une valeur de remplacement, ou effacez-le explicitement.",
       "sensitiveSettingUnavailable": "Les valeurs sensibles existantes sont masquées. Utilisez l’éditeur natif de l’Agent jusqu’à ce que le Settings Adapter prenne en charge les mises à jour sécurisées en écriture seule.",
       "nativeFilesUnavailable": "L’édition brute des fichiers natifs est indisponible car ils peuvent contenir des identifiants. Les réglages typés non sensibles restent modifiables.",
       "effectiveValueHidden": "Valeur enregistrée masquée",
       "unknownValueHidden": "valeur masquée",
       "diffHidden": "Les octets natifs sont masqués car le fichier peut contenir des identifiants. L’opération confirmée de l’Adapter utilise toujours le diff protégé par révision."
+    },
+    "profileEditor": {
+      "nameLabel": "Nom du profil",
+      "environmentLabel": "Variables d’environnement",
+      "environmentHelp": "Appliqué aux réglages natifs si l’adaptateur de l’Agent le permet ; sinon conservé dans le profil ou la configuration d’exécution.",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "Arguments personnalisés",
+      "customArgsHelp": "Un argument de CLI Agent par ligne. Stocké uniquement dans le profil ou la configuration d’exécution, pas dans les réglages natifs.",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "Modifier",
+      "save": "Enregistrer le profil",
+      "cancel": "Annuler"
     },
     "commands": {
       "manager": {

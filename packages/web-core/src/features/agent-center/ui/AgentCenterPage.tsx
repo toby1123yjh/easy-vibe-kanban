@@ -29,6 +29,7 @@ import {
 import { useSettingsDirty } from '@/shared/dialogs/settings/settings/SettingsDirtyContext';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { isAgentProviderReady } from '@/shared/lib/agentProviderOptions';
+import { effectiveStringSetting } from '@/shared/lib/agentSettingsModel';
 import './agent-center.css';
 
 type AgentCenterTab = 'providers' | 'mcp' | 'skills' | 'commands' | 'profiles';
@@ -194,22 +195,14 @@ export function AgentCenterPage() {
   const selectedSnapshot = settingsQuery.data?.providers.find(
     (provider) => provider.provider === selectedProvider.settingsProvider
   );
-  const defaultModel = useMemo(() => {
-    const setting = selectedSnapshot?.effective_settings.find(
-      (candidate) =>
-        candidate.key.namespace === 'common' && candidate.key.name === 'model'
-    );
-    return typeof setting?.effective_value === 'string'
-      ? setting.effective_value
-      : null;
-  }, [selectedSnapshot]);
-  const defaultModelSource = useMemo(() => {
-    const setting = selectedSnapshot?.effective_settings.find(
-      (candidate) =>
-        candidate.key.namespace === 'common' && candidate.key.name === 'model'
-    );
-    return setting?.effective_source ?? null;
-  }, [selectedSnapshot]);
+  const defaultModel = useMemo(
+    () => effectiveStringSetting(selectedSnapshot, 'common', 'model'),
+    [selectedSnapshot]
+  );
+  const apiAddress = useMemo(
+    () => effectiveStringSetting(selectedSnapshot, 'common', 'api_address'),
+    [selectedSnapshot]
+  );
   const selectedToolInventory = toolsQuery.data?.providers.find(
     (provider) => provider.provider === selectedProvider.toolProvider
   );
@@ -582,8 +575,9 @@ export function AgentCenterPage() {
               <ProviderOverview
                 provider={selectedProvider}
                 entry={selectedGarageEntry}
-                model={defaultModel}
-                modelSource={defaultModelSource}
+                model={defaultModel.value}
+                modelSource={defaultModel.source}
+                apiAddress={apiAddress.value}
                 mcpEnabled={
                   mcpItems.filter((item) => item.state === 'enabled').length
                 }
@@ -654,6 +648,7 @@ function ProviderOverview({
   entry,
   model,
   modelSource,
+  apiAddress,
   mcpEnabled,
   mcpTotal,
   skillsEnabled,
@@ -676,6 +671,7 @@ function ProviderOverview({
   entry: AgentGarageEntry | null;
   model: string | null;
   modelSource: string | null;
+  apiAddress: string | null;
   mcpEnabled: number;
   mcpTotal: number;
   skillsEnabled: number;
@@ -881,8 +877,11 @@ function ProviderOverview({
               />
               <Metric
                 label={t('agentCenter.apiAddress')}
-                value={t('agentCenter.apiAddressUnavailable')}
-                state="unavailable"
+                value={summaryValue(
+                  settingsState,
+                  apiAddress ?? t('agentCenter.inheritedOrUnset')
+                )}
+                state={settingsState}
               />
               <Metric
                 label={t('agentCenter.configurationSource')}

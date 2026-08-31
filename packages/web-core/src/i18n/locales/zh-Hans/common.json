@@ -1530,15 +1530,30 @@
       "nativeProject": "项目级原生配置"
     },
     "security": {
-      "sensitiveValueConfigured": "Configured value hidden",
-      "sensitiveValueNotConfigured": "Not configured",
-      "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "sensitiveValueConfigured": "已配置，当前隐藏",
+      "sensitiveValueNotConfigured": "未配置",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "显示已保存的凭据",
+      "hideSensitiveValue": "隐藏凭据",
+      "clearSensitiveValue": "清除已保存的值",
+      "writeOnlySettingHelp": "点击眼睛可查看已保存的凭据；需要替换时请先隐藏后再输入，也可以明确清除。",
       "sensitiveSettingUnavailable": "已有敏感值已隐藏。在 Settings Adapter 支持安全的只写更新前，请使用智能体原生编辑器。",
       "nativeFilesUnavailable": "原生文件可能包含凭据，因此暂不提供原始文件编辑；非敏感的类型化设置仍可编辑。",
       "effectiveValueHidden": "已隐藏存储值",
       "unknownValueHidden": "值已隐藏",
       "diffHidden": "原生文件可能包含凭据，因此不显示文件字节；确认后仍由 Adapter 使用带版本保护的差异执行操作。"
+    },
+    "profileEditor": {
+      "nameLabel": "配置档案名称",
+      "environmentLabel": "环境变量",
+      "environmentHelp": "Agent Adapter 支持时会应用到原生设置；否则仅保存在配置档案/运行配置中。",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "自定义参数",
+      "customArgsHelp": "每行填写一个智能体 CLI 参数。仅保存在配置档案/运行配置中，不写入原生设置。",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "编辑",
+      "save": "保存配置档案",
+      "cancel": "取消"
     },
     "commands": {
       "manager": {

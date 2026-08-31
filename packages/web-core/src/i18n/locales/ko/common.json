@@ -883,15 +883,30 @@
       "nativeProject": "프로젝트 네이티브 설정"
     },
     "security": {
-      "sensitiveValueConfigured": "Configured value hidden",
-      "sensitiveValueNotConfigured": "Not configured",
-      "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "sensitiveValueConfigured": "구성됨(숨김)",
+      "sensitiveValueNotConfigured": "구성되지 않음",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "저장된 자격 증명 표시",
+      "hideSensitiveValue": "자격 증명 숨기기",
+      "clearSensitiveValue": "저장된 값 지우기",
+      "writeOnlySettingHelp": "눈 버튼으로 저장된 자격 증명을 확인할 수 있습니다. 교체하려면 먼저 숨긴 뒤 입력하거나 명시적으로 지우세요.",
       "sensitiveSettingUnavailable": "기존 민감한 값은 숨겨집니다. Settings Adapter가 안전한 쓰기 전용 업데이트를 지원할 때까지 Agent 네이티브 편집기를 사용하세요.",
       "nativeFilesUnavailable": "네이티브 파일에 자격 증명이 포함될 수 있으므로 원시 파일 편집을 사용할 수 없습니다. 민감하지 않은 형식화된 설정은 계속 편집할 수 있습니다.",
       "effectiveValueHidden": "저장된 값 숨김",
       "unknownValueHidden": "값 숨김",
       "diffHidden": "파일에 자격 증명이 포함될 수 있으므로 네이티브 바이트는 숨겨집니다. 확인된 Adapter 작업은 계속 리비전으로 보호된 차이를 사용합니다."
+    },
+    "profileEditor": {
+      "nameLabel": "프로필 이름",
+      "environmentLabel": "환경 변수",
+      "environmentHelp": "Agent Adapter가 지원하면 네이티브 설정에 적용하고, 지원하지 않으면 프로필/실행 설정에 보관합니다.",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "사용자 지정 인수",
+      "customArgsHelp": "Agent CLI 인수를 한 줄에 하나씩 입력합니다. 네이티브 설정에는 쓰지 않고 프로필/실행 설정에만 저장합니다.",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "편집",
+      "save": "프로필 저장",
+      "cancel": "취소"
     },
     "commands": {
       "manager": {

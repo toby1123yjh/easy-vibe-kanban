@@ -1544,13 +1544,28 @@
     "security": {
       "sensitiveValueConfigured": "Configured value hidden",
       "sensitiveValueNotConfigured": "Not configured",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "Show stored credential",
+      "hideSensitiveValue": "Hide credential",
       "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "writeOnlySettingHelp": "Use the eye button to view the stored credential. Hide it before entering a replacement, or explicitly clear it.",
       "sensitiveSettingUnavailable": "Existing sensitive values are hidden. Use the provider-native editor until the Settings Adapter supports safe write-only updates.",
       "nativeFilesUnavailable": "Raw native-file editing is unavailable because a file can contain credentials. Typed non-sensitive settings remain editable.",
       "effectiveValueHidden": "Stored value hidden",
       "unknownValueHidden": "value hidden",
       "diffHidden": "Native bytes are hidden because the file can contain credentials. The confirmed Adapter operation still uses its revision-protected diff."
+    },
+    "profileEditor": {
+      "nameLabel": "Profile name",
+      "environmentLabel": "Environment variables",
+      "environmentHelp": "Applied to native settings when supported by the Agent Adapter; otherwise kept in the Profile/run configuration.",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "Custom arguments",
+      "customArgsHelp": "One provider CLI argument per line. Stored only in the Profile/run configuration, not native settings.",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "Edit",
+      "save": "Save profile",
+      "cancel": "Cancel"
     },
     "commands": {
       "manager": {

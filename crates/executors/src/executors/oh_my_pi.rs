@@ -3,7 +3,11 @@
 //! V1 intentionally launches the real `omp` executable and speaks its stdio
 //! RPC NDJSON protocol.  No Node SDK or in-process package is linked here.
 
-use std::{path::Path, process::Stdio, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
@@ -18,6 +22,129 @@ use ts_rs::TS;
 use workspace_utils::command_ext::GroupSpawnNoWindowExt;
 
 pub mod command_adapter;
+
+/// Returns the active Oh My Pi agent directory, including environment,
+/// profile, tilde, and migrated XDG layout resolution.
+pub fn oh_my_pi_agent_root() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("PI_CODING_AGENT_DIR")
+        .or_else(|| std::env::var_os("OMP_AGENT_DIR"))
+        .map(PathBuf::from)
+    {
+        let value = path.to_string_lossy();
+        if value != "~" && !value.starts_with("~/") && !value.starts_with("~\\") {
+            return Some(path);
+        }
+    }
+    dirs::home_dir().map(|home| oh_my_pi_agent_root_for(&home))
+}
+
+/// Resolves the active Oh My Pi agent directory using an injected home as the
+/// fallback. This keeps all consumers aligned without coupling tests to the
+/// process user's real home directory.
+pub fn oh_my_pi_agent_root_for(home_dir: &Path) -> PathBuf {
+    if let Some(agent_dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
+        return expand_tilde_path(PathBuf::from(agent_dir), home_dir);
+    }
+    if let Some(agent_dir) = std::env::var_os("OMP_AGENT_DIR") {
+        return expand_tilde_path(PathBuf::from(agent_dir), home_dir);
+    }
+
+    let profile = std::env::var("OMP_PROFILE")
+        .ok()
+        .or_else(|| std::env::var("PI_PROFILE").ok())
+        .and_then(|profile| normalize_profile(&profile));
+
+    if cfg!(unix)
+        && let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME")
+    {
+        let mut root = PathBuf::from(xdg_data).join("omp");
+        if let Some(profile) = profile.as_deref() {
+            root = root.join("profiles").join(profile);
+        }
+        if root.exists() {
+            return root;
+        }
+    }
+
+    let config_dir = std::env::var_os("PI_CONFIG_DIR")
+        .map(|path| expand_tilde_path(PathBuf::from(path), home_dir))
+        .unwrap_or_else(|| PathBuf::from(".omp"));
+    let mut root = home_dir.join(config_dir);
+    if let Some(profile) = profile {
+        root = root.join("profiles").join(profile);
+    }
+    root.join("agent")
+}
+
+fn expand_tilde_path(path: PathBuf, home_dir: &Path) -> PathBuf {
+    let value = path.to_string_lossy();
+    if value == "~" {
+        return home_dir.to_path_buf();
+    }
+    if let Some(rest) = value
+        .strip_prefix("~/")
+        .or_else(|| value.strip_prefix("~\\"))
+    {
+        return home_dir.join(rest);
+    }
+    path
+}
+
+fn normalize_profile(value: &str) -> Option<String> {
+    let profile = value.trim();
+    let first_is_alphanumeric = profile
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric);
+    if profile.is_empty()
+        || profile == "default"
+        || profile == "."
+        || profile == ".."
+        || !first_is_alphanumeric
+        || profile.ends_with('.')
+        || !profile
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        || is_windows_reserved_profile_name(profile)
+    {
+        return None;
+    }
+    Some(profile.to_string())
+}
+
+fn is_windows_reserved_profile_name(profile: &str) -> bool {
+    let stem = profile
+        .split_once('.')
+        .map_or(profile, |(stem, _)| stem)
+        .to_ascii_uppercase();
+    matches!(
+        stem.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM0"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT0"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
+}
 
 use crate::{
     command::{CmdOverrides, CommandBuildError, CommandBuilder},
@@ -202,7 +329,7 @@ impl OhMyPi {
     }
 
     pub fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
-        dirs::home_dir().map(|home| home.join(".omp").join("agent").join("mcp.json"))
+        oh_my_pi_agent_root().map(|root| root.join("mcp.json"))
     }
 
     pub fn get_availability_info(&self) -> AvailabilityInfo {
@@ -292,6 +419,25 @@ impl StandardCodingAgentExecutor for OhMyPi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_names_are_safe_path_segments() {
+        assert_eq!(normalize_profile("default"), None);
+        assert_eq!(
+            normalize_profile(" work-profile_1 "),
+            Some("work-profile_1".to_string())
+        );
+        for invalid in [
+            "../escape",
+            ".",
+            "profile.",
+            "CON",
+            "LPT1.json",
+            "with space",
+        ] {
+            assert_eq!(normalize_profile(invalid), None);
+        }
+    }
 
     #[test]
     fn registered_preset_uses_oh_my_pi_identity() {

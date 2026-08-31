@@ -5,6 +5,8 @@ import {
   CheckCircleIcon,
   CodeIcon,
   CopyIcon,
+  EyeIcon,
+  EyeSlashIcon,
   FloppyDiskIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -30,16 +32,23 @@ import type {
   SettingsSnapshot,
 } from 'shared/types';
 import {
+  agentSettingSourceKind,
   buildAgentSettingsPatch,
   buildAgentSettingsSections,
   createAgentSettingsDraft,
+  formatProfileEnvironment,
   hasChangedFiles,
   hasDraftErrors,
+  isRevealResponseCurrent,
   isAgentSettingsDraftDirty,
   nativeFileRevision,
   parseSettingInput,
+  parseProfileCustomArgs,
+  parseProfileEnvironment,
+  profileEnvironmentFromSnapshot,
   PROVIDER_BY_EXECUTOR,
   PROVIDER_LABELS,
+  settingSourceForScope,
   settingKeyId,
   type AgentSettingsDraft,
 } from '@/shared/lib/agentSettingsModel';
@@ -59,6 +68,18 @@ import { useSettingsMachineClient } from './SettingsHostContext';
 type PendingAction =
   | { kind: 'settings'; patch: SettingsPatch }
   | { kind: 'profile'; preview: ProfileApplyPreviewRequest };
+
+type RevealedSetting = {
+  id: string;
+  value: string;
+};
+
+type ProfileEditorDraft = {
+  id: string;
+  name: string;
+  environmentRaw: string;
+  customArgsRaw: string;
+};
 
 function newProfileId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -85,17 +106,17 @@ function displayJson(value: JsonValue | undefined): string {
   return JSON.stringify(value, null, 2);
 }
 
-function sourceLabel(
+function sourceLabelKind(
   snapshot: SettingsSnapshot,
   descriptor: SettingDescriptor,
   entry: AgentSettingsDraft[string] | undefined
-): string {
-  if (entry?.action === 'replace') return 'Modified';
-  if (entry?.action === 'clear') return 'Inherit';
+): ReturnType<typeof agentSettingSourceKind> | 'modified' | 'inherit' {
+  if (entry?.action === 'replace') return 'modified';
+  if (entry?.action === 'clear') return 'inherit';
   const setting = snapshot.effective_settings.find(
     (candidate) => settingKeyId(candidate) === settingKeyId(descriptor)
   );
-  return setting?.effective_source ?? 'Default';
+  return agentSettingSourceKind(setting?.effective_source);
 }
 
 function parseDraftChange(
@@ -120,6 +141,22 @@ export function AgentConfigurationSettingsPanel({
   includeTools?: boolean;
 }) {
   const { t } = useTranslation('common');
+  const sourceLabel = (kind: ReturnType<typeof sourceLabelKind>): string => {
+    switch (kind) {
+      case 'modified':
+        return 'Modified';
+      case 'inherit':
+        return t('agentCenter.inheritedOrUnset');
+      case 'native_user':
+        return t('agentCenter.configurationSources.nativeUser');
+      case 'native_project':
+        return t('agentCenter.configurationSources.nativeProject');
+      case 'adapter_managed':
+        return t('agentCenter.adapterManaged');
+      default:
+        return t('agentCenter.inheritedOrUnset');
+    }
+  };
   const machineClient = useSettingsMachineClient();
   const { setDirty: setContextDirty } = useSettingsDirty();
   const provider =
@@ -140,7 +177,62 @@ export function AgentConfigurationSettingsPanel({
   const [copyPreview, setCopyPreview] = useState<ProfileCopyPreview | null>(
     null
   );
+  const [revealedSetting, setRevealedSetting] =
+    useState<RevealedSetting | null>(null);
+  const [visibleReplacementIds, setVisibleReplacementIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [revealingSettingId, setRevealingSettingId] = useState<string | null>(
+    null
+  );
+  const [revealErrors, setRevealErrors] = useState<Record<string, string>>({});
+  const [profileEnvironmentRaw, setProfileEnvironmentRaw] = useState('{}');
+  const [profileCustomArgsRaw, setProfileCustomArgsRaw] = useState('');
+  const [profileFieldsDirty, setProfileFieldsDirty] = useState(false);
+  const [profileEditor, setProfileEditor] = useState<ProfileEditorDraft | null>(
+    null
+  );
   const requestSequence = useRef(0);
+  const revealRequestSequence = useRef(0);
+  const activeMachineClient = useRef(machineClient);
+
+  const clearSensitiveVisibility = useCallback(() => {
+    revealRequestSequence.current += 1;
+    setRevealedSetting(null);
+    setVisibleReplacementIds({});
+    setRevealingSettingId(null);
+    setRevealErrors({});
+  }, []);
+
+  const hideSensitiveSetting = useCallback((id: string) => {
+    revealRequestSequence.current += 1;
+    setRevealedSetting((current) => (current?.id === id ? null : current));
+    setVisibleReplacementIds((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setRevealingSettingId((current) => (current === id ? null : current));
+    setRevealErrors((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    activeMachineClient.current = machineClient;
+    clearSensitiveVisibility();
+  }, [
+    activeSection,
+    clearSensitiveVisibility,
+    machineClient,
+    projectPath,
+    provider,
+    scope,
+  ]);
 
   const loadSettings = useCallback(
     async (nextProjectPath?: string) => {
@@ -160,6 +252,12 @@ export function AgentConfigurationSettingsPanel({
           ) ?? null;
         setSnapshot(next);
         setDraft(next ? createAgentSettingsDraft(next) : {});
+        setProfileEnvironmentRaw(
+          formatProfileEnvironment(profileEnvironmentFromSnapshot(next))
+        );
+        setProfileCustomArgsRaw('');
+        setProfileFieldsDirty(false);
+        setProfileEditor(null);
         setDiff(null);
         setPending(null);
         if (inventory.errors.length > 0 && !next) {
@@ -170,6 +268,10 @@ export function AgentConfigurationSettingsPanel({
           setError(formatAgentSettingOperationError(nextError));
           setSnapshot(null);
           setDraft({});
+          setProfileEnvironmentRaw('{}');
+          setProfileCustomArgsRaw('');
+          setProfileFieldsDirty(false);
+          setProfileEditor(null);
         }
       } finally {
         if (sequence === requestSequence.current) setLoading(false);
@@ -238,7 +340,31 @@ export function AgentConfigurationSettingsPanel({
   }, [projectScopeSupported, scope]);
 
   const draftDirty = isAgentSettingsDraftDirty(draft);
-  const isDirty = draftDirty;
+  const profileEnvironment = useMemo(
+    () => parseProfileEnvironment(profileEnvironmentRaw),
+    [profileEnvironmentRaw]
+  );
+  const profileEditorEnvironment = useMemo(
+    () =>
+      profileEditor
+        ? parseProfileEnvironment(profileEditor.environmentRaw)
+        : { value: {} as Record<string, string> },
+    [profileEditor]
+  );
+  const profileEditorDirty = useMemo(() => {
+    if (!profileEditor) return false;
+    const original = profiles.find(
+      (profile) => profile.id === profileEditor.id
+    );
+    if (!original) return false;
+    return (
+      profileEditor.name !== original.name ||
+      profileEditor.environmentRaw !==
+        formatProfileEnvironment(original.environment) ||
+      profileEditor.customArgsRaw !== original.custom_args.join('\n')
+    );
+  }, [profileEditor, profiles]);
+  const isDirty = draftDirty || profileFieldsDirty || profileEditorDirty;
 
   useEffect(() => {
     setContextDirty(`agent-settings:${provider}`, isDirty);
@@ -350,6 +476,7 @@ export function AgentConfigurationSettingsPanel({
 
   const resetDraft = (descriptor: SettingDescriptor) => {
     const id = settingKeyId(descriptor);
+    hideSensitiveSetting(id);
     setDraft((previous) => ({
       ...previous,
       [id]: {
@@ -364,8 +491,71 @@ export function AgentConfigurationSettingsPanel({
     setPending(null);
   };
 
+  const revealSensitiveSetting = async (descriptor: SettingDescriptor) => {
+    if (!machineClient || !snapshot) return;
+    const id = settingKeyId(descriptor);
+    const source = settingSourceForScope(snapshot, descriptor, scope);
+    if (!source?.configured) return;
+    const client = machineClient;
+    const expectedRevision = source.revision;
+    const sequence = ++revealRequestSequence.current;
+    setRevealedSetting(null);
+    setRevealingSettingId(id);
+    setRevealErrors((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    try {
+      const result = await client.revealAgentSetting({
+        provider,
+        project_path: projectPath.trim() || null,
+        key: descriptor.key,
+        scope,
+        expected_revision: expectedRevision,
+      });
+      if (
+        !isRevealResponseCurrent({
+          requestSequence: sequence,
+          currentSequence: revealRequestSequence.current,
+          requestClient: client,
+          currentClient: activeMachineClient.current,
+          settingId: id,
+          scope,
+          expectedRevision,
+          response: result,
+        })
+      ) {
+        return;
+      }
+      setRevealedSetting({ id, value: result.value });
+    } catch (nextError) {
+      if (
+        sequence === revealRequestSequence.current &&
+        activeMachineClient.current === client
+      ) {
+        setRevealErrors((current) => ({
+          ...current,
+          [id]: formatAgentSettingOperationError(nextError),
+        }));
+      }
+    } finally {
+      if (
+        sequence === revealRequestSequence.current &&
+        activeMachineClient.current === client
+      ) {
+        setRevealingSettingId(null);
+      }
+    }
+  };
+
   const saveProfile = async () => {
     if (!machineClient || !snapshot) return;
+    if (!profileEnvironment.value) {
+      setError(profileEnvironment.error ?? 'Invalid profile environment.');
+      return;
+    }
     const name = window.prompt('Profile name');
     if (!name?.trim()) return;
     const settingOverrides: Record<string, JsonValue> = {};
@@ -384,17 +574,6 @@ export function AgentConfigurationSettingsPanel({
       if (value !== undefined)
         settingOverrides[settingKeyId(descriptor)] = value;
     }
-    const environmentValue = settingOverrides['common.environment'];
-    const environment =
-      environmentValue &&
-      typeof environmentValue === 'object' &&
-      !Array.isArray(environmentValue)
-        ? (Object.fromEntries(
-            Object.entries(environmentValue).filter(
-              ([, value]) => typeof value === 'string'
-            )
-          ) as Record<string, string>)
-        : {};
     setBusy(true);
     setError(null);
     try {
@@ -410,15 +589,62 @@ export function AgentConfigurationSettingsPanel({
           schema_version: 1,
           setting_overrides: settingOverrides,
           provider_extensions: {},
-          environment,
-          custom_args: [],
+          environment: profileEnvironment.value,
+          custom_args: parseProfileCustomArgs(profileCustomArgsRaw),
           updated_at: new Date().toISOString(),
         },
       });
       await loadProfiles();
+      setProfileFieldsDirty(false);
       setNotice(
         'Profile saved locally. It remains inactive until explicitly applied.'
       );
+    } catch (nextError) {
+      setError(formatAgentSettingOperationError(nextError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const editProfile = (profile: ConfigProfile) => {
+    setProfileEditor({
+      id: profile.id,
+      name: profile.name,
+      environmentRaw: formatProfileEnvironment(profile.environment),
+      customArgsRaw: profile.custom_args.join('\n'),
+    });
+  };
+
+  const saveProfileEdits = async (profile: ConfigProfile) => {
+    if (
+      !machineClient ||
+      !profileEditor ||
+      profileEditor.id !== profile.id ||
+      !profileEditor.name.trim()
+    ) {
+      return;
+    }
+    if (!profileEditorEnvironment.value) {
+      setError(
+        profileEditorEnvironment.error ?? 'Invalid profile environment.'
+      );
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await machineClient.saveAgentSettingsProfile({
+        profile: {
+          ...profile,
+          name: profileEditor.name.trim(),
+          environment: profileEditorEnvironment.value,
+          custom_args: parseProfileCustomArgs(profileEditor.customArgsRaw),
+          updated_at: new Date().toISOString(),
+        },
+      });
+      setProfileEditor(null);
+      await loadProfiles();
+      setNotice('Profile updated.');
     } catch (nextError) {
       setError(formatAgentSettingOperationError(nextError));
     } finally {
@@ -438,24 +664,6 @@ export function AgentConfigurationSettingsPanel({
       });
       await loadProfiles();
       setNotice('Profile duplicated.');
-    } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const renameProfile = async (profile: ConfigProfile) => {
-    if (!machineClient) return;
-    const name = window.prompt('Profile name', profile.name);
-    if (!name?.trim() || name.trim() === profile.name) return;
-    setBusy(true);
-    try {
-      await machineClient.saveAgentSettingsProfile({
-        profile: { ...profile, name: name.trim() },
-      });
-      await loadProfiles();
-      setNotice('Profile renamed.');
     } catch (nextError) {
       setError(formatAgentSettingOperationError(nextError));
     } finally {
@@ -701,15 +909,23 @@ export function AgentConfigurationSettingsPanel({
             updateDraft(descriptor, raw, parsed.value, parsed.error);
           };
           if (descriptor.sensitive) {
-            const configured = snapshot?.effective_settings.find(
-              (setting) => settingKeyId(setting) === id
-            )?.configured;
+            const configured = Boolean(
+              snapshot &&
+                settingSourceForScope(snapshot, descriptor, scope)?.configured
+            );
+            const viewingStoredValue = revealedSetting?.id === id;
+            const replacementVisible = Boolean(visibleReplacementIds[id]);
+            const valueVisible = viewingStoredValue || replacementVisible;
+            const canToggleVisibility =
+              (entry.action === 'preserve' && configured) ||
+              (entry.action === 'replace' && entry.raw.length > 0);
+            const revealLoading = revealingSettingId === id;
             return (
               <SettingsField
                 key={id}
                 label={descriptor.label}
                 description={descriptor.description}
-                error={entry.error}
+                error={entry.error ?? revealErrors[id]}
               >
                 <div className="flex items-center justify-between gap-2 text-xs text-low">
                   <span>
@@ -722,19 +938,84 @@ export function AgentConfigurationSettingsPanel({
                       type="button"
                       className="underline hover:text-normal disabled:opacity-40"
                       disabled={disabled}
-                      onClick={() => resetDraft(descriptor)}
+                      onClick={() => {
+                        hideSensitiveSetting(id);
+                        resetDraft(descriptor);
+                      }}
                     >
                       {t('agentCenter.security.clearSensitiveValue')}
                     </button>
                   )}
                 </div>
-                <SettingsTextarea
-                  value={entry.raw}
-                  onChange={(raw) => update(raw)}
-                  disabled={disabled}
-                  rows={4}
-                  monospace
-                />
+                <div className="relative">
+                  <input
+                    id={`agent-setting-${id.replaceAll('.', '-')}`}
+                    type={valueVisible ? 'text' : 'password'}
+                    value={
+                      viewingStoredValue ? revealedSetting.value : entry.raw
+                    }
+                    onChange={(event) => {
+                      hideSensitiveSetting(id);
+                      update(event.target.value);
+                    }}
+                    placeholder={
+                      configured && entry.action === 'preserve'
+                        ? t(
+                            'agentCenter.security.sensitiveValueConfiguredPlaceholder'
+                          )
+                        : undefined
+                    }
+                    disabled={disabled}
+                    readOnly={viewingStoredValue}
+                    autoComplete="new-password"
+                    className={cn(
+                      'w-full rounded-sm border border-border bg-secondary px-base py-half pr-10 font-mono text-sm text-high',
+                      'placeholder:text-low placeholder:opacity-80 focus:outline-none focus:ring-1 focus:ring-brand',
+                      disabled && 'cursor-not-allowed opacity-50'
+                    )}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-sm text-low hover:bg-panel hover:text-normal disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={t(
+                      valueVisible
+                        ? 'agentCenter.security.hideSensitiveValue'
+                        : 'agentCenter.security.showSensitiveValue'
+                    )}
+                    disabled={
+                      busy ||
+                      !scopeSupported ||
+                      revealLoading ||
+                      !canToggleVisibility
+                    }
+                    onClick={() => {
+                      if (valueVisible) {
+                        hideSensitiveSetting(id);
+                      } else if (entry.action === 'replace') {
+                        setVisibleReplacementIds((current) => ({
+                          ...current,
+                          [id]: true,
+                        }));
+                      } else {
+                        void revealSensitiveSetting(descriptor);
+                      }
+                    }}
+                  >
+                    {revealLoading ? (
+                      <SpinnerIcon
+                        className="size-icon-sm animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : valueVisible ? (
+                      <EyeSlashIcon
+                        className="size-icon-sm"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <EyeIcon className="size-icon-sm" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
                 <div className="text-xs text-low">
                   {t('agentCenter.security.writeOnlySettingHelp')}
                 </div>
@@ -751,7 +1032,7 @@ export function AgentConfigurationSettingsPanel({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-low">
                   <span className="rounded bg-secondary px-1.5 py-0.5">
-                    {sourceLabel(snapshot!, descriptor, entry)}
+                    {sourceLabel(sourceLabelKind(snapshot!, descriptor, entry))}
                   </span>
                   <span className="ml-2">
                     {descriptor.activation.replaceAll('_', ' ')}
@@ -884,14 +1165,19 @@ export function AgentConfigurationSettingsPanel({
                     : displayJson(setting.effective_value)}
                 </td>
                 <td className="px-3 py-2 text-low">
-                  {setting.effective_source ?? 'Default'}
+                  {sourceLabel(
+                    agentSettingSourceKind(setting.effective_source)
+                  )}
                 </td>
                 <td className="px-3 py-2 text-low">
                   {setting.sources.length
                     ? setting.sources
-                        .map((source) => `${source.source} (${source.scope})`)
+                        .map(
+                          (source) =>
+                            `${sourceLabel(agentSettingSourceKind(source.source))} (${source.scope})`
+                        )
                         .join(', ')
-                    : 'None observed'}
+                    : t('agentCenter.inheritedOrUnset')}
                 </td>
               </tr>
             ))}
@@ -927,11 +1213,50 @@ export function AgentConfigurationSettingsPanel({
         <PrimaryButton
           value="Save current"
           onClick={() => void saveProfile()}
-          disabled={busy || !snapshot?.capabilities.profile_storage}
+          disabled={
+            busy ||
+            !snapshot?.capabilities.profile_storage ||
+            Boolean(profileEnvironment.error)
+          }
           actionIcon={busy ? 'spinner' : undefined}
         />
       }
     >
+      <div className="grid gap-4 md:grid-cols-2">
+        <SettingsField
+          label={t('agentCenter.profileEditor.environmentLabel')}
+          description={t('agentCenter.profileEditor.environmentHelp')}
+          error={profileEnvironment.error}
+        >
+          <SettingsTextarea
+            value={profileEnvironmentRaw}
+            onChange={(value) => {
+              setProfileEnvironmentRaw(value);
+              setProfileFieldsDirty(true);
+            }}
+            placeholder={t('agentCenter.profileEditor.environmentPlaceholder')}
+            disabled={busy}
+            rows={5}
+            monospace
+          />
+        </SettingsField>
+        <SettingsField
+          label={t('agentCenter.profileEditor.customArgsLabel')}
+          description={t('agentCenter.profileEditor.customArgsHelp')}
+        >
+          <SettingsTextarea
+            value={profileCustomArgsRaw}
+            onChange={(value) => {
+              setProfileCustomArgsRaw(value);
+              setProfileFieldsDirty(true);
+            }}
+            placeholder={t('agentCenter.profileEditor.customArgsPlaceholder')}
+            disabled={busy}
+            rows={5}
+            monospace
+          />
+        </SettingsField>
+      </div>
       {copyPreview && (
         <div className="space-y-2 rounded-sm border border-border bg-secondary/20 p-3">
           <div className="text-sm font-medium text-high">
@@ -985,58 +1310,142 @@ export function AgentConfigurationSettingsPanel({
         </div>
       ) : (
         <div className="space-y-2">
-          {profiles.map((profile) => (
-            <div
-              key={profile.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-secondary/20 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-normal">
-                  {profile.name}
+          {profiles.map((profile) => {
+            const editing = profileEditor?.id === profile.id;
+            return (
+              <div
+                key={profile.id}
+                className="space-y-3 rounded-sm border border-border bg-secondary/20 px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-normal">
+                      {profile.name}
+                    </div>
+                    <div className="text-xs text-low">
+                      {Object.keys(profile.setting_overrides).length} managed
+                      settings · {Object.keys(profile.environment).length}{' '}
+                      environment values · {profile.custom_args.length} custom
+                      args · updated{' '}
+                      {new Date(profile.updated_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <ToolAction
+                      label="Apply"
+                      icon={CheckCircleIcon}
+                      disabled={busy || !snapshot}
+                      onClick={() => void previewProfileApply(profile)}
+                    />
+                    <ToolAction
+                      label="Copy"
+                      icon={CopyIcon}
+                      disabled={busy}
+                      onClick={() => void previewProfileCopy(profile)}
+                    />
+                    <ToolAction
+                      label="Duplicate"
+                      icon={PlusIcon}
+                      disabled={busy}
+                      onClick={() => void duplicateProfile(profile)}
+                    />
+                    <ToolAction
+                      label={t('agentCenter.profileEditor.edit')}
+                      icon={PencilSimpleIcon}
+                      disabled={
+                        busy ||
+                        (profileEditor !== null &&
+                          profileEditor.id !== profile.id)
+                      }
+                      onClick={() => editProfile(profile)}
+                    />
+                    <ToolAction
+                      label="Delete"
+                      icon={TrashIcon}
+                      danger
+                      disabled={busy}
+                      onClick={() => void deleteProfile(profile)}
+                    />
+                  </div>
                 </div>
-                <div className="text-xs text-low">
-                  {profile.setting_overrides
-                    ? Object.keys(profile.setting_overrides).length
-                    : 0}{' '}
-                  managed settings · updated{' '}
-                  {new Date(profile.updated_at).toLocaleString()}
-                </div>
+                {editing && profileEditor && (
+                  <div className="space-y-4 border-t border-border pt-3">
+                    <SettingsField
+                      label={t('agentCenter.profileEditor.nameLabel')}
+                    >
+                      <SettingsInput
+                        value={profileEditor.name}
+                        onChange={(name) =>
+                          setProfileEditor((current) =>
+                            current ? { ...current, name } : current
+                          )
+                        }
+                        disabled={busy}
+                      />
+                    </SettingsField>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <SettingsField
+                        label={t('agentCenter.profileEditor.environmentLabel')}
+                        description={t(
+                          'agentCenter.profileEditor.environmentHelp'
+                        )}
+                        error={profileEditorEnvironment.error}
+                      >
+                        <SettingsTextarea
+                          value={profileEditor.environmentRaw}
+                          onChange={(environmentRaw) =>
+                            setProfileEditor((current) =>
+                              current ? { ...current, environmentRaw } : current
+                            )
+                          }
+                          disabled={busy}
+                          rows={5}
+                          monospace
+                        />
+                      </SettingsField>
+                      <SettingsField
+                        label={t('agentCenter.profileEditor.customArgsLabel')}
+                        description={t(
+                          'agentCenter.profileEditor.customArgsHelp'
+                        )}
+                      >
+                        <SettingsTextarea
+                          value={profileEditor.customArgsRaw}
+                          onChange={(customArgsRaw) =>
+                            setProfileEditor((current) =>
+                              current ? { ...current, customArgsRaw } : current
+                            )
+                          }
+                          disabled={busy}
+                          rows={5}
+                          monospace
+                        />
+                      </SettingsField>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <PrimaryButton
+                        variant="tertiary"
+                        value={t('agentCenter.profileEditor.cancel')}
+                        onClick={() => setProfileEditor(null)}
+                        disabled={busy}
+                      />
+                      <PrimaryButton
+                        value={t('agentCenter.profileEditor.save')}
+                        onClick={() => void saveProfileEdits(profile)}
+                        disabled={
+                          busy ||
+                          !profileEditorDirty ||
+                          !profileEditor.name.trim() ||
+                          Boolean(profileEditorEnvironment.error)
+                        }
+                        actionIcon={busy ? 'spinner' : undefined}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap gap-1">
-                <ToolAction
-                  label="Apply"
-                  icon={CheckCircleIcon}
-                  disabled={busy || !snapshot}
-                  onClick={() => void previewProfileApply(profile)}
-                />
-                <ToolAction
-                  label="Copy"
-                  icon={CopyIcon}
-                  disabled={busy}
-                  onClick={() => void previewProfileCopy(profile)}
-                />
-                <ToolAction
-                  label="Duplicate"
-                  icon={PlusIcon}
-                  disabled={busy}
-                  onClick={() => void duplicateProfile(profile)}
-                />
-                <ToolAction
-                  label="Rename"
-                  icon={PencilSimpleIcon}
-                  disabled={busy}
-                  onClick={() => void renameProfile(profile)}
-                />
-                <ToolAction
-                  label="Delete"
-                  icon={TrashIcon}
-                  danger
-                  disabled={busy}
-                  onClick={() => void deleteProfile(profile)}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </SettingsCard>

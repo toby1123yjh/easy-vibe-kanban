@@ -322,6 +322,8 @@ fn generate_types_content() -> String {
         executors::agent_settings::NativeFileDiff::decl(),
         executors::agent_settings::SettingsDiff::decl(),
         executors::agent_settings::ApplySettingsRequest::decl(),
+        executors::agent_settings::RevealAgentSettingRequest::decl(),
+        executors::agent_settings::RevealAgentSettingResponse::decl(),
         executors::agent_settings::NativeFilePatch::decl(),
         executors::agent_settings::ApplyNativeFileRequest::decl(),
         executors::agent_settings::ConfigProfile::decl(),

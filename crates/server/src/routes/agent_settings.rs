@@ -11,7 +11,8 @@ use executors::agent_settings::{
     AgentSettingsService, ApplyConfigProfileRequest, ApplyNativeFileRequest, ApplySettingsRequest,
     ConfigProfile, CopyProfilePreviewRequest, DeleteConfigProfileRequest,
     DuplicateConfigProfileRequest, NativeFilePatch, ProfileApplyPreviewRequest, ProfileCopyPreview,
-    SaveConfigProfileRequest, SettingsDiff, SettingsPatch, SettingsSnapshot,
+    RevealAgentSettingRequest, RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff,
+    SettingsPatch, SettingsSnapshot,
 };
 use serde::Deserialize;
 use ts_rs::TS;
@@ -24,6 +25,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/agent-settings", get(discover))
         .route("/agent-settings/diff", post(diff))
         .route("/agent-settings/apply", post(apply))
+        .route("/agent-settings/reveal", post(reveal))
         .route("/agent-settings/native-file/diff", post(diff_native_file))
         .route("/agent-settings/native-file/apply", post(apply_native_file))
         .route(
@@ -109,6 +111,21 @@ async fn apply(
             .map_err(|error| operation_error(error, Some(provider)))
     }) {
         Ok(snapshot) => ResponseJson(ApiResponse::success(snapshot)),
+        Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
+    }
+}
+
+async fn reveal(
+    State(_deployment): State<DeploymentImpl>,
+    Json(request): Json<RevealAgentSettingRequest>,
+) -> ResponseJson<ApiResponse<RevealAgentSettingResponse, AgentSettingOperationError>> {
+    let provider = request.provider;
+    match service().and_then(|service| {
+        service
+            .reveal(request)
+            .map_err(|error| operation_error(error, Some(provider)))
+    }) {
+        Ok(response) => ResponseJson(ApiResponse::success(response)),
         Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
     }
 }

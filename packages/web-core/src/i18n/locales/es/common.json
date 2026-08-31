@@ -883,15 +883,30 @@
       "nativeProject": "Configuración nativa del proyecto"
     },
     "security": {
-      "sensitiveValueConfigured": "Configured value hidden",
-      "sensitiveValueNotConfigured": "Not configured",
-      "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "sensitiveValueConfigured": "Configurado, valor oculto",
+      "sensitiveValueNotConfigured": "Sin configurar",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "Mostrar la credencial guardada",
+      "hideSensitiveValue": "Ocultar la credencial",
+      "clearSensitiveValue": "Borrar el valor guardado",
+      "writeOnlySettingHelp": "Usa el botón del ojo para ver la credencial guardada. Ocúltala antes de escribir un reemplazo o bórrala explícitamente.",
       "sensitiveSettingUnavailable": "Los valores sensibles existentes están ocultos. Usa el editor nativo del Agent hasta que el Settings Adapter admita actualizaciones seguras de solo escritura.",
       "nativeFilesUnavailable": "La edición de archivos nativos sin procesar no está disponible porque pueden contener credenciales. Los ajustes tipados no sensibles siguen siendo editables.",
       "effectiveValueHidden": "Valor almacenado oculto",
       "unknownValueHidden": "valor oculto",
       "diffHidden": "Los bytes nativos están ocultos porque el archivo puede contener credenciales. La operación confirmada del Adapter sigue usando la diferencia protegida por revisión."
+    },
+    "profileEditor": {
+      "nameLabel": "Nombre del perfil",
+      "environmentLabel": "Variables de entorno",
+      "environmentHelp": "Se aplica a la configuración nativa cuando el adaptador del Agent lo admite; de lo contrario, se conserva en el perfil o la configuración de ejecución.",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "Argumentos personalizados",
+      "customArgsHelp": "Un argumento de la CLI del Agent por línea. Solo se guarda en el perfil o la configuración de ejecución, no en la configuración nativa.",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "Editar",
+      "save": "Guardar perfil",
+      "cancel": "Cancelar"
     },
     "commands": {
       "manager": {

@@ -3,8 +3,10 @@ import type {
   NativeConfigFile,
   SettingControl,
   SettingDescriptor,
+  SettingKey,
   SettingOperation,
   SettingScope,
+  SettingSourceValue,
   SettingsDiff,
   SettingsPatch,
   SettingsSnapshot,
@@ -33,6 +35,19 @@ export type AgentSettingsDraftEntry = {
 };
 
 export type AgentSettingsDraft = Record<string, AgentSettingsDraftEntry>;
+
+export type AgentSettingSourceKind =
+  | 'native_user'
+  | 'native_project'
+  | 'default'
+  | 'adapter_managed';
+
+export function agentSettingSourceKind(
+  source: string | null | undefined
+): AgentSettingSourceKind {
+  if (source === 'native_user' || source === 'native_project') return source;
+  return source ? 'adapter_managed' : 'default';
+}
 
 export const PROVIDER_LABELS: Record<AgentSettingsProvider, string> = {
   [AgentSettingsProvider.codex]: 'Codex',
@@ -238,11 +253,138 @@ export function createAgentSettingsDraft(
         settingKeyId(descriptor),
         {
           action: 'preserve',
-          value,
+          value: descriptor.sensitive ? undefined : value,
           raw: descriptor.sensitive ? '' : valueToInput(value),
         },
       ];
     })
+  );
+}
+
+export function effectiveStringSetting(
+  snapshot: SettingsSnapshot | null | undefined,
+  namespace: string,
+  name: string
+): { value: string | null; source: string | null } {
+  const setting = snapshot?.effective_settings.find(
+    (candidate) =>
+      candidate.key.namespace === namespace && candidate.key.name === name
+  );
+  return {
+    value:
+      typeof setting?.effective_value === 'string'
+        ? setting.effective_value
+        : null,
+    source: setting?.effective_source ?? null,
+  };
+}
+
+export function profileEnvironmentFromSnapshot(
+  snapshot: SettingsSnapshot | null | undefined
+): Record<string, string> {
+  const setting = snapshot?.effective_settings.find(
+    (candidate) =>
+      candidate.key.namespace === 'common' &&
+      candidate.key.name === 'environment'
+  );
+  const value = setting?.effective_value;
+  if (value === null || Array.isArray(value) || typeof value !== 'object') {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
+}
+
+export function formatProfileEnvironment(
+  environment: Record<string, string | undefined>
+): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(environment).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    ),
+    null,
+    2
+  );
+}
+
+export function parseProfileEnvironment(raw: string): {
+  value?: Record<string, string>;
+  error?: string;
+} {
+  if (!raw.trim()) return { value: {} };
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed === null ||
+      Array.isArray(parsed) ||
+      typeof parsed !== 'object' ||
+      Object.values(parsed).some((value) => typeof value !== 'string')
+    ) {
+      return { error: 'Enter a JSON object whose values are strings.' };
+    }
+    return { value: parsed as Record<string, string> };
+  } catch {
+    return { error: 'Enter valid JSON.' };
+  }
+}
+
+export function parseProfileCustomArgs(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((argument) => argument.trim())
+    .filter(Boolean);
+}
+
+export function isRevealResponseCurrent({
+  requestSequence,
+  currentSequence,
+  requestClient,
+  currentClient,
+  settingId,
+  scope,
+  expectedRevision,
+  response,
+}: {
+  requestSequence: number;
+  currentSequence: number;
+  requestClient: unknown;
+  currentClient: unknown;
+  settingId: string;
+  scope: SettingScope;
+  expectedRevision: string;
+  response: { key: SettingKey; scope: SettingScope; revision: string };
+}): boolean {
+  return (
+    requestSequence === currentSequence &&
+    requestClient === currentClient &&
+    settingKeyId(response) === settingId &&
+    response.scope === scope &&
+    response.revision === expectedRevision
+  );
+}
+
+export function settingSourceForScope(
+  snapshot: SettingsSnapshot,
+  descriptor: SettingDescriptor,
+  scope: SettingScope
+): SettingSourceValue | null {
+  const fileIds = new Set(
+    descriptor.native_locations
+      .filter((location) => location.scope === scope)
+      .map((location) => location.file_id)
+  );
+  const setting = snapshot.effective_settings.find(
+    (candidate) => settingKeyId(candidate) === settingKeyId(descriptor)
+  );
+  return (
+    setting?.sources.find(
+      (source) => source.scope === scope && fileIds.has(source.file_id)
+    ) ?? null
   );
 }
 
@@ -252,6 +394,14 @@ export function isAgentSettingsDraftDirty(draft: AgentSettingsDraft): boolean {
 
 export function hasDraftErrors(draft: AgentSettingsDraft): boolean {
   return Object.values(draft).some((entry) => Boolean(entry.error));
+}
+
+function isMaskedSensitiveValue(value: JsonValue | undefined): boolean {
+  return (
+    typeof value === 'string' &&
+    value.trim().length >= 3 &&
+    /^[*•]+$/.test(value.trim())
+  );
 }
 
 export function buildAgentSettingsPatch(
@@ -272,7 +422,10 @@ export function buildAgentSettingsPatch(
       continue;
     if (entry.action === 'clear') {
       operations.push({ type: 'clear', data: { key: descriptor.key, scope } });
-    } else if (entry.value !== undefined) {
+    } else if (
+      entry.value !== undefined &&
+      !(descriptor.sensitive && isMaskedSensitiveValue(entry.value))
+    ) {
       operations.push({
         type: 'replace',
         data: { key: descriptor.key, scope, value: entry.value },

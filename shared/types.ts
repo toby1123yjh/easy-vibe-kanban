@@ -801,6 +801,10 @@ export type SettingsDiff = { provider: AgentSettingsProvider, files: Array<Nativ
 
 export type ApplySettingsRequest = { patch: SettingsPatch, confirmed: boolean, };
 
+export type RevealAgentSettingRequest = { provider: AgentSettingsProvider, project_path?: string | null, key: SettingKey, scope: SettingScope, expected_revision: string, };
+
+export type RevealAgentSettingResponse = { key: SettingKey, scope: SettingScope, value: string, revision: string, };
+
 export type NativeFilePatch = { provider: AgentSettingsProvider, project_path?: string | null, file_id: string, expected_revision: string, content: string, };
 
 export type ApplyNativeFileRequest = { patch: NativeFilePatch, confirmed: boolean, };

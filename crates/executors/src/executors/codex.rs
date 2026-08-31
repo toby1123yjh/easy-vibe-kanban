@@ -17,12 +17,20 @@ use std::{
 /// Checks the `CODEX_HOME` environment variable first, then falls back to `~/.codex`.
 /// This allows users to configure a custom location for Codex configuration and state.
 pub fn codex_home() -> Option<PathBuf> {
-    if let Ok(codex_home) = env::var("CODEX_HOME")
-        && !codex_home.trim().is_empty()
-    {
-        return Some(PathBuf::from(codex_home));
-    }
-    dirs::home_dir().map(|home| home.join(".codex"))
+    configured_codex_home().or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
+}
+
+/// Resolves the Codex home while retaining an injected home-directory
+/// fallback for services and tests that do not run against the process home.
+pub fn codex_home_for(home_dir: &Path) -> PathBuf {
+    configured_codex_home().unwrap_or_else(|| home_dir.join(".codex"))
+}
+
+fn configured_codex_home() -> Option<PathBuf> {
+    env::var("CODEX_HOME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
 }
 
 pub(crate) fn resolve_model(model: Option<&str>) -> (Option<&str>, bool) {

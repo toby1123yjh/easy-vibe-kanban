@@ -31,6 +31,8 @@ import type {
   ProfileApplyPreviewRequest,
   ProfileCopyPreview,
   Repo,
+  RevealAgentSettingRequest,
+  RevealAgentSettingResponse,
   SaveConfigProfileRequest,
   SettingsDiff,
   SettingsPatch,
@@ -112,6 +114,9 @@ export interface MachineClient {
   ) => Promise<AgentSettingsInventory>;
   diffAgentSettings: (data: SettingsPatch) => Promise<SettingsDiff>;
   applyAgentSettings: (data: ApplySettingsRequest) => Promise<SettingsSnapshot>;
+  revealAgentSetting: (
+    data: RevealAgentSettingRequest
+  ) => Promise<RevealAgentSettingResponse>;
   diffAgentSettingsNativeFile: (data: NativeFilePatch) => Promise<SettingsDiff>;
   applyAgentSettingsNativeFile: (
     data: ApplyNativeFileRequest
@@ -431,6 +436,19 @@ export function createMachineClient(
           method: 'POST',
           body: JSON.stringify(data),
         })
+      ),
+    revealAgentSetting: async (data) =>
+      handleApiResponse<RevealAgentSettingResponse, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/reveal',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+            cache: 'no-store',
+          }
+        )
       ),
     diffAgentSettingsNativeFile: async (data) =>
       handleApiResponse<SettingsDiff, AgentSettingOperationError>(

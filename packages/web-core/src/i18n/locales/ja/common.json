@@ -883,15 +883,30 @@
       "nativeProject": "プロジェクトのネイティブ設定"
     },
     "security": {
-      "sensitiveValueConfigured": "Configured value hidden",
-      "sensitiveValueNotConfigured": "Not configured",
-      "clearSensitiveValue": "Clear stored value",
-      "writeOnlySettingHelp": "Existing values stay hidden. Leave the input empty to preserve them, enter a new value to replace them, or explicitly clear them.",
+      "sensitiveValueConfigured": "設定済み（非表示）",
+      "sensitiveValueNotConfigured": "未設定",
+      "sensitiveValueConfiguredPlaceholder": "••••••••••••",
+      "showSensitiveValue": "保存済みの認証情報を表示",
+      "hideSensitiveValue": "認証情報を隠す",
+      "clearSensitiveValue": "保存済みの値を消去",
+      "writeOnlySettingHelp": "目のボタンで保存済みの認証情報を確認できます。置き換える場合は先に隠してから入力するか、明示的に消去してください。",
       "sensitiveSettingUnavailable": "既存の機密値は非表示です。Settings Adapter が安全な書き込み専用更新に対応するまでは、Agent のネイティブエディターを使用してください。",
       "nativeFilesUnavailable": "ネイティブファイルには認証情報が含まれる可能性があるため、raw 編集は利用できません。機密でない型付き設定は引き続き編集できます。",
       "effectiveValueHidden": "保存値は非表示です",
       "unknownValueHidden": "値は非表示です",
       "diffHidden": "ファイルに認証情報が含まれる可能性があるため、ネイティブバイトは非表示です。確認後の Adapter 操作では、引き続きリビジョン保護された差分が使用されます。"
+    },
+    "profileEditor": {
+      "nameLabel": "プロファイル名",
+      "environmentLabel": "環境変数",
+      "environmentHelp": "Agent Adapter が対応する場合はネイティブ設定に適用され、未対応の場合はプロファイル／実行設定に保持されます。",
+      "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
+      "customArgsLabel": "カスタム引数",
+      "customArgsHelp": "Agent CLI の引数を 1 行に 1 つ入力します。ネイティブ設定には書き込まず、プロファイル／実行設定にのみ保存します。",
+      "customArgsPlaceholder": "--flag=value",
+      "edit": "編集",
+      "save": "プロファイルを保存",
+      "cancel": "キャンセル"
     },
     "commands": {
       "manager": {

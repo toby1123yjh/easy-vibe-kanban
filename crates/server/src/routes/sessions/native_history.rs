@@ -8,6 +8,7 @@ use std::{
 
 use chrono::{DateTime, TimeZone, Utc};
 use db::models::coding_agent_turn::ResumableAgentSession;
+use executors::executors::oh_my_pi::oh_my_pi_agent_root;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -856,41 +857,7 @@ fn list_oh_my_pi_sessions() -> HashMap<String, NativeSessionDraft> {
 }
 
 fn oh_my_pi_sessions_root() -> Option<PathBuf> {
-    if let Some(agent_dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
-        return Some(expand_tilde_path(PathBuf::from(agent_dir)).join("sessions"));
-    }
-    if let Some(agent_dir) = std::env::var_os("OMP_AGENT_DIR") {
-        return Some(expand_tilde_path(PathBuf::from(agent_dir)).join("sessions"));
-    }
-    let home = home_dir()?;
-    let config_dir = std::env::var_os("PI_CONFIG_DIR")
-        .map(|path| expand_tilde_path(PathBuf::from(path)))
-        .unwrap_or_else(|| PathBuf::from(".omp"));
-    let profile = std::env::var("OMP_PROFILE")
-        .ok()
-        .or_else(|| std::env::var("PI_PROFILE").ok())
-        .and_then(|profile| normalize_omp_profile(&profile));
-
-    // Oh My Pi uses XDG data storage on Unix after the user migrates their
-    // profile. Only follow an XDG path when its app/profile root exists; this
-    // avoids inventing a new location for an unmigrated installation.
-    if cfg!(unix)
-        && let Some(xdg_data) = std::env::var_os("XDG_DATA_HOME")
-    {
-        let mut root = PathBuf::from(xdg_data).join("omp");
-        if let Some(profile) = profile.as_deref() {
-            root = root.join("profiles").join(profile);
-        }
-        if root.exists() {
-            return Some(root.join("sessions"));
-        }
-    }
-
-    let mut root = home.join(config_dir);
-    if let Some(profile) = profile {
-        root = root.join("profiles").join(profile);
-    }
-    Some(root.join("agent").join("sessions"))
+    oh_my_pi_agent_root().map(|root| root.join("sessions"))
 }
 
 fn list_oh_my_pi_sessions_from_root(root: &Path) -> HashMap<String, NativeSessionDraft> {
@@ -1175,80 +1142,6 @@ fn normalize_path_for_match(path: &Path) -> String {
         .replace('\\', "/")
         .trim_end_matches('/')
         .to_ascii_lowercase()
-}
-
-fn expand_tilde_path(path: PathBuf) -> PathBuf {
-    let Some(home) = home_dir() else {
-        return path;
-    };
-    let value = path.to_string_lossy();
-    if value == "~" {
-        return home;
-    }
-    if let Some(rest) = value
-        .strip_prefix("~/")
-        .or_else(|| value.strip_prefix("~\\"))
-    {
-        return home.join(rest);
-    }
-    path
-}
-
-fn normalize_omp_profile(value: &str) -> Option<String> {
-    let profile = value.trim();
-    if profile.is_empty() || profile == "default" {
-        return None;
-    }
-    let first_is_alphanumeric = profile
-        .as_bytes()
-        .first()
-        .is_some_and(u8::is_ascii_alphanumeric);
-    if profile == "."
-        || profile == ".."
-        || !first_is_alphanumeric
-        || profile.ends_with('.')
-        || !profile
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-        || is_windows_reserved_profile_name(profile)
-    {
-        return None;
-    }
-    Some(profile.to_string())
-}
-
-fn is_windows_reserved_profile_name(profile: &str) -> bool {
-    let stem = profile
-        .split_once('.')
-        .map_or(profile, |(stem, _)| stem)
-        .to_ascii_uppercase();
-    matches!(
-        stem.as_str(),
-        "CON"
-            | "PRN"
-            | "AUX"
-            | "NUL"
-            | "COM0"
-            | "COM1"
-            | "COM2"
-            | "COM3"
-            | "COM4"
-            | "COM5"
-            | "COM6"
-            | "COM7"
-            | "COM8"
-            | "COM9"
-            | "LPT0"
-            | "LPT1"
-            | "LPT2"
-            | "LPT3"
-            | "LPT4"
-            | "LPT5"
-            | "LPT6"
-            | "LPT7"
-            | "LPT8"
-            | "LPT9"
-    )
 }
 
 fn collect_jsonl_files(root: &Path, max_depth: usize) -> Vec<(PathBuf, DateTime<Utc>)> {
@@ -1918,21 +1811,6 @@ mod tests {
             &scope,
             false
         ));
-    }
-
-    #[test]
-    fn omp_profiles_follow_native_name_rules() {
-        assert_eq!(normalize_omp_profile("default"), None);
-        assert_eq!(
-            normalize_omp_profile(" work-profile_1 "),
-            Some("work-profile_1".into())
-        );
-        assert_eq!(normalize_omp_profile("../escape"), None);
-        assert_eq!(normalize_omp_profile("."), None);
-        assert_eq!(normalize_omp_profile("profile."), None);
-        assert_eq!(normalize_omp_profile("CON"), None);
-        assert_eq!(normalize_omp_profile("LPT1.json"), None);
-        assert_eq!(normalize_omp_profile("with space"), None);
     }
 
     #[test]
