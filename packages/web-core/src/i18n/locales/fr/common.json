@@ -878,6 +878,17 @@
     "apiAddressUnavailable": "Non exposée par cet Adapter",
     "configurationSource": "Source de configuration",
     "adapterManaged": "Fichiers natifs observés par l’Adapter",
+    "configurationSources": {
+      "nativeUser": "Configuration native utilisateur",
+      "nativeProject": "Configuration native du projet"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "Les valeurs sensibles existantes sont masquées. Utilisez l’éditeur natif de l’Agent jusqu’à ce que le Settings Adapter prenne en charge les mises à jour sécurisées en écriture seule.",
+      "nativeFilesUnavailable": "L’édition brute des fichiers natifs est indisponible car ils peuvent contenir des identifiants. Les réglages typés non sensibles restent modifiables.",
+      "effectiveValueHidden": "Valeur enregistrée masquée",
+      "unknownValueHidden": "valeur masquée",
+      "diffHidden": "Les octets natifs sont masqués car le fichier peut contenir des identifiants. L’opération confirmée de l’Adapter utilise toujours le diff protégé par révision."
+    },
     "commands": {
       "title": "Les Commands suivent la session Agent active",
       "description": "L’Agent installé expose ses commandes découvertes à l’exécution. Ce Provider n’expose pas d’Adapter de gestion indépendant ; aucun faux contrôle d’ajout, de modification, de suppression ou d’activation n’est affiché.",
@@ -1006,7 +1017,8 @@
         "copyRequiresEnabled": "Seules les installations activées peuvent être copiées.",
         "notExportable": "Ce Provider ne peut pas exporter cette installation.",
         "noCopyTarget": "Aucun autre Provider installé n’est disponible.",
-        "notRemovable": "Ce Provider n’autorise pas la suppression de cette installation."
+        "notRemovable": "Ce Provider n’autorise pas la suppression de cette installation.",
+        "sensitiveMcpEditUnavailable": "La modification est indisponible car cette définition MCP contient des identifiants ou des champs natifs du Provider à préserver sans perte. Un contrat Tool Adapter expurgé et en écriture seule est requis."
       }
     }
   },

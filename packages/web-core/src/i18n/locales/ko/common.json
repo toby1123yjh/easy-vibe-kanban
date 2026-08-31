@@ -878,6 +878,17 @@
     "apiAddressUnavailable": "이 Adapter에서 노출하지 않음",
     "configurationSource": "설정 소스",
     "adapterManaged": "Adapter가 관찰한 네이티브 파일",
+    "configurationSources": {
+      "nativeUser": "사용자 네이티브 설정",
+      "nativeProject": "프로젝트 네이티브 설정"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "기존 민감한 값은 숨겨집니다. Settings Adapter가 안전한 쓰기 전용 업데이트를 지원할 때까지 Agent 네이티브 편집기를 사용하세요.",
+      "nativeFilesUnavailable": "네이티브 파일에 자격 증명이 포함될 수 있으므로 원시 파일 편집을 사용할 수 없습니다. 민감하지 않은 형식화된 설정은 계속 편집할 수 있습니다.",
+      "effectiveValueHidden": "저장된 값 숨김",
+      "unknownValueHidden": "값 숨김",
+      "diffHidden": "파일에 자격 증명이 포함될 수 있으므로 네이티브 바이트는 숨겨집니다. 확인된 Adapter 작업은 계속 리비전으로 보호된 차이를 사용합니다."
+    },
     "commands": {
       "title": "Commands는 활성 Agent 세션을 따릅니다",
       "description": "설치된 Agent는 검색된 슬래시 명령을 런타임에 노출합니다. 이 Provider에는 독립적인 Command 관리 Adapter가 없으므로 추가, 편집, 삭제 또는 활성화 컨트롤을 만들지 않습니다.",
@@ -999,7 +1010,8 @@
         "copyRequiresEnabled": "활성화된 설치만 복사할 수 있습니다.",
         "notExportable": "이 Provider는 이 설치를 내보낼 수 없습니다.",
         "noCopyTarget": "사용 가능한 다른 설치된 Provider가 없습니다.",
-        "notRemovable": "이 Provider에서는 이 설치를 제거할 수 없습니다."
+        "notRemovable": "이 Provider에서는 이 설치를 제거할 수 없습니다.",
+        "sensitiveMcpEditUnavailable": "이 MCP 정의에 자격 증명 또는 손실 없이 보존해야 하는 Provider 네이티브 필드가 포함되어 있어 편집할 수 없습니다. 민감 정보가 제거된 쓰기 전용 Tool Adapter 계약이 필요합니다."
       }
     }
   },

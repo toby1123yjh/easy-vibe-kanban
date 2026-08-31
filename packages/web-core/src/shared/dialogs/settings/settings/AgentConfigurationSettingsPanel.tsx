@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowClockwiseIcon,
   CheckCircleIcon,
@@ -16,6 +17,7 @@ import { Switch } from '@vibe/ui/components/Switch';
 import {
   AgentSettingsProvider,
   BaseCodingAgent,
+  SettingSection,
   SettingScope,
 } from 'shared/types';
 import type {
@@ -108,6 +110,16 @@ function sourceLabel(
   return setting?.effective_source ?? 'Default';
 }
 
+function isSensitiveDescriptor(descriptor: SettingDescriptor): boolean {
+  const id = settingKeyId(descriptor).toLowerCase();
+  return (
+    descriptor.section === SettingSection.environment ||
+    ['secret', 'token', 'password', 'credential', 'api_key', 'apikey'].some(
+      (marker) => id.includes(marker)
+    )
+  );
+}
+
 function parseDraftChange(
   descriptor: SettingDescriptor,
   raw: string,
@@ -129,6 +141,7 @@ export function AgentConfigurationSettingsPanel({
   variant: string | null;
   includeTools?: boolean;
 }) {
+  const { t } = useTranslation('common');
   const machineClient = useSettingsMachineClient();
   const { setDirty: setContextDirty } = useSettingsDirty();
   const provider =
@@ -213,9 +226,14 @@ export function AgentConfigurationSettingsPanel({
 
   const sections = useMemo(() => {
     const nextSections = buildAgentSettingsSections(snapshot);
-    return includeTools
-      ? nextSections
-      : nextSections.filter((section) => section.id !== 'tools');
+    return nextSections.filter(
+      (section) =>
+        // Raw native files can mix ordinary settings with credentials. Keep
+        // typed Adapter fields available, but fail closed on raw editing until
+        // discovery can return a redacted/write-only contract.
+        section.id !== 'native_files' &&
+        (includeTools || section.id !== 'tools')
+    );
   }, [includeTools, snapshot]);
 
   useEffect(() => {
@@ -708,6 +726,14 @@ export function AgentConfigurationSettingsPanel({
           {item.message} {item.recovery}
         </div>
       ))}
+      {snapshot?.native_files.length ? (
+        <div
+          className="rounded-sm border border-border bg-secondary/30 p-3 text-sm text-low"
+          role="status"
+        >
+          {t('agentCenter.security.nativeFilesUnavailable')}
+        </div>
+      ) : null}
     </SettingsCard>
   );
 
@@ -733,6 +759,19 @@ export function AgentConfigurationSettingsPanel({
             const parsed = parseDraftChange(descriptor, raw, nextValue);
             updateDraft(descriptor, raw, parsed.value, parsed.error);
           };
+          if (isSensitiveDescriptor(descriptor)) {
+            return (
+              <SettingsField
+                key={id}
+                label={descriptor.label}
+                description={descriptor.description}
+              >
+                <div className="rounded-sm border border-border bg-secondary/30 p-3 text-xs text-low">
+                  {t('agentCenter.security.sensitiveSettingUnavailable')}
+                </div>
+              </SettingsField>
+            );
+          }
           return (
             <SettingsField
               key={id}
@@ -933,7 +972,13 @@ export function AgentConfigurationSettingsPanel({
                   {settingKeyId(setting)}
                 </td>
                 <td className="max-w-[18rem] whitespace-pre-wrap px-3 py-2 font-mono text-normal">
-                  {displayJson(setting.effective_value)}
+                  {snapshot.descriptors.some(
+                    (descriptor) =>
+                      settingKeyId(descriptor) === settingKeyId(setting) &&
+                      isSensitiveDescriptor(descriptor)
+                  )
+                    ? t('agentCenter.security.effectiveValueHidden')
+                    : displayJson(setting.effective_value)}
                 </td>
                 <td className="px-3 py-2 text-low">
                   {setting.effective_source ?? 'Default'}
@@ -961,7 +1006,8 @@ export function AgentConfigurationSettingsPanel({
                 key={`${node.file_id}:${node.native_path}`}
                 className="font-mono text-xs text-low"
               >
-                {node.file_id}:{node.native_path} = {JSON.stringify(node.value)}
+                {node.file_id}:{node.native_path} ={' '}
+                {t('agentCenter.security.unknownValueHidden')}
               </div>
             ))}
           </div>
@@ -1178,7 +1224,9 @@ export function AgentConfigurationSettingsPanel({
             <AgentToolsSettingsSection provider={provider} />
           )}
           {activeSection === 'profiles' && renderProfiles()}
-          {activeSection === 'native_files' && renderNativeFiles()}
+          {activeSection === 'native_files' &&
+            sections.some((section) => section.id === 'native_files') &&
+            renderNativeFiles()}
           {activeSection === 'effective_config' && renderEffective()}
         </>
       )}
@@ -1269,6 +1317,7 @@ function DiffConfirmation({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation('common');
   return (
     <div
       className="space-y-3 rounded-sm border border-brand/40 bg-brand/5 p-3"
@@ -1295,13 +1344,8 @@ function DiffConfirmation({
             <summary className="cursor-pointer px-3 py-2 text-sm text-normal">
               {file.path}
             </summary>
-            <div className="grid gap-2 border-t border-border p-3 md:grid-cols-2">
-              <pre className="max-h-64 overflow-auto rounded bg-secondary p-2 text-xs text-low">
-                {file.before || '(missing)'}
-              </pre>
-              <pre className="max-h-64 overflow-auto rounded bg-secondary p-2 text-xs text-normal">
-                {file.after || '(missing)'}
-              </pre>
+            <div className="border-t border-border p-3 text-xs text-low">
+              {t('agentCenter.security.diffHidden')}
             </div>
           </details>
         ))}

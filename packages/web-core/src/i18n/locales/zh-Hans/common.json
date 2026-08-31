@@ -1525,6 +1525,17 @@
     "apiAddressUnavailable": "当前 Adapter 未暴露",
     "configurationSource": "配置来源",
     "adapterManaged": "Adapter 观测的原生文件",
+    "configurationSources": {
+      "nativeUser": "用户级原生配置",
+      "nativeProject": "项目级原生配置"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "已有敏感值已隐藏。在 Settings Adapter 支持安全的只写更新前，请使用智能体原生编辑器。",
+      "nativeFilesUnavailable": "原生文件可能包含凭据，因此暂不提供原始文件编辑；非敏感的类型化设置仍可编辑。",
+      "effectiveValueHidden": "已隐藏存储值",
+      "unknownValueHidden": "值已隐藏",
+      "diffHidden": "原生文件可能包含凭据，因此不显示文件字节；确认后仍由 Adapter 使用带版本保护的差异执行操作。"
+    },
     "commands": {
       "title": "Commands 跟随当前智能体会话",
       "description": "已安装的智能体会在运行时提供发现到的斜杠命令。当前 Provider 没有独立的 Command 管理适配器，因此智能体中心不会伪造增删改或启停操作。",
@@ -1646,7 +1657,8 @@
         "copyRequiresEnabled": "只能复制已启用的安装。",
         "notExportable": "该 Provider 无法导出此安装。",
         "noCopyTarget": "没有其他已安装的 Provider 可用。",
-        "notRemovable": "该 Provider 不允许移除此安装。"
+        "notRemovable": "该 Provider 不允许移除此安装。",
+        "sensitiveMcpEditUnavailable": "该 MCP 定义包含凭据或需无损保留的 Provider 原生字段，因此暂不可编辑；需要 Tool Adapter 提供脱敏的只写契约。"
       }
     }
   },

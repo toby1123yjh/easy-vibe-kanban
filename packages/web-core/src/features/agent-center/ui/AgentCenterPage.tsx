@@ -191,6 +191,13 @@ export function AgentCenterPage() {
       ? setting.effective_value
       : null;
   }, [selectedSnapshot]);
+  const defaultModelSource = useMemo(() => {
+    const setting = selectedSnapshot?.effective_settings.find(
+      (candidate) =>
+        candidate.key.namespace === 'common' && candidate.key.name === 'model'
+    );
+    return setting?.effective_source ?? null;
+  }, [selectedSnapshot]);
   const selectedToolInventory = toolsQuery.data?.providers.find(
     (provider) => provider.provider === selectedProvider.toolProvider
   );
@@ -527,6 +534,7 @@ export function AgentCenterPage() {
                 provider={selectedProvider}
                 entry={selectedGarageEntry}
                 model={defaultModel}
+                modelSource={defaultModelSource}
                 mcpEnabled={
                   mcpItems.filter((item) => item.state === 'enabled').length
                 }
@@ -591,6 +599,7 @@ function ProviderOverview({
   provider,
   entry,
   model,
+  modelSource,
   mcpEnabled,
   mcpTotal,
   skillsEnabled,
@@ -609,6 +618,7 @@ function ProviderOverview({
   provider: ProviderDefinition;
   entry: AgentGarageEntry | null;
   model: string | null;
+  modelSource: string | null;
   mcpEnabled: number;
   mcpTotal: number;
   skillsEnabled: number;
@@ -628,6 +638,12 @@ function ProviderOverview({
   const readiness = readinessFor(entry);
   const capabilities = entry?.policy?.capabilities ?? [];
   const diagnostics = entry?.policy?.diagnostics ?? [];
+  const configurationSource =
+    modelSource === 'native_project'
+      ? t('agentCenter.configurationSources.nativeProject')
+      : modelSource === 'native_user'
+        ? t('agentCenter.configurationSources.nativeUser')
+        : t('agentCenter.adapterManaged');
   const providerReady = isAgentProviderReady(readiness);
   const defaultUnavailableReason =
     defaultState === 'loading'
@@ -807,10 +823,7 @@ function ProviderOverview({
               />
               <Metric
                 label={t('agentCenter.configurationSource')}
-                value={summaryValue(
-                  settingsState,
-                  t('agentCenter.adapterManaged')
-                )}
+                value={summaryValue(settingsState, configurationSource)}
                 state={settingsState}
               />
             </div>

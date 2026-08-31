@@ -136,6 +136,26 @@ function definitionText(
   return contract ? decodeUtf8(contract.content_base64) : DEFAULT_SKILL_CONTENT;
 }
 
+function requiresRedactedMcpEditContract(item: AgentTool): boolean {
+  if (item.definition.type !== 'mcp_server') return false;
+  // Discovery keeps a lossless clone of the provider-native entry in
+  // source_metadata. Rendering that object in the JSON textarea would expose
+  // provider fields (and potentially credentials), while dropping it during
+  // an update would destroy fields the portable model does not understand.
+  const {
+    env,
+    headers,
+    source_metadata: sourceMetadata,
+  } = item.definition.data;
+  return (
+    Object.keys(env).length > 0 ||
+    Object.keys(headers).length > 0 ||
+    (sourceMetadata !== null &&
+      (typeof sourceMetadata !== 'object' ||
+        Object.keys(sourceMetadata).length > 0))
+  );
+}
+
 function parseDefinition(
   kind: AgentToolKind,
   value: string,
@@ -766,9 +786,13 @@ export function AgentToolsSettingsSection({
                       );
                       const editDisabledReason = busyKey
                         ? t('agentCenter.tools.disabled.operationPending')
-                        : !item.capabilities.editable
-                          ? t('agentCenter.tools.disabled.notEditable')
-                          : undefined;
+                        : requiresRedactedMcpEditContract(item)
+                          ? t(
+                              'agentCenter.tools.disabled.sensitiveMcpEditUnavailable'
+                            )
+                          : !item.capabilities.editable
+                            ? t('agentCenter.tools.disabled.notEditable')
+                            : undefined;
                       const copyDisabledReason = busyKey
                         ? t('agentCenter.tools.disabled.operationPending')
                         : item.state !== 'enabled'
@@ -895,6 +919,13 @@ export function AgentToolsSettingsSection({
                               onClick={() => void handleRemove(item)}
                             />
                           </div>
+                          {requiresRedactedMcpEditContract(item) && (
+                            <p className="text-xs text-low" role="note">
+                              {t(
+                                'agentCenter.tools.disabled.sensitiveMcpEditUnavailable'
+                              )}
+                            </p>
+                          )}
                         </div>
                       );
                     })

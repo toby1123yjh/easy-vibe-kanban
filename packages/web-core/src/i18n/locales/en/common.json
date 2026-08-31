@@ -1537,6 +1537,17 @@
     "apiAddressUnavailable": "Not exposed by this Adapter",
     "configurationSource": "Configuration source",
     "adapterManaged": "Adapter-observed native files",
+    "configurationSources": {
+      "nativeUser": "Native user configuration",
+      "nativeProject": "Native project configuration"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "Existing sensitive values are hidden. Use the provider-native editor until the Settings Adapter supports safe write-only updates.",
+      "nativeFilesUnavailable": "Raw native-file editing is unavailable because a file can contain credentials. Typed non-sensitive settings remain editable.",
+      "effectiveValueHidden": "Stored value hidden",
+      "unknownValueHidden": "value hidden",
+      "diffHidden": "Native bytes are hidden because the file can contain credentials. The confirmed Adapter operation still uses its revision-protected diff."
+    },
     "commands": {
       "title": "Commands follow the active Agent session",
       "description": "The installed Agent exposes its discovered slash commands at runtime. This provider does not expose an independent Command management adapter, so Agent Center will not invent add, edit, delete, or enable controls.",
@@ -1673,7 +1684,8 @@
         "copyRequiresEnabled": "Only enabled installations can be copied.",
         "notExportable": "This provider cannot export this installation.",
         "noCopyTarget": "No other installed provider is available.",
-        "notRemovable": "This provider does not allow removing this installation."
+        "notRemovable": "This provider does not allow removing this installation.",
+        "sensitiveMcpEditUnavailable": "Editing is unavailable because this MCP definition includes credentials or lossless provider-native fields. A redacted, write-only Tool Adapter contract is required."
       }
     }
   },

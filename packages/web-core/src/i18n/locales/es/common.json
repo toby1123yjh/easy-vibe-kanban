@@ -878,6 +878,17 @@
     "apiAddressUnavailable": "No expuesta por este Adapter",
     "configurationSource": "Origen de configuración",
     "adapterManaged": "Archivos nativos observados por el Adapter",
+    "configurationSources": {
+      "nativeUser": "Configuración nativa del usuario",
+      "nativeProject": "Configuración nativa del proyecto"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "Los valores sensibles existentes están ocultos. Usa el editor nativo del Agent hasta que el Settings Adapter admita actualizaciones seguras de solo escritura.",
+      "nativeFilesUnavailable": "La edición de archivos nativos sin procesar no está disponible porque pueden contener credenciales. Los ajustes tipados no sensibles siguen siendo editables.",
+      "effectiveValueHidden": "Valor almacenado oculto",
+      "unknownValueHidden": "valor oculto",
+      "diffHidden": "Los bytes nativos están ocultos porque el archivo puede contener credenciales. La operación confirmada del Adapter sigue usando la diferencia protegida por revisión."
+    },
     "commands": {
       "title": "Los Commands siguen la sesión activa del Agent",
       "description": "El Agent instalado expone sus comandos detectados durante la ejecución. Este Provider no ofrece un Adapter de gestión independiente, por lo que no se muestran controles falsos para añadir, editar, eliminar o activar.",
@@ -1006,7 +1017,8 @@
         "copyRequiresEnabled": "Solo se pueden copiar instalaciones activadas.",
         "notExportable": "Este Provider no puede exportar esta instalación.",
         "noCopyTarget": "No hay otro Provider instalado disponible.",
-        "notRemovable": "Este Provider no permite eliminar esta instalación."
+        "notRemovable": "Este Provider no permite eliminar esta instalación.",
+        "sensitiveMcpEditUnavailable": "La edición no está disponible porque esta definición MCP incluye credenciales o campos nativos del Provider que deben conservarse sin pérdidas. Se requiere un contrato del Tool Adapter redactado y de solo escritura."
       }
     }
   },

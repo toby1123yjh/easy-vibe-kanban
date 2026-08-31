@@ -878,6 +878,17 @@
     "apiAddressUnavailable": "この Adapter では未公開",
     "configurationSource": "設定ソース",
     "adapterManaged": "Adapter が監視するネイティブファイル",
+    "configurationSources": {
+      "nativeUser": "ユーザーのネイティブ設定",
+      "nativeProject": "プロジェクトのネイティブ設定"
+    },
+    "security": {
+      "sensitiveSettingUnavailable": "既存の機密値は非表示です。Settings Adapter が安全な書き込み専用更新に対応するまでは、Agent のネイティブエディターを使用してください。",
+      "nativeFilesUnavailable": "ネイティブファイルには認証情報が含まれる可能性があるため、raw 編集は利用できません。機密でない型付き設定は引き続き編集できます。",
+      "effectiveValueHidden": "保存値は非表示です",
+      "unknownValueHidden": "値は非表示です",
+      "diffHidden": "ファイルに認証情報が含まれる可能性があるため、ネイティブバイトは非表示です。確認後の Adapter 操作では、引き続きリビジョン保護された差分が使用されます。"
+    },
     "commands": {
       "title": "Commands はアクティブな Agent セッションに従います",
       "description": "インストール済み Agent は検出したスラッシュコマンドをランタイムで公開します。この Provider には独立した Command 管理 Adapter がないため、追加、編集、削除、有効化の操作は表示しません。",
@@ -1006,7 +1017,8 @@
         "copyRequiresEnabled": "有効なインストールだけコピーできます。",
         "notExportable": "この Provider からこのインストールを出力できません。",
         "noCopyTarget": "ほかに利用可能なインストール済み Provider がありません。",
-        "notRemovable": "この Provider ではこのインストールを削除できません。"
+        "notRemovable": "この Provider ではこのインストールを削除できません。",
+        "sensitiveMcpEditUnavailable": "この MCP 定義には認証情報または損失なく保持すべき Provider ネイティブフィールドが含まれるため、編集できません。秘匿化された書き込み専用 Tool Adapter 契約が必要です。"
       }
     }
   },
