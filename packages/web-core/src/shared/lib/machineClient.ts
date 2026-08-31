@@ -1,4 +1,7 @@
 import type {
+  AgentCommandInventoryView,
+  AgentCommandOperationError,
+  AgentCommandView,
   AgentSettingOperationError,
   AgentGarageEntry,
   AgentSettingsDiscoveryQuery,
@@ -17,6 +20,7 @@ import type {
   CopyProfilePreviewRequest,
   ConfigProfile,
   CreateAgentToolRequest,
+  CreateAgentCommandRequest,
   DeleteConfigProfileRequest,
   DuplicateConfigProfileRequest,
   Config,
@@ -34,7 +38,10 @@ import type {
   UpdateMcpServersBody,
   UpdateAgentToolRequest,
   RemoveAgentToolRequest,
+  RemoveAgentCommandRequest,
   ToggleAgentToolRequest,
+  ToggleAgentCommandRequest,
+  UpdateAgentCommandRequest,
   UpdateRepo,
   UserSystemInfo,
 } from 'shared/types';
@@ -80,6 +87,9 @@ export interface MachineClient {
     data: UpdateMcpServersBody
   ) => Promise<void>;
   listAgentTools: (projectPath?: string) => Promise<AgentToolInventoryView>;
+  listAgentCommands: (
+    projectPath?: string
+  ) => Promise<AgentCommandInventoryView>;
   getAgentGarage: () => Promise<AgentGarageEntry[]>;
   createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentToolView>;
   updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentToolView>;
@@ -87,6 +97,16 @@ export interface MachineClient {
   toggleAgentTool: (data: ToggleAgentToolRequest) => Promise<AgentToolView>;
   copyAgentTool: (data: CopyAgentToolRequest) => Promise<CopyAgentToolResponse>;
   revealAgentTool: (data: AgentToolLocator) => Promise<AgentToolRevealResponse>;
+  createAgentCommand: (
+    data: CreateAgentCommandRequest
+  ) => Promise<AgentCommandView>;
+  updateAgentCommand: (
+    data: UpdateAgentCommandRequest
+  ) => Promise<AgentCommandView>;
+  removeAgentCommand: (data: RemoveAgentCommandRequest) => Promise<void>;
+  toggleAgentCommand: (
+    data: ToggleAgentCommandRequest
+  ) => Promise<AgentCommandView>;
   discoverAgentSettings: (
     query?: Partial<AgentSettingsDiscoveryQuery>
   ) => Promise<AgentSettingsInventory>;
@@ -284,6 +304,17 @@ export function createMachineClient(
         await makeMachineRequest(runtime, target, `/api/agent-tools${query}`)
       );
     },
+    listAgentCommands: async (projectPath) => {
+      const params = new URLSearchParams();
+      if (projectPath) params.set('project_path', projectPath);
+      const query = params.size ? `?${params.toString()}` : '';
+      return handleApiResponse<
+        AgentCommandInventoryView,
+        AgentCommandOperationError
+      >(
+        await makeMachineRequest(runtime, target, `/api/agent-commands${query}`)
+      );
+    },
     getAgentGarage: async () =>
       handleApiResponse<AgentGarageEntry[]>(
         await makeMachineRequest(runtime, target, '/api/agents/garage', {
@@ -331,6 +362,44 @@ export function createMachineClient(
           method: 'POST',
           body: JSON.stringify(data),
         })
+      ),
+    createAgentCommand: async (data) =>
+      handleApiResponse<AgentCommandView, AgentCommandOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-commands', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    updateAgentCommand: async (data) =>
+      handleApiResponse<AgentCommandView, AgentCommandOperationError>(
+        await makeMachineRequest(runtime, target, '/api/agent-commands', {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        })
+      ),
+    removeAgentCommand: async (data) =>
+      handleApiResponse<void, AgentCommandOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-commands/remove',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    toggleAgentCommand: async (data) =>
+      handleApiResponse<AgentCommandView, AgentCommandOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-commands/toggle',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
       ),
     discoverAgentSettings: async (query = {}) => {
       const params = new URLSearchParams();

@@ -1451,12 +1451,108 @@
       "diffHidden": "原生檔案可能包含憑證，因此不顯示檔案位元組；確認後仍由 Adapter 使用具版本保護的差異執行操作。"
     },
     "commands": {
-      "title": "Commands 跟隨目前智能體工作階段",
-      "description": "已安裝的智能體會在執行階段提供探索到的斜線命令。目前 Provider 沒有獨立的 Command 管理適配器，因此智能體中心不會假造新增、編輯、刪除或啟停操作。",
-      "noManagementAdapter": "{{provider}} 未回報獨立的 Command 管理能力。Commands 保持唯讀，由使用中的工作階段在執行時探索。",
-      "providerUnavailable": "{{provider}} 目前狀態為「{{status}}」，無法提供執行階段 Commands。{{reason}}",
-      "noDiagnostic": "Provider 未回報更多診斷資訊。",
-      "notManaged": "不提供獨立管理"
+      "manager": {
+        "title": "原生命令",
+        "description": "探索並管理目前智能體的 Provider 原生提示詞命令。Vibe Kanban 只使用適配器核准的欄位。"
+      },
+      "actions": {
+        "refresh": "重新整理",
+        "add": "新增命令",
+        "save": "儲存",
+        "edit": "編輯",
+        "remove": "刪除",
+        "toggle": "啟用或停用 {{name}}"
+      },
+      "projectPath": {
+        "label": "專案路徑",
+        "placeholder": "專案層級命令所在的絕對路徑",
+        "discover": "載入此專案的命令",
+        "refreshRequired": "專案路徑已變更，請重新整理以載入對應命令。"
+      },
+      "search": {
+        "label": "搜尋命令",
+        "placeholder": "依名稱或描述搜尋"
+      },
+      "states": {
+        "loading": "正在探索命令…",
+        "unavailable": "命令清單無法使用。",
+        "unsupportedProvider": "此 Provider 未回傳 Command 適配器。",
+        "installed": "已偵測到 Provider",
+        "notDetected": "未偵測到 Provider",
+        "readOnly": "唯讀",
+        "updating": "正在更新 {{name}}"
+      },
+      "commandStates": {
+        "enabled": "已啟用",
+        "disabled": "已停用",
+        "error": "錯誤",
+        "unsupported": "不支援"
+      },
+      "scopes": {
+        "user": "使用者層級",
+        "project": "專案層級"
+      },
+      "formats": {
+        "label": "原生格式",
+        "codex_legacy_markdown": "Codex 舊版提示詞",
+        "claude_markdown": "Claude Markdown",
+        "gemini_toml": "Gemini TOML",
+        "oh_my_pi_prompt_markdown": "Pi 提示詞 Markdown",
+        "oh_my_pi_executable_module": "Pi 可執行 TypeScript"
+      },
+      "editor": {
+        "addTitle": "新增命令",
+        "editTitle": "編輯 {{name}}",
+        "description": "適配器負責寫入 Provider 原生格式，並保留不屬於此表單的原生欄位。",
+        "scope": "範圍",
+        "name": "命令名稱",
+        "nameHelp": "可使用字母、數字、連字號和底線；Claude 與 Gemini 也支援以冒號分隔的命名空間。",
+        "commandDescription": "描述（選填）",
+        "argumentHint": "參數提示（選填）",
+        "prompt": "提示詞",
+        "body": "提示詞正文",
+        "projectTarget": "目標專案：{{path}}",
+        "noProjectPath": "尚未載入專案路徑"
+      },
+      "validation": {
+        "nameRequired": "請輸入命令名稱。",
+        "invalidName": "請輸入符合 Provider 原生規則的命令名稱。",
+        "projectPathRequired": "建立專案層級命令前，請先載入絕對專案路徑。",
+        "bodyRequired": "請輸入命令提示詞。"
+      },
+      "remove": {
+        "title": "刪除 {{name}}？",
+        "message": "這會刪除 Provider 原生命令，而且無法復原。"
+      },
+      "unsaved": {
+        "title": "放棄命令變更？",
+        "message": "目前命令表單包含尚未儲存的變更。",
+        "discard": "放棄變更"
+      },
+      "errors": {
+        "operationFailed": "命令操作失敗。",
+        "operationCode": "{{message}}（{{code}}）",
+        "staleRevision": "此命令已在 Vibe Kanban 外部變更，請重新整理後再試。"
+      },
+      "notices": {
+        "saved": "命令清單已更新。"
+      },
+      "empty": {
+        "commands": "目前 Provider 與範圍內沒有探索到命令。",
+        "search": "沒有符合搜尋條件的命令。"
+      },
+      "limitations": {
+        "codex": "Codex 自訂提示詞已棄用且僅支援使用者層級。新的可重用指令應優先使用 Skills；變更需要新工作階段或重新啟動才會生效。",
+        "claude_code": "外掛提供的命令仍由對應外掛管理。",
+        "gemini": "擴充功能提供的命令仍由對應擴充功能管理。",
+        "oh_my_pi": "提示詞命令可編輯；可執行 TypeScript 命令僅供探索和唯讀顯示，其原始碼不會載入瀏覽器。"
+      },
+      "summaries": {
+        "entrypointConfigured": "已偵測到可執行入口，原始碼仍保留在本機。",
+        "entrypointUnavailable": "無法確認可執行入口。",
+        "invalidDefinition": "適配器無法解析此命令定義。"
+      },
+      "itemCount": "{{count}} 個命令"
     },
     "states": {
       "loadingHosts": "正在取得可用主機...",

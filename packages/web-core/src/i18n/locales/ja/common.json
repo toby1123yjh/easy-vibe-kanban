@@ -894,12 +894,108 @@
       "diffHidden": "ファイルに認証情報が含まれる可能性があるため、ネイティブバイトは非表示です。確認後の Adapter 操作では、引き続きリビジョン保護された差分が使用されます。"
     },
     "commands": {
-      "title": "Commands はアクティブな Agent セッションに従います",
-      "description": "インストール済み Agent は検出したスラッシュコマンドをランタイムで公開します。この Provider には独立した Command 管理 Adapter がないため、追加、編集、削除、有効化の操作は表示しません。",
-      "noManagementAdapter": "{{provider}} は独立した Command 管理機能を報告していません。Commands は読み取り専用で、アクティブなセッションによって検出されます。",
-      "providerUnavailable": "{{provider}} の状態が「{{status}}」のため、ランタイム Commands を公開できません。{{reason}}",
-      "noDiagnostic": "追加の診断情報は報告されていません。",
-      "notManaged": "個別管理なし"
+      "manager": {
+        "title": "ネイティブコマンド",
+        "description": "選択した Agent の Provider ネイティブなプロンプトコマンドを検出・管理します。Vibe Kanban は Adapter が承認したフィールドのみを使用します。"
+      },
+      "actions": {
+        "refresh": "更新",
+        "add": "コマンドを追加",
+        "save": "保存",
+        "edit": "編集",
+        "remove": "削除",
+        "toggle": "{{name}} を有効または無効にする"
+      },
+      "projectPath": {
+        "label": "プロジェクトパス",
+        "placeholder": "プロジェクトスコープのコマンド用絶対パス",
+        "discover": "このプロジェクトのコマンドを読み込む",
+        "refreshRequired": "変更したプロジェクトパスのコマンドを読み込むには更新してください。"
+      },
+      "search": {
+        "label": "コマンドを検索",
+        "placeholder": "名前または説明で検索"
+      },
+      "states": {
+        "loading": "コマンドを検出中…",
+        "unavailable": "コマンド一覧を利用できません。",
+        "unsupportedProvider": "この Provider は Command Adapter を返しませんでした。",
+        "installed": "Provider を検出済み",
+        "notDetected": "Provider が見つかりません",
+        "readOnly": "読み取り専用",
+        "updating": "{{name}} を更新中"
+      },
+      "commandStates": {
+        "enabled": "有効",
+        "disabled": "無効",
+        "error": "エラー",
+        "unsupported": "未対応"
+      },
+      "scopes": {
+        "user": "ユーザー",
+        "project": "プロジェクト"
+      },
+      "formats": {
+        "label": "ネイティブ形式",
+        "codex_legacy_markdown": "Codex 旧式プロンプト",
+        "claude_markdown": "Claude Markdown",
+        "gemini_toml": "Gemini TOML",
+        "oh_my_pi_prompt_markdown": "Pi プロンプト Markdown",
+        "oh_my_pi_executable_module": "Pi 実行可能 TypeScript"
+      },
+      "editor": {
+        "addTitle": "コマンドを追加",
+        "editTitle": "{{name}} を編集",
+        "description": "Adapter が Provider ネイティブ形式を書き込み、このフォーム外で所有するフィールドを保持します。",
+        "scope": "スコープ",
+        "name": "コマンド名",
+        "nameHelp": "英数字、ハイフン、アンダースコアを使用できます。Claude と Gemini はコロン区切りの名前空間にも対応します。",
+        "commandDescription": "説明（任意）",
+        "argumentHint": "引数ヒント（任意）",
+        "prompt": "プロンプト",
+        "body": "プロンプト本文",
+        "projectTarget": "対象プロジェクト：{{path}}",
+        "noProjectPath": "プロジェクトパスが未読込です"
+      },
+      "validation": {
+        "nameRequired": "コマンド名を入力してください。",
+        "invalidName": "有効な Provider ネイティブのコマンド名を使用してください。",
+        "projectPathRequired": "プロジェクトコマンドを作成する前に絶対パスを読み込んでください。",
+        "bodyRequired": "コマンドプロンプトを入力してください。"
+      },
+      "remove": {
+        "title": "{{name}} を削除しますか？",
+        "message": "Provider ネイティブコマンドを削除します。この操作は元に戻せません。"
+      },
+      "unsaved": {
+        "title": "コマンドの変更を破棄しますか？",
+        "message": "このフォームには未保存の変更があります。",
+        "discard": "変更を破棄"
+      },
+      "errors": {
+        "operationFailed": "コマンド操作に失敗しました。",
+        "operationCode": "{{message}}（{{code}}）",
+        "staleRevision": "このコマンドは Vibe Kanban の外部で変更されました。更新してから再試行してください。"
+      },
+      "notices": {
+        "saved": "コマンド一覧を更新しました。"
+      },
+      "empty": {
+        "commands": "この Provider とスコープにはコマンドがありません。",
+        "search": "検索条件に一致するコマンドはありません。"
+      },
+      "limitations": {
+        "codex": "Codex カスタムプロンプトは非推奨で、ユーザースコープのみです。新しい再利用可能な指示には Skills を優先してください。変更には新しいセッションまたは再起動が必要です。",
+        "claude_code": "プラグイン所有のコマンドは引き続きプラグインが管理します。",
+        "gemini": "拡張機能所有のコマンドは引き続き拡張機能が管理します。",
+        "oh_my_pi": "プロンプトコマンドは編集できます。実行可能 TypeScript コマンドは読み取り専用で検出され、ソースはブラウザに読み込まれません。"
+      },
+      "summaries": {
+        "entrypointConfigured": "実行可能エントリポイントを検出しました。ソースはマシン上に保持されます。",
+        "entrypointUnavailable": "実行可能エントリポイントを確認できませんでした。",
+        "invalidDefinition": "Adapter はこのコマンド定義を解析できませんでした。"
+      },
+      "itemCount": "{{count}} 件のコマンド"
     },
     "states": {
       "loadingHosts": "利用可能なホストを確認中...",

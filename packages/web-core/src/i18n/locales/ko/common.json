@@ -894,12 +894,108 @@
       "diffHidden": "파일에 자격 증명이 포함될 수 있으므로 네이티브 바이트는 숨겨집니다. 확인된 Adapter 작업은 계속 리비전으로 보호된 차이를 사용합니다."
     },
     "commands": {
-      "title": "Commands는 활성 Agent 세션을 따릅니다",
-      "description": "설치된 Agent는 검색된 슬래시 명령을 런타임에 노출합니다. 이 Provider에는 독립적인 Command 관리 Adapter가 없으므로 추가, 편집, 삭제 또는 활성화 컨트롤을 만들지 않습니다.",
-      "noManagementAdapter": "{{provider}}는 독립적인 Command 관리 기능을 보고하지 않습니다. Commands는 읽기 전용이며 활성 세션에서 검색됩니다.",
-      "providerUnavailable": "{{provider}}의 현재 상태가 {{status}}이므로 런타임 Commands를 제공할 수 없습니다. {{reason}}",
-      "noDiagnostic": "추가 진단 정보가 보고되지 않았습니다.",
-      "notManaged": "독립 관리 없음"
+      "manager": {
+        "title": "네이티브 명령",
+        "description": "선택한 Agent의 Provider 네이티브 프롬프트 명령을 검색하고 관리합니다. Vibe Kanban은 Adapter가 승인한 필드만 사용합니다."
+      },
+      "actions": {
+        "refresh": "새로 고침",
+        "add": "명령 추가",
+        "save": "저장",
+        "edit": "편집",
+        "remove": "삭제",
+        "toggle": "{{name}} 활성화 또는 비활성화"
+      },
+      "projectPath": {
+        "label": "프로젝트 경로",
+        "placeholder": "프로젝트 범위 명령의 절대 경로",
+        "discover": "이 프로젝트의 명령 불러오기",
+        "refreshRequired": "변경된 프로젝트 경로의 명령을 불러오려면 새로 고침하세요."
+      },
+      "search": {
+        "label": "명령 검색",
+        "placeholder": "이름 또는 설명으로 검색"
+      },
+      "states": {
+        "loading": "명령 검색 중…",
+        "unavailable": "명령 목록을 사용할 수 없습니다.",
+        "unsupportedProvider": "이 Provider가 Command Adapter를 반환하지 않았습니다.",
+        "installed": "Provider 감지됨",
+        "notDetected": "Provider 감지 안 됨",
+        "readOnly": "읽기 전용",
+        "updating": "{{name}} 업데이트 중"
+      },
+      "commandStates": {
+        "enabled": "활성화됨",
+        "disabled": "비활성화됨",
+        "error": "오류",
+        "unsupported": "지원되지 않음"
+      },
+      "scopes": {
+        "user": "사용자",
+        "project": "프로젝트"
+      },
+      "formats": {
+        "label": "네이티브 형식",
+        "codex_legacy_markdown": "Codex 레거시 프롬프트",
+        "claude_markdown": "Claude Markdown",
+        "gemini_toml": "Gemini TOML",
+        "oh_my_pi_prompt_markdown": "Pi 프롬프트 Markdown",
+        "oh_my_pi_executable_module": "Pi 실행 가능 TypeScript"
+      },
+      "editor": {
+        "addTitle": "명령 추가",
+        "editTitle": "{{name}} 편집",
+        "description": "Adapter가 Provider 네이티브 형식으로 쓰고 이 양식 외부에서 소유하는 필드를 보존합니다.",
+        "scope": "범위",
+        "name": "명령 이름",
+        "nameHelp": "문자, 숫자, 하이픈, 밑줄을 사용하세요. Claude와 Gemini는 콜론으로 구분된 네임스페이스도 지원합니다.",
+        "commandDescription": "설명(선택 사항)",
+        "argumentHint": "인수 힌트(선택 사항)",
+        "prompt": "프롬프트",
+        "body": "프롬프트 본문",
+        "projectTarget": "대상 프로젝트: {{path}}",
+        "noProjectPath": "프로젝트 경로를 불러오지 않음"
+      },
+      "validation": {
+        "nameRequired": "명령 이름을 입력하세요.",
+        "invalidName": "유효한 Provider 네이티브 명령 이름을 사용하세요.",
+        "projectPathRequired": "프로젝트 명령을 만들기 전에 절대 프로젝트 경로를 불러오세요.",
+        "bodyRequired": "명령 프롬프트를 입력하세요."
+      },
+      "remove": {
+        "title": "{{name}}을(를) 삭제할까요?",
+        "message": "Provider 네이티브 명령을 삭제하며 되돌릴 수 없습니다."
+      },
+      "unsaved": {
+        "title": "명령 변경 사항을 버릴까요?",
+        "message": "이 명령 양식에 저장되지 않은 변경 사항이 있습니다.",
+        "discard": "변경 사항 버리기"
+      },
+      "errors": {
+        "operationFailed": "명령 작업에 실패했습니다.",
+        "operationCode": "{{message}} ({{code}})",
+        "staleRevision": "이 명령이 Vibe Kanban 외부에서 변경되었습니다. 새로 고친 후 다시 시도하세요."
+      },
+      "notices": {
+        "saved": "명령 목록이 업데이트되었습니다."
+      },
+      "empty": {
+        "commands": "이 Provider와 범위에서 검색된 명령이 없습니다.",
+        "search": "검색과 일치하는 명령이 없습니다."
+      },
+      "limitations": {
+        "codex": "Codex 사용자 지정 프롬프트는 더 이상 권장되지 않으며 사용자 범위만 지원합니다. 새로운 재사용 가능 지침에는 Skills를 사용하세요. 변경 사항은 새 세션 또는 재시작 후 적용됩니다.",
+        "claude_code": "플러그인 소유 명령은 계속 해당 플러그인에서 관리합니다.",
+        "gemini": "확장 소유 명령은 계속 해당 확장에서 관리합니다.",
+        "oh_my_pi": "프롬프트 명령은 편집할 수 있습니다. 실행 가능한 TypeScript 명령은 읽기 전용으로 검색되며 소스는 브라우저에 로드되지 않습니다."
+      },
+      "summaries": {
+        "entrypointConfigured": "실행 가능 진입점을 감지했습니다. 소스는 머신에 유지됩니다.",
+        "entrypointUnavailable": "실행 가능 진입점을 확인할 수 없습니다.",
+        "invalidDefinition": "Adapter가 이 명령 정의를 구문 분석할 수 없습니다."
+      },
+      "itemCount": "명령 {{count}}개"
     },
     "states": {
       "loadingHosts": "사용 가능한 호스트 확인 중...",

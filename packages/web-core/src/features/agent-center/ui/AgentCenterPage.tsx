@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowClockwiseIcon,
   CheckCircleIcon,
-  CommandIcon,
   SpinnerIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react';
@@ -13,6 +12,7 @@ import {
   AgentProviderReadiness,
   AgentSettingsProvider,
   BaseCodingAgent,
+  type AgentCommandProvider,
   type AgentGarageEntry,
   type AgentProviderCapability,
   type AgentToolProvider,
@@ -21,6 +21,7 @@ import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { AgentConfigurationSettingsPanel } from '@/shared/dialogs/settings/settings/AgentConfigurationSettingsPanel';
 import { AgentToolsSettingsSection } from '@/shared/dialogs/settings/settings/AgentToolsSettingsSection';
+import { AgentCommandsSettingsSection } from '../AgentCommandsSettingsSection';
 import {
   useSettingsHost,
   useSettingsMachineClient,
@@ -38,6 +39,7 @@ type ProviderDefinition = {
   executor: BaseCodingAgent;
   settingsProvider: AgentSettingsProvider;
   toolProvider: AgentToolProvider;
+  commandProvider: AgentCommandProvider;
   label: string;
 };
 
@@ -46,24 +48,28 @@ const PROVIDERS: ProviderDefinition[] = [
     executor: BaseCodingAgent.CODEX,
     settingsProvider: AgentSettingsProvider.codex,
     toolProvider: 'codex',
+    commandProvider: 'codex',
     label: 'Codex',
   },
   {
     executor: BaseCodingAgent.CLAUDE_CODE,
     settingsProvider: AgentSettingsProvider.claude_code,
     toolProvider: 'claude_code',
+    commandProvider: 'claude_code',
     label: 'Claude Code',
   },
   {
     executor: BaseCodingAgent.GEMINI,
     settingsProvider: AgentSettingsProvider.gemini,
     toolProvider: 'gemini',
+    commandProvider: 'gemini',
     label: 'Gemini',
   },
   {
     executor: BaseCodingAgent.OH_MY_PI,
     settingsProvider: AgentSettingsProvider.oh_my_pi,
     toolProvider: 'oh_my_pi',
+    commandProvider: 'oh_my_pi',
     label: 'Oh My Pi',
   },
 ];
@@ -160,6 +166,12 @@ export function AgentCenterPage() {
     enabled: hostAvailable,
     staleTime: 30_000,
   });
+  const commandsQuery = useQuery({
+    queryKey: [...queryPrefix, 'agent-center', 'commands'],
+    queryFn: () => machineClient!.listAgentCommands(),
+    enabled: hostAvailable,
+    staleTime: 30_000,
+  });
   const settingsQuery = useQuery({
     queryKey: [
       ...queryPrefix,
@@ -201,6 +213,9 @@ export function AgentCenterPage() {
   const selectedToolInventory = toolsQuery.data?.providers.find(
     (provider) => provider.provider === selectedProvider.toolProvider
   );
+  const selectedCommandInventory = commandsQuery.data?.providers.find(
+    (provider) => provider.provider === selectedProvider.commandProvider
+  );
   const toolPayloadErrors = [
     ...(toolsQuery.data?.errors
       .filter((error) => error.provider === selectedProvider.toolProvider)
@@ -212,6 +227,12 @@ export function AgentCenterPage() {
       .filter((error) => error.provider === selectedProvider.settingsProvider)
       .map((error) => error.message) ?? []),
     ...(selectedSnapshot?.errors.map((error) => error.message) ?? []),
+  ];
+  const commandPayloadErrors = [
+    ...(commandsQuery.data?.errors
+      .filter((error) => error.provider === selectedProvider.commandProvider)
+      .map((error) => error.message) ?? []),
+    ...(selectedCommandInventory?.errors ?? []),
   ];
   const toolsState: SummaryState = toolsQuery.isLoading
     ? 'loading'
@@ -227,14 +248,26 @@ export function AgentCenterPage() {
       : selectedSnapshot?.installed
         ? 'ready'
         : 'unavailable';
+  const commandsState: SummaryState = commandsQuery.isLoading
+    ? 'loading'
+    : commandsQuery.isError || commandPayloadErrors.length > 0
+      ? 'error'
+      : selectedCommandInventory?.installed
+        ? 'ready'
+        : 'unavailable';
   const summaryDiagnostics = Array.from(
-    new Set([...toolPayloadErrors, ...settingsPayloadErrors])
+    new Set([
+      ...toolPayloadErrors,
+      ...settingsPayloadErrors,
+      ...commandPayloadErrors,
+    ])
   );
   const mcpItems =
     selectedToolInventory?.items.filter((item) => item.kind === 'mcp_server') ??
     [];
   const skillItems =
     selectedToolInventory?.items.filter((item) => item.kind === 'skill') ?? [];
+  const commandItems = selectedCommandInventory?.items ?? [];
   const isDefault =
     config?.executor_profile?.executor === selectedProvider.executor;
 
@@ -309,23 +342,39 @@ export function AgentCenterPage() {
     }
   };
 
+  const refreshCommandSummary = async () => {
+    const result = await commandsQuery.refetch();
+    if (result.isError) {
+      throw result.error ?? new Error(t('agentCenter.errors.loadCommands'));
+    }
+  };
+
   const rescan = async () => {
     setRescanning(true);
     setActionError(null);
     try {
-      const [garageResult, toolsResult, settingsResult] = await Promise.all([
-        garageQuery.refetch(),
-        toolsQuery.refetch(),
-        settingsQuery.refetch(),
-        reloadSystem(),
-      ]);
+      const [garageResult, toolsResult, commandsResult, settingsResult] =
+        await Promise.all([
+          garageQuery.refetch(),
+          toolsQuery.refetch(),
+          commandsQuery.refetch(),
+          settingsQuery.refetch(),
+          reloadSystem(),
+        ]);
       if (
         garageResult.isError ||
         toolsResult.isError ||
+        commandsResult.isError ||
         settingsResult.isError ||
         Boolean(toolsResult.data?.errors.length) ||
         Boolean(
           toolsResult.data?.providers.some(
+            (providerInventory) => providerInventory.errors.length > 0
+          )
+        ) ||
+        Boolean(commandsResult.data?.errors.length) ||
+        Boolean(
+          commandsResult.data?.providers.some(
             (providerInventory) => providerInventory.errors.length > 0
           )
         ) ||
@@ -543,7 +592,12 @@ export function AgentCenterPage() {
                   skillItems.filter((item) => item.state === 'enabled').length
                 }
                 skillsTotal={skillItems.length}
+                commandsEnabled={
+                  commandItems.filter((item) => item.state === 'enabled').length
+                }
+                commandsTotal={commandItems.length}
                 toolsState={toolsState}
+                commandsState={commandsState}
                 settingsState={settingsState}
                 summaryDiagnostics={summaryDiagnostics}
                 defaultState={
@@ -576,9 +630,9 @@ export function AgentCenterPage() {
               />
             )}
             {activeTab === 'commands' && (
-              <CommandsPanel
-                provider={selectedProvider}
-                entry={selectedGarageEntry}
+              <AgentCommandsSettingsSection
+                provider={selectedProvider.commandProvider}
+                onInventoryChange={refreshCommandSummary}
               />
             )}
             {activeTab === 'profiles' && (
@@ -604,7 +658,10 @@ function ProviderOverview({
   mcpTotal,
   skillsEnabled,
   skillsTotal,
+  commandsEnabled,
+  commandsTotal,
   toolsState,
+  commandsState,
   settingsState,
   summaryDiagnostics,
   defaultState,
@@ -623,7 +680,10 @@ function ProviderOverview({
   mcpTotal: number;
   skillsEnabled: number;
   skillsTotal: number;
+  commandsEnabled: number;
+  commandsTotal: number;
   toolsState: SummaryState;
+  commandsState: SummaryState;
   settingsState: SummaryState;
   summaryDiagnostics: string[];
   defaultState: SummaryState;
@@ -794,8 +854,11 @@ function ProviderOverview({
               />
               <Metric
                 label={t('agentCenter.tabs.commands')}
-                value={t('agentCenter.commands.notManaged')}
-                state="unavailable"
+                value={summaryValue(
+                  commandsState,
+                  `${commandsEnabled} / ${commandsTotal}`
+                )}
+                state={commandsState}
               />
             </div>
           </section>
@@ -848,37 +911,5 @@ function Metric({
       <span>{label}</span>
       <strong title={value}>{value}</strong>
     </div>
-  );
-}
-
-function CommandsPanel({
-  provider,
-  entry,
-}: {
-  provider: ProviderDefinition;
-  entry: AgentGarageEntry | null;
-}) {
-  const { t } = useTranslation('common');
-  const readiness = readinessFor(entry);
-  const providerReady = isAgentProviderReady(readiness);
-  const diagnostic = entry?.policy?.diagnostics[0]?.message;
-  return (
-    <section className="vk-agent-center__commands">
-      <CommandIcon aria-hidden="true" />
-      <p>{t('agentCenter.tabs.commands')}</p>
-      <h2>{t('agentCenter.commands.title')}</h2>
-      <span>{t('agentCenter.commands.description')}</span>
-      <div role={providerReady ? 'status' : 'alert'}>
-        {providerReady
-          ? t('agentCenter.commands.noManagementAdapter', {
-              provider: provider.label,
-            })
-          : t('agentCenter.commands.providerUnavailable', {
-              provider: provider.label,
-              status: t(readinessKey(readiness)),
-              reason: diagnostic ?? t('agentCenter.commands.noDiagnostic'),
-            })}
-      </div>
-    </section>
   );
 }

@@ -1553,12 +1553,108 @@
       "diffHidden": "Native bytes are hidden because the file can contain credentials. The confirmed Adapter operation still uses its revision-protected diff."
     },
     "commands": {
-      "title": "Commands follow the active Agent session",
-      "description": "The installed Agent exposes its discovered slash commands at runtime. This provider does not expose an independent Command management adapter, so Agent Center will not invent add, edit, delete, or enable controls.",
-      "noManagementAdapter": "{{provider}} does not report an independent Command management capability. Commands remain read-only and are discovered by active sessions.",
-      "providerUnavailable": "{{provider}} cannot expose runtime Commands while its status is {{status}}. {{reason}}",
-      "noDiagnostic": "No additional diagnostic was reported.",
-      "notManaged": "Not independently managed"
+      "manager": {
+        "title": "Native Commands",
+        "description": "Discover and manage the selected Agent's provider-native prompt commands. Vibe Kanban only uses the fields approved by the adapter."
+      },
+      "actions": {
+        "refresh": "Refresh",
+        "add": "Add command",
+        "save": "Save",
+        "edit": "Edit",
+        "remove": "Delete",
+        "toggle": "Enable or disable {{name}}"
+      },
+      "projectPath": {
+        "label": "Project path",
+        "placeholder": "Absolute path for project-scoped commands",
+        "discover": "Load commands for this project",
+        "refreshRequired": "Refresh to load commands for the changed project path."
+      },
+      "search": {
+        "label": "Search commands",
+        "placeholder": "Search by name or description"
+      },
+      "states": {
+        "loading": "Discovering commands…",
+        "unavailable": "Command inventory is unavailable.",
+        "unsupportedProvider": "This provider did not return a Command adapter.",
+        "installed": "Provider detected",
+        "notDetected": "Provider not detected",
+        "readOnly": "Read-only",
+        "updating": "Updating {{name}}"
+      },
+      "commandStates": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "error": "Error",
+        "unsupported": "Unsupported"
+      },
+      "scopes": {
+        "user": "User",
+        "project": "Project"
+      },
+      "formats": {
+        "label": "Native format",
+        "codex_legacy_markdown": "Codex legacy prompt",
+        "claude_markdown": "Claude Markdown",
+        "gemini_toml": "Gemini TOML",
+        "oh_my_pi_prompt_markdown": "Pi prompt Markdown",
+        "oh_my_pi_executable_module": "Pi executable TypeScript"
+      },
+      "editor": {
+        "addTitle": "Add command",
+        "editTitle": "Edit {{name}}",
+        "description": "The adapter writes the native provider format and preserves fields it owns outside this form.",
+        "scope": "Scope",
+        "name": "Command name",
+        "nameHelp": "Use letters, numbers, hyphens, and underscores. Claude and Gemini also support colon-separated namespaces.",
+        "commandDescription": "Description (optional)",
+        "argumentHint": "Argument hint (optional)",
+        "prompt": "Prompt",
+        "body": "Prompt body",
+        "projectTarget": "Project target: {{path}}",
+        "noProjectPath": "No project path loaded"
+      },
+      "validation": {
+        "nameRequired": "Enter a command name.",
+        "invalidName": "Use a valid provider-native command name.",
+        "projectPathRequired": "Load an absolute project path before creating a project command.",
+        "bodyRequired": "Enter the command prompt."
+      },
+      "remove": {
+        "title": "Delete {{name}}?",
+        "message": "This removes the provider-native command. This action cannot be undone."
+      },
+      "unsaved": {
+        "title": "Discard command changes?",
+        "message": "This command form has unsaved changes.",
+        "discard": "Discard changes"
+      },
+      "errors": {
+        "operationFailed": "The command operation failed.",
+        "operationCode": "{{message}} ({{code}})",
+        "staleRevision": "This command changed outside Vibe Kanban. Refresh before trying again."
+      },
+      "notices": {
+        "saved": "Command inventory updated."
+      },
+      "empty": {
+        "commands": "No commands were discovered for this provider and scope.",
+        "search": "No commands match this search."
+      },
+      "limitations": {
+        "codex": "Codex custom prompts are deprecated and user-scoped only. Prefer Skills for new reusable instructions. Changes require a new session or restart.",
+        "claude_code": "Plugin-owned commands remain managed by their plugin.",
+        "gemini": "Extension-owned commands remain managed by their extension.",
+        "oh_my_pi": "Prompt commands are editable. Executable TypeScript commands are discovered read-only and their source is never loaded into the browser."
+      },
+      "summaries": {
+        "entrypointConfigured": "Executable entrypoint detected; source remains on the machine.",
+        "entrypointUnavailable": "Executable entrypoint could not be confirmed.",
+        "invalidDefinition": "The adapter could not parse this command definition."
+      },
+      "itemCount": "{{count}} commands"
     },
     "states": {
       "loadingHosts": "Resolving available hosts...",

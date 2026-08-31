@@ -893,6 +893,50 @@ export type AgentToolDiscoveryQuery = { project_path: string | null, };
 
 export type AgentToolRevealResponse = { native_path: string, };
 
+export type AgentCommandProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi";
+
+export type AgentCommandScope = "user" | "project";
+
+export type AgentCommandState = "enabled" | "disabled" | "error" | "unsupported";
+
+export type AgentCommandFormat = "codex_legacy_markdown" | "claude_markdown" | "gemini_toml" | "oh_my_pi_prompt_markdown" | "oh_my_pi_executable_module";
+
+export type AgentCommandCapabilities = { editable: boolean, removable: boolean, toggleable: boolean, };
+
+export type AgentCommandProviderCapabilities = { discoverable: boolean, creatable: boolean, supported_scopes: Array<AgentCommandScope>, writable_formats: Array<AgentCommandFormat>, };
+
+export type AgentCommandDefinitionView = { "type": "codex_legacy", "data": { description?: string | null, argument_hint?: string | null, body: string, } } | { "type": "claude_code", "data": { description?: string | null, body: string, } } | { "type": "gemini", "data": { description?: string | null, prompt: string, } } | { "type": "oh_my_pi_prompt", "data": { description?: string | null, body: string, } } | { "type": "oh_my_pi_executable", "data": { entrypoint_configured: boolean, } } | { "type": "invalid", "data": { content_configured: boolean, } };
+
+export type AgentCommandView = { installation_id: string, provider: AgentCommandProvider, scope: AgentCommandScope, name: string, state: AgentCommandState, format: AgentCommandFormat, capabilities: AgentCommandCapabilities, revision: string, definition: AgentCommandDefinitionView, error?: string | null, };
+
+export type AgentCommandProviderError = { provider: AgentCommandProvider, message: string, };
+
+export type AgentCommandProviderInventoryView = { provider: AgentCommandProvider, installed: boolean, capabilities: AgentCommandProviderCapabilities, items: Array<AgentCommandView>, limitations: Array<string>, errors: Array<string>, };
+
+export type AgentCommandInventoryView = { providers: Array<AgentCommandProviderInventoryView>, errors: Array<AgentCommandProviderError>, };
+
+export type AgentCommandLocator = { provider: AgentCommandProvider, scope: AgentCommandScope, name: string, installation_id?: string | null, project_path?: string | null, };
+
+export type CommandTextWrite = { "type": "preserve" } | { "type": "replace", "data": { value: string, } };
+
+export type OptionalCommandTextWrite = { "type": "preserve" } | { "type": "replace", "data": { value: string, } } | { "type": "clear" };
+
+export type AgentCommandWriteDefinition = { "type": "codex_legacy", "data": { description: OptionalCommandTextWrite, argument_hint: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "claude_code", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "gemini", "data": { description: OptionalCommandTextWrite, prompt: CommandTextWrite, } } | { "type": "oh_my_pi_prompt", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } };
+
+export type CreateAgentCommandRequest = { target: AgentCommandLocator, definition: AgentCommandWriteDefinition, replace: boolean, expected_revision?: string | null, };
+
+export type UpdateAgentCommandRequest = { target: AgentCommandLocator, expected_revision: string, definition: AgentCommandWriteDefinition, };
+
+export type RemoveAgentCommandRequest = { target: AgentCommandLocator, expected_revision: string, };
+
+export type ToggleAgentCommandRequest = { target: AgentCommandLocator, expected_revision: string, enabled: boolean, };
+
+export type AgentCommandErrorCode = "invalid_request" | "invalid_configuration" | "not_found" | "collision" | "stale_revision" | "unsupported" | "unsafe_path" | "io" | "verification_failed";
+
+export type AgentCommandOperationError = { code: AgentCommandErrorCode, message: string, provider?: AgentCommandProvider | null, name?: string | null, };
+
+export type AgentCommandDiscoveryQuery = { project_path: string | null, };
+
 export type ExecutorActionType = { "type": "ScriptRequest" } & ScriptRequest;
 
 export type ExecutorConfig = { 

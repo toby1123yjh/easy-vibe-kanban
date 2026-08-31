@@ -894,12 +894,108 @@
       "diffHidden": "Los bytes nativos están ocultos porque el archivo puede contener credenciales. La operación confirmada del Adapter sigue usando la diferencia protegida por revisión."
     },
     "commands": {
-      "title": "Los Commands siguen la sesión activa del Agent",
-      "description": "El Agent instalado expone sus comandos detectados durante la ejecución. Este Provider no ofrece un Adapter de gestión independiente, por lo que no se muestran controles falsos para añadir, editar, eliminar o activar.",
-      "noManagementAdapter": "{{provider}} no informa de una capacidad independiente para gestionar Commands. Permanecen en modo de solo lectura y las sesiones activas las detectan.",
-      "providerUnavailable": "{{provider}} no puede exponer Commands mientras su estado sea {{status}}. {{reason}}",
-      "noDiagnostic": "No se informó de ningún diagnóstico adicional.",
-      "notManaged": "Sin gestión independiente"
+      "manager": {
+        "title": "Comandos nativos",
+        "description": "Detecta y gestiona los comandos de prompt nativos del Agent seleccionado. Vibe Kanban solo usa los campos aprobados por el adaptador."
+      },
+      "actions": {
+        "refresh": "Actualizar",
+        "add": "Añadir comando",
+        "save": "Guardar",
+        "edit": "Editar",
+        "remove": "Eliminar",
+        "toggle": "Activar o desactivar {{name}}"
+      },
+      "projectPath": {
+        "label": "Ruta del proyecto",
+        "placeholder": "Ruta absoluta para los comandos del proyecto",
+        "discover": "Cargar los comandos de este proyecto",
+        "refreshRequired": "Actualiza para cargar los comandos de la nueva ruta del proyecto."
+      },
+      "search": {
+        "label": "Buscar comandos",
+        "placeholder": "Buscar por nombre o descripción"
+      },
+      "states": {
+        "loading": "Detectando comandos…",
+        "unavailable": "El inventario de comandos no está disponible.",
+        "unsupportedProvider": "Este Provider no devolvió un adaptador de comandos.",
+        "installed": "Provider detectado",
+        "notDetected": "Provider no detectado",
+        "readOnly": "Solo lectura",
+        "updating": "Actualizando {{name}}"
+      },
+      "commandStates": {
+        "enabled": "Activado",
+        "disabled": "Desactivado",
+        "error": "Error",
+        "unsupported": "No compatible"
+      },
+      "scopes": {
+        "user": "Usuario",
+        "project": "Proyecto"
+      },
+      "formats": {
+        "label": "Formato nativo",
+        "codex_legacy_markdown": "Prompt antiguo de Codex",
+        "claude_markdown": "Markdown de Claude",
+        "gemini_toml": "TOML de Gemini",
+        "oh_my_pi_prompt_markdown": "Markdown de prompt de Pi",
+        "oh_my_pi_executable_module": "TypeScript ejecutable de Pi"
+      },
+      "editor": {
+        "addTitle": "Añadir comando",
+        "editTitle": "Editar {{name}}",
+        "description": "El adaptador escribe el formato nativo y conserva los campos que gestiona fuera de este formulario.",
+        "scope": "Ámbito",
+        "name": "Nombre del comando",
+        "nameHelp": "Usa letras, números, guiones y guiones bajos. Claude y Gemini también admiten espacios de nombres separados por dos puntos.",
+        "commandDescription": "Descripción (opcional)",
+        "argumentHint": "Indicación de argumentos (opcional)",
+        "prompt": "Prompt",
+        "body": "Contenido del prompt",
+        "projectTarget": "Proyecto de destino: {{path}}",
+        "noProjectPath": "No se ha cargado una ruta de proyecto"
+      },
+      "validation": {
+        "nameRequired": "Introduce un nombre de comando.",
+        "invalidName": "Usa un nombre de comando nativo válido.",
+        "projectPathRequired": "Carga una ruta absoluta antes de crear un comando de proyecto.",
+        "bodyRequired": "Introduce el prompt del comando."
+      },
+      "remove": {
+        "title": "¿Eliminar {{name}}?",
+        "message": "Esto elimina el comando nativo del Provider y no se puede deshacer."
+      },
+      "unsaved": {
+        "title": "¿Descartar los cambios del comando?",
+        "message": "Este formulario tiene cambios sin guardar.",
+        "discard": "Descartar cambios"
+      },
+      "errors": {
+        "operationFailed": "La operación del comando ha fallado.",
+        "operationCode": "{{message}} ({{code}})",
+        "staleRevision": "Este comando cambió fuera de Vibe Kanban. Actualiza antes de volver a intentarlo."
+      },
+      "notices": {
+        "saved": "Inventario de comandos actualizado."
+      },
+      "empty": {
+        "commands": "No se detectaron comandos para este Provider y ámbito.",
+        "search": "Ningún comando coincide con la búsqueda."
+      },
+      "limitations": {
+        "codex": "Los prompts personalizados de Codex están obsoletos y solo admiten el ámbito de usuario. Usa Skills para nuevas instrucciones reutilizables. Los cambios requieren una sesión nueva o reiniciar.",
+        "claude_code": "Los comandos de plugins siguen gestionados por su plugin.",
+        "gemini": "Los comandos de extensiones siguen gestionados por su extensión.",
+        "oh_my_pi": "Los comandos de prompt se pueden editar. Los comandos TypeScript ejecutables son de solo lectura y su código nunca se carga en el navegador."
+      },
+      "summaries": {
+        "entrypointConfigured": "Punto de entrada ejecutable detectado; el código permanece en la máquina.",
+        "entrypointUnavailable": "No se pudo confirmar el punto de entrada ejecutable.",
+        "invalidDefinition": "El adaptador no pudo interpretar esta definición."
+      },
+      "itemCount": "{{count}} comandos"
     },
     "states": {
       "loadingHosts": "Resolviendo hosts disponibles...",
