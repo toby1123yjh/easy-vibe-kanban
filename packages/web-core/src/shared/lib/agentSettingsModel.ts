@@ -368,6 +368,42 @@ export function isRevealResponseCurrent({
   );
 }
 
+export type AgentSettingsRequestContext = {
+  client: unknown;
+  provider: AgentSettingsProvider;
+  projectPath: string;
+  scope: SettingScope;
+};
+
+export function isAgentSettingsContextCurrent(
+  requestContext: AgentSettingsRequestContext,
+  currentContext: AgentSettingsRequestContext
+): boolean {
+  return (
+    requestContext.client === currentContext.client &&
+    requestContext.provider === currentContext.provider &&
+    requestContext.projectPath === currentContext.projectPath &&
+    requestContext.scope === currentContext.scope
+  );
+}
+
+export function isAgentSettingsRequestCurrent({
+  requestSequence,
+  currentSequence,
+  requestContext,
+  currentContext,
+}: {
+  requestSequence: number;
+  currentSequence: number;
+  requestContext: AgentSettingsRequestContext;
+  currentContext: AgentSettingsRequestContext;
+}): boolean {
+  return (
+    requestSequence === currentSequence &&
+    isAgentSettingsContextCurrent(requestContext, currentContext)
+  );
+}
+
 export function settingSourceForScope(
   snapshot: SettingsSnapshot,
   descriptor: SettingDescriptor,

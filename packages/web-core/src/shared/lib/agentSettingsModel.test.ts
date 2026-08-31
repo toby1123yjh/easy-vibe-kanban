@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { SettingsSnapshot } from 'shared/types';
+import {
+  AgentSettingsProvider,
+  SettingScope,
+  type SettingsSnapshot,
+} from 'shared/types';
 import {
   agentSettingSourceKind,
   buildAgentSettingsPatch,
@@ -8,6 +12,7 @@ import {
   effectiveStringSetting,
   formatProfileEnvironment,
   hasChangedFiles,
+  isAgentSettingsRequestCurrent,
   isRevealResponseCurrent,
   isAgentSettingsDraftDirty,
   parseProfileCustomArgs,
@@ -382,6 +387,47 @@ describe('agent settings model', () => {
         scope: 'user',
         expectedRevision: 'rev-2',
         response,
+      })
+    ).toBe(false);
+  });
+
+  it('rejects settings and profile responses from stale UI scopes', () => {
+    const client = {};
+    const currentContext = {
+      client,
+      provider: AgentSettingsProvider.codex,
+      projectPath: '/current',
+      scope: SettingScope.user,
+    };
+    expect(
+      isAgentSettingsRequestCurrent({
+        requestSequence: 4,
+        currentSequence: 4,
+        requestContext: currentContext,
+        currentContext,
+      })
+    ).toBe(true);
+    for (const staleContext of [
+      { ...currentContext, client: {} },
+      { ...currentContext, provider: AgentSettingsProvider.gemini },
+      { ...currentContext, projectPath: '/old' },
+      { ...currentContext, scope: SettingScope.project },
+    ]) {
+      expect(
+        isAgentSettingsRequestCurrent({
+          requestSequence: 4,
+          currentSequence: 4,
+          requestContext: staleContext,
+          currentContext,
+        })
+      ).toBe(false);
+    }
+    expect(
+      isAgentSettingsRequestCurrent({
+        requestSequence: 3,
+        currentSequence: 4,
+        requestContext: currentContext,
+        currentContext,
       })
     ).toBe(false);
   });

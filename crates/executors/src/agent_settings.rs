@@ -467,9 +467,44 @@ pub struct ConfigProfile {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Browser-safe projection of a stored configuration profile.
+///
+/// Credential values and provider-owned extension values intentionally never
+/// cross this boundary. Ordinary settings, Environment, and custom arguments
+/// remain visible because they are user-managed profile configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct ConfigProfileView {
+    pub id: Uuid,
+    pub provider: AgentSettingsProvider,
+    pub executor_profile: ExecutorProfileId,
+    pub name: String,
+    pub schema_version: u16,
+    #[serde(default)]
+    pub setting_overrides: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub configured_credential_keys: Vec<String>,
+    #[serde(default)]
+    pub provider_extension_keys: Vec<String>,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    #[serde(default)]
+    pub custom_args: Vec<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct SaveConfigProfileRequest {
     pub profile: ConfigProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UpdateConfigProfileRequest {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    #[serde(default)]
+    pub custom_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -493,7 +528,7 @@ pub struct CopyProfilePreviewRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct ProfileCopyPreview {
-    pub profile: ConfigProfile,
+    pub profile: ConfigProfileView,
     #[serde(default)]
     pub compatible_keys: Vec<String>,
     #[serde(default)]
@@ -765,20 +800,30 @@ impl AgentSettingsService {
     pub fn list_profiles(
         &self,
         provider: Option<AgentSettingsProvider>,
-    ) -> Result<Vec<ConfigProfile>, AgentSettingError> {
+    ) -> Result<Vec<ConfigProfileView>, AgentSettingError> {
         let mut profiles = self.load_profile_store()?.profiles;
         if let Some(provider) = provider {
             profiles.retain(|profile| profile.provider == provider);
         }
         profiles.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
-        Ok(profiles)
+        Ok(profiles
+            .into_iter()
+            .map(|profile| self.profile_view(profile))
+            .collect())
     }
 
     pub fn save_profile(
         &self,
         request: SaveConfigProfileRequest,
+    ) -> Result<ConfigProfileView, AgentSettingError> {
+        let profile = self.persist_profile(request.profile)?;
+        Ok(self.profile_view(profile))
+    }
+
+    fn persist_profile(
+        &self,
+        mut profile: ConfigProfile,
     ) -> Result<ConfigProfile, AgentSettingError> {
-        let mut profile = request.profile;
         let descriptors = self.manager(profile.provider, None).descriptors();
         // Profile environment is its own canonical, provider-neutral field.
         // Do not retain a second copy in setting_overrides; profile Apply
@@ -804,6 +849,38 @@ impl AgentSettingsService {
         Ok(profile)
     }
 
+    pub fn update_profile(
+        &self,
+        request: UpdateConfigProfileRequest,
+    ) -> Result<ConfigProfileView, AgentSettingError> {
+        let mut store = self.load_profile_store()?;
+        let profile = store
+            .profiles
+            .iter_mut()
+            .find(|profile| profile.id == request.id)
+            .ok_or_else(|| AgentSettingError::NotFound(request.id.to_string()))?;
+        profile.name = request.name;
+        profile.environment = request.environment;
+        profile.custom_args = request.custom_args;
+
+        if profile.name.trim().is_empty() {
+            return Err(AgentSettingError::ValidationFailed(
+                "profile name cannot be empty".to_string(),
+            ));
+        }
+        let descriptors = self.manager(profile.provider, None).descriptors();
+        if let Some(descriptor) = descriptors
+            .iter()
+            .find(|descriptor| descriptor.key.id() == "common.environment")
+        {
+            validate_setting_value(descriptor, &profile_environment_value(profile))?;
+        }
+        profile.updated_at = Utc::now();
+        let updated = profile.clone();
+        self.save_profile_store(&store)?;
+        Ok(self.profile_view(updated))
+    }
+
     pub fn delete_profile(
         &self,
         request: DeleteConfigProfileRequest,
@@ -820,7 +897,7 @@ impl AgentSettingsService {
     pub fn duplicate_profile(
         &self,
         request: DuplicateConfigProfileRequest,
-    ) -> Result<ConfigProfile, AgentSettingError> {
+    ) -> Result<ConfigProfileView, AgentSettingError> {
         let store = self.load_profile_store()?;
         let mut profile = store
             .profiles
@@ -830,7 +907,8 @@ impl AgentSettingsService {
             .ok_or_else(|| AgentSettingError::NotFound(request.id.to_string()))?;
         profile.id = Uuid::new_v4();
         profile.name = request.name;
-        self.save_profile(SaveConfigProfileRequest { profile })
+        let profile = self.persist_profile(profile)?;
+        Ok(self.profile_view(profile))
     }
 
     pub fn copy_profile_preview(
@@ -846,7 +924,7 @@ impl AgentSettingsService {
         let target_descriptors = self.manager(request.target_provider, None).descriptors();
         let target_keys: BTreeSet<_> = target_descriptors
             .iter()
-            .filter(|descriptor| descriptor.capabilities.profile_storable)
+            .filter(|descriptor| descriptor.capabilities.profile_storable && !descriptor.sensitive)
             .map(|descriptor| descriptor.key.id())
             .collect();
         let mut setting_overrides = BTreeMap::new();
@@ -865,19 +943,20 @@ impl AgentSettingsService {
         } else {
             vec!["Provider-specific or unsupported settings were skipped; no native extension was copied.".to_string()]
         };
+        let profile = ConfigProfile {
+            id: Uuid::new_v4(),
+            provider: request.target_provider,
+            executor_profile: request.target_executor_profile,
+            name: request.target_name,
+            schema_version: SETTINGS_PROFILE_STORE_VERSION,
+            setting_overrides,
+            provider_extensions: BTreeMap::new(),
+            environment: source.environment,
+            custom_args: source.custom_args,
+            updated_at: Utc::now(),
+        };
         Ok(ProfileCopyPreview {
-            profile: ConfigProfile {
-                id: Uuid::new_v4(),
-                provider: request.target_provider,
-                executor_profile: request.target_executor_profile,
-                name: request.target_name,
-                schema_version: SETTINGS_PROFILE_STORE_VERSION,
-                setting_overrides,
-                provider_extensions: BTreeMap::new(),
-                environment: source.environment,
-                custom_args: source.custom_args,
-                updated_at: Utc::now(),
-            },
+            profile: self.profile_view(profile),
             compatible_keys,
             skipped_keys,
             warnings,
@@ -974,6 +1053,49 @@ impl AgentSettingsService {
             AgentSettingError::InvalidConfiguration(format!("profile serialization: {error}"))
         })?;
         atomic_write(&self.profile_store_path, &content)
+    }
+
+    fn profile_view(&self, profile: ConfigProfile) -> ConfigProfileView {
+        let descriptors = self.manager(profile.provider, None).descriptors();
+        let descriptor_sensitivity: BTreeMap<_, _> = descriptors
+            .iter()
+            .map(|descriptor| (descriptor.key.id(), descriptor.sensitive))
+            .collect();
+        let mut configured_credential_keys = Vec::new();
+        let setting_overrides = profile
+            .setting_overrides
+            .into_iter()
+            .filter_map(|(key, value)| {
+                match descriptor_sensitivity.get(&key) {
+                    Some(true) => {
+                        configured_credential_keys.push(key);
+                        None
+                    }
+                    Some(false) => Some((key, value)),
+                    // A profile store may outlive the Adapter schema that
+                    // created it. Unknown overrides remain lossless in the
+                    // internal store, but their values are not safe to expose
+                    // through the browser projection because a removed or
+                    // future field may be a credential.
+                    None => None,
+                }
+            })
+            .collect();
+        configured_credential_keys.sort();
+        let provider_extension_keys = profile.provider_extensions.keys().cloned().collect();
+        ConfigProfileView {
+            id: profile.id,
+            provider: profile.provider,
+            executor_profile: profile.executor_profile,
+            name: profile.name,
+            schema_version: profile.schema_version,
+            setting_overrides,
+            configured_credential_keys,
+            provider_extension_keys,
+            environment: profile.environment,
+            custom_args: profile.custom_args,
+            updated_at: profile.updated_at,
+        }
     }
 }
 
@@ -3731,6 +3853,88 @@ mod tests {
                 profile: profile.clone(),
             })
             .unwrap();
+        assert!(saved.configured_credential_keys.is_empty());
+        assert_eq!(saved.setting_overrides["common.model"], json!("gpt-5.6"));
+        assert_eq!(saved.setting_overrides["codex.web_search"], json!(true));
+        assert_eq!(
+            saved.provider_extension_keys,
+            vec!["codex.private".to_string()]
+        );
+        // Keep the browser boundary safe even if an older/future store
+        // contains a credential override that current validation disallows.
+        let mut store = harness.service.load_profile_store().unwrap();
+        store.profiles[0].setting_overrides.insert(
+            "common.api_key".to_string(),
+            json!("credential-must-not-leave-service"),
+        );
+        store.profiles[0].setting_overrides.insert(
+            "future.auth_token".to_string(),
+            json!("unknown-credential-must-not-leave-service"),
+        );
+        harness.service.save_profile_store(&store).unwrap();
+        let listed = harness
+            .service
+            .list_profiles(Some(AgentSettingsProvider::Codex))
+            .unwrap();
+        assert!(
+            !serde_json::to_string(&listed)
+                .unwrap()
+                .contains("credential-must-not-leave-service")
+        );
+        assert!(
+            !serde_json::to_string(&listed)
+                .unwrap()
+                .contains("unknown-credential-must-not-leave-service")
+        );
+        assert!(
+            !listed[0]
+                .setting_overrides
+                .contains_key("future.auth_token")
+        );
+        assert_eq!(
+            listed[0].configured_credential_keys,
+            vec!["common.api_key".to_string()]
+        );
+        assert_eq!(
+            listed[0].setting_overrides["common.model"],
+            json!("gpt-5.6")
+        );
+        assert_eq!(listed[0].setting_overrides["codex.web_search"], json!(true));
+
+        let updated = harness
+            .service
+            .update_profile(UpdateConfigProfileRequest {
+                id: saved.id,
+                name: "Review updated".into(),
+                environment: BTreeMap::from([("EXACT".into(), "changed".into())]),
+                custom_args: vec!["--updated".into()],
+            })
+            .unwrap();
+        assert_eq!(updated.name, "Review updated");
+        assert_eq!(updated.setting_overrides["common.model"], json!("gpt-5.6"));
+        let stored = harness.service.load_profile_store().unwrap().profiles;
+        let stored = stored
+            .iter()
+            .find(|profile| profile.id == saved.id)
+            .unwrap();
+        assert_eq!(
+            stored.setting_overrides["common.api_key"],
+            json!("credential-must-not-leave-service")
+        );
+        assert_eq!(
+            stored.setting_overrides["future.auth_token"],
+            json!("unknown-credential-must-not-leave-service")
+        );
+        assert_eq!(stored.provider_extensions["codex.private"], json!(1));
+        // Restore a currently valid profile for the apply portion of this
+        // test; the assertions above already proved that ordinary PUT kept the
+        // unknown future field losslessly while the browser view hid it.
+        let mut store = harness.service.load_profile_store().unwrap();
+        store.profiles[0]
+            .setting_overrides
+            .remove("future.auth_token");
+        harness.service.save_profile_store(&store).unwrap();
+
         let copy = harness
             .service
             .copy_profile_preview(CopyProfilePreviewRequest {
@@ -3741,26 +3945,28 @@ mod tests {
             })
             .unwrap();
         assert_eq!(copy.compatible_keys, vec!["common.model"]);
-        assert_eq!(copy.skipped_keys, vec!["codex.web_search"]);
-        assert!(copy.profile.provider_extensions.is_empty());
-        assert_eq!(copy.profile.environment["EXACT"], "a=b c");
+        assert_eq!(
+            copy.skipped_keys,
+            vec!["codex.web_search", "common.api_key"]
+        );
+        assert!(copy.profile.provider_extension_keys.is_empty());
+        assert!(copy.profile.configured_credential_keys.is_empty());
+        assert_eq!(copy.profile.environment["EXACT"], "changed");
 
+        let expected_file_revisions = harness
+            .service
+            .manager(AgentSettingsProvider::Codex, Some(&harness.project))
+            .discover()
+            .unwrap()
+            .native_files
+            .into_iter()
+            .filter_map(|file| file.revision.map(|revision| (file.id, revision)))
+            .collect();
         let apply_preview = ProfileApplyPreviewRequest {
             id: saved.id,
             project_path: Some(harness.project.display().to_string()),
             scope: SettingScope::User,
-            expected_file_revisions: BTreeMap::from([(
-                "user_config".into(),
-                harness
-                    .service
-                    .manager(AgentSettingsProvider::Codex, Some(&harness.project))
-                    .discover()
-                    .unwrap()
-                    .native_files[0]
-                    .revision
-                    .clone()
-                    .unwrap(),
-            )]),
+            expected_file_revisions,
         };
         let preview = harness
             .service
@@ -3784,7 +3990,7 @@ mod tests {
             .unwrap();
         let applied = fs::read_to_string(&codex).unwrap();
         assert!(applied.contains("model = \"gpt-5.6\""));
-        assert!(applied.contains("EXACT = \"a=b c\""));
+        assert!(applied.contains("EXACT = \"changed\""));
 
         harness
             .service

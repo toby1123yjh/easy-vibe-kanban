@@ -811,7 +811,11 @@ export type ApplyNativeFileRequest = { patch: NativeFilePatch, confirmed: boolea
 
 export type ConfigProfile = { id: string, provider: AgentSettingsProvider, executor_profile: ExecutorProfileId, name: string, schema_version: number, setting_overrides: { [key in string]?: JsonValue }, provider_extensions: { [key in string]?: JsonValue }, environment: { [key in string]?: string }, custom_args: Array<string>, updated_at: string, };
 
+export type ConfigProfileView = { id: string, provider: AgentSettingsProvider, executor_profile: ExecutorProfileId, name: string, schema_version: number, setting_overrides: { [key in string]?: JsonValue }, configured_credential_keys: Array<string>, provider_extension_keys: Array<string>, environment: { [key in string]?: string }, custom_args: Array<string>, updated_at: string, };
+
 export type SaveConfigProfileRequest = { profile: ConfigProfile, };
+
+export type UpdateConfigProfileRequest = { id: string, name: string, environment: { [key in string]?: string }, custom_args: Array<string>, };
 
 export type DeleteConfigProfileRequest = { id: string, };
 
@@ -819,7 +823,7 @@ export type DuplicateConfigProfileRequest = { id: string, name: string, };
 
 export type CopyProfilePreviewRequest = { id: string, target_provider: AgentSettingsProvider, target_executor_profile: ExecutorProfileId, target_name: string, };
 
-export type ProfileCopyPreview = { profile: ConfigProfile, compatible_keys: Array<string>, skipped_keys: Array<string>, warnings: Array<string>, };
+export type ProfileCopyPreview = { profile: ConfigProfileView, compatible_keys: Array<string>, skipped_keys: Array<string>, warnings: Array<string>, };
 
 export type ProfileApplyPreviewRequest = { id: string, project_path?: string | null, scope: SettingScope, expected_file_revisions: { [key in string]?: string }, };
 

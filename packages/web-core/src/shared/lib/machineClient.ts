@@ -18,7 +18,7 @@ import type {
   CopyAgentToolRequest,
   CopyAgentToolResponse,
   CopyProfilePreviewRequest,
-  ConfigProfile,
+  ConfigProfileView,
   CreateAgentToolRequest,
   CreateAgentCommandRequest,
   DeleteConfigProfileRequest,
@@ -34,6 +34,7 @@ import type {
   RevealAgentSettingRequest,
   RevealAgentSettingResponse,
   SaveConfigProfileRequest,
+  UpdateConfigProfileRequest,
   SettingsDiff,
   SettingsPatch,
   SettingsSnapshot,
@@ -123,16 +124,19 @@ export interface MachineClient {
   ) => Promise<SettingsSnapshot>;
   listAgentSettingsProfiles: (
     query?: Partial<AgentSettingsProfilesQuery>
-  ) => Promise<ConfigProfile[]>;
+  ) => Promise<ConfigProfileView[]>;
   saveAgentSettingsProfile: (
     data: SaveConfigProfileRequest
-  ) => Promise<ConfigProfile>;
+  ) => Promise<ConfigProfileView>;
+  updateAgentSettingsProfile: (
+    data: UpdateConfigProfileRequest
+  ) => Promise<ConfigProfileView>;
   deleteAgentSettingsProfile: (
     data: DeleteConfigProfileRequest
   ) => Promise<void>;
   duplicateAgentSettingsProfile: (
     data: DuplicateConfigProfileRequest
-  ) => Promise<ConfigProfile>;
+  ) => Promise<ConfigProfileView>;
   previewAgentSettingsProfileCopy: (
     data: CopyProfilePreviewRequest
   ) => Promise<ProfileCopyPreview>;
@@ -478,7 +482,7 @@ export function createMachineClient(
       const params = new URLSearchParams();
       if (query.provider) params.set('provider', query.provider);
       const suffix = params.size ? `?${params.toString()}` : '';
-      return handleApiResponse<ConfigProfile[], AgentSettingOperationError>(
+      return handleApiResponse<ConfigProfileView[], AgentSettingOperationError>(
         await makeMachineRequest(
           runtime,
           target,
@@ -488,13 +492,25 @@ export function createMachineClient(
       );
     },
     saveAgentSettingsProfile: async (data) =>
-      handleApiResponse<ConfigProfile, AgentSettingOperationError>(
+      handleApiResponse<ConfigProfileView, AgentSettingOperationError>(
         await makeMachineRequest(
           runtime,
           target,
           '/api/agent-settings/profiles',
           {
             method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    updateAgentSettingsProfile: async (data) =>
+      handleApiResponse<ConfigProfileView, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles',
+          {
+            method: 'PUT',
             body: JSON.stringify(data),
           }
         )
@@ -512,7 +528,7 @@ export function createMachineClient(
         )
       ),
     duplicateAgentSettingsProfile: async (data) =>
-      handleApiResponse<ConfigProfile, AgentSettingOperationError>(
+      handleApiResponse<ConfigProfileView, AgentSettingOperationError>(
         await makeMachineRequest(
           runtime,
           target,

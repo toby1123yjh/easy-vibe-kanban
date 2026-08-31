@@ -15,6 +15,16 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { Button } from '@vibe/ui/components/Button';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@vibe/ui/components/KeyboardDialog';
 import { Switch } from '@vibe/ui/components/Switch';
 import {
   AgentSettingsProvider,
@@ -22,7 +32,7 @@ import {
   SettingScope,
 } from 'shared/types';
 import type {
-  ConfigProfile,
+  ConfigProfileView,
   JsonValue,
   ProfileApplyPreviewRequest,
   ProfileCopyPreview,
@@ -39,8 +49,10 @@ import {
   formatProfileEnvironment,
   hasChangedFiles,
   hasDraftErrors,
-  isRevealResponseCurrent,
+  isAgentSettingsContextCurrent,
+  isAgentSettingsRequestCurrent,
   isAgentSettingsDraftDirty,
+  isRevealResponseCurrent,
   nativeFileRevision,
   parseSettingInput,
   parseProfileCustomArgs,
@@ -51,8 +63,12 @@ import {
   settingSourceForScope,
   settingKeyId,
   type AgentSettingsDraft,
+  type AgentSettingsRequestContext,
 } from '@/shared/lib/agentSettingsModel';
-import { formatAgentSettingOperationError } from '@/shared/lib/machineClient';
+import {
+  formatAgentSettingOperationError,
+  type MachineClient,
+} from '@/shared/lib/machineClient';
 import { cn } from '@/shared/lib/utils';
 import { AgentToolsSettingsSection } from './AgentToolsSettingsSection';
 import {
@@ -66,8 +82,16 @@ import { useSettingsDirty } from './SettingsDirtyContext';
 import { useSettingsMachineClient } from './SettingsHostContext';
 
 type PendingAction =
-  | { kind: 'settings'; patch: SettingsPatch }
-  | { kind: 'profile'; preview: ProfileApplyPreviewRequest };
+  | {
+      kind: 'settings';
+      patch: SettingsPatch;
+      context: AgentSettingsRequestContext;
+    }
+  | {
+      kind: 'profile';
+      preview: ProfileApplyPreviewRequest;
+      context: AgentSettingsRequestContext;
+    };
 
 type RevealedSetting = {
   id: string;
@@ -79,7 +103,44 @@ type ProfileEditorDraft = {
   name: string;
   environmentRaw: string;
   customArgsRaw: string;
+  initialName: string;
+  initialEnvironmentRaw: string;
+  initialCustomArgsRaw: string;
 };
+
+type ScopedCopyPreview = {
+  preview: ProfileCopyPreview;
+  context: AgentSettingsRequestContext;
+};
+
+type AgentSettingsOperation = {
+  sequence: number;
+  context: AgentSettingsRequestContext;
+  client: MachineClient;
+};
+
+type ProfileActionDraft =
+  | {
+      kind: 'create';
+      name: string;
+      initialName: string;
+    }
+  | {
+      kind: 'duplicate';
+      sourceId: string;
+      sourceName: string;
+      name: string;
+      initialName: string;
+    }
+  | {
+      kind: 'copy';
+      sourceId: string;
+      sourceName: string;
+      name: string;
+      initialName: string;
+      targetProvider: AgentSettingsProvider;
+      initialTargetProvider: AgentSettingsProvider;
+    };
 
 function newProfileId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -161,12 +222,19 @@ export function AgentConfigurationSettingsPanel({
   const { setDirty: setContextDirty } = useSettingsDirty();
   const provider =
     PROVIDER_BY_EXECUTOR[executor] ?? AgentSettingsProvider.codex;
-  const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
+  const [loadedSnapshot, setLoadedSnapshot] = useState<SettingsSnapshot | null>(
+    null
+  );
+  const [snapshotContext, setSnapshotContext] =
+    useState<AgentSettingsRequestContext | null>(null);
   const [draft, setDraft] = useState<AgentSettingsDraft>({});
-  const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
+  const [loadedProfiles, setLoadedProfiles] = useState<ConfigProfileView[]>([]);
+  const [profilesContext, setProfilesContext] =
+    useState<AgentSettingsRequestContext | null>(null);
   const [activeSection, setActiveSection] = useState<string>('overview');
   const [scope, setScope] = useState<SettingScope>(SettingScope.user);
   const [projectPath, setProjectPath] = useState('');
+  const [projectPathInput, setProjectPathInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -174,9 +242,8 @@ export function AgentConfigurationSettingsPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [diff, setDiff] = useState<SettingsDiff | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
-  const [copyPreview, setCopyPreview] = useState<ProfileCopyPreview | null>(
-    null
-  );
+  const [scopedCopyPreview, setScopedCopyPreview] =
+    useState<ScopedCopyPreview | null>(null);
   const [revealedSetting, setRevealedSetting] =
     useState<RevealedSetting | null>(null);
   const [visibleReplacementIds, setVisibleReplacementIds] = useState<
@@ -192,9 +259,45 @@ export function AgentConfigurationSettingsPanel({
   const [profileEditor, setProfileEditor] = useState<ProfileEditorDraft | null>(
     null
   );
-  const requestSequence = useRef(0);
+  const [profileAction, setProfileAction] = useState<ProfileActionDraft | null>(
+    null
+  );
+  const settingsRequestSequence = useRef(0);
+  const profileRequestSequence = useRef(0);
+  const operationRequestSequence = useRef(0);
   const revealRequestSequence = useRef(0);
   const activeMachineClient = useRef(machineClient);
+  const activeRequestContext = useRef<AgentSettingsRequestContext>({
+    client: machineClient,
+    provider,
+    projectPath,
+    scope,
+  });
+  activeMachineClient.current = machineClient;
+  activeRequestContext.current = {
+    client: machineClient,
+    provider,
+    projectPath,
+    scope,
+  };
+  const snapshot =
+    snapshotContext &&
+    isAgentSettingsContextCurrent(snapshotContext, activeRequestContext.current)
+      ? loadedSnapshot
+      : null;
+  const profiles =
+    profilesContext &&
+    isAgentSettingsContextCurrent(profilesContext, activeRequestContext.current)
+      ? loadedProfiles
+      : [];
+  const copyPreview =
+    scopedCopyPreview &&
+    isAgentSettingsContextCurrent(
+      scopedCopyPreview.context,
+      activeRequestContext.current
+    )
+      ? scopedCopyPreview.preview
+      : null;
 
   const clearSensitiveVisibility = useCallback(() => {
     revealRequestSequence.current += 1;
@@ -223,7 +326,6 @@ export function AgentConfigurationSettingsPanel({
   }, []);
 
   useEffect(() => {
-    activeMachineClient.current = machineClient;
     clearSensitiveVisibility();
   }, [
     activeSection,
@@ -234,71 +336,153 @@ export function AgentConfigurationSettingsPanel({
     scope,
   ]);
 
-  const loadSettings = useCallback(
-    async (nextProjectPath?: string) => {
-      if (!machineClient) return;
-      const sequence = ++requestSequence.current;
-      setLoading(true);
-      setError(null);
-      try {
-        const inventory = await machineClient.discoverAgentSettings({
-          provider,
-          project_path: nextProjectPath || null,
-        });
-        if (sequence !== requestSequence.current) return;
-        const next =
-          inventory.providers.find(
-            (candidate) => candidate.provider === provider
-          ) ?? null;
-        setSnapshot(next);
-        setDraft(next ? createAgentSettingsDraft(next) : {});
-        setProfileEnvironmentRaw(
-          formatProfileEnvironment(profileEnvironmentFromSnapshot(next))
-        );
+  const loadSettings = useCallback(async () => {
+    if (!machineClient) return;
+    const requestContext = { ...activeRequestContext.current };
+    const sequence = ++settingsRequestSequence.current;
+    setLoadedSnapshot(null);
+    setSnapshotContext(null);
+    setDraft({});
+    setLoading(true);
+    setError(null);
+    try {
+      const inventory = await machineClient.discoverAgentSettings({
+        provider,
+        project_path: requestContext.projectPath || null,
+      });
+      if (
+        !isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: settingsRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        return;
+      }
+      const next =
+        inventory.providers.find(
+          (candidate) => candidate.provider === provider
+        ) ?? null;
+      setLoadedSnapshot(next);
+      setSnapshotContext(requestContext);
+      setDraft(next ? createAgentSettingsDraft(next) : {});
+      setProfileEnvironmentRaw(
+        formatProfileEnvironment(profileEnvironmentFromSnapshot(next))
+      );
+      setProfileCustomArgsRaw('');
+      setProfileFieldsDirty(false);
+      setProfileEditor(null);
+      setDiff(null);
+      setPending(null);
+      if (inventory.errors.length > 0 && !next) {
+        setError(inventory.errors.map((item) => item.message).join(' '));
+      }
+    } catch (nextError) {
+      if (
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: settingsRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        setError(formatAgentSettingOperationError(nextError));
+        setLoadedSnapshot(null);
+        setSnapshotContext(null);
+        setDraft({});
+        setProfileEnvironmentRaw('{}');
         setProfileCustomArgsRaw('');
         setProfileFieldsDirty(false);
         setProfileEditor(null);
-        setDiff(null);
-        setPending(null);
-        if (inventory.errors.length > 0 && !next) {
-          setError(inventory.errors.map((item) => item.message).join(' '));
-        }
-      } catch (nextError) {
-        if (sequence === requestSequence.current) {
-          setError(formatAgentSettingOperationError(nextError));
-          setSnapshot(null);
-          setDraft({});
-          setProfileEnvironmentRaw('{}');
-          setProfileCustomArgsRaw('');
-          setProfileFieldsDirty(false);
-          setProfileEditor(null);
-        }
-      } finally {
-        if (sequence === requestSequence.current) setLoading(false);
       }
-    },
-    [machineClient, provider]
-  );
+    } finally {
+      if (
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: settingsRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        setLoading(false);
+      }
+    }
+  }, [machineClient, provider]);
 
   const loadProfiles = useCallback(async () => {
     if (!machineClient) return;
+    const requestContext = { ...activeRequestContext.current };
+    const sequence = ++profileRequestSequence.current;
+    setLoadedProfiles([]);
+    setProfilesContext(null);
     setProfilesLoading(true);
     try {
-      setProfiles(await machineClient.listAgentSettingsProfiles({ provider }));
+      const nextProfiles = await machineClient.listAgentSettingsProfiles({
+        provider,
+      });
+      if (
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: profileRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        setLoadedProfiles(nextProfiles);
+        setProfilesContext(requestContext);
+      }
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: profileRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setProfilesLoading(false);
+      if (
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: profileRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        })
+      ) {
+        setProfilesLoading(false);
+      }
     }
   }, [machineClient, provider]);
 
   useEffect(() => {
-    setSnapshot(null);
-    setDraft({});
     setActiveSection('overview');
+  }, [machineClient, provider]);
+
+  useEffect(() => {
+    settingsRequestSequence.current += 1;
+    profileRequestSequence.current += 1;
+    operationRequestSequence.current += 1;
+    setLoadedSnapshot(null);
+    setSnapshotContext(null);
+    setDraft({});
+    setLoadedProfiles([]);
+    setProfilesContext(null);
+    setLoading(Boolean(machineClient));
+    setProfilesLoading(Boolean(machineClient));
+    setBusy(false);
+    setDiff(null);
+    setPending(null);
+    setScopedCopyPreview(null);
+    setProfileEditor(null);
+    setProfileAction(null);
+    setError(null);
+    setNotice(null);
     void loadSettings();
     void loadProfiles();
-  }, [loadProfiles, loadSettings]);
+  }, [loadProfiles, loadSettings, machineClient, projectPath, provider, scope]);
 
   const sections = useMemo(() => {
     const nextSections = buildAgentSettingsSections(snapshot);
@@ -353,18 +537,23 @@ export function AgentConfigurationSettingsPanel({
   );
   const profileEditorDirty = useMemo(() => {
     if (!profileEditor) return false;
-    const original = profiles.find(
-      (profile) => profile.id === profileEditor.id
-    );
-    if (!original) return false;
     return (
-      profileEditor.name !== original.name ||
-      profileEditor.environmentRaw !==
-        formatProfileEnvironment(original.environment) ||
-      profileEditor.customArgsRaw !== original.custom_args.join('\n')
+      profileEditor.name !== profileEditor.initialName ||
+      profileEditor.environmentRaw !== profileEditor.initialEnvironmentRaw ||
+      profileEditor.customArgsRaw !== profileEditor.initialCustomArgsRaw
     );
-  }, [profileEditor, profiles]);
-  const isDirty = draftDirty || profileFieldsDirty || profileEditorDirty;
+  }, [profileEditor]);
+  const profileActionDirty = Boolean(
+    profileAction &&
+      (profileAction.name !== profileAction.initialName ||
+        (profileAction.kind === 'copy' &&
+          profileAction.targetProvider !== profileAction.initialTargetProvider))
+  );
+  const isDirty =
+    draftDirty ||
+    profileFieldsDirty ||
+    profileEditorDirty ||
+    profileActionDirty;
 
   useEffect(() => {
     setContextDirty(`agent-settings:${provider}`, isDirty);
@@ -372,10 +561,37 @@ export function AgentConfigurationSettingsPanel({
   }, [isDirty, provider, setContextDirty]);
 
   const applySnapshot = (next: SettingsSnapshot) => {
-    setSnapshot(next);
+    setLoadedSnapshot(next);
+    setSnapshotContext({ ...activeRequestContext.current });
     setDraft(createAgentSettingsDraft(next));
     setDiff(null);
     setPending(null);
+  };
+
+  const beginOperation = (): AgentSettingsOperation | null => {
+    const client = machineClient;
+    const context = { ...activeRequestContext.current };
+    // A controlled confirmation can outlive the render that opened it. Never
+    // issue its mutation through that render's old MachineClient after the
+    // selected Host or another request scope has changed.
+    if (!client || context.client !== client) return null;
+    return {
+      sequence: ++operationRequestSequence.current,
+      context,
+      client,
+    };
+  };
+
+  const operationIsCurrent = (
+    operation: AgentSettingsOperation | null
+  ): operation is AgentSettingsOperation => {
+    if (!operation) return false;
+    return isAgentSettingsRequestCurrent({
+      requestSequence: operation.sequence,
+      currentSequence: operationRequestSequence.current,
+      requestContext: operation.context,
+      currentContext: activeRequestContext.current,
+    });
   };
 
   const patch = useMemo(
@@ -401,46 +617,67 @@ export function AgentConfigurationSettingsPanel({
       setNotice('No setting changes to apply.');
       return;
     }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const nextDiff = await machineClient.diffAgentSettings(patch);
+      const nextDiff = await operation.client.diffAgentSettings(patch);
+      if (!operationIsCurrent(operation)) return;
       setDiff(nextDiff);
-      setPending({ kind: 'settings', patch });
+      setPending({ kind: 'settings', patch, context: operation.context });
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
   const confirmPending = async () => {
     if (!machineClient || !pending) return;
+    if (
+      !isAgentSettingsContextCurrent(
+        pending.context,
+        activeRequestContext.current
+      )
+    ) {
+      setDiff(null);
+      setPending(null);
+      return;
+    }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     try {
       let nextSnapshot: SettingsSnapshot;
       if (pending.kind === 'settings') {
-        nextSnapshot = await machineClient.applyAgentSettings({
+        nextSnapshot = await operation.client.applyAgentSettings({
           patch: pending.patch,
           confirmed: true,
         });
       } else {
-        nextSnapshot = await machineClient.applyAgentSettingsProfile({
+        nextSnapshot = await operation.client.applyAgentSettingsProfile({
           preview: pending.preview,
           confirmed: true,
         });
       }
+      if (!operationIsCurrent(operation)) return;
       applySnapshot(nextSnapshot);
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
       setNotice(
         'Agent settings applied. Changes marked for a new session take effect on the next launch.'
       );
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
@@ -450,6 +687,18 @@ export function AgentConfigurationSettingsPanel({
     setPending(null);
     setNotice(null);
     setError(null);
+  };
+
+  const discardAllLocalChanges = () => {
+    discardDraft();
+    setProfileEnvironmentRaw(
+      formatProfileEnvironment(profileEnvironmentFromSnapshot(snapshot))
+    );
+    setProfileCustomArgsRaw('');
+    setProfileFieldsDirty(false);
+    setProfileEditor(null);
+    setProfileAction(null);
+    setScopedCopyPreview(null);
   };
 
   const updateDraft = (
@@ -497,6 +746,7 @@ export function AgentConfigurationSettingsPanel({
     const source = settingSourceForScope(snapshot, descriptor, scope);
     if (!source?.configured) return;
     const client = machineClient;
+    const requestContext = { ...activeRequestContext.current };
     const expectedRevision = source.revision;
     const sequence = ++revealRequestSequence.current;
     setRevealedSetting(null);
@@ -516,6 +766,12 @@ export function AgentConfigurationSettingsPanel({
         expected_revision: expectedRevision,
       });
       if (
+        !isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: revealRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        }) ||
         !isRevealResponseCurrent({
           requestSequence: sequence,
           currentSequence: revealRequestSequence.current,
@@ -532,7 +788,12 @@ export function AgentConfigurationSettingsPanel({
       setRevealedSetting({ id, value: result.value });
     } catch (nextError) {
       if (
-        sequence === revealRequestSequence.current &&
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: revealRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        }) &&
         activeMachineClient.current === client
       ) {
         setRevealErrors((current) => ({
@@ -542,7 +803,12 @@ export function AgentConfigurationSettingsPanel({
       }
     } finally {
       if (
-        sequence === revealRequestSequence.current &&
+        isAgentSettingsRequestCurrent({
+          requestSequence: sequence,
+          currentSequence: revealRequestSequence.current,
+          requestContext,
+          currentContext: activeRequestContext.current,
+        }) &&
         activeMachineClient.current === client
       ) {
         setRevealingSettingId(null);
@@ -550,14 +816,13 @@ export function AgentConfigurationSettingsPanel({
     }
   };
 
-  const saveProfile = async () => {
+  const saveProfile = async (name: string) => {
     if (!machineClient || !snapshot) return;
     if (!profileEnvironment.value) {
       setError(profileEnvironment.error ?? 'Invalid profile environment.');
       return;
     }
-    const name = window.prompt('Profile name');
-    if (!name?.trim()) return;
+    if (!name.trim()) return;
     const settingOverrides: Record<string, JsonValue> = {};
     for (const descriptor of snapshot.descriptors) {
       if (!descriptor.capabilities.profile_storable) continue;
@@ -574,10 +839,12 @@ export function AgentConfigurationSettingsPanel({
       if (value !== undefined)
         settingOverrides[settingKeyId(descriptor)] = value;
     }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     try {
-      await machineClient.saveAgentSettingsProfile({
+      await operation.client.saveAgentSettingsProfile({
         profile: {
           id: newProfileId(),
           provider,
@@ -594,28 +861,38 @@ export function AgentConfigurationSettingsPanel({
           updated_at: new Date().toISOString(),
         },
       });
+      if (!operationIsCurrent(operation)) return;
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
       setProfileFieldsDirty(false);
+      setProfileAction(null);
       setNotice(
         'Profile saved locally. It remains inactive until explicitly applied.'
       );
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
-  const editProfile = (profile: ConfigProfile) => {
+  const editProfile = (profile: ConfigProfileView) => {
+    const environmentRaw = formatProfileEnvironment(profile.environment);
+    const customArgsRaw = profile.custom_args.join('\n');
     setProfileEditor({
       id: profile.id,
       name: profile.name,
-      environmentRaw: formatProfileEnvironment(profile.environment),
-      customArgsRaw: profile.custom_args.join('\n'),
+      environmentRaw,
+      customArgsRaw,
+      initialName: profile.name,
+      initialEnvironmentRaw: environmentRaw,
+      initialCustomArgsRaw: customArgsRaw,
     });
   };
 
-  const saveProfileEdits = async (profile: ConfigProfile) => {
+  const saveProfileEdits = async (profile: ConfigProfileView) => {
     if (
       !machineClient ||
       !profileEditor ||
@@ -630,63 +907,96 @@ export function AgentConfigurationSettingsPanel({
       );
       return;
     }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     try {
-      await machineClient.saveAgentSettingsProfile({
-        profile: {
-          ...profile,
-          name: profileEditor.name.trim(),
-          environment: profileEditorEnvironment.value,
-          custom_args: parseProfileCustomArgs(profileEditor.customArgsRaw),
-          updated_at: new Date().toISOString(),
-        },
+      await operation.client.updateAgentSettingsProfile({
+        id: profile.id,
+        name: profileEditor.name.trim(),
+        environment: profileEditorEnvironment.value,
+        custom_args: parseProfileCustomArgs(profileEditor.customArgsRaw),
       });
-      setProfileEditor(null);
+      if (!operationIsCurrent(operation)) return;
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
+      setProfileEditor(null);
       setNotice('Profile updated.');
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
-  const duplicateProfile = async (profile: ConfigProfile) => {
+  const duplicateProfile = async (profileId: string, name: string) => {
     if (!machineClient) return;
-    const name = window.prompt('New profile name', `${profile.name} copy`);
-    if (!name?.trim()) return;
+    if (!name.trim()) return;
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
+    setError(null);
     try {
-      await machineClient.duplicateAgentSettingsProfile({
-        id: profile.id,
+      await operation.client.duplicateAgentSettingsProfile({
+        id: profileId,
         name: name.trim(),
       });
+      if (!operationIsCurrent(operation)) return;
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
+      setProfileAction(null);
       setNotice('Profile duplicated.');
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
-  const deleteProfile = async (profile: ConfigProfile) => {
-    if (!machineClient || !window.confirm(`Delete profile "${profile.name}"?`))
+  const deleteProfile = async (profile: ConfigProfileView) => {
+    if (!machineClient) return;
+    const confirmationContext = { ...activeRequestContext.current };
+    const result = await ConfirmDialog.show({
+      title: 'Delete profile?',
+      message: `Delete profile "${profile.name}"? This cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: t('buttons.cancel'),
+      variant: 'destructive',
+    });
+    if (result !== 'confirmed') return;
+    if (
+      !isAgentSettingsContextCurrent(
+        confirmationContext,
+        activeRequestContext.current
+      )
+    ) {
       return;
+    }
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
+    setError(null);
     try {
-      await machineClient.deleteAgentSettingsProfile({ id: profile.id });
+      await operation.client.deleteAgentSettingsProfile({ id: profile.id });
+      if (!operationIsCurrent(operation)) return;
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
       setNotice('Profile deleted.');
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
-  const previewProfileApply = async (profile: ConfigProfile) => {
+  const previewProfileApply = async (profile: ConfigProfileView) => {
     if (!machineClient || !snapshot) return;
     const expected_file_revisions = Object.fromEntries(
       snapshot.native_files.map((file) => [file.id, nativeFileRevision(file)])
@@ -697,72 +1007,188 @@ export function AgentConfigurationSettingsPanel({
       scope,
       expected_file_revisions,
     };
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     try {
       const nextDiff =
-        await machineClient.previewAgentSettingsProfileApply(request);
+        await operation.client.previewAgentSettingsProfileApply(request);
+      if (!operationIsCurrent(operation)) return;
       setDiff(nextDiff);
-      setPending({ kind: 'profile', preview: request });
+      setPending({
+        kind: 'profile',
+        preview: request,
+        context: operation.context,
+      });
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
-  const previewProfileCopy = async (profile: ConfigProfile) => {
+  const previewProfileCopy = async (
+    profileId: string,
+    targetProvider: AgentSettingsProvider,
+    targetName: string
+  ) => {
     if (!machineClient) return;
-    const target = window.prompt(
-      'Target provider (codex, claude_code, gemini, oh_my_pi)',
-      'codex'
-    );
-    if (
-      !target ||
-      !Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, target)
-    )
-      return;
-    const targetName = window.prompt(
-      'Copied profile name',
-      `${profile.name} (${PROVIDER_LABELS[target as AgentSettingsProvider]})`
-    );
-    if (!targetName?.trim()) return;
+    if (!targetName.trim()) return;
+    const operation = beginOperation();
+    if (!operation) return;
     setBusy(true);
     setError(null);
     try {
-      const preview = await machineClient.previewAgentSettingsProfileCopy({
-        id: profile.id,
-        target_provider: target as AgentSettingsProvider,
+      const preview = await operation.client.previewAgentSettingsProfileCopy({
+        id: profileId,
+        target_provider: targetProvider,
         target_executor_profile: {
-          executor: executorForProvider(target as AgentSettingsProvider),
+          executor: executorForProvider(targetProvider),
           variant: null,
         },
         target_name: targetName.trim(),
       });
-      setCopyPreview(preview);
+      if (!operationIsCurrent(operation)) return;
+      setScopedCopyPreview({ preview, context: operation.context });
+      setProfileAction(null);
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
     }
   };
 
   const saveCopiedProfile = async () => {
     if (!machineClient || !copyPreview) return;
+    const operation = beginOperation();
+    if (!operation || !scopedCopyPreview) return;
+    if (
+      !isAgentSettingsContextCurrent(
+        scopedCopyPreview.context,
+        operation.context
+      )
+    ) {
+      setScopedCopyPreview(null);
+      return;
+    }
     setBusy(true);
     try {
-      await machineClient.saveAgentSettingsProfile({
-        profile: copyPreview.profile,
+      const profile = copyPreview.profile;
+      await operation.client.saveAgentSettingsProfile({
+        profile: {
+          id: profile.id,
+          provider: profile.provider,
+          executor_profile: profile.executor_profile,
+          name: profile.name,
+          schema_version: profile.schema_version,
+          setting_overrides: profile.setting_overrides,
+          provider_extensions: {},
+          environment: profile.environment,
+          custom_args: profile.custom_args,
+          updated_at: profile.updated_at,
+        },
       });
-      setCopyPreview(null);
+      if (!operationIsCurrent(operation)) return;
       await loadProfiles();
+      if (!operationIsCurrent(operation)) return;
+      setScopedCopyPreview(null);
       setNotice(
         'Copied profile saved. Provider-specific fields were not transferred.'
       );
     } catch (nextError) {
-      setError(formatAgentSettingOperationError(nextError));
+      if (operationIsCurrent(operation)) {
+        setError(formatAgentSettingOperationError(nextError));
+      }
     } finally {
-      setBusy(false);
+      if (operationIsCurrent(operation)) setBusy(false);
+    }
+  };
+
+  const confirmLocalDiscard = async (): Promise<boolean> => {
+    if (!isDirty) return true;
+    const result = await ConfirmDialog.show({
+      title: t('agentCenter.unsaved.title'),
+      message: t('agentCenter.unsaved.message'),
+      confirmText: t('agentCenter.unsaved.discard'),
+      cancelText: t('agentCenter.unsaved.cancel'),
+      variant: 'destructive',
+    });
+    return result === 'confirmed';
+  };
+
+  const refreshSettings = async () => {
+    if (!(await confirmLocalDiscard())) return;
+    if (isDirty) discardAllLocalChanges();
+    await loadSettings();
+  };
+
+  const changeActiveSection = async (nextSection: string) => {
+    if (nextSection === activeSection) return;
+    if (!(await confirmLocalDiscard())) return;
+    if (isDirty) discardAllLocalChanges();
+    setActiveSection(nextSection);
+  };
+
+  const discoverProjectPath = async () => {
+    const nextPath = projectPathInput.trim();
+    if (nextPath === projectPath) {
+      await refreshSettings();
+      return;
+    }
+    if (!(await confirmLocalDiscard())) return;
+    setProjectPath(nextPath);
+  };
+
+  const changeScope = async (nextScope: SettingScope) => {
+    if (nextScope === scope || !(await confirmLocalDiscard())) return;
+    setScope(nextScope);
+  };
+
+  const requestCloseProfileEditor = async () => {
+    if (profileEditorDirty) {
+      const result = await ConfirmDialog.show({
+        title: 'Discard profile changes?',
+        message: 'This profile contains unsaved changes.',
+        confirmText: t('agentCenter.unsaved.discard'),
+        cancelText: t('agentCenter.unsaved.cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+    }
+    setProfileEditor(null);
+  };
+
+  const requestCloseProfileAction = async () => {
+    if (profileActionDirty) {
+      const result = await ConfirmDialog.show({
+        title: 'Discard profile changes?',
+        message: 'The profile dialog contains unsaved changes.',
+        confirmText: t('agentCenter.unsaved.discard'),
+        cancelText: t('agentCenter.unsaved.cancel'),
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') return;
+    }
+    setProfileAction(null);
+  };
+
+  const submitProfileAction = async () => {
+    if (!profileAction || !profileAction.name.trim()) return;
+    if (profileAction.kind === 'create') {
+      await saveProfile(profileAction.name);
+    } else if (profileAction.kind === 'duplicate') {
+      await duplicateProfile(profileAction.sourceId, profileAction.name);
+    } else {
+      await previewProfileCopy(
+        profileAction.sourceId,
+        profileAction.targetProvider,
+        profileAction.name
+      );
     }
   };
 
@@ -774,7 +1200,7 @@ export function AgentConfigurationSettingsPanel({
         <PrimaryButton
           variant="tertiary"
           value="Refresh"
-          onClick={() => void loadSettings(projectPath.trim() || undefined)}
+          onClick={() => void refreshSettings()}
           disabled={loading || !machineClient}
           actionIcon={loading ? 'spinner' : undefined}
         />
@@ -801,8 +1227,8 @@ export function AgentConfigurationSettingsPanel({
       >
         <div className="flex gap-2">
           <SettingsInput
-            value={projectPath}
-            onChange={setProjectPath}
+            value={projectPathInput}
+            onChange={setProjectPathInput}
             placeholder="/absolute/path/to/project"
             disabled={busy}
           />
@@ -811,7 +1237,7 @@ export function AgentConfigurationSettingsPanel({
             className="rounded-sm border border-border px-3 text-low hover:text-normal disabled:opacity-40"
             aria-label="Discover project settings"
             disabled={busy || loading}
-            onClick={() => void loadSettings(projectPath.trim() || undefined)}
+            onClick={() => void discoverProjectPath()}
           >
             <ArrowClockwiseIcon className="size-icon-xs" aria-hidden="true" />
           </button>
@@ -823,7 +1249,9 @@ export function AgentConfigurationSettingsPanel({
       >
         <select
           value={scope}
-          onChange={(event) => setScope(event.target.value as SettingScope)}
+          onChange={(event) =>
+            void changeScope(event.target.value as SettingScope)
+          }
           disabled={busy}
           className="w-full rounded-sm border border-border bg-secondary px-base py-half text-sm text-high focus:outline-none focus:ring-1 focus:ring-brand"
         >
@@ -1212,7 +1640,9 @@ export function AgentConfigurationSettingsPanel({
       headerAction={
         <PrimaryButton
           value="Save current"
-          onClick={() => void saveProfile()}
+          onClick={() =>
+            setProfileAction({ kind: 'create', name: '', initialName: '' })
+          }
           disabled={
             busy ||
             !snapshot?.capabilities.profile_storage ||
@@ -1283,7 +1713,7 @@ export function AgentConfigurationSettingsPanel({
             <PrimaryButton
               variant="tertiary"
               value="Cancel"
-              onClick={() => setCopyPreview(null)}
+              onClick={() => setScopedCopyPreview(null)}
               disabled={busy}
             />
             <PrimaryButton
@@ -1323,47 +1753,70 @@ export function AgentConfigurationSettingsPanel({
                       {profile.name}
                     </div>
                     <div className="text-xs text-low">
-                      {Object.keys(profile.setting_overrides).length} managed
-                      settings · {Object.keys(profile.environment).length}{' '}
-                      environment values · {profile.custom_args.length} custom
-                      args · updated{' '}
-                      {new Date(profile.updated_at).toLocaleString()}
+                      {Object.keys(profile.setting_overrides).length +
+                        profile.configured_credential_keys.length}{' '}
+                      managed settings ·{' '}
+                      {Object.keys(profile.environment).length} environment
+                      values · {profile.custom_args.length} custom args ·
+                      updated {new Date(profile.updated_at).toLocaleString()}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <ToolAction
                       label="Apply"
                       icon={CheckCircleIcon}
-                      disabled={busy || !snapshot}
+                      disabled={busy || !snapshot || profileEditor !== null}
                       onClick={() => void previewProfileApply(profile)}
                     />
                     <ToolAction
                       label="Copy"
                       icon={CopyIcon}
-                      disabled={busy}
-                      onClick={() => void previewProfileCopy(profile)}
+                      disabled={busy || profileEditor !== null}
+                      onClick={() => {
+                        const targetProvider = (
+                          Object.keys(
+                            PROVIDER_LABELS
+                          ) as AgentSettingsProvider[]
+                        ).find((candidate) => candidate !== profile.provider);
+                        if (!targetProvider) return;
+                        const name = `${profile.name} (${PROVIDER_LABELS[targetProvider]})`;
+                        setProfileAction({
+                          kind: 'copy',
+                          sourceId: profile.id,
+                          sourceName: profile.name,
+                          name,
+                          initialName: name,
+                          targetProvider,
+                          initialTargetProvider: targetProvider,
+                        });
+                      }}
                     />
                     <ToolAction
                       label="Duplicate"
                       icon={PlusIcon}
-                      disabled={busy}
-                      onClick={() => void duplicateProfile(profile)}
+                      disabled={busy || profileEditor !== null}
+                      onClick={() => {
+                        const name = `${profile.name} copy`;
+                        setProfileAction({
+                          kind: 'duplicate',
+                          sourceId: profile.id,
+                          sourceName: profile.name,
+                          name,
+                          initialName: name,
+                        });
+                      }}
                     />
                     <ToolAction
                       label={t('agentCenter.profileEditor.edit')}
                       icon={PencilSimpleIcon}
-                      disabled={
-                        busy ||
-                        (profileEditor !== null &&
-                          profileEditor.id !== profile.id)
-                      }
+                      disabled={busy || profileEditor !== null}
                       onClick={() => editProfile(profile)}
                     />
                     <ToolAction
                       label="Delete"
                       icon={TrashIcon}
                       danger
-                      disabled={busy}
+                      disabled={busy || profileEditor !== null}
                       onClick={() => void deleteProfile(profile)}
                     />
                   </div>
@@ -1426,7 +1879,7 @@ export function AgentConfigurationSettingsPanel({
                       <PrimaryButton
                         variant="tertiary"
                         value={t('agentCenter.profileEditor.cancel')}
-                        onClick={() => setProfileEditor(null)}
+                        onClick={() => void requestCloseProfileEditor()}
                         disabled={busy}
                       />
                       <PrimaryButton
@@ -1471,93 +1924,199 @@ export function AgentConfigurationSettingsPanel({
 
   const active = sections.find((section) => section.id === activeSection);
   return (
-    <div
-      className="mt-5 space-y-4 border-t border-border pt-5"
-      data-testid="agent-settings-panel"
-    >
-      <div className="flex items-center gap-2">
-        <CodeIcon className="size-icon-sm text-brand" aria-hidden="true" />
-        <h3 className="text-base font-medium text-high">
-          Installed Agent settings
-        </h3>
-      </div>
-      {error && (
-        <div
-          className="flex items-start gap-2 rounded-sm border border-error/50 bg-error/10 p-3 text-sm text-error"
-          role="alert"
-        >
-          <WarningCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
-          {error}
+    <>
+      <div
+        className="mt-5 space-y-4 border-t border-border pt-5"
+        data-testid="agent-settings-panel"
+      >
+        <div className="flex items-center gap-2">
+          <CodeIcon className="size-icon-sm text-brand" aria-hidden="true" />
+          <h3 className="text-base font-medium text-high">
+            Installed Agent settings
+          </h3>
         </div>
-      )}
-      {notice && (
-        <div
-          className="flex items-start gap-2 rounded-sm border border-success/50 bg-success/10 p-3 text-sm text-success"
-          role="status"
-        >
-          <CheckCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
-          {notice}
-        </div>
-      )}
-      {!snapshot ? (
-        <div className="rounded-sm border border-border p-4 text-sm text-low">
-          No settings snapshot available.
-        </div>
-      ) : (
-        <>
+        {error && (
           <div
-            className="flex flex-wrap gap-1 border-b border-border"
-            role="tablist"
-            aria-label="Agent settings sections"
+            className="flex items-start gap-2 rounded-sm border border-error/50 bg-error/10 p-3 text-sm text-error"
+            role="alert"
           >
-            {sections.map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                role="tab"
-                aria-selected={activeSection === section.id}
-                onClick={() => setActiveSection(section.id)}
-                className={cn(
-                  'border-b-2 px-3 py-2 text-sm',
-                  activeSection === section.id
-                    ? 'border-brand text-brand'
-                    : 'border-transparent text-low hover:text-normal'
-                )}
-              >
-                {section.label}
-              </button>
-            ))}
+            <WarningCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
+            {error}
           </div>
-          {activeSection === 'overview' && renderOverview()}
-          {active?.descriptors.length
-            ? renderSettings(active.descriptors)
-            : null}
-          {includeTools && activeSection === 'tools' && (
-            <AgentToolsSettingsSection provider={provider} />
-          )}
-          {activeSection === 'profiles' && renderProfiles()}
-          {activeSection === 'effective_config' && renderEffective()}
-        </>
-      )}
-      {diff && (
-        <DiffConfirmation
-          diff={diff}
-          pending={pending}
-          busy={busy}
-          onCancel={() => {
-            setDiff(null);
-            setPending(null);
-          }}
-          onConfirm={() => void confirmPending()}
+        )}
+        {notice && (
+          <div
+            className="flex items-start gap-2 rounded-sm border border-success/50 bg-success/10 p-3 text-sm text-success"
+            role="status"
+          >
+            <CheckCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
+            {notice}
+          </div>
+        )}
+        {!snapshot ? (
+          <div className="rounded-sm border border-border p-4 text-sm text-low">
+            No settings snapshot available.
+          </div>
+        ) : (
+          <>
+            <div
+              className="flex flex-wrap gap-1 border-b border-border"
+              role="tablist"
+              aria-label="Agent settings sections"
+            >
+              {sections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSection === section.id}
+                  onClick={() => void changeActiveSection(section.id)}
+                  className={cn(
+                    'border-b-2 px-3 py-2 text-sm',
+                    activeSection === section.id
+                      ? 'border-brand text-brand'
+                      : 'border-transparent text-low hover:text-normal'
+                  )}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+            {activeSection === 'overview' && renderOverview()}
+            {active?.descriptors.length
+              ? renderSettings(active.descriptors)
+              : null}
+            {includeTools && activeSection === 'tools' && (
+              <AgentToolsSettingsSection provider={provider} />
+            )}
+            {activeSection === 'profiles' && renderProfiles()}
+            {activeSection === 'effective_config' && renderEffective()}
+          </>
+        )}
+        {diff && (
+          <DiffConfirmation
+            diff={diff}
+            pending={pending}
+            busy={busy}
+            onCancel={() => {
+              setDiff(null);
+              setPending(null);
+            }}
+            onConfirm={() => void confirmPending()}
+          />
+        )}
+        <SettingsSaveBar
+          show={draftDirty && active?.descriptors.length === 0}
+          saving={busy}
+          onSave={() => void previewSettings()}
+          onDiscard={discardDraft}
         />
-      )}
-      <SettingsSaveBar
-        show={draftDirty && active?.descriptors.length === 0}
-        saving={busy}
-        onSave={() => void previewSettings()}
-        onDiscard={discardDraft}
-      />
-    </div>
+      </div>
+      <Dialog
+        open={profileAction !== null}
+        uncloseable={busy}
+        onOpenChange={(open) => {
+          if (!open && !busy) void requestCloseProfileAction();
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          {profileAction && (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitProfileAction();
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>
+                  {profileAction.kind === 'create'
+                    ? 'Save configuration profile'
+                    : profileAction.kind === 'duplicate'
+                      ? 'Duplicate configuration profile'
+                      : 'Copy configuration profile'}
+                </DialogTitle>
+                <DialogDescription className="text-left">
+                  {profileAction.kind === 'create'
+                    ? 'Save the current typed settings and profile runtime fields. The profile remains inactive until applied.'
+                    : `Source profile: ${profileAction.sourceName}`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                {profileAction.kind === 'copy' && (
+                  <label className="block space-y-2 text-sm font-medium text-normal">
+                    <span>Target provider</span>
+                    <select
+                      value={profileAction.targetProvider}
+                      onChange={(event) => {
+                        const targetProvider = event.target
+                          .value as AgentSettingsProvider;
+                        setProfileAction((current) =>
+                          current?.kind === 'copy'
+                            ? { ...current, targetProvider }
+                            : current
+                        );
+                      }}
+                      disabled={busy}
+                      className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    >
+                      {(Object.keys(PROVIDER_LABELS) as AgentSettingsProvider[])
+                        .filter((candidate) => candidate !== provider)
+                        .map((candidate) => (
+                          <option key={candidate} value={candidate}>
+                            {PROVIDER_LABELS[candidate]}
+                          </option>
+                        ))}
+                    </select>
+                    <span className="block text-xs font-normal text-low">
+                      Provider-specific settings and credentials are not copied.
+                    </span>
+                  </label>
+                )}
+                <label className="block space-y-2 text-sm font-medium text-normal">
+                  <span>{t('agentCenter.profileEditor.nameLabel')}</span>
+                  <input
+                    value={profileAction.name}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setProfileAction((current) =>
+                        current ? { ...current, name } : current
+                      );
+                    }}
+                    autoFocus
+                    disabled={busy}
+                    className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  />
+                </label>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void requestCloseProfileAction()}
+                >
+                  {t('buttons.cancel')}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={busy || !profileAction.name.trim()}
+                >
+                  {busy && (
+                    <SpinnerIcon
+                      className="mr-2 size-icon-xs animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {profileAction.kind === 'copy'
+                    ? 'Preview copy'
+                    : t('agentCenter.profileEditor.save')}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

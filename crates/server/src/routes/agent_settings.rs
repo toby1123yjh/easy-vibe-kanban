@@ -9,10 +9,10 @@ use axum::{
 use executors::agent_settings::{
     AgentSettingOperationError, AgentSettingsInventory, AgentSettingsProvider,
     AgentSettingsService, ApplyConfigProfileRequest, ApplyNativeFileRequest, ApplySettingsRequest,
-    ConfigProfile, CopyProfilePreviewRequest, DeleteConfigProfileRequest,
+    ConfigProfileView, CopyProfilePreviewRequest, DeleteConfigProfileRequest,
     DuplicateConfigProfileRequest, NativeFilePatch, ProfileApplyPreviewRequest, ProfileCopyPreview,
     RevealAgentSettingRequest, RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff,
-    SettingsPatch, SettingsSnapshot,
+    SettingsPatch, SettingsSnapshot, UpdateConfigProfileRequest,
 };
 use serde::Deserialize;
 use ts_rs::TS;
@@ -30,7 +30,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/agent-settings/native-file/apply", post(apply_native_file))
         .route(
             "/agent-settings/profiles",
-            get(list_profiles).post(save_profile).put(save_profile),
+            get(list_profiles).post(save_profile).put(update_profile),
         )
         .route("/agent-settings/profiles/delete", post(delete_profile))
         .route(
@@ -163,7 +163,7 @@ async fn apply_native_file(
 async fn list_profiles(
     State(_deployment): State<DeploymentImpl>,
     Query(query): Query<AgentSettingsProfilesQuery>,
-) -> ResponseJson<ApiResponse<Vec<ConfigProfile>, AgentSettingOperationError>> {
+) -> ResponseJson<ApiResponse<Vec<ConfigProfileView>, AgentSettingOperationError>> {
     match service().and_then(|service| {
         service
             .list_profiles(query.provider)
@@ -177,12 +177,26 @@ async fn list_profiles(
 async fn save_profile(
     State(_deployment): State<DeploymentImpl>,
     Json(request): Json<SaveConfigProfileRequest>,
-) -> ResponseJson<ApiResponse<ConfigProfile, AgentSettingOperationError>> {
+) -> ResponseJson<ApiResponse<ConfigProfileView, AgentSettingOperationError>> {
     let provider = request.profile.provider;
     match service().and_then(|service| {
         service
             .save_profile(request)
             .map_err(|error| operation_error(error, Some(provider)))
+    }) {
+        Ok(profile) => ResponseJson(ApiResponse::success(profile)),
+        Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
+    }
+}
+
+async fn update_profile(
+    State(_deployment): State<DeploymentImpl>,
+    Json(request): Json<UpdateConfigProfileRequest>,
+) -> ResponseJson<ApiResponse<ConfigProfileView, AgentSettingOperationError>> {
+    match service().and_then(|service| {
+        service
+            .update_profile(request)
+            .map_err(|error| operation_error(error, None))
     }) {
         Ok(profile) => ResponseJson(ApiResponse::success(profile)),
         Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
@@ -206,7 +220,7 @@ async fn delete_profile(
 async fn duplicate_profile(
     State(_deployment): State<DeploymentImpl>,
     Json(request): Json<DuplicateConfigProfileRequest>,
-) -> ResponseJson<ApiResponse<ConfigProfile, AgentSettingOperationError>> {
+) -> ResponseJson<ApiResponse<ConfigProfileView, AgentSettingOperationError>> {
     match service().and_then(|service| {
         service
             .duplicate_profile(request)
