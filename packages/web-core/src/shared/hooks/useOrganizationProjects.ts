@@ -8,7 +8,7 @@ export function useOrganizationProjects(organizationId: string | null) {
   // Only subscribe to Electric when signed in AND have an org
   const enabled = isSignedIn && !!organizationId;
 
-  const { data, isLoading, error } = useShape(
+  const { data, isLoading, error, retry } = useShape(
     PROJECTS_SHAPE,
     { organization_id: organizationId || '' },
     { enabled }
@@ -19,5 +19,6 @@ export function useOrganizationProjects(organizationId: string | null) {
     isLoading,
     isError: !!error,
     error,
+    retry,
   };
 }

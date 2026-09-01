@@ -26,6 +26,12 @@ import { ProjectKanbanView } from './ProjectKanbanView';
 
 interface ProjectKanbanContainerProps {
   projectName: string;
+  projectSource?: {
+    title: string;
+    description?: string;
+    retry(): void;
+    retrying?: boolean;
+  };
 }
 
 const REMOTE_ARENA_UNAVAILABLE_REASON =
@@ -38,6 +44,7 @@ type SharedSearchNavigate = (options: {
 
 export function ProjectKanbanContainer({
   projectName,
+  projectSource,
 }: ProjectKanbanContainerProps) {
   const navigateSearch = useNavigate() as unknown as SharedSearchNavigate;
   const search = useSearch({ strict: false }) as {
@@ -74,6 +81,7 @@ export function ProjectKanbanContainer({
     fetchNextPage,
     isError: isTaskSourceError,
     isFetchNextPageError,
+    isFetching: isTaskSourceFetching,
     isFetchingNextPage,
     isPending: isTaskSourcePending,
     refetch: refetchTasks,
@@ -243,27 +251,39 @@ export function ProjectKanbanContainer({
     if (isTaskSourcePending) {
       return {
         state: 'loading' as const,
-        message: 'Loading execution tasks…',
+        title: 'Loading execution tasks…',
       };
     }
     if (isTaskSourceError && tasks.length === 0) {
       return {
-        state: 'error' as const,
-        message: 'Execution tasks are unavailable. Issue data is still shown.',
+        state: 'degraded' as const,
+        title: 'Execution tasks are unavailable.',
+        description: 'Issue data is still shown.',
         retry: retryTaskSource,
+        retrying: isTaskSourceFetching,
       };
     }
     if (isFetchNextPageError) {
       return {
-        state: 'partial' as const,
-        message: 'Some execution tasks could not be loaded.',
+        state: 'degraded' as const,
+        title: 'Some execution tasks could not be loaded.',
         retry: retryTaskSource,
+        retrying: isTaskSourceFetching,
+      };
+    }
+    if (isTaskSourceError) {
+      return {
+        state: 'degraded' as const,
+        title: 'Execution tasks could not be refreshed.',
+        description: 'Previously loaded tasks remain available.',
+        retry: retryTaskSource,
+        retrying: isTaskSourceFetching,
       };
     }
     if (isFetchingNextPage) {
       return {
         state: 'loading' as const,
-        message: 'Loading remaining execution tasks…',
+        title: 'Loading remaining execution tasks…',
       };
     }
     return { state: 'ready' as const };
@@ -272,6 +292,7 @@ export function ProjectKanbanContainer({
     tasks.length,
     isFetchNextPageError,
     isFetchingNextPage,
+    isTaskSourceFetching,
     isTaskSourceError,
     isTaskSourcePending,
   ]);
@@ -334,6 +355,7 @@ export function ProjectKanbanContainer({
       query={search.q ?? ''}
       selectedIssueId={routeState.issueId}
       dragDisabled={Boolean(search.q?.trim())}
+      projectSource={projectSource}
       taskSource={taskSource}
       panel={panel}
       onQueryChange={updateSearch}

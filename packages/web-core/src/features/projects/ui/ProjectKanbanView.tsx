@@ -30,6 +30,9 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Button } from '@vibe/ui/components/Button';
+import { DegradedState, LoadingState } from '@vibe/ui/components/StateSurface';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowRight,
   Circle,
@@ -120,10 +123,18 @@ interface ProjectKanbanViewProps {
   query: string;
   selectedIssueId: string | null;
   dragDisabled: boolean;
+  projectSource?: {
+    title: string;
+    description?: string;
+    retry(): void;
+    retrying?: boolean;
+  };
   taskSource: {
-    state: 'ready' | 'loading' | 'error' | 'partial';
-    message?: string;
+    state: 'ready' | 'loading' | 'degraded';
+    title?: string;
+    description?: string;
     retry?(): void;
+    retrying?: boolean;
   };
   panel?: ReactNode;
   onQueryChange(query: string): void;
@@ -500,6 +511,7 @@ export function ProjectKanbanView({
   query,
   selectedIssueId,
   dragDisabled,
+  projectSource,
   taskSource,
   panel,
   onQueryChange,
@@ -510,6 +522,7 @@ export function ProjectKanbanView({
   getTaskUnavailableReason,
   onMove,
 }: ProjectKanbanViewProps) {
+  const { t } = useTranslation('common');
   const [displayColumns, setDisplayColumns] = useState(columns);
   const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
@@ -519,6 +532,16 @@ export function ProjectKanbanView({
     }),
     useSensor(KeyboardSensor, { coordinateGetter: kanbanKeyboardCoordinates })
   );
+  const sourceStates = [
+    projectSource
+      ? {
+          id: 'project',
+          state: 'degraded' as const,
+          ...projectSource,
+        }
+      : null,
+    taskSource.state === 'ready' ? null : { id: 'tasks', ...taskSource },
+  ].filter((source) => source !== null);
 
   useEffect(() => setDisplayColumns(columns), [columns]);
 
@@ -631,18 +654,36 @@ export function ProjectKanbanView({
         </button>
       </header>
 
-      {taskSource.state !== 'ready' ? (
-        <div
-          className="vk-project-kanban__task-source"
-          data-state={taskSource.state}
-          role={taskSource.state === 'loading' ? 'status' : 'alert'}
-        >
-          <span>{taskSource.message ?? 'Loading execution tasks…'}</span>
-          {taskSource.retry ? (
-            <button type="button" onClick={taskSource.retry}>
-              Retry
-            </button>
-          ) : null}
+      {sourceStates.length > 0 ? (
+        <div className="vk-project-kanban__task-source !flex-col !items-stretch !gap-0 !p-0">
+          {sourceStates.map((source) => {
+            const SourceState =
+              source.state === 'loading' ? LoadingState : DegradedState;
+            return (
+              <SourceState
+                key={source.id}
+                compact
+                className="w-full !flex-row !justify-start !rounded-none !text-left"
+                title={source.title ?? 'Loading execution tasks…'}
+                description={source.description}
+                action={
+                  source.retry ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-11"
+                      loading={source.retrying}
+                      loadingLabel={t('buttons.retry')}
+                      onClick={source.retry}
+                    >
+                      {t('buttons.retry')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            );
+          })}
         </div>
       ) : null}
 

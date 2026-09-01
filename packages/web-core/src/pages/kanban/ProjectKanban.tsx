@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@vibe/ui/components/Button';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import { LoginRequiredPrompt } from '@/shared/dialogs/shared/LoginRequiredPrompt';
 import { ProjectKanbanContainer } from '@/features/projects/ui/ProjectKanbanContainer';
 import { useActions } from '@/shared/hooks/useActions';
@@ -87,61 +93,119 @@ function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
 
 function ProjectKanbanInner({ projectId }: { projectId: string }) {
   const { t } = useTranslation('common');
-  const { projects, isLoading } = useOrgContext();
+  const { projects, isLoading, error, retry } = useOrgContext();
 
   const project = projects.find((candidate) => candidate.id === projectId);
 
-  if (isLoading) {
+  if (isLoading && !project) {
     return (
-      <div className="flex items-center justify-center h-full w-full">
-        <p className="text-low">{t('states.loading')}</p>
-      </div>
+      <LoadingState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title={t('states.loading')}
+      />
+    );
+  }
+
+  if (error && !project) {
+    return (
+      <ErrorState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title="The project could not be loaded."
+        description={error.message}
+        action={
+          <Button type="button" variant="outline" onClick={retry}>
+            {t('buttons.retry')}
+          </Button>
+        }
+      />
     );
   }
 
   if (!project) {
     return (
-      <div className="flex items-center justify-center h-full w-full">
-        <p className="text-low">{t('kanban.noProjectFound')}</p>
-      </div>
+      <EmptyState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title={t('kanban.noProjectFound')}
+      />
     );
   }
 
   return (
     <ProjectProvider projectId={projectId}>
       <ProjectMutationsRegistration>
-        <ProjectKanbanPageSurface projectName={project.name} />
+        <ProjectKanbanPageSurface
+          projectName={project.name}
+          organizationError={error?.message ?? null}
+          retryOrganization={retry}
+        />
       </ProjectMutationsRegistration>
     </ProjectProvider>
   );
 }
 
-function ProjectKanbanPageSurface({ projectName }: { projectName: string }) {
+function ProjectKanbanPageSurface({
+  projectName,
+  organizationError,
+  retryOrganization,
+}: {
+  projectName: string;
+  organizationError: string | null;
+  retryOrganization(): void;
+}) {
+  const { t } = useTranslation('common');
   const { issueId } = useCurrentKanbanRouteState();
   const { getIssue, isLoading, error, retry } = useProjectContext();
   const issue = issueId ? getIssue(issueId) : undefined;
+  const hasLoadedBoardRef = useRef(false);
+  if (!isLoading && !error) {
+    hasLoadedBoardRef.current = true;
+  }
   usePageTitle(issue?.title, projectName);
 
   if (isLoading) {
     return (
-      <div className="vk-project-surface-state" role="status">
-        Loading project board…
-      </div>
+      <LoadingState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title="Loading project board…"
+      />
     );
   }
 
-  if (error) {
+  if (error && !hasLoadedBoardRef.current) {
     return (
-      <div className="vk-project-surface-state" role="alert">
-        <span>{error.message || 'The project board could not be synced.'}</span>
-        <button type="button" onClick={retry}>
-          Retry
-        </button>
-      </div>
+      <ErrorState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title="The project board could not be synced."
+        description={error.message}
+        action={
+          <Button type="button" variant="outline" onClick={retry}>
+            {t('buttons.retry')}
+          </Button>
+        }
+      />
     );
   }
 
-  return <ProjectKanbanContainer projectName={projectName} />;
+  const projectSource =
+    error || organizationError
+      ? {
+          title: 'Some project data could not be refreshed.',
+          description: [organizationError, error?.message]
+            .filter(Boolean)
+            .join(' '),
+          retry: () => {
+            retryOrganization();
+            retry();
+          },
+        }
+      : undefined;
+
+  return (
+    <ProjectKanbanContainer
+      projectName={projectName}
+      projectSource={projectSource}
+    />
+  );
 }
 
 /**
@@ -149,26 +213,42 @@ function ProjectKanbanPageSurface({ projectName }: { projectName: string }) {
  */
 function useFindProjectById(projectId: string | undefined) {
   const { isLoaded: authLoaded } = useAuth();
-  const { data: orgsData, isLoading: orgsLoading } = useUserOrganizations();
+  const organizationsQuery = useUserOrganizations();
+  const {
+    data: orgsData,
+    error: organizationsError,
+    isLoading: orgsLoading,
+    refetch: refetchOrganizations,
+  } = organizationsQuery;
   const selectedOrgId = useOrganizationStore((s) => s.selectedOrgId);
   const organizations = orgsData?.organizations ?? [];
 
   // Use stored org ID, or fall back to first org
   const orgIdToUse = selectedOrgId ?? organizations[0]?.id ?? null;
 
-  const { data: projects = [], isLoading: projectsLoading } =
-    useOrganizationProjects(orgIdToUse);
+  const {
+    data: projects = [],
+    error: projectsError,
+    isLoading: projectsLoading,
+    retry: retryProjects,
+  } = useOrganizationProjects(orgIdToUse);
 
   const project = useMemo(() => {
     if (!projectId) return undefined;
     return projects.find((candidate) => candidate.id === projectId);
   }, [projectId, projects]);
+  const retry = useCallback(() => {
+    void refetchOrganizations();
+    retryProjects();
+  }, [refetchOrganizations, retryProjects]);
 
   return {
     project,
     organizationId: project?.organization_id ?? selectedOrgId,
     // Include auth loading state - we can't determine project access until auth loads
     isLoading: !authLoaded || orgsLoading || projectsLoading,
+    error: organizationsError ?? projectsError,
+    retry,
   };
 }
 
@@ -221,16 +301,17 @@ export function ProjectKanban() {
   }, [projectId, hasInvalidWorkspaceCreateDraftId, appNavigation]);
 
   // Find the project and get its organization
-  const { organizationId, isLoading } = useFindProjectById(
+  const { organizationId, isLoading, error, retry } = useFindProjectById(
     projectId ?? undefined
   );
 
   // Show loading while auth state is being determined
   if (!authLoaded || isLoading) {
     return (
-      <div className="flex items-center justify-center h-full w-full">
-        <p className="text-low">{t('states.loading')}</p>
-      </div>
+      <LoadingState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title={t('states.loading')}
+      />
     );
   }
 
@@ -248,17 +329,33 @@ export function ProjectKanban() {
     );
   }
 
+  if (error && (!projectId || !organizationId)) {
+    return (
+      <ErrorState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title="The project could not be resolved."
+        description={error.message}
+        action={
+          <Button type="button" variant="outline" onClick={retry}>
+            {t('buttons.retry')}
+          </Button>
+        }
+      />
+    );
+  }
+
   if (!projectId || !organizationId) {
     return (
-      <div className="flex items-center justify-center h-full w-full">
-        <p className="text-low">{t('kanban.noProjectFound')}</p>
-      </div>
+      <EmptyState
+        className="h-full w-full bg-[var(--vk-surface-canvas)]"
+        title={t('kanban.noProjectFound')}
+      />
     );
   }
 
   return (
-    <OrgProvider organizationId={organizationId}>
-      <ProjectKanbanInner projectId={projectId} />
+    <OrgProvider key={organizationId} organizationId={organizationId}>
+      <ProjectKanbanInner key={projectId} projectId={projectId} />
     </OrgProvider>
   );
 }
