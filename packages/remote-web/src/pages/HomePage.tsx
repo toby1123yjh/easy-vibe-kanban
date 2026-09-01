@@ -1,18 +1,20 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useQueries } from "@tanstack/react-query";
+import { Button } from "@vibe/ui/components/Button";
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@vibe/ui/components/StateSurface";
 import type { Project } from "shared/remote-types";
 import type { OrganizationWithRole } from "shared/types";
 import { listOrganizationProjects } from "@remote/shared/lib/api";
-import { clearTokens } from "@remote/shared/lib/auth";
 import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
 import { useOrganizationStore } from "@/shared/stores/useOrganizationStore";
 import { useUserOrganizations } from "@/shared/hooks/useUserOrganizations";
+import { sortProjectsByOrder } from "@/shared/lib/projectOrder";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
 import { useIsMobile } from "@/shared/hooks/useIsMobile";
 import {
@@ -23,6 +25,10 @@ import {
 type OrganizationWithProjects = {
   organization: OrganizationWithRole;
   projects: Project[];
+  projectsLoading: boolean;
+  projectsFetching: boolean;
+  projectsError: unknown;
+  retryProjects(): void;
 };
 
 function getHostInitials(name: string): string {
@@ -43,12 +49,11 @@ export default function HomePage() {
   const {
     data: orgsResponse,
     isLoading: orgsLoading,
+    isFetching: orgsFetching,
     error: orgsError,
+    refetch: refetchOrganizations,
   } = useUserOrganizations();
-  const organizations = orgsResponse?.organizations;
-  const [items, setItems] = useState<OrganizationWithProjects[]>([]);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const organizations = orgsResponse?.organizations ?? [];
   const { isSignedIn } = useAuth();
   const { hosts } = useRelayAppBarHosts(isSignedIn);
   const isMobile = useIsMobile();
@@ -74,94 +79,63 @@ export default function HomePage() {
     openSettings("organizations", { replace: true });
   }, [openSettings, search.legacyOrgSettingsOrgId, setSelectedOrgId]);
 
-  const handleSignInAgain = async () => {
-    await clearTokens();
-    navigate({
-      to: "/account",
-      replace: true,
-    });
-  };
+  const projectQueries = useQueries({
+    queries: organizations.map((organization) => ({
+      queryKey: ["remote-home", "organization-projects", organization.id],
+      queryFn: () => listOrganizationProjects(organization.id),
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
 
-  useEffect(() => {
-    if (!organizations) {
-      return;
-    }
+  const items: OrganizationWithProjects[] = organizations.map(
+    (organization, index) => {
+      const projectQuery = projectQueries[index];
+      return {
+        organization,
+        projects: sortProjectsByOrder(projectQuery?.data ?? []),
+        projectsLoading: projectQuery?.isLoading ?? false,
+        projectsFetching: projectQuery?.isFetching ?? false,
+        projectsError: projectQuery?.error ?? null,
+        retryProjects: () => {
+          void projectQuery?.refetch();
+        },
+      };
+    },
+  );
 
-    let cancelled = false;
-
-    const load = async () => {
-      setIsLoadingProjects(true);
-      setError(null);
-
-      try {
-        const organizationsWithProjects = await Promise.all(
-          organizations.map(async (organization) => {
-            const projects = await listOrganizationProjects(organization.id);
-            return {
-              organization,
-              projects: projects.sort((a, b) => a.sort_order - b.sort_order),
-            };
-          }),
-        );
-
-        if (!cancelled) {
-          setItems(organizationsWithProjects);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof Error ? e.message : "Failed to load organizations",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingProjects(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [organizations]);
-
-  const loading = orgsLoading || isLoadingProjects;
-  const displayError =
-    error ??
-    (orgsError
-      ? orgsError instanceof Error
-        ? orgsError.message
-        : "Failed to load organizations"
-      : null);
-
-  if (loading) {
+  if (orgsLoading) {
     return (
-      <CenteredCard>
-        <h1 className="text-lg font-semibold text-high">Organizations</h1>
-        <p className="mt-base text-sm text-normal">
-          Loading organizations and projects...
-        </p>
-      </CenteredCard>
+      <LoadingState
+        className="h-full"
+        title="Loading organizations"
+        description="Checking the organizations available to your account."
+      />
     );
   }
 
-  if (displayError) {
+  if (orgsError && !orgsResponse) {
     return (
-      <CenteredCard>
-        <h1 className="text-lg font-semibold text-high">Failed to load</h1>
-        <p className="mt-base text-sm text-normal">{displayError}</p>
-        <button
-          type="button"
-          className="mt-double rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover"
-          onClick={() => {
-            void handleSignInAgain();
-          }}
-        >
-          Sign in again
-        </button>
-      </CenteredCard>
+      <ErrorState
+        className="h-full"
+        title="Unable to load organizations"
+        description={
+          orgsError instanceof Error
+            ? orgsError.message
+            : "The organization list could not be loaded."
+        }
+        action={
+          <Button
+            className="min-h-11 sm:min-h-8"
+            loading={orgsFetching}
+            loadingLabel="Retrying organizations"
+            onClick={() => {
+              void refetchOrganizations();
+            }}
+          >
+            Try again
+          </Button>
+        }
+      />
     );
   }
 
@@ -169,6 +143,9 @@ export default function HomePage() {
   const totalProjectCount = items.reduce(
     (count, item) => count + item.projects.length,
     0,
+  );
+  const hasCompleteProjectCount = items.every(
+    (item) => !item.projectsLoading && !item.projectsError,
   );
 
   return (
@@ -250,36 +227,85 @@ export default function HomePage() {
           </section>
         )}
 
+        {orgsError && (
+          <DegradedState
+            compact
+            className="mb-double"
+            title="Organizations may be out of date"
+            description="The last loaded organizations remain available while refresh is unavailable."
+            action={
+              <Button
+                className="min-h-11 sm:min-h-8"
+                variant="outline"
+                size="sm"
+                loading={orgsFetching}
+                loadingLabel="Retrying organizations"
+                onClick={() => {
+                  void refetchOrganizations();
+                }}
+              >
+                Try again
+              </Button>
+            }
+          />
+        )}
+
         <header className="space-y-half">
           <h1 className="text-2xl font-semibold text-high">Organizations</h1>
           <p className="text-sm text-low">
             {organizationCount}{" "}
-            {organizationCount === 1 ? "organization" : "organizations"} •{" "}
-            {totalProjectCount}{" "}
-            {totalProjectCount === 1 ? "project" : "projects"}
+            {organizationCount === 1 ? "organization" : "organizations"}
+            {hasCompleteProjectCount && (
+              <>
+                {" "}
+                • {totalProjectCount}{" "}
+                {totalProjectCount === 1 ? "project" : "projects"}
+              </>
+            )}
           </p>
         </header>
 
         {organizationCount === 0 ? (
-          <section className="mt-double rounded-sm border border-border bg-secondary p-base sm:p-double">
-            <h2 className="text-base font-medium text-high">
-              No organizations found
-            </h2>
-            <p className="mt-half text-sm text-low">
-              Create or join an organization to start working on projects.
-            </p>
-          </section>
+          <EmptyState
+            className="mt-double rounded-sm border border-border bg-secondary"
+            title="No organizations found"
+            description="Create or join an organization to start working on projects."
+            action={
+              <Button
+                className="min-h-11 sm:min-h-8"
+                variant="outline"
+                onClick={() => {
+                  openSettings("organizations");
+                }}
+              >
+                Manage organizations
+              </Button>
+            }
+          />
         ) : (
           <div className="mt-double space-y-double">
-            {items.map(({ organization, projects }) => (
-              <OrganizationSection
-                key={organization.id}
-                organization={organization}
-                projects={projects}
-                hostId={preferredHostId}
-                onRequireHost={openRelaySettings}
-              />
-            ))}
+            {items.map(
+              ({
+                organization,
+                projects,
+                projectsLoading,
+                projectsFetching,
+                projectsError,
+                retryProjects,
+              }) => (
+                <OrganizationSection
+                  key={organization.id}
+                  organization={organization}
+                  projects={projects}
+                  projectsLoading={projectsLoading}
+                  projectsFetching={projectsFetching}
+                  projectsError={projectsError}
+                  retryProjects={retryProjects}
+                  hostId={preferredHostId}
+                  onRequireHost={openRelaySettings}
+                />
+              ),
+            )}
           </div>
         )}
       </div>
@@ -287,19 +313,13 @@ export default function HomePage() {
   );
 }
 
-function CenteredCard({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center px-base">
-      <section className="w-full max-w-md rounded-sm border border-border bg-secondary p-double text-center">
-        {children}
-      </section>
-    </div>
-  );
-}
-
 function OrganizationSection({
   organization,
   projects,
+  projectsLoading,
+  projectsFetching,
+  projectsError,
+  retryProjects,
   hostId,
   onRequireHost,
 }: OrganizationWithProjects & {
@@ -313,31 +333,88 @@ function OrganizationSection({
           {organization.name}
         </h2>
         <p className="shrink-0 text-xs text-low">
-          {projects.length} {projects.length === 1 ? "project" : "projects"}
+          {projectsLoading
+            ? "Loading projects..."
+            : projectsError && projects.length === 0
+              ? "Projects unavailable"
+              : `${projects.length} ${projects.length === 1 ? "project" : "projects"}`}
         </p>
       </header>
 
-      {projects.length === 0 ? (
-        <div className="rounded-sm border border-border bg-primary px-base py-base text-sm text-low">
-          No projects yet
-        </div>
+      {projectsLoading ? (
+        <LoadingState
+          compact
+          className="rounded-sm border border-border bg-primary"
+          title="Loading projects"
+          description={`Checking projects in ${organization.name}.`}
+        />
+      ) : projectsError && projects.length === 0 ? (
+        <ErrorState
+          compact
+          title="Unable to load projects"
+          description={
+            projectsError instanceof Error
+              ? projectsError.message
+              : `Projects in ${organization.name} could not be loaded.`
+          }
+          action={
+            <Button
+              className="min-h-11 sm:min-h-8"
+              variant="outline"
+              size="sm"
+              loading={projectsFetching}
+              loadingLabel={`Retrying projects in ${organization.name}`}
+              onClick={retryProjects}
+            >
+              Try again
+            </Button>
+          }
+        />
+      ) : projects.length === 0 ? (
+        <EmptyState
+          compact
+          className="rounded-sm border border-border bg-primary"
+          title="No projects yet"
+          description={`Projects created in ${organization.name} will appear here.`}
+        />
       ) : (
-        <ul className="grid gap-base sm:grid-cols-2">
-          {projects.map((project) => (
-            <li key={project.id}>
-              <ProjectCard
-                project={project}
-                hostId={hostId}
-                onRequireHost={onRequireHost}
-              />
-            </li>
-          ))}
-          {projects.length % 2 === 1 ? (
-            <li className="hidden sm:block" aria-hidden="true">
-              <ProjectCardSkeleton />
-            </li>
-          ) : null}
-        </ul>
+        <>
+          {projectsError && (
+            <DegradedState
+              compact
+              title="Projects may be out of date"
+              description="The last loaded projects remain available while refresh is unavailable."
+              action={
+                <Button
+                  className="min-h-11 sm:min-h-8"
+                  variant="outline"
+                  size="sm"
+                  loading={projectsFetching}
+                  loadingLabel={`Retrying projects in ${organization.name}`}
+                  onClick={retryProjects}
+                >
+                  Try again
+                </Button>
+              }
+            />
+          )}
+          <ul className="grid gap-base sm:grid-cols-2">
+            {projects.map((project) => (
+              <li key={project.id}>
+                <ProjectCard
+                  project={project}
+                  hostId={hostId}
+                  onRequireHost={onRequireHost}
+                />
+              </li>
+            ))}
+            {projects.length % 2 === 1 ? (
+              <li className="hidden sm:block" aria-hidden="true">
+                <ProjectCardSkeleton />
+              </li>
+            ) : null}
+          </ul>
+        </>
       )}
     </section>
   );

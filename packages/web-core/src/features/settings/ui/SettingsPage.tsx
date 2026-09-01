@@ -347,25 +347,22 @@ function VersionSettings() {
             {appVersion || t('settings.page.version.unknown', 'Unavailable')}
           </strong>
         </div>
-        <div>
-          <span>{t('settings.page.version.update', 'Downloaded update')}</span>
-          <p>
-            {canInstallUpdate
-              ? t(
-                  'settings.page.version.ready',
-                  'Version {{version}} is ready to install.',
-                  { version: updateVersion }
-                )
-              : t(
-                  'settings.page.version.notReady',
-                  'No downloaded update is ready. Update checks and channels are unavailable here.'
-                )}
-          </p>
-        </div>
         {canInstallUpdate && (
-          <PrimaryButton onClick={() => restart?.()}>
-            {t('settings.page.version.restart', 'Restart and install')}
-          </PrimaryButton>
+          <div>
+            <span>
+              {t('settings.page.version.update', 'Downloaded update')}
+            </span>
+            <p>
+              {t(
+                'settings.page.version.ready',
+                'Version {{version}} is ready to install.',
+                { version: updateVersion }
+              )}
+            </p>
+            <PrimaryButton onClick={() => restart?.()}>
+              {t('settings.page.version.restart', 'Restart and install')}
+            </PrimaryButton>
+          </div>
         )}
       </div>
     </SettingsCard>
