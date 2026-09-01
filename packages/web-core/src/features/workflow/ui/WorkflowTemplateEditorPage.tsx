@@ -66,6 +66,11 @@ import {
 import { validateWorkflowGraph } from './WorkflowValidationPanel';
 import { Button } from '@vibe/ui/components/Button';
 import {
+  DegradedState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
+import {
   Loader2,
   ArrowLeft,
   Save,
@@ -254,14 +259,21 @@ export function WorkflowTemplateEditorPage({
   const { t } = useTranslation('common');
   const localDraftId = parseIssueWorkflowAttemptDraftRouteId(workflowId);
   const isLocalDraft = localDraftId !== null;
-  const [localDraft, setLocalDraft] =
+  const [storedLocalDraft, setLocalDraft] =
     useState<IssueWorkflowAttemptDraft | null>(() =>
       localDraftId ? readIssueWorkflowAttemptDraft(localDraftId) : null
     );
+  const localDraft = localDraftId
+    ? storedLocalDraft?.id === localDraftId
+      ? storedLocalDraft
+      : readIssueWorkflowAttemptDraft(localDraftId)
+    : null;
   const {
     data: loadedTemplate,
     isLoading,
+    isFetching,
     error,
+    refetch: refetchTemplate,
   } = useWorkflowTemplate(workflowId, { enabled: !isLocalDraft });
   const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
     useWorkflowAttemptForWorkflow(workflowId, { enabled: !isLocalDraft });
@@ -304,20 +316,22 @@ export function WorkflowTemplateEditorPage({
   const metadataBaselineRef = useRef({ name: '', description: '' });
   const template = useMemo(
     () =>
-      localDraft
-        ? {
-            id: workflowId,
-            source: 'project' as const,
-            project_id: projectId,
-            name: localDraft.name,
-            description: localDraft.issueDescription ?? null,
-            graph_json: localDraft.graphJson,
-            revision: 0,
-            created_at: localDraft.createdAt,
-            updated_at: localDraft.createdAt,
-          }
+      isLocalDraft
+        ? localDraft
+          ? {
+              id: workflowId,
+              source: 'project' as const,
+              project_id: projectId,
+              name: localDraft.name,
+              description: localDraft.issueDescription ?? null,
+              graph_json: localDraft.graphJson,
+              revision: 0,
+              created_at: localDraft.createdAt,
+              updated_at: localDraft.createdAt,
+            }
+          : undefined
         : loadedTemplate,
-    [loadedTemplate, localDraft, projectId, workflowId]
+    [isLocalDraft, loadedTemplate, localDraft, projectId, workflowId]
   );
   const draftIssue = localDraft ? getIssue(localDraft.issueId) : null;
   const issue = workflowAttempt
@@ -1111,15 +1125,20 @@ export function WorkflowTemplateEditorPage({
     [contextMenu?.nodeId, graph]
   );
 
-  if (isLoading) {
+  const isInitializingTemplate = Boolean(
+    template && (!graph || initializedTemplateIdRef.current !== template.id)
+  );
+
+  if (isLoading || isInitializingTemplate) {
     return (
-      <div className="flex h-full items-center justify-center bg-primary">
-        <Loader2 className="h-8 w-8 animate-spin text-brand" />
-      </div>
+      <LoadingState
+        className="h-full w-full bg-primary"
+        title={t('workflow.runCanvas.loadingGraph')}
+      />
     );
   }
 
-  if (error || !template || !graph) {
+  if (!template || !graph) {
     const message =
       error instanceof Error
         ? error.message
@@ -1127,11 +1146,22 @@ export function WorkflowTemplateEditorPage({
           ? String(error)
           : t('workflow.errors.draftMissing');
     return (
-      <div className="flex h-full items-center justify-center bg-primary text-error">
-        {t('workflow.editor.loadFailed', {
-          message,
-        })}
-      </div>
+      <ErrorState
+        className="h-full w-full bg-primary"
+        title={t('workflow.editor.loadFailed', { message })}
+        action={
+          !isLocalDraft ? (
+            <Button
+              type="button"
+              variant="outline"
+              loading={isFetching}
+              onClick={() => void refetchTemplate()}
+            >
+              {t('buttons.retry')}
+            </Button>
+          ) : undefined
+        }
+      />
     );
   }
 
@@ -1550,6 +1580,27 @@ export function WorkflowTemplateEditorPage({
       ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
+        {error ? (
+          <DegradedState
+            compact
+            className="absolute left-1/2 top-4 z-20 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 border border-warning/30 shadow-md"
+            title={t('workflow.editor.loadFailed', {
+              message: error instanceof Error ? error.message : String(error),
+            })}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                loading={isFetching}
+                onClick={() => void refetchTemplate()}
+              >
+                {t('buttons.retry')}
+              </Button>
+            }
+          />
+        ) : null}
+
         <div className="absolute left-4 top-4 z-10">
           <WorkflowNodeTypePicker
             disabled={readOnly}

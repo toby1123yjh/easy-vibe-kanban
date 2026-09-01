@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
+import {
+  DegradedState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import { WorkspaceContextHeader } from '@/shared/components/WorkspaceContextHeader';
 import {
   useWorkflowRun,
@@ -26,7 +30,13 @@ type CancelSubmissionState = 'idle' | 'submitting' | 'awaiting-projection';
 
 export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
   const { t } = useTranslation('common');
-  const { data: run, isLoading, error } = useWorkflowRun(runId);
+  const {
+    data: run,
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = useWorkflowRun(runId);
   const { data: template } = useWorkflowTemplate(run?.workflow_id, {
     enabled: Boolean(run?.workflow_id),
   });
@@ -48,18 +58,30 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-low">
-        <Activity className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
-        {t('workflow.runPage.loadingRun')}
-      </div>
+      <LoadingState
+        className="h-full w-full bg-primary"
+        title={t('workflow.runPage.loadingRun')}
+      />
     );
   }
 
-  if (error || !run) {
+  if (!run) {
     return (
-      <div className="flex h-full items-center justify-center text-error">
-        {t('workflow.runPage.loadFailed', { runId })}
-      </div>
+      <ErrorState
+        className="h-full w-full bg-primary"
+        title={t('workflow.runPage.loadFailed', { runId })}
+        description={error instanceof Error ? error.message : undefined}
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            loading={isFetching}
+            onClick={() => void refetch()}
+          >
+            {t('buttons.retry')}
+          </Button>
+        }
+      />
     );
   }
 
@@ -156,9 +178,29 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
         ) : null}
       </header>
 
-      <main className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
+        {error ? (
+          <DegradedState
+            compact
+            className="absolute left-1/2 top-4 z-20 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 border border-warning/30 shadow-md"
+            title={t('workflow.runPage.loadFailed', { runId })}
+            description={error instanceof Error ? error.message : undefined}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                loading={isFetching}
+                onClick={() => void refetch()}
+              >
+                {t('buttons.retry')}
+              </Button>
+            }
+          />
+        ) : null}
+
         <WorkflowRunCanvasTab projectId={projectId} run={run} />
-      </main>
+      </div>
     </div>
   );
 }

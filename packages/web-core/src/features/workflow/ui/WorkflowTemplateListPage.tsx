@@ -11,10 +11,15 @@ import { getScheduledTaskSummary } from '../model/scheduledTaskPresentation';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { Button } from '@vibe/ui/components/Button';
 import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
+import {
   ArrowRight,
   CalendarClock,
   FileText,
-  GitBranch,
   Loader2,
   Plus,
 } from 'lucide-react';
@@ -29,7 +34,8 @@ export function WorkflowTemplateListPage({
   projectId,
 }: WorkflowTemplateListPageProps) {
   const { t } = useTranslation('common');
-  const { data, isLoading, error } = useWorkflowTemplates(projectId);
+  const { data, isLoading, isFetching, error, refetch } =
+    useWorkflowTemplates(projectId);
   const { data: scheduledTaskData } = useScheduledTasks(projectId, {
     target_type: 'workflow',
   });
@@ -65,18 +71,30 @@ export function WorkflowTemplateListPage({
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-brand" />
-      </div>
+      <LoadingState
+        className="h-full w-full bg-primary"
+        title={t('workflow.templates.title')}
+      />
     );
   }
 
-  if (error) {
+  if (error && !data) {
     const message = error instanceof Error ? error.message : String(error);
     return (
-      <div className="flex h-full items-center justify-center text-error">
-        {t('workflow.templates.loadFailed', { message })}
-      </div>
+      <ErrorState
+        className="h-full w-full bg-primary"
+        title={t('workflow.templates.loadFailed', { message })}
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            loading={isFetching}
+            onClick={() => void refetch()}
+          >
+            {t('buttons.retry')}
+          </Button>
+        }
+      />
     );
   }
 
@@ -102,40 +120,42 @@ export function WorkflowTemplateListPage({
         </Button>
       </div>
 
-      {templates.length === 0 ? (
-        <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-secondary bg-panel p-8 text-center text-low shadow-sm">
-          <div
-            className="absolute inset-0 opacity-60"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 1px 1px, hsl(var(--border)) 1px, transparent 0)',
-              backgroundSize: '18px 18px',
-            }}
-          />
-          <div className="relative flex max-w-md flex-col items-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-secondary bg-primary shadow-sm">
-              <GitBranch className="h-5 w-5 text-brand" />
-            </div>
-            <h2 className="text-base font-semibold text-high">
-              {t('workflow.templates.emptyTitle')}
-            </h2>
-            <p className="mt-1 text-sm text-low">
-              {t('workflow.templates.emptyDescription')}
-            </p>
+      {error ? (
+        <DegradedState
+          compact
+          className="mb-base shrink-0 border border-warning/30"
+          title={t('workflow.templates.loadFailed', {
+            message: error instanceof Error ? error.message : String(error),
+          })}
+          action={
             <Button
-              onClick={handleCreate}
-              disabled={isCreating}
-              className="mt-5 flex items-center gap-2"
+              type="button"
+              variant="outline"
+              size="sm"
+              loading={isFetching}
+              onClick={() => void refetch()}
             >
-              {isCreating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
+              {t('buttons.retry')}
+            </Button>
+          }
+        />
+      ) : null}
+
+      {templates.length === 0 ? (
+        <EmptyState
+          className="flex-1 rounded-lg border border-secondary bg-panel shadow-sm"
+          title={t('workflow.templates.emptyTitle')}
+          description={t('workflow.templates.emptyDescription')}
+          action={
+            <Button
+              type="button"
+              loading={isCreating}
+              onClick={() => void handleCreate()}
+            >
               {t('workflow.templates.createCanvas')}
             </Button>
-          </div>
-        </div>
+          }
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {templates.map((template) => {
