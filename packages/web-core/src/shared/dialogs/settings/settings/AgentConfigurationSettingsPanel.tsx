@@ -46,6 +46,7 @@ import {
   agentSettingSourceKind,
   buildAgentSettingsPatch,
   buildAgentSettingsSections,
+  buildNativeConfigFileModels,
   createAgentSettingsDraft,
   formatProfileEnvironment,
   hasChangedFiles,
@@ -498,12 +499,7 @@ export function AgentConfigurationSettingsPanel({
   const sections = useMemo(() => {
     const nextSections = buildAgentSettingsSections(snapshot);
     return nextSections.filter(
-      (section) =>
-        // Raw native files can mix ordinary settings with credentials. Keep
-        // typed Adapter fields available, but fail closed on raw editing until
-        // discovery can return a redacted/write-only contract.
-        section.id !== 'native_files' &&
-        (includeTools || section.id !== 'tools')
+      (section) => includeTools || section.id !== 'tools'
     );
   }, [includeTools, snapshot]);
 
@@ -1013,7 +1009,10 @@ export function AgentConfigurationSettingsPanel({
   const previewProfileApply = async (profile: ConfigProfileView) => {
     if (!machineClient || !snapshot) return;
     const expected_file_revisions = Object.fromEntries(
-      snapshot.native_files.map((file) => [file.id, nativeFileRevision(file)])
+      snapshot.native_files.map((file) => [
+        file.file_id,
+        nativeFileRevision(file),
+      ])
     );
     const request: ProfileApplyPreviewRequest = {
       id: profile.id,
@@ -1221,7 +1220,7 @@ export function AgentConfigurationSettingsPanel({
         />
       }
     >
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2">
         <InfoTile
           label="Installed"
           value={snapshot?.installed ? 'Yes' : 'Not detected'}
@@ -1229,11 +1228,6 @@ export function AgentConfigurationSettingsPanel({
         <InfoTile
           label="Version"
           value={snapshot?.provider_version ?? 'Unknown'}
-        />
-        <InfoTile
-          label="Executable"
-          value={snapshot?.executable_path ?? 'Not found'}
-          mono
         />
       </div>
       <SettingsField
@@ -1318,14 +1312,6 @@ export function AgentConfigurationSettingsPanel({
           {item.message} {item.recovery}
         </div>
       ))}
-      {snapshot?.native_files.length ? (
-        <div
-          className="rounded-sm border border-border bg-secondary/30 p-3 text-sm text-low"
-          role="status"
-        >
-          {t('agentCenter.security.nativeFilesUnavailable')}
-        </div>
-      ) : null}
     </SettingsCard>
   );
 
@@ -1635,10 +1621,10 @@ export function AgentConfigurationSettingsPanel({
           <div className="mt-3 space-y-2">
             {snapshot.unknown_native_nodes.map((node) => (
               <div
-                key={`${node.file_id}:${node.native_path}`}
+                key={`${node.file_id}:${node.field_path}`}
                 className="font-mono text-xs text-low"
               >
-                {node.file_id}:{node.native_path} ={' '}
+                {node.file_id}:{node.field_path} ={' '}
                 {t('agentCenter.security.unknownValueHidden')}
               </div>
             ))}
@@ -1647,6 +1633,177 @@ export function AgentConfigurationSettingsPanel({
       ) : null}
     </SettingsCard>
   );
+
+  const renderNativeConfig = () => {
+    const files = snapshot ? buildNativeConfigFileModels(snapshot, scope) : [];
+    return (
+      <SettingsCard
+        title={t('agentCenter.nativeConfig.title')}
+        description={t('agentCenter.nativeConfig.description')}
+        headerAction={
+          <select
+            value={scope}
+            onChange={(event) =>
+              void changeScope(event.target.value as SettingScope)
+            }
+            disabled={busy}
+            aria-label={t('agentCenter.nativeConfig.scopeLabel')}
+            className="rounded-sm border border-border bg-secondary px-3 py-2 text-sm text-normal focus:outline-none focus:ring-1 focus:ring-brand"
+          >
+            <option value={SettingScope.user}>
+              {t('agentCenter.nativeConfig.userScope')}
+            </option>
+            {projectScopeSupported && projectPath.trim() ? (
+              <option value={SettingScope.project}>
+                {t('agentCenter.nativeConfig.projectScope')}
+              </option>
+            ) : null}
+          </select>
+        }
+      >
+        <div
+          className="rounded-sm border border-border bg-secondary/20 p-3 text-sm text-low"
+          role="note"
+        >
+          {t('agentCenter.nativeConfig.safeEditingHelp')}
+        </div>
+        {files.length === 0 ? (
+          <div className="rounded-sm border border-dashed border-border p-4 text-sm text-low">
+            {t('agentCenter.nativeConfig.noFiles')}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {files.map(({ file, descriptors, unknownNodes }) => (
+              <section
+                key={`${file.scope}:${file.file_id}`}
+                className="space-y-3 rounded-sm border border-border bg-secondary/10 p-4"
+                aria-labelledby={`native-config-${file.scope}-${file.file_id}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4
+                      id={`native-config-${file.scope}-${file.file_id}`}
+                      className="font-mono text-sm font-medium text-high"
+                    >
+                      {file.file_id}
+                    </h4>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-low">
+                      <span className="rounded bg-secondary px-2 py-1">
+                        {file.format.toUpperCase()}
+                      </span>
+                      <span className="rounded bg-secondary px-2 py-1">
+                        {t(
+                          `agentCenter.nativeConfig.parseStatus.${file.parse_status}`
+                        )}
+                      </span>
+                      <span className="rounded bg-secondary px-2 py-1">
+                        {t(
+                          file.writable
+                            ? 'agentCenter.nativeConfig.writable'
+                            : 'agentCenter.nativeConfig.readOnly'
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="max-w-full text-right text-xs text-low">
+                    <div>{t('agentCenter.nativeConfig.revision')}</div>
+                    <code className="block max-w-72 truncate text-normal">
+                      {nativeFileRevision(file)}
+                    </code>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-low">
+                    {t('agentCenter.nativeConfig.managedFields')}
+                  </div>
+                  {descriptors.length === 0 ? (
+                    <div className="text-sm text-low">
+                      {t('agentCenter.nativeConfig.noManagedFields')}
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border rounded-sm border border-border bg-background/30">
+                      {descriptors.map((descriptor) => {
+                        const id = settingKeyId(descriptor);
+                        const source = snapshot
+                          ? settingSourceForScope(snapshot, descriptor, scope)
+                          : null;
+                        const canEdit =
+                          file.writable &&
+                          descriptor.capabilities.writable &&
+                          descriptor.supported_scopes.includes(scope) &&
+                          file.parse_status !== 'invalid' &&
+                          file.parse_status !== 'unsupported';
+                        return (
+                          <div
+                            key={id}
+                            className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm text-normal">
+                                {descriptor.label}
+                              </div>
+                              <div className="font-mono text-xs text-low">
+                                {id} ·{' '}
+                                {t(
+                                  source?.configured
+                                    ? 'agentCenter.nativeConfig.configured'
+                                    : 'agentCenter.nativeConfig.inherited'
+                                )}
+                              </div>
+                            </div>
+                            {canEdit ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  void changeActiveSection(descriptor.section)
+                                }
+                              >
+                                {t('agentCenter.nativeConfig.editField')}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-low">
+                                {t('agentCenter.nativeConfig.notEditable')}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {unknownNodes.length > 0 ? (
+                  <details className="rounded-sm border border-border bg-background/20 p-3">
+                    <summary className="cursor-pointer text-sm text-normal">
+                      {t('agentCenter.nativeConfig.unknownFields', {
+                        count: unknownNodes.length,
+                      })}
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {unknownNodes.map((node) => (
+                        <div
+                          key={`${node.file_id}:${node.field_path}`}
+                          className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-low"
+                        >
+                          <span>{node.field_path}</span>
+                          <span>
+                            {node.value_kind} ·{' '}
+                            {t('agentCenter.nativeConfig.valueHidden')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </section>
+            ))}
+          </div>
+        )}
+      </SettingsCard>
+    );
+  };
 
   const renderProfiles = () => (
     <SettingsCard
@@ -2007,7 +2164,9 @@ export function AgentConfigurationSettingsPanel({
                       : 'border-transparent text-low hover:text-normal'
                   )}
                 >
-                  {section.label}
+                  {section.id === 'native_config'
+                    ? t('agentCenter.nativeConfig.sectionLabel')
+                    : section.label}
                 </button>
               ))}
             </div>
@@ -2019,6 +2178,7 @@ export function AgentConfigurationSettingsPanel({
               <AgentToolsSettingsSection provider={provider} />
             )}
             {activeSection === 'profiles' && renderProfiles()}
+            {activeSection === 'native_config' && renderNativeConfig()}
             {activeSection === 'effective_config' && renderEffective()}
           </>
         )}
@@ -2239,11 +2399,11 @@ function DiffConfirmation({
     <div
       className="space-y-3 rounded-sm border border-brand/40 bg-brand/5 p-3"
       role="dialog"
-      aria-label="Settings diff confirmation"
+      aria-label={t('agentCenter.settingsDiff.ariaLabel')}
     >
       <div className="flex items-center gap-2 text-sm font-medium text-high">
-        <FloppyDiskIcon className="size-icon-sm text-brand" /> Review changes
-        before applying
+        <FloppyDiskIcon className="size-icon-sm text-brand" />
+        {t('agentCenter.settingsDiff.title')}
       </div>
       {diff.warnings.map((warning) => (
         <div key={warning} className="text-xs text-error">
@@ -2259,7 +2419,11 @@ function DiffConfirmation({
             className="rounded-sm border border-border bg-background/40"
           >
             <summary className="cursor-pointer px-3 py-2 text-sm text-normal">
-              {file.path}
+              {t('agentCenter.settingsDiff.fileLabel', {
+                fileId: file.file_id,
+                format: file.format.toUpperCase(),
+                scope: file.scope,
+              })}
             </summary>
             <div className="border-t border-border p-3 text-xs text-low">
               {t('agentCenter.security.diffHidden')}
@@ -2267,20 +2431,22 @@ function DiffConfirmation({
           </details>
         ))}
       {!hasChangedFiles(diff) && (
-        <div className="text-sm text-low">No file bytes would change.</div>
+        <div className="text-sm text-low">
+          {t('agentCenter.settingsDiff.noChanges')}
+        </div>
       )}
       <div className="flex justify-end gap-2">
         <PrimaryButton
           variant="tertiary"
-          value="Cancel"
+          value={t('buttons.cancel')}
           onClick={onCancel}
           disabled={busy}
         />
         <PrimaryButton
           value={
             pending?.kind === 'profile'
-              ? 'Confirm profile apply'
-              : 'Confirm apply'
+              ? t('agentCenter.settingsDiff.confirmProfile')
+              : t('agentCenter.settingsDiff.confirm')
           }
           onClick={onConfirm}
           disabled={busy || !hasChangedFiles(diff)}

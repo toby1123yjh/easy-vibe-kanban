@@ -191,7 +191,7 @@ description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、�
 | Agent Tools Settings     | 工具总览                   | Settings             | Provider、项目、会话作用域                      |
 | Skills                   | Skills 目录                | Settings             | 本机扫描、启停、搜索、来源、冲突                |
 | Commands                 | Commands 目录              | Settings             | Provider 原生 CommandAdapter、启停、编辑        |
-| Native Config Editor     | 原生配置编辑器             | Settings             | 原文、结构化字段、Diff、无效配置                |
+| Native Config            | 原生配置安全视图           | Settings             | 文件标识、结构化字段、Diff、无效配置；不展示路径、原文或未知值 |
 | Configuration Profiles   | 配置档案                   | Settings             | 保存、复制、删除、跨 Provider 预览              |
 | Tool Copy                | 跨 Provider 复制流程       | Settings             | 支持项、不支持项、目标 Diff、应用结果           |
 | Garage / Capability View | Provider 能力详情          | Settings             | capability matrix、不可用原因、刷新             |

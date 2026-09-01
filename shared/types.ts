@@ -773,19 +773,19 @@ export type NativeSettingLocation = { file_id: string, scope: SettingScope, nati
 
 export type SettingDescriptor = { key: SettingKey, section: SettingSection, label: string, description: string, value_type: SettingValueType, control: SettingControl, options: Array<SettingOption>, validation: SettingValidation, supported_scopes: Array<SettingScope>, capabilities: SettingCapabilities, native_locations: Array<NativeSettingLocation>, activation: SettingActivation, sensitive: boolean, };
 
-export type SettingsCapabilities = { readable: boolean, native_writable: boolean, profile_storage: boolean, per_run_overrides: boolean, raw_editable: boolean, };
+export type SettingsCapabilities = { readable: boolean, native_writable: boolean, profile_storage: boolean, per_run_overrides: boolean, };
 
-export type NativeConfigFile = { id: string, path: string, format: NativeConfigFormat, scope: SettingScope, exists: boolean, parse_status: NativeParseStatus, revision?: string | null, writable: boolean, raw_editable: boolean, error?: string | null, };
+export type NativeConfigFile = { file_id: string, format: NativeConfigFormat, scope: SettingScope, exists: boolean, parse_status: NativeParseStatus, revision?: string | null, writable: boolean, managed_setting_keys: Array<SettingKey>, };
 
 export type SettingSourceValue = { source: string, scope: SettingScope, file_id: string, value?: JsonValue | null, configured: boolean, revision: string, };
 
 export type EffectiveSetting = { key: SettingKey, sources: Array<SettingSourceValue>, effective_value?: JsonValue | null, effective_source?: string | null, configured: boolean, warnings: Array<string>, };
 
-export type UnknownNativeNode = { file_id: string, native_path: string, value_kind: string, };
+export type UnknownNativeNode = { file_id: string, scope: SettingScope, field_path: string, value_kind: string, };
 
 export type AgentSettingIssue = { message: string, file_id?: string | null, setting_key?: string | null, recovery: string, };
 
-export type SettingsSnapshot = { provider: AgentSettingsProvider, installed: boolean, provider_version?: string | null, executable_path?: string | null, schema_revision: string, capabilities: SettingsCapabilities, descriptors: Array<SettingDescriptor>, native_files: Array<NativeConfigFile>, effective_settings: Array<EffectiveSetting>, unknown_native_nodes: Array<UnknownNativeNode>, limitations: Array<string>, errors: Array<AgentSettingIssue>, };
+export type SettingsSnapshot = { provider: AgentSettingsProvider, installed: boolean, provider_version?: string | null, schema_revision: string, capabilities: SettingsCapabilities, descriptors: Array<SettingDescriptor>, native_files: Array<NativeConfigFile>, effective_settings: Array<EffectiveSetting>, unknown_native_nodes: Array<UnknownNativeNode>, limitations: Array<string>, errors: Array<AgentSettingIssue>, };
 
 export type AgentSettingsProviderError = { provider: AgentSettingsProvider, message: string, };
 
@@ -795,7 +795,7 @@ export type SettingOperation = { "type": "preserve", "data": { key: SettingKey, 
 
 export type SettingsPatch = { provider: AgentSettingsProvider, project_path?: string | null, expected_file_revisions: { [key in string]?: string }, operations: Array<SettingOperation>, };
 
-export type NativeFileDiff = { file_id: string, path: string, changed: boolean, };
+export type NativeFileDiff = { file_id: string, format: NativeConfigFormat, scope: SettingScope, changed: boolean, };
 
 export type SettingsDiff = { provider: AgentSettingsProvider, files: Array<NativeFileDiff>, warnings: Array<string>, };
 
@@ -804,10 +804,6 @@ export type ApplySettingsRequest = { patch: SettingsPatch, confirmed: boolean, }
 export type RevealAgentSettingRequest = { provider: AgentSettingsProvider, project_path?: string | null, key: SettingKey, scope: SettingScope, expected_revision: string, };
 
 export type RevealAgentSettingResponse = { key: SettingKey, scope: SettingScope, value: string, revision: string, };
-
-export type NativeFilePatch = { provider: AgentSettingsProvider, project_path?: string | null, file_id: string, expected_revision: string, content: string, };
-
-export type ApplyNativeFileRequest = { patch: NativeFilePatch, confirmed: boolean, };
 
 export type ConfigProfile = { id: string, provider: AgentSettingsProvider, executor_profile: ExecutorProfileId, name: string, schema_version: number, setting_overrides: { [key in string]?: JsonValue }, provider_extensions: { [key in string]?: JsonValue }, environment: { [key in string]?: string }, custom_args: Array<string>, updated_at: string, };
 

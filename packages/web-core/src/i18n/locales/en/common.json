@@ -1555,6 +1555,41 @@
       "unknownValueHidden": "value hidden",
       "diffHidden": "Native bytes are hidden because the file can contain credentials. The confirmed Adapter operation still uses its revision-protected diff."
     },
+    "nativeConfig": {
+      "sectionLabel": "Native Config",
+      "title": "Native Config",
+      "description": "Inspect provider-native files through Adapter-owned safe metadata and open known fields in the typed editor.",
+      "scopeLabel": "Native configuration scope",
+      "userScope": "User configuration",
+      "projectScope": "Project configuration",
+      "safeEditingHelp": "Raw documents, absolute paths, comments, and unknown values never enter the browser. Known fields use the same revision-protected typed Diff and Apply flow; unknown fields are read-only metadata.",
+      "noFiles": "This Adapter did not advertise a native file for the selected scope.",
+      "revision": "Observed revision",
+      "writable": "Typed writes available",
+      "readOnly": "Read only",
+      "managedFields": "Adapter-managed fields",
+      "noManagedFields": "No typed fields are available for this file.",
+      "configured": "configured in this scope",
+      "inherited": "inherited or not set",
+      "editField": "Edit typed field",
+      "notEditable": "Not editable",
+      "unknownFields": "Unknown fields ({{count}})",
+      "valueHidden": "value not returned",
+      "parseStatus": {
+        "missing": "Missing",
+        "parsed": "Parsed",
+        "invalid": "Invalid syntax",
+        "unsupported": "Unsupported format"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "Settings Diff confirmation",
+      "title": "Review changes before applying",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "No native file would change.",
+      "confirmProfile": "Confirm profile apply",
+      "confirm": "Confirm apply"
+    },
     "profileEditor": {
       "nameLabel": "Profile name",
       "environmentLabel": "Environment variables",

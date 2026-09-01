@@ -8,6 +8,7 @@ import {
   agentSettingSourceKind,
   buildAgentSettingsPatch,
   buildAgentSettingsSections,
+  buildNativeConfigFileModels,
   createAgentSettingsDraft,
   effectiveStringSetting,
   formatProfileEnvironment,
@@ -38,14 +39,12 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     provider: 'codex',
     installed: true,
     provider_version: '1.0.0',
-    executable_path: '/usr/bin/codex',
     schema_revision: 'schema',
     capabilities: {
       readable: true,
       native_writable: true,
       profile_storage: true,
       per_run_overrides: true,
-      raw_editable: false,
     },
     descriptors: [
       {
@@ -72,15 +71,14 @@ function snapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     ],
     native_files: [
       {
-        id: 'user-config',
-        path: '/tmp/config.toml',
+        file_id: 'user-config',
         format: 'toml',
         scope: 'user',
         exists: true,
         parse_status: 'parsed',
         revision: 'rev-1',
         writable: true,
-        raw_editable: false,
+        managed_setting_keys: [{ namespace: 'common', name: 'model' }],
       },
     ],
     effective_settings: [
@@ -108,7 +106,7 @@ describe('agent settings model', () => {
       'general',
       'tools',
       'profiles',
-      'native_files',
+      'native_config',
       'effective_config',
     ]);
 
@@ -118,7 +116,6 @@ describe('agent settings model', () => {
         native_writable: false,
         profile_storage: false,
         per_run_overrides: false,
-        raw_editable: false,
       },
       native_files: [],
       effective_settings: [],
@@ -172,15 +169,14 @@ describe('agent settings model', () => {
     const current = snapshot({
       native_files: [
         {
-          id: 'missing',
-          path: '/tmp/missing.toml',
+          file_id: 'missing',
           format: 'toml',
           scope: 'user',
           exists: false,
           parse_status: 'missing',
           revision: null,
           writable: true,
-          raw_editable: false,
+          managed_setting_keys: [{ namespace: 'common', name: 'model' }],
         },
       ],
     });
@@ -213,7 +209,8 @@ describe('agent settings model', () => {
         files: [
           {
             file_id: 'f',
-            path: 'config.toml',
+            format: 'toml',
+            scope: 'user',
             changed: true,
           },
         ],
@@ -458,5 +455,29 @@ describe('agent settings model', () => {
       'user-rev'
     );
     expect(settingSourceForScope(current, descriptor, 'project')).toBeNull();
+  });
+
+  it('builds field-safe native file models from Adapter-owned keys', () => {
+    const current = snapshot({
+      unknown_native_nodes: [
+        {
+          file_id: 'user-config',
+          scope: 'user',
+          field_path: 'future.setting',
+          value_kind: 'string',
+        },
+      ],
+    });
+    const models = buildNativeConfigFileModels(current, SettingScope.user);
+    expect(models).toHaveLength(1);
+    expect(models[0].file).not.toHaveProperty('path');
+    expect(models[0].descriptors.map((item) => item.label)).toEqual(['Model']);
+    expect(models[0].unknownNodes).toEqual([
+      expect.objectContaining({
+        field_path: 'future.setting',
+        value_kind: 'string',
+      }),
+    ]);
+    expect(JSON.stringify(models)).not.toContain('/tmp/config.toml');
   });
 });

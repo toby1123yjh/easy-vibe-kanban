@@ -10,6 +10,7 @@ import type {
   SettingsDiff,
   SettingsPatch,
   SettingsSnapshot,
+  UnknownNativeNode,
 } from 'shared/types';
 import { AgentSettingsProvider, SettingSection } from 'shared/types';
 
@@ -18,13 +19,19 @@ export type AgentSettingsSectionId =
   | SettingSection
   | 'tools'
   | 'profiles'
-  | 'native_files'
+  | 'native_config'
   | 'effective_config';
 
 export interface AgentSettingsSection {
   id: AgentSettingsSectionId;
   label: string;
   descriptors: SettingDescriptor[];
+}
+
+export interface NativeConfigFileModel {
+  file: NativeConfigFile;
+  descriptors: SettingDescriptor[];
+  unknownNodes: UnknownNativeNode[];
 }
 
 export type AgentSettingsDraftEntry = {
@@ -72,7 +79,7 @@ const SECTION_LABELS: Record<AgentSettingsSectionId, string> = {
   [SettingSection.provider_settings]: 'Provider Settings',
   tools: 'Tools',
   profiles: 'Profiles',
-  native_files: 'Native Files',
+  native_config: 'Native Config',
   effective_config: 'Effective Config',
 };
 
@@ -119,8 +126,8 @@ export function buildAgentSettingsSections(
   }
   if (snapshot.native_files.length > 0) {
     sections.push({
-      id: 'native_files',
-      label: SECTION_LABELS.native_files,
+      id: 'native_config',
+      label: SECTION_LABELS.native_config,
       descriptors: [],
     });
   }
@@ -424,6 +431,32 @@ export function settingSourceForScope(
   );
 }
 
+export function buildNativeConfigFileModels(
+  snapshot: SettingsSnapshot,
+  scope: SettingScope
+): NativeConfigFileModel[] {
+  const descriptors = new Map(
+    snapshot.descriptors.map((descriptor) => [
+      settingKeyId(descriptor),
+      descriptor,
+    ])
+  );
+  return snapshot.native_files
+    .filter((file) => file.scope === scope)
+    .map((file) => ({
+      file,
+      descriptors: file.managed_setting_keys
+        .map((key) => descriptors.get(`${key.namespace}.${key.name}`))
+        .filter(
+          (descriptor): descriptor is SettingDescriptor =>
+            descriptor !== undefined
+        ),
+      unknownNodes: snapshot.unknown_native_nodes.filter(
+        (node) => node.file_id === file.file_id && node.scope === file.scope
+      ),
+    }));
+}
+
 export function isAgentSettingsDraftDirty(draft: AgentSettingsDraft): boolean {
   return Object.values(draft).some((entry) => entry.action !== 'preserve');
 }
@@ -470,7 +503,7 @@ export function buildAgentSettingsPatch(
   }
   const expected_file_revisions: Record<string, string> = {};
   for (const file of snapshot.native_files)
-    expected_file_revisions[file.id] = file.revision ?? 'missing';
+    expected_file_revisions[file.file_id] = file.revision ?? 'missing';
   return {
     provider: snapshot.provider,
     project_path: projectPath || null,

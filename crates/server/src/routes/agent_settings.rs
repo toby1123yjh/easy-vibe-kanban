@@ -8,12 +8,11 @@ use axum::{
 };
 use executors::agent_settings::{
     AgentSettingOperationError, AgentSettingsInventory, AgentSettingsProvider,
-    AgentSettingsService, ApplyConfigProfileRequest, ApplyNativeFileRequest, ApplySettingsRequest,
-    ConfigProfileView, CopyConfigProfileRequest, CopyProfilePreviewRequest,
-    DeleteConfigProfileRequest, DuplicateConfigProfileRequest, NativeFilePatch,
-    ProfileApplyPreviewRequest, ProfileCopyPreview, RevealAgentSettingRequest,
-    RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff, SettingsPatch,
-    SettingsSnapshot, UpdateConfigProfileRequest,
+    AgentSettingsService, ApplyConfigProfileRequest, ApplySettingsRequest, ConfigProfileView,
+    CopyConfigProfileRequest, CopyProfilePreviewRequest, DeleteConfigProfileRequest,
+    DuplicateConfigProfileRequest, ProfileApplyPreviewRequest, ProfileCopyPreview,
+    RevealAgentSettingRequest, RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff,
+    SettingsPatch, SettingsSnapshot, UpdateConfigProfileRequest,
 };
 use serde::Deserialize;
 use ts_rs::TS;
@@ -27,8 +26,6 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/agent-settings/diff", post(diff))
         .route("/agent-settings/apply", post(apply))
         .route("/agent-settings/reveal", post(reveal))
-        .route("/agent-settings/native-file/diff", post(diff_native_file))
-        .route("/agent-settings/native-file/apply", post(apply_native_file))
         .route(
             "/agent-settings/profiles",
             get(list_profiles).post(save_profile).put(update_profile),
@@ -128,36 +125,6 @@ async fn reveal(
             .map_err(|error| operation_error(error, Some(provider)))
     }) {
         Ok(response) => ResponseJson(ApiResponse::success(response)),
-        Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
-    }
-}
-
-async fn diff_native_file(
-    State(_deployment): State<DeploymentImpl>,
-    Json(patch): Json<NativeFilePatch>,
-) -> ResponseJson<ApiResponse<SettingsDiff, AgentSettingOperationError>> {
-    let provider = patch.provider;
-    match service().and_then(|service| {
-        service
-            .diff_native_file(&patch)
-            .map_err(|error| operation_error(error, Some(provider)))
-    }) {
-        Ok(diff) => ResponseJson(ApiResponse::success(diff)),
-        Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
-    }
-}
-
-async fn apply_native_file(
-    State(_deployment): State<DeploymentImpl>,
-    Json(request): Json<ApplyNativeFileRequest>,
-) -> ResponseJson<ApiResponse<SettingsSnapshot, AgentSettingOperationError>> {
-    let provider = request.patch.provider;
-    match service().and_then(|service| {
-        service
-            .apply_native_file(request)
-            .map_err(|error| operation_error(error, Some(provider)))
-    }) {
-        Ok(snapshot) => ResponseJson(ApiResponse::success(snapshot)),
         Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
     }
 }

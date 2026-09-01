@@ -896,6 +896,41 @@
       "unknownValueHidden": "valeur masquée",
       "diffHidden": "Les octets natifs sont masqués car le fichier peut contenir des identifiants. L’opération confirmée de l’Adapter utilise toujours le diff protégé par révision."
     },
+    "nativeConfig": {
+      "sectionLabel": "Configuration native",
+      "title": "Configuration native",
+      "description": "Inspectez les fichiers natifs via les métadonnées sûres de l’Adapter et ouvrez les champs connus dans l’éditeur typé.",
+      "scopeLabel": "Portée de configuration native",
+      "userScope": "Configuration utilisateur",
+      "projectScope": "Configuration du projet",
+      "safeEditingHelp": "Les documents bruts, chemins absolus, commentaires et valeurs inconnues n’entrent jamais dans le navigateur. Les champs connus utilisent le même Diff et Apply typés avec révision ; les champs inconnus restent des métadonnées en lecture seule.",
+      "noFiles": "L’Adapter n’a déclaré aucun fichier natif pour cette portée.",
+      "revision": "Révision observée",
+      "writable": "Écriture typée disponible",
+      "readOnly": "Lecture seule",
+      "managedFields": "Champs gérés par l’Adapter",
+      "noManagedFields": "Aucun champ typé n’est disponible pour ce fichier.",
+      "configured": "configuré dans cette portée",
+      "inherited": "hérité ou non défini",
+      "editField": "Modifier le champ typé",
+      "notEditable": "Non modifiable",
+      "unknownFields": "Champs inconnus ({{count}})",
+      "valueHidden": "valeur non renvoyée",
+      "parseStatus": {
+        "missing": "Absent",
+        "parsed": "Analysé",
+        "invalid": "Syntaxe invalide",
+        "unsupported": "Format non pris en charge"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "Confirmation du Diff des réglages",
+      "title": "Vérifier les modifications avant application",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "Aucun fichier natif ne serait modifié.",
+      "confirmProfile": "Confirmer l’application du profil",
+      "confirm": "Confirmer l’application"
+    },
     "profileEditor": {
       "nameLabel": "Nom du profil",
       "environmentLabel": "Variables d’environnement",

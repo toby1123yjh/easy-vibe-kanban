@@ -8,7 +8,6 @@ import type {
   AgentSettingsInventory,
   AgentSettingsProfilesQuery,
   ApplyConfigProfileRequest,
-  ApplyNativeFileRequest,
   ApplySettingsRequest,
   AgentToolInventoryView,
   AgentToolLocator,
@@ -28,7 +27,6 @@ import type {
   GetMcpServerResponse,
   GitBranch,
   McpServerQuery,
-  NativeFilePatch,
   ProfileApplyPreviewRequest,
   ProfileCopyPreview,
   Repo,
@@ -119,10 +117,6 @@ export interface MachineClient {
   revealAgentSetting: (
     data: RevealAgentSettingRequest
   ) => Promise<RevealAgentSettingResponse>;
-  diffAgentSettingsNativeFile: (data: NativeFilePatch) => Promise<SettingsDiff>;
-  applyAgentSettingsNativeFile: (
-    data: ApplyNativeFileRequest
-  ) => Promise<SettingsSnapshot>;
   listAgentSettingsProfiles: (
     query?: Partial<AgentSettingsProfilesQuery>
   ) => Promise<ConfigProfileView[]>;
@@ -455,30 +449,6 @@ export function createMachineClient(
             method: 'POST',
             body: JSON.stringify(data),
             cache: 'no-store',
-          }
-        )
-      ),
-    diffAgentSettingsNativeFile: async (data) =>
-      handleApiResponse<SettingsDiff, AgentSettingOperationError>(
-        await makeMachineRequest(
-          runtime,
-          target,
-          '/api/agent-settings/native-file/diff',
-          {
-            method: 'POST',
-            body: JSON.stringify(data),
-          }
-        )
-      ),
-    applyAgentSettingsNativeFile: async (data) =>
-      handleApiResponse<SettingsSnapshot, AgentSettingOperationError>(
-        await makeMachineRequest(
-          runtime,
-          target,
-          '/api/agent-settings/native-file/apply',
-          {
-            method: 'POST',
-            body: JSON.stringify(data),
           }
         )
       ),

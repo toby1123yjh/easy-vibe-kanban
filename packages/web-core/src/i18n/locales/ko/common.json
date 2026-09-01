@@ -896,6 +896,41 @@
       "unknownValueHidden": "값 숨김",
       "diffHidden": "파일에 자격 증명이 포함될 수 있으므로 네이티브 바이트는 숨겨집니다. 확인된 Adapter 작업은 계속 리비전으로 보호된 차이를 사용합니다."
     },
+    "nativeConfig": {
+      "sectionLabel": "네이티브 설정",
+      "title": "네이티브 설정",
+      "description": "Adapter가 관리하는 안전한 메타데이터로 네이티브 파일을 확인하고 알려진 필드를 형식화된 편집기에서 엽니다.",
+      "scopeLabel": "네이티브 설정 범위",
+      "userScope": "사용자 설정",
+      "projectScope": "프로젝트 설정",
+      "safeEditingHelp": "원본 문서, 절대 경로, 주석, 알 수 없는 값은 브라우저로 전달되지 않습니다. 알려진 필드는 리비전으로 보호된 형식화 Diff 및 Apply를 사용하고 알 수 없는 필드는 읽기 전용 메타데이터입니다.",
+      "noFiles": "이 범위에 대해 Adapter가 선언한 네이티브 파일이 없습니다.",
+      "revision": "관찰된 리비전",
+      "writable": "형식화 쓰기 가능",
+      "readOnly": "읽기 전용",
+      "managedFields": "Adapter 관리 필드",
+      "noManagedFields": "이 파일에 사용 가능한 형식화 필드가 없습니다.",
+      "configured": "이 범위에 설정됨",
+      "inherited": "상속됨 또는 설정되지 않음",
+      "editField": "형식화 필드 편집",
+      "notEditable": "편집할 수 없음",
+      "unknownFields": "알 수 없는 필드({{count}})",
+      "valueHidden": "값이 반환되지 않음",
+      "parseStatus": {
+        "missing": "없음",
+        "parsed": "파싱됨",
+        "invalid": "잘못된 구문",
+        "unsupported": "지원하지 않는 형식"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "설정 Diff 확인",
+      "title": "적용 전 변경 사항 검토",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "변경되는 네이티브 파일이 없습니다.",
+      "confirmProfile": "프로필 적용 확인",
+      "confirm": "적용 확인"
+    },
     "profileEditor": {
       "nameLabel": "프로필 이름",
       "environmentLabel": "환경 변수",

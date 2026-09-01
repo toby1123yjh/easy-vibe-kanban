@@ -1543,6 +1543,41 @@
       "unknownValueHidden": "值已隐藏",
       "diffHidden": "原生文件可能包含凭据，因此不显示文件字节；确认后仍由 Adapter 使用带版本保护的差异执行操作。"
     },
+    "nativeConfig": {
+      "sectionLabel": "原生配置",
+      "title": "原生配置",
+      "description": "通过 Adapter 管理的安全元数据查看 Provider 原生文件，并在类型化编辑器中打开已知字段。",
+      "scopeLabel": "原生配置作用域",
+      "userScope": "用户配置",
+      "projectScope": "项目配置",
+      "safeEditingHelp": "原始文档、绝对路径、注释和未知值不会进入浏览器。已知字段复用受 revision 保护的类型化 Diff 与 Apply；未知字段仅展示只读元数据。",
+      "noFiles": "Adapter 未为当前作用域声明原生文件。",
+      "revision": "已观测 revision",
+      "writable": "可类型化写入",
+      "readOnly": "只读",
+      "managedFields": "Adapter 管理字段",
+      "noManagedFields": "该文件没有可用的类型化字段。",
+      "configured": "已在当前作用域配置",
+      "inherited": "继承或未设置",
+      "editField": "编辑类型化字段",
+      "notEditable": "不可编辑",
+      "unknownFields": "未知字段（{{count}}）",
+      "valueHidden": "不返回值",
+      "parseStatus": {
+        "missing": "不存在",
+        "parsed": "已解析",
+        "invalid": "语法无效",
+        "unsupported": "格式不支持"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "设置 Diff 确认",
+      "title": "应用前检查变更",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "不会修改任何原生文件。",
+      "confirmProfile": "确认应用配置档案",
+      "confirm": "确认应用"
+    },
     "profileEditor": {
       "nameLabel": "配置档案名称",
       "environmentLabel": "环境变量",

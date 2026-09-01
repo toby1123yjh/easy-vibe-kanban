@@ -896,6 +896,41 @@
       "unknownValueHidden": "値は非表示です",
       "diffHidden": "ファイルに認証情報が含まれる可能性があるため、ネイティブバイトは非表示です。確認後の Adapter 操作では、引き続きリビジョン保護された差分が使用されます。"
     },
+    "nativeConfig": {
+      "sectionLabel": "ネイティブ設定",
+      "title": "ネイティブ設定",
+      "description": "Adapter が管理する安全なメタデータでネイティブファイルを確認し、既知のフィールドを型付きエディターで開きます。",
+      "scopeLabel": "ネイティブ設定のスコープ",
+      "userScope": "ユーザー設定",
+      "projectScope": "プロジェクト設定",
+      "safeEditingHelp": "生の文書、絶対パス、コメント、未知の値はブラウザーに入りません。既知のフィールドはリビジョン保護された型付き Diff / Apply を使用し、未知のフィールドは読み取り専用メタデータです。",
+      "noFiles": "このスコープには Adapter が宣言したネイティブファイルがありません。",
+      "revision": "確認済みリビジョン",
+      "writable": "型付き書き込み可能",
+      "readOnly": "読み取り専用",
+      "managedFields": "Adapter 管理フィールド",
+      "noManagedFields": "このファイルには利用可能な型付きフィールドがありません。",
+      "configured": "このスコープで設定済み",
+      "inherited": "継承または未設定",
+      "editField": "型付きフィールドを編集",
+      "notEditable": "編集不可",
+      "unknownFields": "未知のフィールド（{{count}}）",
+      "valueHidden": "値は返されません",
+      "parseStatus": {
+        "missing": "未作成",
+        "parsed": "解析済み",
+        "invalid": "構文エラー",
+        "unsupported": "未対応形式"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "設定 Diff の確認",
+      "title": "適用前に変更を確認",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "変更されるネイティブファイルはありません。",
+      "confirmProfile": "プロファイル適用を確認",
+      "confirm": "適用を確認"
+    },
     "profileEditor": {
       "nameLabel": "プロファイル名",
       "environmentLabel": "環境変数",

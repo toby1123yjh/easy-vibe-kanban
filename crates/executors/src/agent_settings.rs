@@ -258,13 +258,11 @@ pub struct SettingsCapabilities {
     pub native_writable: bool,
     pub profile_storage: bool,
     pub per_run_overrides: bool,
-    pub raw_editable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct NativeConfigFile {
-    pub id: String,
-    pub path: String,
+    pub file_id: String,
     pub format: NativeConfigFormat,
     pub scope: SettingScope,
     pub exists: bool,
@@ -272,9 +270,8 @@ pub struct NativeConfigFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
     pub writable: bool,
-    pub raw_editable: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    #[serde(default)]
+    pub managed_setting_keys: Vec<SettingKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -305,7 +302,8 @@ pub struct EffectiveSetting {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct UnknownNativeNode {
     pub file_id: String,
-    pub native_path: String,
+    pub scope: SettingScope,
+    pub field_path: String,
     pub value_kind: String,
 }
 
@@ -325,8 +323,6 @@ pub struct SettingsSnapshot {
     pub installed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub executable_path: Option<String>,
     pub schema_revision: String,
     pub capabilities: SettingsCapabilities,
     pub descriptors: Vec<SettingDescriptor>,
@@ -403,7 +399,8 @@ pub struct SettingsPatch {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct NativeFileDiff {
     pub file_id: String,
-    pub path: String,
+    pub format: NativeConfigFormat,
+    pub scope: SettingScope,
     pub changed: bool,
 }
 
@@ -439,7 +436,7 @@ pub struct RevealAgentSettingResponse {
     pub revision: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeFilePatch {
     pub provider: AgentSettingsProvider,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -447,12 +444,6 @@ pub struct NativeFilePatch {
     pub file_id: String,
     pub expected_revision: String,
     pub content: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct ApplyNativeFileRequest {
-    pub patch: NativeFilePatch,
-    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -803,30 +794,6 @@ impl AgentSettingsService {
             request.project_path.as_deref().map(Path::new),
         )
         .reveal(&request.key, request.scope, &request.expected_revision)
-    }
-
-    pub fn diff_native_file(
-        &self,
-        patch: &NativeFilePatch,
-    ) -> Result<SettingsDiff, AgentSettingError> {
-        self.manager(patch.provider, patch.project_path.as_deref().map(Path::new))
-            .diff_native_file(patch)
-    }
-
-    pub fn apply_native_file(
-        &self,
-        request: ApplyNativeFileRequest,
-    ) -> Result<SettingsSnapshot, AgentSettingError> {
-        if !request.confirmed {
-            return Err(AgentSettingError::InvalidRequest(
-                "raw native-file apply requires explicit diff confirmation".to_string(),
-            ));
-        }
-        self.manager(
-            request.patch.provider,
-            request.patch.project_path.as_deref().map(Path::new),
-        )
-        .apply_native_file(&request.patch)
     }
 
     pub fn list_profiles(
@@ -1619,9 +1586,6 @@ impl ProviderSettingsManager {
             || parsed_files.iter().any(|file| file.bytes.is_some())
             || workspace_utils::shell::resolve_executable_path_blocking(self.provider.executable())
                 .is_some();
-        let executable_path =
-            workspace_utils::shell::resolve_executable_path_blocking(self.provider.executable())
-                .map(|path| path.display().to_string());
         let provider_version = DirectProvider::from(self.provider)
             .versions()
             .runtime
@@ -1636,18 +1600,30 @@ impl ProviderSettingsManager {
         let mut native_files = Vec::new();
         let mut errors = Vec::new();
         for file in &parsed_files {
-            if let Some(error) = &file.error {
+            if file.error.is_some() {
                 errors.push(AgentSettingIssue {
-                    message: error.clone(),
+                    // Parser diagnostics can contain snippets from the native
+                    // file. Keep the ordinary browser projection field-safe;
+                    // the parse status and opaque file id are sufficient for
+                    // recovery without returning native bytes or secrets.
+                    message: "Native configuration could not be parsed.".to_string(),
                     file_id: Some(file.spec.id.clone()),
                     setting_key: None,
-                    recovery: "Fix this file's syntax or edit it in Advanced, then refresh."
+                    recovery: "Fix this file's syntax outside Vibe Kanban, then refresh."
                         .to_string(),
                 });
             }
+            let managed_setting_keys = descriptors
+                .iter()
+                .filter(|descriptor| {
+                    descriptor.native_locations.iter().any(|location| {
+                        location.file_id == file.spec.id && location.scope == file.spec.scope
+                    })
+                })
+                .map(|descriptor| descriptor.key.clone())
+                .collect();
             native_files.push(NativeConfigFile {
-                id: file.spec.id.clone(),
-                path: file.spec.path.display().to_string(),
+                file_id: file.spec.id.clone(),
                 format: file.spec.format,
                 scope: file.spec.scope,
                 exists: file.bytes.is_some(),
@@ -1662,11 +1638,7 @@ impl ProviderSettingsManager {
                 },
                 revision: Some(file.revision.clone()),
                 writable: file.spec.writable,
-                // Raw files can mix settings, credentials, and unknown
-                // provider nodes. Until a field-level raw editor exists they
-                // are never exposed as browser-editable.
-                raw_editable: false,
-                error: file.error.clone(),
+                managed_setting_keys,
             });
         }
 
@@ -1687,7 +1659,6 @@ impl ProviderSettingsManager {
             provider: self.provider,
             installed,
             provider_version,
-            executable_path,
             schema_revision,
             capabilities: SettingsCapabilities {
                 readable: true,
@@ -1698,7 +1669,6 @@ impl ProviderSettingsManager {
                 per_run_overrides: descriptors
                     .iter()
                     .any(|descriptor| descriptor.capabilities.run_override),
-                raw_editable: false,
             },
             descriptors,
             native_files,
@@ -1715,7 +1685,6 @@ impl ProviderSettingsManager {
             provider: self.provider,
             installed: false,
             provider_version: None,
-            executable_path: None,
             schema_revision: String::new(),
             capabilities: SettingsCapabilities {
                 readable: false,
@@ -1724,7 +1693,6 @@ impl ProviderSettingsManager {
                 per_run_overrides: descriptors
                     .iter()
                     .any(|descriptor| descriptor.capabilities.run_override),
-                raw_editable: false,
             },
             descriptors,
             native_files: Vec::new(),
@@ -1754,7 +1722,8 @@ impl ProviderSettingsManager {
                 .into_iter()
                 .map(|file| NativeFileDiff {
                     file_id: file.spec.id,
-                    path: file.spec.path.display().to_string(),
+                    format: file.spec.format,
+                    scope: file.spec.scope,
                     changed: file.before.as_deref() != Some(file.after.as_slice()),
                 })
                 .collect(),
@@ -1821,9 +1790,9 @@ impl ProviderSettingsManager {
             .iter()
             .find(|file| file.spec.id == location.file_id)
             .ok_or_else(|| AgentSettingError::NotFound(location.file_id.clone()))?;
-        if let Some(error) = &file.error {
+        if file.error.is_some() {
             return Err(AgentSettingError::InvalidConfiguration(format!(
-                "{} could not be read: {error}",
+                "{} contains invalid configuration",
                 location.file_id
             )));
         }
@@ -1854,7 +1823,8 @@ impl ProviderSettingsManager {
             provider: self.provider,
             files: vec![NativeFileDiff {
                 file_id: rendered.spec.id,
-                path: rendered.spec.path.display().to_string(),
+                format: rendered.spec.format,
+                scope: rendered.spec.scope,
                 changed: rendered.before.as_deref() != Some(rendered.after.as_slice()),
             }],
             warnings: vec![
@@ -1973,10 +1943,10 @@ impl ProviderSettingsManager {
             }
             let parsed = read_native_file(spec.clone());
             require_expected_revision(&patch.expected_file_revisions, &spec.id, &parsed.revision)?;
-            if let Some(error) = parsed.error {
+            if parsed.error.is_some() {
                 return Err(AgentSettingError::InvalidConfiguration(format!(
-                    "{}: {error}",
-                    spec.path.display()
+                    "{} contains invalid configuration",
+                    spec.id
                 )));
             }
             let mut native_operations = operations
@@ -3239,7 +3209,8 @@ fn unknown_native_nodes(
             if !managed {
                 output.push(UnknownNativeNode {
                     file_id: file.spec.id.clone(),
-                    native_path: path,
+                    scope: file.spec.scope,
+                    field_path: path,
                     value_kind: json_value_kind(&value).to_string(),
                 });
             }
@@ -3577,7 +3548,7 @@ mod tests {
         let omp = harness.home.join(".omp/agent/config.yml");
         write(&codex, "# keep me\nmodel = \"gpt-5\"\nunknown = 7\n");
         write(&claude, r#"{"model":"sonnet","unknown":{"keep":true}}"#);
-        write(&gemini, "{ malformed");
+        write(&gemini, r#"{"apiKey":"secret-do-not-project", malformed"#);
         write(
             &omp,
             "theme:\n  dark: titanium\ncompaction:\n  enabled: true\nunknown: preserved\n",
@@ -3610,6 +3581,11 @@ mod tests {
                 .len(),
             1
         );
+        let gemini_public =
+            serde_json::to_string(snapshot(&inventory, AgentSettingsProvider::Gemini)).unwrap();
+        assert!(!gemini_public.contains("secret-do-not-project"));
+        assert!(!gemini_public.contains(&harness.home.display().to_string()));
+        assert!(!gemini_public.contains("executable_path"));
         assert_eq!(
             snapshot(&inventory, AgentSettingsProvider::OhMyPi)
                 .errors
@@ -3624,7 +3600,38 @@ mod tests {
             snapshot(&inventory, AgentSettingsProvider::Codex)
                 .unknown_native_nodes
                 .iter()
-                .any(|node| node.native_path == "unknown")
+                .any(|node| node.field_path == "unknown")
+        );
+        let codex_snapshot = snapshot(&inventory, AgentSettingsProvider::Codex);
+        let public_snapshot = serde_json::to_value(codex_snapshot).unwrap();
+        assert!(
+            public_snapshot["native_files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|file| file.get("path").is_none())
+        );
+        assert!(
+            public_snapshot["unknown_native_nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|node| node.get("value").is_none())
+        );
+        assert!(
+            !serde_json::to_string(codex_snapshot)
+                .unwrap()
+                .contains(&harness.home.display().to_string())
+        );
+        let user_config = codex_snapshot
+            .native_files
+            .iter()
+            .find(|file| file.file_id == "user_config")
+            .unwrap();
+        assert!(
+            user_config
+                .managed_setting_keys
+                .contains(&SettingKey::new("common", "model"))
         );
     }
 
@@ -3948,6 +3955,10 @@ mod tests {
         let public_diff = serde_json::to_string(&diff).unwrap();
         assert!(!public_diff.contains("# user comment"));
         assert!(!public_diff.contains("gpt-5.6"));
+        assert!(!public_diff.contains(&path.display().to_string()));
+        let public_diff_value = serde_json::to_value(&diff).unwrap();
+        assert!(public_diff_value["files"][0].get("path").is_none());
+        assert_eq!(public_diff_value["files"][0]["file_id"], "user_config");
         let result = manager.apply(&patch).unwrap();
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("# user comment"));
@@ -4020,7 +4031,7 @@ mod tests {
             let revision = snapshot
                 .native_files
                 .iter()
-                .find(|file| file.id == file_id)
+                .find(|file| file.file_id == file_id)
                 .unwrap()
                 .revision
                 .clone()
@@ -4188,7 +4199,7 @@ mod tests {
             .unwrap()
             .native_files
             .into_iter()
-            .filter_map(|file| file.revision.map(|revision| (file.id, revision)))
+            .filter_map(|file| file.revision.map(|revision| (file.file_id, revision)))
             .collect();
         let apply_preview = ProfileApplyPreviewRequest {
             id: saved.id,

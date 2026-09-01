@@ -1453,6 +1453,41 @@
       "unknownValueHidden": "值已隱藏",
       "diffHidden": "原生檔案可能包含憑證，因此不顯示檔案位元組；確認後仍由 Adapter 使用具版本保護的差異執行操作。"
     },
+    "nativeConfig": {
+      "sectionLabel": "原生設定",
+      "title": "原生設定",
+      "description": "透過 Adapter 管理的安全中繼資料檢視 Provider 原生檔案，並在型別化編輯器開啟已知欄位。",
+      "scopeLabel": "原生設定作用域",
+      "userScope": "使用者設定",
+      "projectScope": "專案設定",
+      "safeEditingHelp": "原始文件、絕對路徑、註解和未知值不會進入瀏覽器。已知欄位沿用受 revision 保護的型別化 Diff 與 Apply；未知欄位只顯示唯讀中繼資料。",
+      "noFiles": "Adapter 未為目前作用域宣告原生檔案。",
+      "revision": "已觀測 revision",
+      "writable": "可型別化寫入",
+      "readOnly": "唯讀",
+      "managedFields": "Adapter 管理欄位",
+      "noManagedFields": "此檔案沒有可用的型別化欄位。",
+      "configured": "已在目前作用域設定",
+      "inherited": "繼承或未設定",
+      "editField": "編輯型別化欄位",
+      "notEditable": "不可編輯",
+      "unknownFields": "未知欄位（{{count}}）",
+      "valueHidden": "不回傳值",
+      "parseStatus": {
+        "missing": "不存在",
+        "parsed": "已解析",
+        "invalid": "語法無效",
+        "unsupported": "格式不支援"
+      }
+    },
+    "settingsDiff": {
+      "ariaLabel": "設定 Diff 確認",
+      "title": "套用前檢查變更",
+      "fileLabel": "{{fileId}} · {{format}} · {{scope}}",
+      "noChanges": "不會修改任何原生檔案。",
+      "confirmProfile": "確認套用設定檔",
+      "confirm": "確認套用"
+    },
     "profileEditor": {
       "nameLabel": "設定檔名稱",
       "environmentLabel": "環境變數",

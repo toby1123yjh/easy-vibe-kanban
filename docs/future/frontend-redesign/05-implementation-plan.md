@@ -421,7 +421,7 @@ Workflow Draft 中的 `TaskSpec` 属于草稿状态；数据库 `Task` 属于服
 - Provider 清单、健康状态、版本和能力矩阵。
 - 智能体中心与设置各自使用横向 Page Tabs 和页内分组，Product Sidebar 的分区与完整对象列表保持不变。
 - MCP、Skills、Commands 的发现、增删改、启停和作用范围。
-- 原生配置编辑、结构化配置、Diff Preview 和配置档案。
+- 原生配置字段安全视图、typed Diff/Apply 和配置档案；不提供整文件原文编辑。
 - 跨 Provider 复制工具和配置的预览流程。
 - 通用设置：外观、仓库、主机、Relay、组织、远程项目和数据。
 
@@ -431,7 +431,7 @@ Workflow Draft 中的 `TaskSpec` 属于草稿状态；数据库 `Task` 属于服
 - UI 不伪装不支持的 Provider 功能。
 - 工具开关明确本机 Provider、项目和会话作用范围。
 - 跨 Provider 复制先显示可复制、不支持和转换后的目标 Diff。
-- 原生文件和结构化输出都可管理，修改前后审计语义不丢失。
+- 原生文件以安全元信息和 Adapter 管理字段呈现，修改统一进入 typed Settings Diff/Apply；绝对路径、原文和未知值不进入浏览器，修改前后审计语义不丢失。
 
 ## 阶段 8：辅助页面、状态与响应式
 
