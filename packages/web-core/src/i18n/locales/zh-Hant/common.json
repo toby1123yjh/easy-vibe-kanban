@@ -1463,7 +1463,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "編輯",
       "save": "儲存設定檔",
-      "cancel": "取消"
+      "cancel": "取消",
+      "copy": {
+        "previewTitle": "複製預覽 → {{provider}}",
+        "addLabel": "新增",
+        "overwriteLabel": "覆寫",
+        "skippedLabel": "略過",
+        "none": "無",
+        "updateAction": "更新目標設定檔",
+        "createAction": "建立目標設定檔",
+        "updateNotice": "目標設定檔已更新，目標專有欄位已保留。",
+        "createNotice": "已儲存複製的設定檔，未轉移 Provider 專屬欄位。",
+        "providerNotice": "不會複製 Provider 專屬設定和憑證。",
+        "targetProviderLabel": "目標 Provider",
+        "destinationLabel": "複製目標",
+        "createDestination": "建立新的目標設定檔",
+        "updateDestination": "更新現有設定檔：{{name}}",
+        "existingTargetHelp": "現有目標會保留其憑證、未知欄位、Provider 擴充和目標專屬設定。預覽會優先列出來源端將覆寫的內容。",
+        "previewAction": "預覽複製"
+      }
     },
     "commands": {
       "manager": {

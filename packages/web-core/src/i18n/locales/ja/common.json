@@ -906,7 +906,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "編集",
       "save": "プロファイルを保存",
-      "cancel": "キャンセル"
+      "cancel": "キャンセル",
+      "copy": {
+        "previewTitle": "コピーのプレビュー → {{provider}}",
+        "addLabel": "追加",
+        "overwriteLabel": "上書き",
+        "skippedLabel": "スキップ",
+        "none": "なし",
+        "updateAction": "対象プロファイルを更新",
+        "createAction": "対象プロファイルを作成",
+        "updateNotice": "対象プロファイルを更新しました。対象固有のフィールドは保持されています。",
+        "createNotice": "コピーしたプロファイルを保存しました。Provider 固有のフィールドは転送されていません。",
+        "providerNotice": "Provider 固有の設定と認証情報はコピーされません。",
+        "targetProviderLabel": "対象 Provider",
+        "destinationLabel": "コピー先",
+        "createDestination": "新しい対象プロファイルを作成",
+        "updateDestination": "既存を更新: {{name}}",
+        "existingTargetHelp": "既存の対象では、認証情報、未知のフィールド、Provider 拡張、および対象固有の設定が保持されます。プレビューにはソースによる上書きが先に表示されます。",
+        "previewAction": "コピーをプレビュー"
+      }
     },
     "commands": {
       "manager": {

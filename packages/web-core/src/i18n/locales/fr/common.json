@@ -906,7 +906,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "Modifier",
       "save": "Enregistrer le profil",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "copy": {
+        "previewTitle": "Aperçu de la copie → {{provider}}",
+        "addLabel": "Ajouter",
+        "overwriteLabel": "Remplacer",
+        "skippedLabel": "Ignoré",
+        "none": "Aucun",
+        "updateAction": "Mettre à jour le profil cible",
+        "createAction": "Créer le profil cible",
+        "updateNotice": "Le profil cible a été mis à jour. Les champs propres à la cible ont été conservés.",
+        "createNotice": "Le profil copié a été enregistré. Les champs propres au Provider n’ont pas été transférés.",
+        "providerNotice": "Les réglages propres au Provider et les identifiants ne sont pas copiés.",
+        "targetProviderLabel": "Provider cible",
+        "destinationLabel": "Destination de la copie",
+        "createDestination": "Créer un nouveau profil cible",
+        "updateDestination": "Mettre à jour l’existant : {{name}}",
+        "existingTargetHelp": "Les cibles existantes conservent leurs identifiants, champs inconnus, extensions du Provider et réglages propres. L’aperçu affiche d’abord chaque remplacement venant de la source.",
+        "previewAction": "Prévisualiser la copie"
+      }
     },
     "commands": {
       "manager": {

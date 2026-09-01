@@ -906,7 +906,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "Editar",
       "save": "Guardar perfil",
-      "cancel": "Cancelar"
+      "cancel": "Cancelar",
+      "copy": {
+        "previewTitle": "Vista previa de copia → {{provider}}",
+        "addLabel": "Añadir",
+        "overwriteLabel": "Sobrescribir",
+        "skippedLabel": "Omitido",
+        "none": "Ninguno",
+        "updateAction": "Actualizar perfil de destino",
+        "createAction": "Crear perfil de destino",
+        "updateNotice": "El perfil de destino se actualizó. Se conservaron los campos exclusivos del destino.",
+        "createNotice": "Se guardó el perfil copiado. No se transfirieron los campos específicos del Provider.",
+        "providerNotice": "No se copian los ajustes específicos del Provider ni las credenciales.",
+        "targetProviderLabel": "Provider de destino",
+        "destinationLabel": "Destino de la copia",
+        "createDestination": "Crear un perfil de destino nuevo",
+        "updateDestination": "Actualizar existente: {{name}}",
+        "existingTargetHelp": "Los destinos existentes conservan sus credenciales, campos desconocidos, extensiones del Provider y ajustes exclusivos. La vista previa muestra primero cada sobrescritura procedente del origen.",
+        "previewAction": "Previsualizar copia"
+      }
     },
     "commands": {
       "manager": {

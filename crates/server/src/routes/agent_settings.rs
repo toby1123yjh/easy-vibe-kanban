@@ -9,10 +9,11 @@ use axum::{
 use executors::agent_settings::{
     AgentSettingOperationError, AgentSettingsInventory, AgentSettingsProvider,
     AgentSettingsService, ApplyConfigProfileRequest, ApplyNativeFileRequest, ApplySettingsRequest,
-    ConfigProfileView, CopyProfilePreviewRequest, DeleteConfigProfileRequest,
-    DuplicateConfigProfileRequest, NativeFilePatch, ProfileApplyPreviewRequest, ProfileCopyPreview,
-    RevealAgentSettingRequest, RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff,
-    SettingsPatch, SettingsSnapshot, UpdateConfigProfileRequest,
+    ConfigProfileView, CopyConfigProfileRequest, CopyProfilePreviewRequest,
+    DeleteConfigProfileRequest, DuplicateConfigProfileRequest, NativeFilePatch,
+    ProfileApplyPreviewRequest, ProfileCopyPreview, RevealAgentSettingRequest,
+    RevealAgentSettingResponse, SaveConfigProfileRequest, SettingsDiff, SettingsPatch,
+    SettingsSnapshot, UpdateConfigProfileRequest,
 };
 use serde::Deserialize;
 use ts_rs::TS;
@@ -41,6 +42,7 @@ pub fn router() -> Router<DeploymentImpl> {
             "/agent-settings/profiles/copy-preview",
             post(copy_profile_preview),
         )
+        .route("/agent-settings/profiles/copy", post(copy_profile))
         .route(
             "/agent-settings/profiles/apply-preview",
             post(profile_apply_preview),
@@ -242,6 +244,21 @@ async fn copy_profile_preview(
             .map_err(|error| operation_error(error, Some(provider)))
     }) {
         Ok(preview) => ResponseJson(ApiResponse::success(preview)),
+        Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
+    }
+}
+
+async fn copy_profile(
+    State(_deployment): State<DeploymentImpl>,
+    Json(request): Json<CopyConfigProfileRequest>,
+) -> ResponseJson<ApiResponse<ConfigProfileView, AgentSettingOperationError>> {
+    let provider = request.preview.target_provider;
+    match service().and_then(|service| {
+        service
+            .copy_profile(request)
+            .map_err(|error| operation_error(error, Some(provider)))
+    }) {
+        Ok(profile) => ResponseJson(ApiResponse::success(profile)),
         Err(error) => ResponseJson(ApiResponse::error_with_data(error)),
     }
 }

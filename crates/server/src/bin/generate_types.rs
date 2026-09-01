@@ -334,6 +334,7 @@ fn generate_types_content() -> String {
         executors::agent_settings::DuplicateConfigProfileRequest::decl(),
         executors::agent_settings::CopyProfilePreviewRequest::decl(),
         executors::agent_settings::ProfileCopyPreview::decl(),
+        executors::agent_settings::CopyConfigProfileRequest::decl(),
         executors::agent_settings::ProfileApplyPreviewRequest::decl(),
         executors::agent_settings::ApplyConfigProfileRequest::decl(),
         executors::agent_settings::AgentSettingErrorCode::decl(),

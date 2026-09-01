@@ -17,6 +17,7 @@ import type {
   AgentToolView,
   CopyAgentToolRequest,
   CopyAgentToolResponse,
+  CopyConfigProfileRequest,
   CopyProfilePreviewRequest,
   ConfigProfileView,
   CreateAgentToolRequest,
@@ -140,6 +141,9 @@ export interface MachineClient {
   previewAgentSettingsProfileCopy: (
     data: CopyProfilePreviewRequest
   ) => Promise<ProfileCopyPreview>;
+  copyAgentSettingsProfile: (
+    data: CopyConfigProfileRequest
+  ) => Promise<ConfigProfileView>;
   previewAgentSettingsProfileApply: (
     data: ProfileApplyPreviewRequest
   ) => Promise<SettingsDiff>;
@@ -545,6 +549,18 @@ export function createMachineClient(
           runtime,
           target,
           '/api/agent-settings/profiles/copy-preview',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        )
+      ),
+    copyAgentSettingsProfile: async (data) =>
+      handleApiResponse<ConfigProfileView, AgentSettingOperationError>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          '/api/agent-settings/profiles/copy',
           {
             method: 'POST',
             body: JSON.stringify(data),

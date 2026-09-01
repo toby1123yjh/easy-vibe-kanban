@@ -1565,7 +1565,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "Edit",
       "save": "Save profile",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "copy": {
+        "previewTitle": "Copy preview → {{provider}}",
+        "addLabel": "Add",
+        "overwriteLabel": "Overwrite",
+        "skippedLabel": "Skipped",
+        "none": "None",
+        "updateAction": "Update target profile",
+        "createAction": "Create target profile",
+        "updateNotice": "Target profile updated. Target-only fields were preserved.",
+        "createNotice": "Copied profile saved. Provider-specific fields were not transferred.",
+        "providerNotice": "Provider-specific settings and credentials are not copied.",
+        "targetProviderLabel": "Target provider",
+        "destinationLabel": "Copy destination",
+        "createDestination": "Create a new target profile",
+        "updateDestination": "Update existing: {{name}}",
+        "existingTargetHelp": "Existing targets keep their credentials, unknown fields, Provider extensions, and target-only settings. The preview shows every source-owned overwrite first.",
+        "previewAction": "Preview copy"
+      }
     },
     "commands": {
       "manager": {

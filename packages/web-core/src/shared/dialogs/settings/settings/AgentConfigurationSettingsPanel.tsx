@@ -33,6 +33,7 @@ import {
 } from 'shared/types';
 import type {
   ConfigProfileView,
+  CopyProfilePreviewRequest,
   JsonValue,
   ProfileApplyPreviewRequest,
   ProfileCopyPreview,
@@ -110,6 +111,7 @@ type ProfileEditorDraft = {
 
 type ScopedCopyPreview = {
   preview: ProfileCopyPreview;
+  request: CopyProfilePreviewRequest;
   context: AgentSettingsRequestContext;
 };
 
@@ -140,6 +142,8 @@ type ProfileActionDraft =
       initialName: string;
       targetProvider: AgentSettingsProvider;
       initialTargetProvider: AgentSettingsProvider;
+      targetProfileId: string | null;
+      initialTargetProfileId: string | null;
     };
 
 function newProfileId(): string {
@@ -285,10 +289,19 @@ export function AgentConfigurationSettingsPanel({
     isAgentSettingsContextCurrent(snapshotContext, activeRequestContext.current)
       ? loadedSnapshot
       : null;
-  const profiles =
+  const allProfiles =
     profilesContext &&
     isAgentSettingsContextCurrent(profilesContext, activeRequestContext.current)
       ? loadedProfiles
+      : [];
+  const profiles = allProfiles.filter(
+    (profile) => profile.provider === provider
+  );
+  const copyTargetProfiles =
+    profileAction?.kind === 'copy'
+      ? allProfiles.filter(
+          (profile) => profile.provider === profileAction.targetProvider
+        )
       : [];
   const copyPreview =
     scopedCopyPreview &&
@@ -418,9 +431,7 @@ export function AgentConfigurationSettingsPanel({
     setProfilesContext(null);
     setProfilesLoading(true);
     try {
-      const nextProfiles = await machineClient.listAgentSettingsProfiles({
-        provider,
-      });
+      const nextProfiles = await machineClient.listAgentSettingsProfiles();
       if (
         isAgentSettingsRequestCurrent({
           requestSequence: sequence,
@@ -455,7 +466,7 @@ export function AgentConfigurationSettingsPanel({
         setProfilesLoading(false);
       }
     }
-  }, [machineClient, provider]);
+  }, [machineClient]);
 
   useEffect(() => {
     setActiveSection('overview');
@@ -547,7 +558,10 @@ export function AgentConfigurationSettingsPanel({
     profileAction &&
       (profileAction.name !== profileAction.initialName ||
         (profileAction.kind === 'copy' &&
-          profileAction.targetProvider !== profileAction.initialTargetProvider))
+          (profileAction.targetProvider !==
+            profileAction.initialTargetProvider ||
+            profileAction.targetProfileId !==
+              profileAction.initialTargetProfileId)))
   );
   const isDirty =
     draftDirty ||
@@ -1033,16 +1047,17 @@ export function AgentConfigurationSettingsPanel({
   const previewProfileCopy = async (
     profileId: string,
     targetProvider: AgentSettingsProvider,
-    targetName: string
+    targetName: string,
+    targetProfileId: string | null
   ) => {
     if (!machineClient) return;
-    if (!targetName.trim()) return;
+    if (!targetProfileId && !targetName.trim()) return;
     const operation = beginOperation();
     if (!operation) return;
     setBusy(true);
     setError(null);
     try {
-      const preview = await operation.client.previewAgentSettingsProfileCopy({
+      const request: CopyProfilePreviewRequest = {
         id: profileId,
         target_provider: targetProvider,
         target_executor_profile: {
@@ -1050,9 +1065,12 @@ export function AgentConfigurationSettingsPanel({
           variant: null,
         },
         target_name: targetName.trim(),
-      });
+        target_profile_id: targetProfileId,
+      };
+      const preview =
+        await operation.client.previewAgentSettingsProfileCopy(request);
       if (!operationIsCurrent(operation)) return;
-      setScopedCopyPreview({ preview, context: operation.context });
+      setScopedCopyPreview({ preview, request, context: operation.context });
       setProfileAction(null);
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
@@ -1078,27 +1096,20 @@ export function AgentConfigurationSettingsPanel({
     }
     setBusy(true);
     try {
-      const profile = copyPreview.profile;
-      await operation.client.saveAgentSettingsProfile({
-        profile: {
-          id: profile.id,
-          provider: profile.provider,
-          executor_profile: profile.executor_profile,
-          name: profile.name,
-          schema_version: profile.schema_version,
-          setting_overrides: profile.setting_overrides,
-          provider_extensions: {},
-          environment: profile.environment,
-          custom_args: profile.custom_args,
-          updated_at: profile.updated_at,
-        },
+      await operation.client.copyAgentSettingsProfile({
+        preview: scopedCopyPreview.request,
+        expected_source_updated_at: copyPreview.source_updated_at,
+        expected_target_updated_at: copyPreview.target_updated_at,
+        confirmed: true,
       });
       if (!operationIsCurrent(operation)) return;
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
       setScopedCopyPreview(null);
       setNotice(
-        'Copied profile saved. Provider-specific fields were not transferred.'
+        copyPreview.target_updated_at
+          ? t('agentCenter.profileEditor.copy.updateNotice')
+          : t('agentCenter.profileEditor.copy.createNotice')
       );
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
@@ -1178,7 +1189,10 @@ export function AgentConfigurationSettingsPanel({
   };
 
   const submitProfileAction = async () => {
-    if (!profileAction || !profileAction.name.trim()) return;
+    if (!profileAction) return;
+    if (profileAction.kind !== 'copy' && !profileAction.name.trim()) {
+      return;
+    }
     if (profileAction.kind === 'create') {
       await saveProfile(profileAction.name);
     } else if (profileAction.kind === 'duplicate') {
@@ -1187,7 +1201,8 @@ export function AgentConfigurationSettingsPanel({
       await previewProfileCopy(
         profileAction.sourceId,
         profileAction.targetProvider,
-        profileAction.name
+        profileAction.name,
+        profileAction.targetProfileId
       );
     }
   };
@@ -1690,19 +1705,27 @@ export function AgentConfigurationSettingsPanel({
       {copyPreview && (
         <div className="space-y-2 rounded-sm border border-border bg-secondary/20 p-3">
           <div className="text-sm font-medium text-high">
-            Copy preview → {PROVIDER_LABELS[copyPreview.profile.provider]}
+            {t('agentCenter.profileEditor.copy.previewTitle', {
+              provider: PROVIDER_LABELS[copyPreview.profile.provider],
+            })}
           </div>
           <div className="text-xs text-low">
-            Compatible:{' '}
-            {copyPreview.compatible_keys.length
-              ? copyPreview.compatible_keys.join(', ')
-              : 'None'}
+            {t('agentCenter.profileEditor.copy.addLabel')}:{' '}
+            {copyPreview.added_keys.length
+              ? copyPreview.added_keys.join(', ')
+              : t('agentCenter.profileEditor.copy.none')}
           </div>
           <div className="text-xs text-low">
-            Skipped:{' '}
+            {t('agentCenter.profileEditor.copy.overwriteLabel')}:{' '}
+            {copyPreview.overwritten_keys.length
+              ? copyPreview.overwritten_keys.join(', ')
+              : t('agentCenter.profileEditor.copy.none')}
+          </div>
+          <div className="text-xs text-low">
+            {t('agentCenter.profileEditor.copy.skippedLabel')}:{' '}
             {copyPreview.skipped_keys.length
               ? copyPreview.skipped_keys.join(', ')
-              : 'None'}
+              : t('agentCenter.profileEditor.copy.none')}
           </div>
           {copyPreview.warnings.map((warning) => (
             <div key={warning} className="text-xs text-error">
@@ -1712,12 +1735,16 @@ export function AgentConfigurationSettingsPanel({
           <div className="flex justify-end gap-2">
             <PrimaryButton
               variant="tertiary"
-              value="Cancel"
+              value={t('buttons.cancel')}
               onClick={() => setScopedCopyPreview(null)}
               disabled={busy}
             />
             <PrimaryButton
-              value="Save copied profile"
+              value={
+                copyPreview.target_updated_at
+                  ? t('agentCenter.profileEditor.copy.updateAction')
+                  : t('agentCenter.profileEditor.copy.createAction')
+              }
               onClick={() => void saveCopiedProfile()}
               disabled={busy}
               actionIcon={busy ? 'spinner' : undefined}
@@ -1788,6 +1815,8 @@ export function AgentConfigurationSettingsPanel({
                           initialName: name,
                           targetProvider,
                           initialTargetProvider: targetProvider,
+                          targetProfileId: null,
+                          initialTargetProfileId: null,
                         });
                       }}
                     />
@@ -2044,7 +2073,9 @@ export function AgentConfigurationSettingsPanel({
               <div className="space-y-4 py-4">
                 {profileAction.kind === 'copy' && (
                   <label className="block space-y-2 text-sm font-medium text-normal">
-                    <span>Target provider</span>
+                    <span>
+                      {t('agentCenter.profileEditor.copy.targetProviderLabel')}
+                    </span>
                     <select
                       value={profileAction.targetProvider}
                       onChange={(event) => {
@@ -2052,7 +2083,11 @@ export function AgentConfigurationSettingsPanel({
                           .value as AgentSettingsProvider;
                         setProfileAction((current) =>
                           current?.kind === 'copy'
-                            ? { ...current, targetProvider }
+                            ? {
+                                ...current,
+                                targetProvider,
+                                targetProfileId: null,
+                              }
                             : current
                         );
                       }}
@@ -2068,25 +2103,63 @@ export function AgentConfigurationSettingsPanel({
                         ))}
                     </select>
                     <span className="block text-xs font-normal text-low">
-                      Provider-specific settings and credentials are not copied.
+                      {t('agentCenter.profileEditor.copy.providerNotice')}
                     </span>
                   </label>
                 )}
-                <label className="block space-y-2 text-sm font-medium text-normal">
-                  <span>{t('agentCenter.profileEditor.nameLabel')}</span>
-                  <input
-                    value={profileAction.name}
-                    onChange={(event) => {
-                      const name = event.target.value;
-                      setProfileAction((current) =>
-                        current ? { ...current, name } : current
-                      );
-                    }}
-                    autoFocus
-                    disabled={busy}
-                    className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                  />
-                </label>
+                {profileAction.kind === 'copy' && (
+                  <label className="block space-y-2 text-sm font-medium text-normal">
+                    <span>
+                      {t('agentCenter.profileEditor.copy.destinationLabel')}
+                    </span>
+                    <select
+                      value={profileAction.targetProfileId ?? ''}
+                      onChange={(event) => {
+                        const targetProfileId = event.target.value || null;
+                        setProfileAction((current) =>
+                          current?.kind === 'copy'
+                            ? { ...current, targetProfileId }
+                            : current
+                        );
+                      }}
+                      disabled={busy}
+                      className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    >
+                      <option value="">
+                        {t('agentCenter.profileEditor.copy.createDestination')}
+                      </option>
+                      {copyTargetProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {t(
+                            'agentCenter.profileEditor.copy.updateDestination',
+                            { name: profile.name }
+                          )}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="block text-xs font-normal text-low">
+                      {t('agentCenter.profileEditor.copy.existingTargetHelp')}
+                    </span>
+                  </label>
+                )}
+                {(profileAction.kind !== 'copy' ||
+                  profileAction.targetProfileId === null) && (
+                  <label className="block space-y-2 text-sm font-medium text-normal">
+                    <span>{t('agentCenter.profileEditor.nameLabel')}</span>
+                    <input
+                      value={profileAction.name}
+                      onChange={(event) => {
+                        const name = event.target.value;
+                        setProfileAction((current) =>
+                          current ? { ...current, name } : current
+                        );
+                      }}
+                      autoFocus
+                      disabled={busy}
+                      className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    />
+                  </label>
+                )}
               </div>
               <DialogFooter>
                 <Button
@@ -2099,7 +2172,14 @@ export function AgentConfigurationSettingsPanel({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={busy || !profileAction.name.trim()}
+                  disabled={
+                    busy ||
+                    (profileAction.kind !== 'copy' &&
+                      !profileAction.name.trim()) ||
+                    (profileAction.kind === 'copy' &&
+                      profileAction.targetProfileId === null &&
+                      !profileAction.name.trim())
+                  }
                 >
                   {busy && (
                     <SpinnerIcon
@@ -2108,7 +2188,7 @@ export function AgentConfigurationSettingsPanel({
                     />
                   )}
                   {profileAction.kind === 'copy'
-                    ? 'Preview copy'
+                    ? t('agentCenter.profileEditor.copy.previewAction')
                     : t('agentCenter.profileEditor.save')}
                 </Button>
               </DialogFooter>

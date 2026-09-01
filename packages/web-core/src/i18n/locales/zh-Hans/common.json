@@ -1553,7 +1553,25 @@
       "customArgsPlaceholder": "--flag=value",
       "edit": "编辑",
       "save": "保存配置档案",
-      "cancel": "取消"
+      "cancel": "取消",
+      "copy": {
+        "previewTitle": "复制预览 → {{provider}}",
+        "addLabel": "新增",
+        "overwriteLabel": "覆盖",
+        "skippedLabel": "跳过",
+        "none": "无",
+        "updateAction": "更新目标配置档案",
+        "createAction": "创建目标配置档案",
+        "updateNotice": "目标配置档案已更新，目标独有字段已保留。",
+        "createNotice": "已保存复制的配置档案，未迁移 Provider 专属字段。",
+        "providerNotice": "不会复制 Provider 专属设置和凭据。",
+        "targetProviderLabel": "目标 Provider",
+        "destinationLabel": "复制目标",
+        "createDestination": "创建新的目标配置档案",
+        "updateDestination": "更新现有配置档案：{{name}}",
+        "existingTargetHelp": "现有目标会保留其凭据、未知字段、Provider 扩展和目标专属设置。预览会优先列出来源侧将覆盖的内容。",
+        "previewAction": "预览复制"
+      }
     },
     "commands": {
       "manager": {

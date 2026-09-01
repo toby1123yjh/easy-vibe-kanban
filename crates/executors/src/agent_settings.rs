@@ -9,6 +9,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard},
 };
 
 use chrono::{DateTime, Utc};
@@ -31,6 +32,11 @@ use crate::{
 };
 
 pub const SETTINGS_PROFILE_STORE_VERSION: u16 = 1;
+
+// Profile mutations are synchronous and infrequent. Serializing the complete
+// read-check-write transaction prevents a confirmed copy from overwriting a
+// concurrent profile edit after its source/target revisions were verified.
+static PROFILE_STORE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -524,17 +530,33 @@ pub struct CopyProfilePreviewRequest {
     pub target_provider: AgentSettingsProvider,
     pub target_executor_profile: ExecutorProfileId,
     pub target_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_profile_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct ProfileCopyPreview {
     pub profile: ConfigProfileView,
     #[serde(default)]
-    pub compatible_keys: Vec<String>,
+    pub added_keys: Vec<String>,
+    #[serde(default)]
+    pub overwritten_keys: Vec<String>,
     #[serde(default)]
     pub skipped_keys: Vec<String>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    pub source_updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct CopyConfigProfileRequest {
+    pub preview: CopyProfilePreviewRequest,
+    pub expected_source_updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_target_updated_at: Option<DateTime<Utc>>,
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -670,6 +692,16 @@ struct ConfigProfileStore {
     version: u16,
     #[serde(default)]
     profiles: Vec<ConfigProfile>,
+}
+
+struct PreparedProfileCopy {
+    profile: ConfigProfile,
+    added_keys: Vec<String>,
+    overwritten_keys: Vec<String>,
+    skipped_keys: Vec<String>,
+    warnings: Vec<String>,
+    source_updated_at: DateTime<Utc>,
+    target_updated_at: Option<DateTime<Utc>>,
 }
 
 impl Default for ConfigProfileStore {
@@ -816,11 +848,12 @@ impl AgentSettingsService {
         &self,
         request: SaveConfigProfileRequest,
     ) -> Result<ConfigProfileView, AgentSettingError> {
-        let profile = self.persist_profile(request.profile)?;
+        let _guard = lock_profile_store_mutation()?;
+        let profile = self.persist_profile_unlocked(request.profile)?;
         Ok(self.profile_view(profile))
     }
 
-    fn persist_profile(
+    fn persist_profile_unlocked(
         &self,
         mut profile: ConfigProfile,
     ) -> Result<ConfigProfile, AgentSettingError> {
@@ -853,6 +886,7 @@ impl AgentSettingsService {
         &self,
         request: UpdateConfigProfileRequest,
     ) -> Result<ConfigProfileView, AgentSettingError> {
+        let _guard = lock_profile_store_mutation()?;
         let mut store = self.load_profile_store()?;
         let profile = store
             .profiles
@@ -885,6 +919,7 @@ impl AgentSettingsService {
         &self,
         request: DeleteConfigProfileRequest,
     ) -> Result<(), AgentSettingError> {
+        let _guard = lock_profile_store_mutation()?;
         let mut store = self.load_profile_store()?;
         let before = store.profiles.len();
         store.profiles.retain(|profile| profile.id != request.id);
@@ -898,6 +933,7 @@ impl AgentSettingsService {
         &self,
         request: DuplicateConfigProfileRequest,
     ) -> Result<ConfigProfileView, AgentSettingError> {
+        let _guard = lock_profile_store_mutation()?;
         let store = self.load_profile_store()?;
         let mut profile = store
             .profiles
@@ -907,7 +943,7 @@ impl AgentSettingsService {
             .ok_or_else(|| AgentSettingError::NotFound(request.id.to_string()))?;
         profile.id = Uuid::new_v4();
         profile.name = request.name;
-        let profile = self.persist_profile(profile)?;
+        let profile = self.persist_profile_unlocked(profile)?;
         Ok(self.profile_view(profile))
     }
 
@@ -915,51 +951,214 @@ impl AgentSettingsService {
         &self,
         request: CopyProfilePreviewRequest,
     ) -> Result<ProfileCopyPreview, AgentSettingError> {
-        let source = self
-            .load_profile_store()?
+        let store = self.load_profile_store()?;
+        let prepared = self.prepare_profile_copy(&store, &request)?;
+        Ok(ProfileCopyPreview {
+            profile: self.profile_view(prepared.profile),
+            added_keys: prepared.added_keys,
+            overwritten_keys: prepared.overwritten_keys,
+            skipped_keys: prepared.skipped_keys,
+            warnings: prepared.warnings,
+            source_updated_at: prepared.source_updated_at,
+            target_updated_at: prepared.target_updated_at,
+        })
+    }
+
+    pub fn copy_profile(
+        &self,
+        request: CopyConfigProfileRequest,
+    ) -> Result<ConfigProfileView, AgentSettingError> {
+        if !request.confirmed {
+            return Err(AgentSettingError::InvalidRequest(
+                "profile copy requires explicit target diff confirmation".to_string(),
+            ));
+        }
+        let _guard = lock_profile_store_mutation()?;
+        let mut store = self.load_profile_store()?;
+        let mut prepared = self.prepare_profile_copy(&store, &request.preview)?;
+        if prepared.source_updated_at != request.expected_source_updated_at
+            || prepared.target_updated_at != request.expected_target_updated_at
+        {
+            return Err(AgentSettingError::StaleRevision);
+        }
+
+        prepared.profile.updated_at = Utc::now();
+        if let Some(target_profile_id) = request.preview.target_profile_id {
+            let target = store
+                .profiles
+                .iter_mut()
+                .find(|profile| profile.id == target_profile_id)
+                .ok_or_else(|| AgentSettingError::NotFound(target_profile_id.to_string()))?;
+            *target = prepared.profile.clone();
+        } else {
+            store.profiles.push(prepared.profile.clone());
+        }
+        self.save_profile_store(&store)?;
+        Ok(self.profile_view(prepared.profile))
+    }
+
+    fn prepare_profile_copy(
+        &self,
+        store: &ConfigProfileStore,
+        request: &CopyProfilePreviewRequest,
+    ) -> Result<PreparedProfileCopy, AgentSettingError> {
+        let source = store
             .profiles
-            .into_iter()
+            .iter()
             .find(|profile| profile.id == request.id)
             .ok_or_else(|| AgentSettingError::NotFound(request.id.to_string()))?;
+        if source.provider == request.target_provider {
+            return Err(AgentSettingError::ValidationFailed(
+                "cross-provider copy requires a different target provider".to_string(),
+            ));
+        }
+
+        let target = request
+            .target_profile_id
+            .map(|target_profile_id| {
+                store
+                    .profiles
+                    .iter()
+                    .find(|profile| profile.id == target_profile_id)
+                    .ok_or_else(|| AgentSettingError::NotFound(target_profile_id.to_string()))
+            })
+            .transpose()?;
+        if let Some(target) = target {
+            if target.provider != request.target_provider {
+                return Err(AgentSettingError::ValidationFailed(
+                    "target profile does not belong to the selected provider".to_string(),
+                ));
+            }
+        } else if request.target_name.trim().is_empty() {
+            return Err(AgentSettingError::ValidationFailed(
+                "target profile name cannot be empty".to_string(),
+            ));
+        }
+        let target_executor_profile = target
+            .map(|profile| &profile.executor_profile)
+            .unwrap_or(&request.target_executor_profile);
+        if DirectProvider::from_base_agent(target_executor_profile.executor.clone())
+            != Some(DirectProvider::from(request.target_provider))
+        {
+            return Err(AgentSettingError::ValidationFailed(
+                "target executor profile does not belong to the selected provider".to_string(),
+            ));
+        }
+
         let target_descriptors = self.manager(request.target_provider, None).descriptors();
-        let target_keys: BTreeSet<_> = target_descriptors
+        let target_by_key: BTreeMap<_, _> = target_descriptors
             .iter()
             .filter(|descriptor| descriptor.capabilities.profile_storable && !descriptor.sensitive)
-            .map(|descriptor| descriptor.key.id())
+            .map(|descriptor| (descriptor.key.id(), descriptor))
             .collect();
-        let mut setting_overrides = BTreeMap::new();
-        let mut compatible_keys = Vec::new();
-        let mut skipped_keys = Vec::new();
-        for (key, value) in source.setting_overrides {
-            if key.starts_with("common.") && target_keys.contains(&key) {
-                compatible_keys.push(key.clone());
-                setting_overrides.insert(key, value);
-            } else {
-                skipped_keys.push(key);
-            }
-        }
-        let warnings = if skipped_keys.is_empty() {
-            Vec::new()
-        } else {
-            vec!["Provider-specific or unsupported settings were skipped; no native extension was copied.".to_string()]
-        };
-        let profile = ConfigProfile {
+        let mut profile = target.cloned().unwrap_or_else(|| ConfigProfile {
             id: Uuid::new_v4(),
             provider: request.target_provider,
-            executor_profile: request.target_executor_profile,
-            name: request.target_name,
+            executor_profile: request.target_executor_profile.clone(),
+            name: request.target_name.trim().to_string(),
             schema_version: SETTINGS_PROFILE_STORE_VERSION,
-            setting_overrides,
+            setting_overrides: BTreeMap::new(),
             provider_extensions: BTreeMap::new(),
-            environment: source.environment,
-            custom_args: source.custom_args,
+            environment: BTreeMap::new(),
+            custom_args: Vec::new(),
             updated_at: Utc::now(),
-        };
-        Ok(ProfileCopyPreview {
-            profile: self.profile_view(profile),
-            compatible_keys,
+        });
+        let mut added_keys = Vec::new();
+        let mut overwritten_keys = Vec::new();
+        let mut skipped_keys = Vec::new();
+        let mut warnings = Vec::new();
+
+        for (key, value) in &source.setting_overrides {
+            let Some(descriptor) = target_by_key
+                .get(key)
+                .filter(|_| key.starts_with("common."))
+            else {
+                skipped_keys.push(key.clone());
+                continue;
+            };
+            if validate_setting_value(descriptor, value).is_err() {
+                skipped_keys.push(key.clone());
+                warnings.push(format!(
+                    "{key} was skipped because the target Adapter rejected its value."
+                ));
+                continue;
+            }
+            match profile.setting_overrides.get(key) {
+                None => added_keys.push(key.clone()),
+                Some(existing) if existing != value => overwritten_keys.push(key.clone()),
+                Some(_) => {}
+            }
+            profile.setting_overrides.insert(key.clone(), value.clone());
+        }
+        skipped_keys.extend(source.provider_extensions.keys().cloned());
+
+        classify_replaced_profile_field(
+            "profile.environment",
+            profile.environment != source.environment,
+            profile.environment.is_empty(),
+            source.environment.is_empty(),
+            &mut added_keys,
+            &mut overwritten_keys,
+        );
+        if profile.environment != source.environment && !profile.environment.is_empty() {
+            warnings.push(
+                "Source Environment will replace the existing target Profile Environment."
+                    .to_string(),
+            );
+        }
+        profile.environment = source.environment.clone();
+
+        classify_replaced_profile_field(
+            "profile.custom_args",
+            profile.custom_args != source.custom_args,
+            profile.custom_args.is_empty(),
+            source.custom_args.is_empty(),
+            &mut added_keys,
+            &mut overwritten_keys,
+        );
+        if profile.custom_args != source.custom_args && !profile.custom_args.is_empty() {
+            warnings.push(
+                "Source custom arguments will replace the existing target Profile custom arguments."
+                    .to_string(),
+            );
+        }
+        profile.custom_args = source.custom_args.clone();
+
+        if let Some(descriptor) = target_descriptors
+            .iter()
+            .find(|descriptor| descriptor.key.id() == "common.environment")
+        {
+            validate_setting_value(descriptor, &profile_environment_value(&profile))?;
+        }
+        if !skipped_keys.is_empty() {
+            warnings.push(
+                "Provider-specific, credential, extension, or unsupported settings will be skipped."
+                    .to_string(),
+            );
+        }
+        if target.is_some() {
+            warnings.push(
+                "Target-only settings, credentials, unknown fields, and Provider extensions will be preserved."
+                    .to_string(),
+            );
+        } else {
+            validate_profile(&profile, &target_descriptors)?;
+        }
+        added_keys.sort();
+        added_keys.dedup();
+        overwritten_keys.sort();
+        overwritten_keys.dedup();
+        skipped_keys.sort();
+        skipped_keys.dedup();
+
+        Ok(PreparedProfileCopy {
+            profile,
+            added_keys,
+            overwritten_keys,
             skipped_keys,
             warnings,
+            source_updated_at: source.updated_at,
+            target_updated_at: target.map(|profile| profile.updated_at),
         })
     }
 
@@ -1096,6 +1295,30 @@ impl AgentSettingsService {
             custom_args: profile.custom_args,
             updated_at: profile.updated_at,
         }
+    }
+}
+
+fn lock_profile_store_mutation() -> Result<MutexGuard<'static, ()>, AgentSettingError> {
+    PROFILE_STORE_MUTATION_LOCK
+        .lock()
+        .map_err(|_| std::io::Error::other("profile store mutation lock was poisoned").into())
+}
+
+fn classify_replaced_profile_field(
+    key: &str,
+    changed: bool,
+    target_empty: bool,
+    source_empty: bool,
+    added_keys: &mut Vec<String>,
+    overwritten_keys: &mut Vec<String>,
+) {
+    if !changed {
+        return;
+    }
+    if target_empty && !source_empty {
+        added_keys.push(key.to_string());
+    } else {
+        overwritten_keys.push(key.to_string());
     }
 }
 
@@ -3942,12 +4165,17 @@ mod tests {
                 target_provider: AgentSettingsProvider::ClaudeCode,
                 target_executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
                 target_name: "Copied".into(),
+                target_profile_id: None,
             })
             .unwrap();
-        assert_eq!(copy.compatible_keys, vec!["common.model"]);
+        assert_eq!(
+            copy.added_keys,
+            vec!["common.model", "profile.custom_args", "profile.environment"]
+        );
+        assert!(copy.overwritten_keys.is_empty());
         assert_eq!(
             copy.skipped_keys,
-            vec!["codex.web_search", "common.api_key"]
+            vec!["codex.private", "codex.web_search", "common.api_key"]
         );
         assert!(copy.profile.provider_extension_keys.is_empty());
         assert!(copy.profile.configured_credential_keys.is_empty());
@@ -3997,6 +4225,252 @@ mod tests {
             .delete_profile(DeleteConfigProfileRequest { id: saved.id })
             .unwrap();
         assert!(harness.service.list_profiles(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn existing_target_profile_copy_is_lossless_revision_checked_and_adapter_owned() {
+        let harness = harness();
+        let source_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let source_updated_at = Utc::now();
+        let target_updated_at = source_updated_at + chrono::Duration::seconds(1);
+        let mut store = ConfigProfileStore {
+            version: SETTINGS_PROFILE_STORE_VERSION,
+            profiles: vec![
+                ConfigProfile {
+                    id: source_id,
+                    provider: AgentSettingsProvider::Codex,
+                    executor_profile: ExecutorProfileId::new(BaseCodingAgent::Codex),
+                    name: "Source".into(),
+                    schema_version: SETTINGS_PROFILE_STORE_VERSION,
+                    setting_overrides: BTreeMap::from([
+                        ("common.model".into(), json!("gpt-5.6")),
+                        ("common.api_key".into(), json!("source-secret")),
+                        ("codex.web_search".into(), json!(true)),
+                    ]),
+                    provider_extensions: BTreeMap::from([(
+                        "codex.source_extension".into(),
+                        json!("source-private"),
+                    )]),
+                    environment: BTreeMap::from([("SOURCE".into(), "one".into())]),
+                    custom_args: vec!["--source".into()],
+                    updated_at: source_updated_at,
+                },
+                ConfigProfile {
+                    id: target_id,
+                    provider: AgentSettingsProvider::ClaudeCode,
+                    executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+                    name: "Target".into(),
+                    schema_version: SETTINGS_PROFILE_STORE_VERSION,
+                    setting_overrides: BTreeMap::from([
+                        ("common.model".into(), json!("claude-old")),
+                        ("common.api_address".into(), json!("https://example.com")),
+                        ("common.api_key".into(), json!("target-secret")),
+                        ("future.unknown".into(), json!("target-opaque")),
+                    ]),
+                    provider_extensions: BTreeMap::from([(
+                        "claude.target_extension".into(),
+                        json!("target-private"),
+                    )]),
+                    environment: BTreeMap::from([("TARGET".into(), "old".into())]),
+                    custom_args: vec!["--target".into()],
+                    updated_at: target_updated_at,
+                },
+            ],
+        };
+        harness.service.save_profile_store(&store).unwrap();
+
+        let same_provider = harness
+            .service
+            .copy_profile_preview(CopyProfilePreviewRequest {
+                id: source_id,
+                target_provider: AgentSettingsProvider::Codex,
+                target_executor_profile: ExecutorProfileId::new(BaseCodingAgent::Codex),
+                target_name: "Same provider".into(),
+                target_profile_id: None,
+            });
+        assert!(matches!(
+            same_provider,
+            Err(AgentSettingError::ValidationFailed(_))
+        ));
+
+        let mismatched_target = harness
+            .service
+            .copy_profile_preview(CopyProfilePreviewRequest {
+                id: source_id,
+                target_provider: AgentSettingsProvider::Gemini,
+                target_executor_profile: ExecutorProfileId::new(BaseCodingAgent::Gemini),
+                target_name: "Wrong target".into(),
+                target_profile_id: Some(target_id),
+            });
+        assert!(matches!(
+            mismatched_target,
+            Err(AgentSettingError::ValidationFailed(_))
+        ));
+
+        let preview_request = CopyProfilePreviewRequest {
+            id: source_id,
+            target_provider: AgentSettingsProvider::ClaudeCode,
+            target_executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            target_name: "ignored for an existing target".into(),
+            target_profile_id: Some(target_id),
+        };
+
+        store.profiles[0]
+            .setting_overrides
+            .insert("common.model".into(), json!(42));
+        store.profiles[0].updated_at += chrono::Duration::seconds(2);
+        harness.service.save_profile_store(&store).unwrap();
+        let invalid_value_preview = harness
+            .service
+            .copy_profile_preview(preview_request.clone())
+            .unwrap();
+        assert!(
+            invalid_value_preview
+                .skipped_keys
+                .contains(&"common.model".to_string())
+        );
+        assert_eq!(
+            invalid_value_preview.profile.setting_overrides["common.model"],
+            json!("claude-old")
+        );
+        assert!(
+            invalid_value_preview
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("target Adapter rejected"))
+        );
+
+        store.profiles[0]
+            .setting_overrides
+            .insert("common.model".into(), json!("gpt-5.6"));
+        store.profiles[0].updated_at += chrono::Duration::seconds(1);
+        harness.service.save_profile_store(&store).unwrap();
+        let preview = harness
+            .service
+            .copy_profile_preview(preview_request.clone())
+            .unwrap();
+        assert!(preview.added_keys.is_empty());
+        assert_eq!(
+            preview.overwritten_keys,
+            vec!["common.model", "profile.custom_args", "profile.environment"]
+        );
+        assert_eq!(
+            preview.skipped_keys,
+            vec![
+                "codex.source_extension",
+                "codex.web_search",
+                "common.api_key"
+            ]
+        );
+        assert_eq!(preview.profile.name, "Target");
+        assert_eq!(
+            preview.profile.setting_overrides["common.api_address"],
+            json!("https://example.com")
+        );
+        let serialized = serde_json::to_string(&preview).unwrap();
+        assert!(!serialized.contains("source-secret"));
+        assert!(!serialized.contains("target-secret"));
+        assert!(!serialized.contains("target-opaque"));
+        assert!(!serialized.contains("source-private"));
+        assert!(!serialized.contains("target-private"));
+
+        let stale_source = harness.service.copy_profile(CopyConfigProfileRequest {
+            preview: preview_request.clone(),
+            expected_source_updated_at: preview.source_updated_at - chrono::Duration::seconds(1),
+            expected_target_updated_at: preview.target_updated_at,
+            confirmed: true,
+        });
+        assert!(matches!(
+            stale_source,
+            Err(AgentSettingError::StaleRevision)
+        ));
+
+        let stale = harness.service.copy_profile(CopyConfigProfileRequest {
+            preview: preview_request.clone(),
+            expected_source_updated_at: preview.source_updated_at,
+            expected_target_updated_at: Some(
+                preview.target_updated_at.unwrap() - chrono::Duration::seconds(1),
+            ),
+            confirmed: true,
+        });
+        assert!(matches!(stale, Err(AgentSettingError::StaleRevision)));
+
+        let copied = harness
+            .service
+            .copy_profile(CopyConfigProfileRequest {
+                preview: preview_request.clone(),
+                expected_source_updated_at: preview.source_updated_at,
+                expected_target_updated_at: preview.target_updated_at,
+                confirmed: true,
+            })
+            .unwrap();
+        assert_eq!(copied.id, target_id);
+        assert_eq!(copied.setting_overrides["common.model"], json!("gpt-5.6"));
+        assert_eq!(copied.environment["SOURCE"], "one");
+        assert_eq!(copied.custom_args, vec!["--source"]);
+
+        store = harness.service.load_profile_store().unwrap();
+        let stored = store
+            .profiles
+            .iter()
+            .find(|profile| profile.id == target_id)
+            .unwrap();
+        assert_eq!(
+            stored.setting_overrides["common.api_key"],
+            json!("target-secret")
+        );
+        assert_eq!(
+            stored.setting_overrides["future.unknown"],
+            json!("target-opaque")
+        );
+        assert_eq!(
+            stored.provider_extensions["claude.target_extension"],
+            json!("target-private")
+        );
+        assert!(
+            !stored
+                .provider_extensions
+                .contains_key("codex.source_extension")
+        );
+
+        let source = store
+            .profiles
+            .iter_mut()
+            .find(|profile| profile.id == source_id)
+            .unwrap();
+        source.environment.clear();
+        source.custom_args.clear();
+        source.updated_at = Utc::now() + chrono::Duration::seconds(2);
+        harness.service.save_profile_store(&store).unwrap();
+
+        let clear_preview = harness
+            .service
+            .copy_profile_preview(preview_request.clone())
+            .unwrap();
+        assert_eq!(
+            clear_preview.overwritten_keys,
+            vec!["profile.custom_args", "profile.environment"]
+        );
+        harness
+            .service
+            .copy_profile(CopyConfigProfileRequest {
+                preview: preview_request,
+                expected_source_updated_at: clear_preview.source_updated_at,
+                expected_target_updated_at: clear_preview.target_updated_at,
+                confirmed: true,
+            })
+            .unwrap();
+        let cleared = harness
+            .service
+            .load_profile_store()
+            .unwrap()
+            .profiles
+            .into_iter()
+            .find(|profile| profile.id == target_id)
+            .unwrap();
+        assert!(cleared.environment.is_empty());
+        assert!(cleared.custom_args.is_empty());
     }
 
     #[test]

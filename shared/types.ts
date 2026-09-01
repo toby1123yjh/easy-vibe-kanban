@@ -821,9 +821,11 @@ export type DeleteConfigProfileRequest = { id: string, };
 
 export type DuplicateConfigProfileRequest = { id: string, name: string, };
 
-export type CopyProfilePreviewRequest = { id: string, target_provider: AgentSettingsProvider, target_executor_profile: ExecutorProfileId, target_name: string, };
+export type CopyProfilePreviewRequest = { id: string, target_provider: AgentSettingsProvider, target_executor_profile: ExecutorProfileId, target_name: string, target_profile_id?: string | null, };
 
-export type ProfileCopyPreview = { profile: ConfigProfileView, compatible_keys: Array<string>, skipped_keys: Array<string>, warnings: Array<string>, };
+export type ProfileCopyPreview = { profile: ConfigProfileView, added_keys: Array<string>, overwritten_keys: Array<string>, skipped_keys: Array<string>, warnings: Array<string>, source_updated_at: string, target_updated_at?: string | null, };
+
+export type CopyConfigProfileRequest = { preview: CopyProfilePreviewRequest, expected_source_updated_at: string, expected_target_updated_at?: string | null, confirmed: boolean, };
 
 export type ProfileApplyPreviewRequest = { id: string, project_path?: string | null, scope: SettingScope, expected_file_revisions: { [key in string]?: string }, };
 
