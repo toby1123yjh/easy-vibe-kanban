@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@vibe/ui/components/Select';
-import { ConfirmDialog } from '@/shared/dialogs/shared/ConfirmDialog';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
 import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import type {

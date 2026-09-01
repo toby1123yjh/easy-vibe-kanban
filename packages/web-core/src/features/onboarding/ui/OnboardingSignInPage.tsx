@@ -11,7 +11,9 @@ import { usePostHog } from 'posthog-js/react';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useTheme } from '@/shared/hooks/useTheme';
 import { OAuthSignInButton } from '@vibe/ui/components/OAuthButtons';
+import { Button } from '@vibe/ui/components/Button';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { StateSurface } from '@vibe/ui/components/StateSurface';
 import { oauthApi, type AuthMethodsResponse } from '@/shared/lib/api';
 import { getFirstProjectDestination } from '@/shared/lib/firstProjectDestination';
 import { isLocalRemoteApiEnabled } from '@/shared/lib/remoteApi';
@@ -93,6 +95,8 @@ export function OnboardingSignInPage() {
     data: authMethods,
     error: authMethodsError,
     isError: isAuthMethodsError,
+    isFetching: isFetchingAuthMethods,
+    refetch: refetchAuthMethods,
   } = useQuery({
     queryKey: ['auth', 'methods'],
     queryFn: (): Promise<AuthMethodsResponse> => oauthApi.authMethods(),
@@ -253,8 +257,18 @@ export function OnboardingSignInPage() {
 
   if (loading || !config) {
     return (
-      <div className="h-screen bg-primary flex items-center justify-center">
-        <p className="text-low">Loading...</p>
+      <div className="flex h-screen items-center justify-center bg-primary p-base">
+        <StateSurface
+          state="loading"
+          title={t(
+            'onboarding.signIn.states.loadingTitle',
+            'Loading onboarding'
+          )}
+          description={t(
+            'onboarding.signIn.states.loadingDescription',
+            'Preparing sign-in options.'
+          )}
+        />
       </div>
     );
   }
@@ -292,13 +306,31 @@ export function OnboardingSignInPage() {
           </header>
 
           {isAuthMethodsError && !isLoggedIn && (
-            <div className="rounded-sm border border-error/30 bg-error/10 p-base">
-              <p className="text-sm text-high">
-                {authMethodsError instanceof Error
+            <StateSurface
+              compact
+              state="error"
+              title={t(
+                'onboarding.signIn.states.methodsUnavailable',
+                'Sign-in methods unavailable'
+              )}
+              description={
+                authMethodsError instanceof Error
                   ? authMethodsError.message
-                  : 'Failed to load available sign-in methods.'}
-              </p>
-            </div>
+                  : 'Failed to load available sign-in methods.'
+              }
+              action={
+                <Button
+                  className="min-h-11"
+                  size="lg"
+                  variant="secondary"
+                  onClick={() => void refetchAuthMethods()}
+                  disabled={saving || pendingProvider !== null}
+                  loading={isFetchingAuthMethods}
+                >
+                  {t('buttons.retry', 'Retry')}
+                </Button>
+              }
+            />
           )}
 
           {isLoggedIn ? (
@@ -359,7 +391,7 @@ export function OnboardingSignInPage() {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  className="text-sm text-low hover:text-normal underline underline-offset-2"
+                  className="min-h-cta px-base text-sm text-low underline underline-offset-2 hover:text-normal"
                   onClick={() => {
                     if (!showComparison) {
                       trackRemoteOnboardingEvent(

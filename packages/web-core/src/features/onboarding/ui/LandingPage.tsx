@@ -41,6 +41,7 @@ import { cn, playSound } from '@/shared/lib/utils';
 import { isTauriApp } from '@/shared/lib/platform';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import { StateSurface } from '@vibe/ui/components/StateSurface';
 
 type SoundOption = {
   value: SoundFile;
@@ -326,8 +327,12 @@ export function LandingPage() {
 
   if (loading || !config || !initialized) {
     return (
-      <div className="h-screen bg-primary flex items-center justify-center">
-        <p className="text-low">Loading...</p>
+      <div className="flex h-screen items-center justify-center bg-primary p-base">
+        <StateSurface
+          state="loading"
+          title="Loading onboarding"
+          description="Preparing your local environment."
+        />
       </div>
     );
   }
@@ -388,7 +393,7 @@ export function LandingPage() {
 
         {/* 3-column grid */}
         <div className="min-h-0 flex-1 overflow-y-auto px-double pb-double">
-          <div className="grid grid-cols-3 gap-double">
+          <div className="grid grid-cols-1 gap-double sm:grid-cols-2 lg:grid-cols-3">
             {/* Column 1: Coding Agent */}
             <section className="space-y-half">
               <h2 className="text-sm font-medium text-high">Coding Agent</h2>
@@ -402,7 +407,7 @@ export function LandingPage() {
                       type="button"
                       onClick={() => setSelectedAgent(agent)}
                       className={cn(
-                        'flex items-center gap-base rounded-sm border px-base py-half text-left',
+                        'flex min-h-[44px] items-center gap-base rounded-sm border px-base py-half text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vk-focus-ring)]',
                         selected
                           ? 'border-brand bg-brand/10'
                           : 'border-border bg-panel hover:bg-primary'
@@ -440,7 +445,7 @@ export function LandingPage() {
                       type="button"
                       onClick={() => setEditorType(editor)}
                       className={cn(
-                        'flex items-center gap-base rounded-sm border px-base py-half text-left',
+                        'flex min-h-[44px] items-center gap-base rounded-sm border px-base py-half text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vk-focus-ring)]',
                         selected
                           ? 'border-brand bg-brand/10'
                           : 'border-border bg-panel hover:bg-primary'
@@ -503,7 +508,7 @@ export function LandingPage() {
                       type="button"
                       onClick={() => handleSoundSelect(option.value)}
                       className={cn(
-                        'flex items-center gap-base rounded-sm border px-base py-half text-left',
+                        'flex min-h-[44px] items-center gap-base rounded-sm border px-base py-half text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vk-focus-ring)]',
                         selected
                           ? 'border-brand bg-brand/10'
                           : 'border-border bg-panel hover:bg-primary'
@@ -532,7 +537,7 @@ export function LandingPage() {
                   type="button"
                   onClick={() => setSoundEnabled(false)}
                   className={cn(
-                    'flex items-center gap-base rounded-sm border px-base py-half text-left',
+                    'flex min-h-[44px] items-center gap-base rounded-sm border px-base py-half text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vk-focus-ring)]',
                     !soundEnabled
                       ? 'border-brand bg-brand/10'
                       : 'border-border bg-panel hover:bg-primary'

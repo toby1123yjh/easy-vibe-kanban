@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -6,7 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from './KeyboardDialog';
+} from './Dialog';
 import { Button } from './Button';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import {
@@ -30,6 +31,8 @@ export interface ConfirmDialogProps {
 const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
   const { t } = useTranslation(['tasks', 'common']);
   const modal = useModal();
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const {
     title,
     message,
@@ -57,13 +60,33 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
 
     switch (variant) {
       case 'destructive':
-        return <WarningIcon className={`${iconClass} text-destructive`} />;
+        return (
+          <WarningIcon
+            aria-hidden="true"
+            className={`${iconClass} text-[var(--vk-status-error)]`}
+          />
+        );
       case 'info':
-        return <InfoIcon className={`${iconClass} text-blue-500`} />;
+        return (
+          <InfoIcon
+            aria-hidden="true"
+            className={`${iconClass} text-[var(--vk-status-running-text)]`}
+          />
+        );
       case 'success':
-        return <CheckCircleIcon className={`${iconClass} text-green-500`} />;
+        return (
+          <CheckCircleIcon
+            aria-hidden="true"
+            className={`${iconClass} text-[var(--vk-status-success-text)]`}
+          />
+        );
       default:
-        return <XCircleIcon className={`${iconClass} text-muted-foreground`} />;
+        return (
+          <XCircleIcon
+            aria-hidden="true"
+            className={`${iconClass} text-[var(--vk-text-low)]`}
+          />
+        );
     }
   };
 
@@ -72,8 +95,25 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
   };
 
   return (
-    <Dialog open={modal.visible} onOpenChange={handleCancel}>
-      <DialogContent className="sm:max-w-[425px]">
+    <Dialog
+      open={modal.visible}
+      onOpenChange={(open) => {
+        if (!open) handleCancel();
+      }}
+    >
+      <DialogContent
+        hideCloseButton
+        role={variant === 'destructive' ? 'alertdialog' : 'dialog'}
+        data-variant={variant}
+        className="bg-[var(--vk-dialog-surface)] text-[var(--vk-text-normal)] sm:max-w-[425px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          const target = showCancelButton
+            ? cancelButtonRef.current
+            : confirmButtonRef.current;
+          target?.focus();
+        }}
+      >
         <DialogHeader>
           <div className="flex items-center gap-3">
             {getIcon()}
@@ -85,17 +125,28 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
         </DialogHeader>
         {showCancelButton ? (
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={handleCancel}>
+            <Button
+              ref={cancelButtonRef}
+              className="min-h-11 sm:min-h-[var(--vk-button-height)]"
+              variant="outline"
+              onClick={handleCancel}
+            >
               {cancelText}
             </Button>
-            <Button variant={getConfirmButtonVariant()} onClick={handleConfirm}>
+            <Button
+              ref={confirmButtonRef}
+              className="min-h-11 sm:min-h-[var(--vk-button-height)]"
+              variant={getConfirmButtonVariant()}
+              onClick={handleConfirm}
+            >
               {confirmText}
             </Button>
           </DialogFooter>
         ) : (
           <div className="flex w-full">
             <Button
-              className="ml-auto"
+              ref={confirmButtonRef}
+              className="ml-auto min-h-11 sm:min-h-[var(--vk-button-height)]"
               variant={getConfirmButtonVariant()}
               onClick={handleConfirm}
             >
