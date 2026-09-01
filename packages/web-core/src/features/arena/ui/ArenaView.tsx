@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal, OctagonX, Sparkles } from 'lucide-react';
 import { BaseCodingAgent, type ExecutorConfig } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,8 +26,9 @@ import {
 } from '@vibe/ui/components/Select';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { useArenaActions } from '@/shared/hooks/useArenaActions';
-import { useArenaGroup } from '@/shared/hooks/useArenaGroup';
+import { arenaQueryKeys, useArenaGroup } from '@/shared/hooks/useArenaGroup';
 import type {
+  ArenaGroupResponse,
   ArenaWorkspaceSummary,
   RetryArenaRequest,
 } from '@/shared/lib/arenaApi';
@@ -83,6 +91,7 @@ export function ArenaView({
   onDissolved,
 }: ArenaViewProps) {
   const { t } = useTranslation('common');
+  const queryClient = useQueryClient();
   const arenaQuery = useArenaGroup(groupId);
   const actions = useArenaActions(groupId, null);
   const comparisonWidth = useComparisonWidth();
@@ -116,6 +125,11 @@ export function ArenaView({
   const [lifecycleAction, setLifecycleAction] = useState<
     'close' | 'dissolve' | null
   >(null);
+  const [arenaRetryPending, setArenaRetryPending] = useState(false);
+  const arenaRetryLockRef = useRef(false);
+  const candidateRetryLockRef = useRef(false);
+  const stopAllLockRef = useRef(false);
+  const synthesizeLockRef = useRef(false);
   const lifecycleLockRef = useRef<'close' | 'dissolve' | null>(null);
 
   useEffect(() => {
@@ -125,24 +139,80 @@ export function ArenaView({
     );
   }, [comparison]);
 
-  if (arenaQuery.error) {
+  if (arenaQuery.isPending && !arenaQuery.data) {
     return (
-      <div className="p-[var(--vk-space-4)] text-[length:var(--vk-font-size-sm)] text-[var(--vk-status-error)]">
-        {t('arena.errors.loadFailed', {
-          message:
-            arenaQuery.error instanceof Error
-              ? arenaQuery.error.message
-              : String(arenaQuery.error),
-        })}
-      </div>
+      <LoadingState
+        className="h-full w-full bg-[var(--vk-surface-primary)]"
+        title={t('arena.workspace.loadingArena')}
+      />
     );
   }
 
-  if (arenaQuery.isLoading || !arenaQuery.data || !comparison) {
+  const arenaErrorMessage =
+    arenaQuery.error instanceof Error
+      ? arenaQuery.error.message
+      : arenaQuery.error
+        ? String(arenaQuery.error)
+        : t('errors.generic');
+  const getArenaLoadFailure = (currentError: unknown) => {
+    if (!currentError) return null;
+    return t('arena.errors.loadFailed', {
+      message:
+        currentError instanceof Error
+          ? currentError.message
+          : String(currentError),
+    });
+  };
+  const getCurrentArenaSnapshot = () => {
+    const state = queryClient.getQueryState<ArenaGroupResponse>(
+      arenaQueryKeys.group(groupId)
+    );
+    const currentGroup = state?.data ?? null;
+    return {
+      error: state?.error ?? null,
+      group: currentGroup,
+      comparison: currentGroup
+        ? buildArenaComparisonView(currentGroup, {
+            attempt: (order) =>
+              t('arena.workspace.attemptName', { index: order }),
+            synthesis: (order) => `${t('arena.purpose.synthesis')} ${order}`,
+          })
+        : null,
+    };
+  };
+  const handleArenaRetry = async () => {
+    if (arenaRetryLockRef.current || arenaQuery.isFetching) return;
+    arenaRetryLockRef.current = true;
+    setArenaRetryPending(true);
+    try {
+      await arenaQuery.refetch();
+    } finally {
+      arenaRetryLockRef.current = false;
+      setArenaRetryPending(false);
+    }
+  };
+  const retryArenaAction = (
+    <Button
+      type="button"
+      variant="outline"
+      className="min-h-11"
+      loading={arenaRetryPending || arenaQuery.isFetching}
+      loadingLabel={t('arena.actions.retrying')}
+      onClick={() => void handleArenaRetry()}
+    >
+      {t('buttons.retry')}
+    </Button>
+  );
+
+  if (!arenaQuery.data || !comparison) {
     return (
-      <div className="p-[var(--vk-space-4)] text-[length:var(--vk-font-size-sm)] text-[var(--vk-text-low)]">
-        {t('arena.workspace.loadingArena')}
-      </div>
+      <ErrorState
+        className="h-full w-full bg-[var(--vk-surface-primary)]"
+        title={t('arena.errors.loadFailed', {
+          message: arenaErrorMessage,
+        })}
+        action={retryArenaAction}
+      />
     );
   }
 
@@ -170,6 +240,7 @@ export function ArenaView({
     actions.close.isPending ||
     actions.dissolve.isPending;
   const candidateActionsDisabled =
+    Boolean(arenaQuery.error) ||
     winnerDialogOpen ||
     winnerSelectionPending ||
     lifecyclePending ||
@@ -208,7 +279,13 @@ export function ArenaView({
 
   const handleConfirmWinner = async () => {
     if (!winnerCandidate) return;
-    const currentCandidate = comparison.candidates.find(
+    const snapshot = getCurrentArenaSnapshot();
+    const loadFailure = getArenaLoadFailure(snapshot.error);
+    if (loadFailure) {
+      setWinnerError(loadFailure);
+      return;
+    }
+    const currentCandidate = snapshot.comparison?.candidates.find(
       ({ candidateId }) => candidateId === winnerCandidate.candidateId
     );
     if (!currentCandidate?.canSelectWinner) {
@@ -237,24 +314,48 @@ export function ArenaView({
   };
 
   const handleRetry = async (candidate: ArenaComparisonCandidate) => {
+    if (candidateRetryLockRef.current) return;
+    candidateRetryLockRef.current = true;
     setCandidateError(null);
-    if (!candidate.workspace.executor) {
+    const snapshot = getCurrentArenaSnapshot();
+    const loadFailure = getArenaLoadFailure(snapshot.error);
+    if (loadFailure) {
+      setCandidateError({
+        candidateId: candidate.candidateId,
+        message: loadFailure,
+      });
+      candidateRetryLockRef.current = false;
+      return;
+    }
+    const currentCandidate = snapshot.comparison?.candidates.find(
+      ({ candidateId }) => candidateId === candidate.candidateId
+    );
+    if (!currentCandidate?.canRetry) {
+      setCandidateError({
+        candidateId: candidate.candidateId,
+        message: t('arena.errors.retryFailed'),
+      });
+      candidateRetryLockRef.current = false;
+      return;
+    }
+    if (!currentCandidate.workspace.executor) {
       setCandidateError({
         candidateId: candidate.candidateId,
         message: t('arena.errors.retryUnknownExecutor'),
       });
+      candidateRetryLockRef.current = false;
       return;
     }
 
     const payload: RetryArenaRequest = {
-      executor_config: executorConfigForWorkspace(candidate.workspace),
-      name: candidate.workspace.name,
+      executor_config: executorConfigForWorkspace(currentCandidate.workspace),
+      name: currentCandidate.workspace.name,
       prompt: null,
     };
     setRetryCandidateId(candidate.candidateId);
     try {
       await actions.retry.mutateAsync({
-        workspaceId: candidate.workspaceId,
+        workspaceId: currentCandidate.workspaceId,
         payload,
       });
     } catch (error) {
@@ -267,23 +368,56 @@ export function ArenaView({
       });
     } finally {
       setRetryCandidateId(null);
+      candidateRetryLockRef.current = false;
     }
   };
 
   const handleSynthesize = async () => {
-    if (!canSynthesize) return;
+    if (synthesizeLockRef.current) return;
+    const openingSnapshot = getCurrentArenaSnapshot();
+    const openingAttempts =
+      openingSnapshot.group?.workspaces.filter(
+        ({ purpose }) => purpose === 'attempt'
+      ) ?? [];
+    const openingCanSynthesize =
+      openingSnapshot.group?.lifecycle_status === 'open' &&
+      !openingSnapshot.comparison?.hasWinner &&
+      openingSnapshot.comparison?.activeCount === 0 &&
+      openingAttempts.length > 0;
+    if (!openingCanSynthesize || getArenaLoadFailure(openingSnapshot.error))
+      return;
+    synthesizeLockRef.current = true;
     setHeaderError(null);
     setHeaderStatus(null);
     try {
       const result = await SynthesizeArenaDialog.show({
-        activityCount: group.events.length,
-        attemptCount: comparison.attemptCount,
+        activityCount: openingSnapshot.group?.events.length ?? 0,
+        attemptCount: openingSnapshot.comparison?.attemptCount ?? 0,
       });
       if (result.kind !== 'confirmed') return;
+      const currentSnapshot = getCurrentArenaSnapshot();
+      const loadFailure = getArenaLoadFailure(currentSnapshot.error);
+      if (loadFailure) {
+        setHeaderError(loadFailure);
+        return;
+      }
+      const currentAttempts =
+        currentSnapshot.group?.workspaces.filter(
+          ({ purpose }) => purpose === 'attempt'
+        ) ?? [];
+      const currentCanSynthesize =
+        currentSnapshot.group?.lifecycle_status === 'open' &&
+        !currentSnapshot.comparison?.hasWinner &&
+        currentSnapshot.comparison?.activeCount === 0 &&
+        currentAttempts.length > 0;
+      if (!currentCanSynthesize) {
+        setHeaderError(t('arena.errors.synthesizeFailed'));
+        return;
+      }
       await actions.message.mutateAsync({
         target: { type: 'synthesize', options: result.options },
         prompt: result.prompt,
-        executor_config: executorConfigForWorkspace(attemptWorkspaces[0]),
+        executor_config: executorConfigForWorkspace(currentAttempts[0]),
       });
     } catch (error) {
       setHeaderError(
@@ -291,16 +425,33 @@ export function ArenaView({
           ? error.message
           : t('arena.errors.synthesizeFailed')
       );
+    } finally {
+      synthesizeLockRef.current = false;
     }
   };
 
   const handleStopAll = async () => {
+    if (stopAllLockRef.current) return;
+    stopAllLockRef.current = true;
+    const snapshot = getCurrentArenaSnapshot();
+    const loadFailure = getArenaLoadFailure(snapshot.error);
+    if (loadFailure) {
+      setHeaderError(loadFailure);
+      stopAllLockRef.current = false;
+      return;
+    }
     setHeaderError(null);
     setHeaderStatus(null);
     setStopHadFailures(false);
     try {
+      const cancellableSessionIds =
+        snapshot.comparison?.cancellableSessionIds ?? [];
+      if (cancellableSessionIds.length === 0) {
+        setHeaderStatus(t('arena.stopAll.requested', { count: 0 }));
+        return;
+      }
       const result = await actions.stopAll.mutateAsync({
-        sessionIds: comparison.cancellableSessionIds,
+        sessionIds: cancellableSessionIds,
       });
       if (result.failures.length > 0) {
         setStopHadFailures(true);
@@ -325,12 +476,24 @@ export function ArenaView({
       setHeaderError(
         error instanceof Error ? error.message : t('arena.stopAll.failed')
       );
+    } finally {
+      stopAllLockRef.current = false;
     }
   };
 
   const handleClose = async () => {
     if (lifecycleLockRef.current || winnerDialogOpen || winnerSelectionPending)
       return;
+    const currentSnapshot = getCurrentArenaSnapshot();
+    const loadFailure = getArenaLoadFailure(currentSnapshot.error);
+    if (loadFailure) {
+      setHeaderError(loadFailure);
+      return;
+    }
+    if (!currentSnapshot.comparison?.canClose) {
+      setHeaderError(t('arena.errors.closeFailed'));
+      return;
+    }
     lifecycleLockRef.current = 'close';
     setLifecycleAction('close');
     setHeaderError(null);
@@ -351,6 +514,16 @@ export function ArenaView({
   const handleDissolve = async () => {
     if (lifecycleLockRef.current || winnerDialogOpen || winnerSelectionPending)
       return;
+    const openingSnapshot = getCurrentArenaSnapshot();
+    const openingLoadFailure = getArenaLoadFailure(openingSnapshot.error);
+    if (openingLoadFailure) {
+      setHeaderError(openingLoadFailure);
+      return;
+    }
+    if (!openingSnapshot.comparison?.canDissolve) {
+      setHeaderError(t('arena.errors.dissolveFailed'));
+      return;
+    }
     lifecycleLockRef.current = 'dissolve';
     setLifecycleAction('dissolve');
     setHeaderError(null);
@@ -358,13 +531,23 @@ export function ArenaView({
       const result = await ConfirmDialog.show({
         title: t('arena.lifecycleActions.dissolveTitle'),
         message: t('arena.lifecycleActions.dissolveMessage', {
-          count: comparison.candidates.length,
+          count: openingSnapshot.comparison.candidates.length,
         }),
         confirmText: t('arena.lifecycleActions.dissolveAndArchive'),
         cancelText: t('buttons.cancel'),
         variant: 'destructive',
       });
       if (result !== 'confirmed') return;
+      const currentSnapshot = getCurrentArenaSnapshot();
+      const loadFailure = getArenaLoadFailure(currentSnapshot.error);
+      if (loadFailure) {
+        setHeaderError(loadFailure);
+        return;
+      }
+      if (!currentSnapshot.comparison?.canDissolve) {
+        setHeaderError(t('arena.errors.dissolveFailed'));
+        return;
+      }
       await actions.dissolve.mutateAsync();
       handleDissolved();
     } catch (error) {
@@ -455,14 +638,7 @@ export function ArenaView({
                     size="icon"
                     variant="icon"
                     aria-label={t('arena.moreActions')}
-                    disabled={
-                      lifecyclePending ||
-                      winnerDialogOpen ||
-                      winnerSelectionPending ||
-                      actions.message.isPending ||
-                      actions.retry.isPending ||
-                      actions.stopAll.isPending
-                    }
+                    disabled={candidateActionsDisabled}
                   >
                     <MoreHorizontal aria-hidden="true" className="size-4" />
                   </Button>
@@ -507,14 +683,31 @@ export function ArenaView({
         ) : null}
       </header>
 
-      <main
+      {arenaQuery.error ? (
+        <DegradedState
+          compact
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mx-[var(--vk-space-4)] mt-[var(--vk-space-3)] border border-[var(--vk-status-waiting)]"
+          title={t('arena.errors.loadFailed', {
+            message: arenaErrorMessage,
+          })}
+          action={retryArenaAction}
+        />
+      ) : null}
+
+      <div
         ref={comparisonWidth.setElement}
+        role="region"
+        aria-label={t('arena.title')}
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-[var(--vk-space-4)]"
       >
         {comparison.candidates.length === 0 ? (
-          <div className="rounded-[var(--vk-radius-md)] border border-dashed border-[var(--vk-border-subtle)] p-[var(--vk-space-6)] text-center text-[length:var(--vk-font-size-sm)] text-[var(--vk-text-low)]">
-            {t('arena.comparison.empty')}
-          </div>
+          <EmptyState
+            className="min-h-64 rounded-[var(--vk-radius-md)] border border-dashed border-[var(--vk-border-subtle)]"
+            title={t('arena.comparison.empty')}
+          />
         ) : useColumnGrid ? (
           <div
             className={cn(
@@ -569,7 +762,7 @@ export function ArenaView({
             {selectedCandidate ? renderCandidate(selectedCandidate) : null}
           </div>
         )}
-      </main>
+      </div>
 
       <ArenaWinnerConfirmDialog
         candidate={winnerCandidate}

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ExternalLink,
@@ -8,6 +9,12 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import { useDiffSummary } from '@/shared/hooks/useDiffSummary';
 import { agentRunsApi } from '@/shared/lib/agentRunApi';
 import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
@@ -55,6 +62,38 @@ export function ArenaWorkspaceColumn({
   const sessionHref = buildWorkspaceSessionHref(
     detailHref,
     candidate.sessionId
+  );
+  const hasRunSnapshot = runsQuery.data !== undefined;
+  const runErrorMessage =
+    runsQuery.error instanceof Error
+      ? runsQuery.error.message
+      : runsQuery.error
+        ? String(runsQuery.error)
+        : undefined;
+  const [runRetryPending, setRunRetryPending] = useState(false);
+  const runRetryLockRef = useRef(false);
+  const handleRetryRunResult = async () => {
+    if (runRetryLockRef.current || runsQuery.isFetching) return;
+    runRetryLockRef.current = true;
+    setRunRetryPending(true);
+    try {
+      await runsQuery.refetch();
+    } finally {
+      runRetryLockRef.current = false;
+      setRunRetryPending(false);
+    }
+  };
+  const retryRunResultAction = (
+    <Button
+      type="button"
+      variant="outline"
+      className="min-h-11"
+      loading={runRetryPending || runsQuery.isFetching}
+      loadingLabel={t('arena.actions.retrying')}
+      onClick={() => void handleRetryRunResult()}
+    >
+      {t('buttons.retry')}
+    </Button>
   );
 
   return (
@@ -111,27 +150,46 @@ export function ArenaWorkspaceColumn({
             {t('arena.resultSummary.title')}
           </h4>
           <div className="mt-[var(--vk-space-2)] rounded-[var(--vk-radius-md)] border border-[var(--vk-border-subtle)] bg-[var(--vk-surface-primary)] p-[var(--vk-space-3)]">
-            {runsQuery.isLoading ? (
-              <p className="text-[length:var(--vk-font-size-sm)] text-[var(--vk-text-low)]">
-                {t('arena.resultSummary.loading')}
-              </p>
-            ) : runsQuery.error ? (
-              <p
-                className="text-[length:var(--vk-font-size-sm)] text-[var(--vk-status-error)]"
-                role="alert"
-              >
-                {t('arena.resultSummary.loadFailed')}
-              </p>
-            ) : resultSummary ? (
-              <p className="max-h-36 overflow-y-auto whitespace-pre-wrap text-[length:var(--vk-font-size-sm)] leading-relaxed text-[var(--vk-text-normal)]">
-                {resultSummary}
-              </p>
-            ) : (
+            {!candidate.sessionId ? (
               <p className="text-[length:var(--vk-font-size-sm)] text-[var(--vk-text-low)]">
                 {candidate.canCancel
                   ? t('arena.resultSummary.running')
                   : t('arena.resultSummary.empty')}
               </p>
+            ) : runsQuery.isPending && !hasRunSnapshot ? (
+              <LoadingState compact title={t('arena.resultSummary.loading')} />
+            ) : runsQuery.error && !hasRunSnapshot ? (
+              <ErrorState
+                compact
+                title={t('arena.resultSummary.loadFailed')}
+                description={runErrorMessage}
+                action={retryRunResultAction}
+              />
+            ) : (
+              <div className="space-y-[var(--vk-space-3)]">
+                {runsQuery.error ? (
+                  <DegradedState
+                    compact
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    title={t('arena.resultSummary.loadFailed')}
+                    description={runErrorMessage}
+                    action={retryRunResultAction}
+                  />
+                ) : null}
+                {resultSummary ? (
+                  <p className="max-h-36 overflow-y-auto whitespace-pre-wrap text-[length:var(--vk-font-size-sm)] leading-relaxed text-[var(--vk-text-normal)]">
+                    {resultSummary}
+                  </p>
+                ) : candidate.canCancel ? (
+                  <p className="text-[length:var(--vk-font-size-sm)] text-[var(--vk-text-low)]">
+                    {t('arena.resultSummary.running')}
+                  </p>
+                ) : (
+                  <EmptyState compact title={t('arena.resultSummary.empty')} />
+                )}
+              </div>
             )}
           </div>
         </section>

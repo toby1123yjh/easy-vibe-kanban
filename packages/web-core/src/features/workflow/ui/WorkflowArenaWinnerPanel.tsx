@@ -1,18 +1,26 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle,
   ExternalLink,
   GitBranch,
-  Loader2,
   Swords,
 } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
 import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
+import {
+  arenaQueryKeys,
   useArenaGroup,
   useArenaInvalidators,
 } from '@/shared/hooks/useArenaGroup';
+import type { ArenaGroupResponse } from '@/shared/lib/arenaApi';
 import { useWorkflowRunMutations } from '@/shared/hooks/useWorkflowRun';
 import { buildWorkspaceSessionHref } from '@/shared/lib/routes/workspaceRoutes';
 import { cn } from '@/shared/lib/utils';
@@ -31,7 +39,17 @@ export interface WorkflowArenaWinnerPanelProps {
   runId: string;
 }
 
-export function WorkflowArenaWinnerPanel({
+export function WorkflowArenaWinnerPanel(props: WorkflowArenaWinnerPanelProps) {
+  const { arenaGroupId, nodeId, runId } = props;
+  return (
+    <WorkflowArenaWinnerPanelForIdentity
+      key={`${runId}:${nodeId}:${arenaGroupId ?? 'none'}`}
+      {...props}
+    />
+  );
+}
+
+function WorkflowArenaWinnerPanelForIdentity({
   arenaGroupId,
   className,
   issueId,
@@ -40,6 +58,7 @@ export function WorkflowArenaWinnerPanel({
   runId,
 }: WorkflowArenaWinnerPanelProps) {
   const { t } = useTranslation('common');
+  const queryClient = useQueryClient();
   const { selectArenaWinner, isSelectingArenaWinner } =
     useWorkflowRunMutations();
   const { invalidateGroup } = useArenaInvalidators();
@@ -50,10 +69,13 @@ export function WorkflowArenaWinnerPanel({
   const [confirmationError, setConfirmationError] = useState<string | null>(
     null
   );
+  const winnerMutationLockRef = useRef(false);
   const {
     data: arenaGroup,
     error: arenaError,
-    isLoading,
+    isFetching,
+    isPending,
+    refetch,
   } = useArenaGroup(arenaGroupId, {
     enabled: !!arenaGroupId,
   });
@@ -70,22 +92,76 @@ export function WorkflowArenaWinnerPanel({
     [arenaGroup, t]
   );
   const candidates = comparison?.candidates ?? [];
+  const getArenaLoadFailure = (error: unknown) =>
+    t('workflow.arenaWinner.loadFailed', {
+      message:
+        error instanceof Error
+          ? error.message
+          : error
+            ? String(error)
+            : t('workflow.arenaWinner.unknownError'),
+    });
+  const arenaLoadFailure = getArenaLoadFailure(arenaError);
+  const [arenaRetryPending, setArenaRetryPending] = useState(false);
+  const arenaRetryLockRef = useRef(false);
+  const handleRetryArenaGroup = async () => {
+    if (arenaRetryLockRef.current || isFetching) return;
+    arenaRetryLockRef.current = true;
+    setArenaRetryPending(true);
+    try {
+      await refetch();
+    } finally {
+      arenaRetryLockRef.current = false;
+      setArenaRetryPending(false);
+    }
+  };
+  const retryArenaGroupAction = (
+    <Button
+      type="button"
+      variant="outline"
+      className="min-h-11"
+      loading={arenaRetryPending || isFetching}
+      loadingLabel={t('arena.actions.retrying')}
+      onClick={() => void handleRetryArenaGroup()}
+    >
+      {t('buttons.retry')}
+    </Button>
+  );
 
   const arenaHref = arenaGroupId
     ? `/projects/${projectId}/issues/${issueId}/arena/${arenaGroupId}`
     : null;
 
   const handleConfirmWinner = async () => {
-    if (!confirmationCandidate) return;
-    const currentCandidate = comparison?.candidates.find(
-      ({ candidateId }) => candidateId === confirmationCandidate.candidateId
-    );
-    if (!currentCandidate?.canSelectWinner) {
-      setConfirmationError(t('workflow.arenaWinner.selectFailed'));
-      return;
-    }
-    setConfirmationError(null);
+    if (!confirmationCandidate || winnerMutationLockRef.current) return;
+    winnerMutationLockRef.current = true;
     try {
+      if (!arenaGroupId) {
+        setConfirmationError(t('workflow.arenaWinner.selectFailed'));
+        return;
+      }
+      const currentState = queryClient.getQueryState<ArenaGroupResponse>(
+        arenaQueryKeys.group(arenaGroupId)
+      );
+      if (currentState?.error) {
+        setConfirmationError(getArenaLoadFailure(currentState.error));
+        return;
+      }
+      const currentComparison = currentState?.data
+        ? buildArenaComparisonView(currentState.data, {
+            attempt: (order) =>
+              t('arena.workspace.attemptName', { index: order }),
+            synthesis: (order) => `${t('arena.purpose.synthesis')} ${order}`,
+          })
+        : null;
+      const currentCandidate = currentComparison?.candidates.find(
+        ({ candidateId }) => candidateId === confirmationCandidate.candidateId
+      );
+      if (!currentCandidate?.canSelectWinner) {
+        setConfirmationError(t('workflow.arenaWinner.selectFailed'));
+        return;
+      }
+      setConfirmationError(null);
       await selectArenaWinner({
         runId,
         nodeId,
@@ -101,6 +177,8 @@ export function WorkflowArenaWinnerPanel({
           ? err.message
           : t('workflow.arenaWinner.selectFailed')
       );
+    } finally {
+      winnerMutationLockRef.current = false;
     }
   };
 
@@ -136,26 +214,32 @@ export function WorkflowArenaWinnerPanel({
         <p className="text-xs text-low">
           {t('workflow.arenaWinner.noGroupLink')}
         </p>
-      ) : isLoading ? (
-        <div className="flex items-center gap-half text-xs text-low">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {t('workflow.arenaWinner.loadingAttempts')}
-        </div>
-      ) : arenaError ? (
-        <p className="text-xs text-error" role="alert">
-          {t('workflow.arenaWinner.loadFailed', {
-            message:
-              arenaError instanceof Error
-                ? arenaError.message
-                : t('workflow.arenaWinner.unknownError'),
-          })}
-        </p>
-      ) : candidates.length === 0 ? (
-        <p className="text-xs text-low">
-          {t('workflow.arenaWinner.noAttempts')}
-        </p>
+      ) : isPending && !arenaGroup ? (
+        <LoadingState
+          compact
+          title={t('workflow.arenaWinner.loadingAttempts')}
+        />
+      ) : !arenaGroup ? (
+        <ErrorState
+          compact
+          title={arenaLoadFailure}
+          action={retryArenaGroupAction}
+        />
       ) : (
         <div className="space-y-half">
+          {arenaError ? (
+            <DegradedState
+              compact
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              title={arenaLoadFailure}
+              action={retryArenaGroupAction}
+            />
+          ) : null}
+          {candidates.length === 0 ? (
+            <EmptyState compact title={t('workflow.arenaWinner.noAttempts')} />
+          ) : null}
           {candidates.map((candidate) => {
             const workspaceBaseHref = `/projects/${projectId}/issues/${issueId}/workspaces/${candidate.workspaceId}`;
             const workspaceHref =
@@ -231,7 +315,9 @@ export function WorkflowArenaWinnerPanel({
                       type="button"
                       size="xs"
                       disabled={
-                        !candidate.canSelectWinner || isSelectingArenaWinner
+                        !candidate.canSelectWinner ||
+                        isSelectingArenaWinner ||
+                        Boolean(arenaError)
                       }
                       onClick={(event) => {
                         setConfirmationCandidate(candidate);

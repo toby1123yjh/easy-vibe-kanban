@@ -23,6 +23,7 @@ function ArenaPage() {
   return (
     <div className="h-full">
       <ArenaView
+        key={groupId}
         groupId={groupId}
         buildWorkspaceHref={buildWorkspaceHref}
         onDissolved={handleDissolved}
