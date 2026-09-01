@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import {
   getInvitation,
@@ -12,48 +13,26 @@ import {
   storeInvitationToken,
   storeVerifier,
 } from "@remote/shared/lib/pkce";
+import { StandaloneStatePage } from "@remote/shared/components/StandaloneStatePage";
+import { Button } from "@vibe/ui/components/Button";
+import { StateSurface } from "@vibe/ui/components/StateSurface";
 
 export default function InvitationPage() {
   const { token } = useParams({ from: "/invitations/$token/accept" });
-  const [invitation, setInvitation] = useState<InvitationLookupResponse | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
+  const [oauthError, setOAuthError] = useState<string | null>(null);
   const [pendingProvider, setPendingProvider] = useState<OAuthProvider | null>(
     null,
   );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadInvitation = async () => {
-      setError(null);
-      setInvitation(null);
-
-      try {
-        const response = await getInvitation(token);
-        if (!cancelled) {
-          setInvitation(response);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof Error ? e.message : "Failed to load invitation",
-          );
-        }
-      }
-    };
-
-    void loadInvitation();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const invitationQuery = useQuery<InvitationLookupResponse>({
+    queryKey: ["remote-invitation", token],
+    queryFn: () => getInvitation(token),
+    retry: false,
+  });
+  const invitation = invitationQuery.data ?? null;
 
   const handleOAuthLogin = async (provider: OAuthProvider) => {
     setPendingProvider(provider);
-    setError(null);
+    setOAuthError(null);
 
     try {
       const verifier = generateVerifier();
@@ -73,30 +52,50 @@ export default function InvitationPage() {
       );
       window.location.assign(authorize_url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "OAuth init failed");
+      setOAuthError(e instanceof Error ? e.message : "OAuth init failed");
       setPendingProvider(null);
     }
   };
 
-  if (error && !invitation) {
+  if (invitationQuery.isError && !invitation) {
+    const errorMessage =
+      invitationQuery.error instanceof Error
+        ? invitationQuery.error.message
+        : "Failed to load invitation";
+
     return (
-      <StatusCard title="Invalid or expired invitation" variant="error">
-        <p className="mt-base text-sm text-normal">{error}</p>
-      </StatusCard>
+      <StandaloneStatePage
+        state="error"
+        title={<h1>Could not load invitation</h1>}
+        description={errorMessage}
+        action={
+          <Button
+            className="min-h-11"
+            size="lg"
+            loading={invitationQuery.isFetching}
+            loadingLabel="Retrying invitation lookup"
+            onClick={() => void invitationQuery.refetch()}
+          >
+            Try again
+          </Button>
+        }
+      />
     );
   }
 
   if (!invitation) {
     return (
-      <StatusCard title="Loading invitation...">
-        <p className="mt-base text-sm text-low">Please wait.</p>
-      </StatusCard>
+      <StandaloneStatePage
+        state="loading"
+        title={<h1>Loading invitation</h1>}
+        description="Checking the invitation details."
+      />
     );
   }
 
   return (
-    <div className="h-screen overflow-auto bg-primary">
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-base py-double">
+    <main className="flex min-h-[100dvh] items-center overflow-auto bg-primary">
+      <div className="mx-auto w-full max-w-md px-base py-double">
         <div className="space-y-double rounded-sm border border-border bg-secondary p-double">
           <header className="space-y-half text-center">
             <h1 className="text-2xl font-semibold text-high">
@@ -124,10 +123,13 @@ export default function InvitationPage() {
             </div>
           </section>
 
-          {error && (
-            <div className="rounded-sm border border-error/30 bg-error/10 p-base">
-              <p className="text-sm text-high">{error}</p>
-            </div>
+          {oauthError && (
+            <StateSurface
+              state="error"
+              compact
+              title="Could not start sign-in"
+              description={oauthError}
+            />
           )}
 
           <section className="space-y-base border-t border-border pt-base text-center">
@@ -151,7 +153,7 @@ export default function InvitationPage() {
           </section>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -180,30 +182,5 @@ function OAuthButton({
         ? `Opening ${provider === "github" ? "GitHub" : "Google"}...`
         : label}
     </button>
-  );
-}
-
-function StatusCard({
-  title,
-  variant,
-  children,
-}: {
-  title: string;
-  variant?: "error";
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="h-screen overflow-auto bg-primary">
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-base py-double">
-        <div className="rounded-sm border border-border bg-secondary p-double">
-          <h2
-            className={`text-lg font-semibold ${variant === "error" ? "text-error" : "text-high"}`}
-          >
-            {title}
-          </h2>
-          {children}
-        </div>
-      </div>
-    </div>
   );
 }

@@ -16,6 +16,8 @@ import {
 } from "@remote/shared/lib/pkce";
 import { Input } from "@vibe/ui/components/Input";
 import { Label } from "@vibe/ui/components/Label";
+import { Button } from "@vibe/ui/components/Button";
+import { ErrorState, LoadingState } from "@vibe/ui/components/StateSurface";
 
 export default function LoginPage() {
   const { next } = useSearch({ from: "/account" });
@@ -26,7 +28,10 @@ export default function LoginPage() {
   const {
     data: authMethods,
     error: authMethodsError,
+    isLoading: isAuthMethodsLoading,
     isError: isAuthMethodsError,
+    isFetching: isAuthMethodsFetching,
+    refetch: refetchAuthMethods,
   } = useQuery({
     queryKey: ["remote-auth-methods"],
     queryFn: getAuthMethods,
@@ -80,8 +85,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="h-screen overflow-auto bg-primary">
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-base py-double">
+    <main className="flex min-h-[100dvh] items-center overflow-auto bg-primary">
+      <div className="mx-auto w-full max-w-md px-base py-double">
         <div className="space-y-double rounded-sm border border-border bg-secondary p-double">
           <header className="space-y-double text-center">
             <div className="flex justify-center">
@@ -91,19 +96,38 @@ export default function LoginPage() {
           </header>
 
           {error && (
-            <div className="rounded-sm border border-error/30 bg-error/10 p-base">
-              <p className="text-sm text-high">{error}</p>
-            </div>
+            <ErrorState compact title="Sign-in failed" description={error} />
+          )}
+
+          {isAuthMethodsLoading && (
+            <LoadingState
+              compact
+              title="Loading sign-in methods"
+              description="Checking the authentication options available on this server."
+            />
           )}
 
           {isAuthMethodsError && (
-            <div className="rounded-sm border border-error/30 bg-error/10 p-base">
-              <p className="text-sm text-high">
-                {authMethodsError instanceof Error
+            <ErrorState
+              compact
+              title="Sign-in methods unavailable"
+              description={
+                authMethodsError instanceof Error
                   ? authMethodsError.message
-                  : "Failed to load available sign-in methods."}
-              </p>
-            </div>
+                  : "Failed to load available sign-in methods."
+              }
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={isAuthMethodsFetching}
+                  loadingLabel="Retrying sign-in method discovery"
+                  onClick={() => void refetchAuthMethods()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           )}
 
           <section className="space-y-3">
@@ -189,7 +213,7 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

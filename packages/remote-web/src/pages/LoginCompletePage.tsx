@@ -3,6 +3,8 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { redeemOAuth } from "@remote/shared/lib/api";
 import { storeTokens } from "@remote/shared/lib/auth";
 import { retrieveVerifier, clearVerifier } from "@remote/shared/lib/pkce";
+import { StandaloneStatePage } from "@remote/shared/components/StandaloneStatePage";
+import { Button } from "@vibe/ui/components/Button";
 
 function getSafeNextPath(nextPath: string | undefined): string {
   if (!nextPath) {
@@ -34,6 +36,7 @@ export default function LoginCompletePage() {
       }
 
       if (!handoffId || !appCode) {
+        setError("Login callback is incomplete. Please try again.");
         return;
       }
 
@@ -65,53 +68,34 @@ export default function LoginCompletePage() {
 
   if (error) {
     return (
-      <StatusCard title="Login failed" variant="error">
-        <p className="text-sm text-normal mt-base">{error}</p>
-        <button
-          type="button"
-          className="mt-double w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover"
-          onClick={() =>
-            navigate({
-              to: "/account",
-              search: nextPath !== "/" ? { next: nextPath } : undefined,
-              replace: true,
-            })
-          }
-        >
-          Try again
-        </button>
-      </StatusCard>
+      <StandaloneStatePage
+        state="error"
+        title={<h1>Login failed</h1>}
+        description={error}
+        action={
+          <Button
+            className="min-h-11"
+            size="lg"
+            onClick={() =>
+              void navigate({
+                to: "/account",
+                search: nextPath !== "/" ? { next: nextPath } : undefined,
+                replace: true,
+              })
+            }
+          >
+            Try again
+          </Button>
+        }
+      />
     );
   }
 
   return (
-    <StatusCard title="Completing login...">
-      <p className="text-sm text-low mt-base">Processing OAuth callback...</p>
-    </StatusCard>
-  );
-}
-
-function StatusCard({
-  title,
-  variant,
-  children,
-}: {
-  title: string;
-  variant?: "error";
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="h-screen overflow-auto bg-primary">
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-base py-double">
-        <div className="rounded-sm border border-border bg-secondary p-double">
-          <h2
-            className={`text-lg font-semibold ${variant === "error" ? "text-error" : "text-high"}`}
-          >
-            {title}
-          </h2>
-          {children}
-        </div>
-      </div>
-    </div>
+    <StandaloneStatePage
+      state="loading"
+      title={<h1>Completing login</h1>}
+      description="Processing the OAuth callback."
+    />
   );
 }

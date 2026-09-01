@@ -3,8 +3,10 @@ import { makeLocalApiRequest } from "@/shared/lib/localApiTransport";
 
 interface UseRelayWorkspaceHostHealthResult {
   isChecking: boolean;
+  isRetrying: boolean;
   isError: boolean;
   errorMessage: string | null;
+  retry: () => Promise<void>;
 }
 
 function getErrorMessage(error: unknown): string | null {
@@ -42,9 +44,13 @@ export function useRelayWorkspaceHostHealth(
 
   return {
     isChecking: hostHealthQuery.isPending,
+    isRetrying: hostHealthQuery.isFetching && !hostHealthQuery.isPending,
     isError: isHostUnavailable,
     errorMessage: isHostUnavailable
       ? getErrorMessage(hostHealthQuery.error)
       : null,
+    retry: async () => {
+      await hostHealthQuery.refetch();
+    },
   };
 }

@@ -51,6 +51,8 @@ export function RemoteWorkspacesPageShell({
           name: null,
           errorMessage: hostHealth.errorMessage,
         }}
+        isRetrying={hostHealth.isRetrying}
+        onRetry={() => void hostHealth.retry()}
       />
     );
   }

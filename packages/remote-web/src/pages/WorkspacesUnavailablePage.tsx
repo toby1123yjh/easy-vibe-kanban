@@ -1,6 +1,12 @@
 import { useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useSettingsNavigation } from "@/shared/hooks/useSettingsNavigation";
+import { Button } from "@vibe/ui/components/Button";
+import {
+  EmptyState,
+  LoadingState,
+  OfflineState,
+} from "@vibe/ui/components/StateSurface";
 
 interface BlockedHostState {
   id: string;
@@ -11,11 +17,15 @@ interface BlockedHostState {
 interface WorkspacesUnavailablePageProps {
   blockedHost?: BlockedHostState;
   isCheckingBlockedHost?: boolean;
+  isRetrying?: boolean;
+  onRetry?: () => void;
 }
 
 export default function WorkspacesUnavailablePage({
   blockedHost,
   isCheckingBlockedHost = false,
+  isRetrying = false,
+  onRetry,
 }: WorkspacesUnavailablePageProps) {
   const { hostId } = useParams({ strict: false });
   const { openSettings } = useSettingsNavigation();
@@ -30,74 +40,92 @@ export default function WorkspacesUnavailablePage({
     [blockedHost?.name, selectedHostId],
   );
 
-  const isBlockedHostState = Boolean(blockedHost);
-
   const openRelaySettings = () => {
     openSettings("relay", { hostId: selectedHostId });
   };
 
+  const surfaceClassName =
+    "w-full rounded-[var(--vk-radius-md)] border border-[var(--vk-border-subtle)] bg-[var(--vk-surface-secondary)]";
+
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center px-double py-double">
-      <div className="w-full space-y-base rounded-sm border border-border bg-secondary p-double">
-        <h1 className="text-xl font-semibold text-high">Workspaces</h1>
-
-        {isCheckingBlockedHost ? (
-          <p className="text-sm text-low">
-            Connecting to{" "}
-            <span className="font-medium text-high">
-              {selectedHostName ?? "selected host"}
-            </span>
-            ...
-          </p>
-        ) : isBlockedHostState ? (
-          <div className="space-y-base">
-            <div className="rounded-sm border border-warning/40 bg-warning/10 p-base">
-              <p className="text-sm font-medium text-high">
-                Could not connect to {selectedHostName ?? "the selected host"}.
-              </p>
-              <p className="mt-half text-sm text-low">
+      {isCheckingBlockedHost ? (
+        <LoadingState
+          className={surfaceClassName}
+          title={<h1>Connecting to host</h1>}
+          description={`Checking ${selectedHostName ?? "the selected host"}.`}
+        />
+      ) : blockedHost ? (
+        <OfflineState
+          className={surfaceClassName}
+          title={
+            <h1>
+              Could not connect to {selectedHostName ?? "the selected host"}
+            </h1>
+          }
+          description={
+            <div className="space-y-base text-left">
+              <p>
                 This host is offline or no longer reachable from this browser.
               </p>
+              <ol className="list-inside list-decimal space-y-half">
+                <li>
+                  On that machine, open Vibe Kanban and confirm the host is
+                  online.
+                </li>
+                <li>
+                  If it still fails, open Relay Settings and pair this host
+                  again.
+                </li>
+              </ol>
+              {blockedHost.errorMessage && (
+                <p className="break-all text-xs text-low">
+                  Last connection error: {blockedHost.errorMessage}
+                </p>
+              )}
             </div>
-
-            <ol className="list-inside list-decimal space-y-half text-sm text-low">
-              <li>
-                On that machine, open Vibe Kanban and confirm the host is
-                online.
-              </li>
-              <li>
-                If it still fails, open Relay Settings and pair this host again.
-              </li>
-            </ol>
-
-            {blockedHost?.errorMessage && (
-              <p className="break-all text-xs text-low">
-                Last connection error: {blockedHost.errorMessage}
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-low">
-            Select an online host in the app bar to load local workspaces
-            through relay.
-          </p>
-        )}
-
-        <button
-          type="button"
-          onClick={openRelaySettings}
-          className="rounded-sm border border-border bg-primary px-base py-half text-xs text-normal hover:border-brand/60"
-        >
-          Open Relay Settings
-        </button>
-
-        {isBlockedHostState && (
-          <p className="text-sm text-low">
-            After the host is online again, select it from the app bar and
-            retry.
-          </p>
-        )}
-      </div>
+          }
+          action={
+            <div className="flex flex-col gap-[var(--vk-space-2)] sm:flex-row">
+              {onRetry && (
+                <Button
+                  className="min-h-11"
+                  size="lg"
+                  loading={isRetrying}
+                  loadingLabel="Retrying host connection"
+                  onClick={onRetry}
+                >
+                  Retry connection
+                </Button>
+              )}
+              <Button
+                className="min-h-11"
+                size="lg"
+                variant="secondary"
+                onClick={openRelaySettings}
+              >
+                Open Relay Settings
+              </Button>
+            </div>
+          }
+        />
+      ) : (
+        <EmptyState
+          className={surfaceClassName}
+          title={<h1>No host selected</h1>}
+          description="Select or pair an online host to load its workspaces through Relay."
+          action={
+            <Button
+              className="min-h-11"
+              size="lg"
+              variant="secondary"
+              onClick={openRelaySettings}
+            >
+              Open Relay Settings
+            </Button>
+          }
+        />
+      )}
     </div>
   );
 }

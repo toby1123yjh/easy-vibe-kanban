@@ -15,6 +15,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import { cn } from '@/shared/lib/utils';
 import { sessionsApi, type NativeAgentSessionPreview } from '@/shared/lib/api';
 
@@ -69,7 +75,13 @@ export function AgentSessionResumePicker({
     setPreviewSessionId(selectedSessionId ?? null);
   }, [normalizedScopePath, executor, selectedSessionId]);
 
-  const { data, isLoading, isError } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    refetch: refetchSessions,
+  } = useQuery({
     queryKey: [
       'agent-session-resume',
       normalizedScopePath,
@@ -111,7 +123,12 @@ export function AgentSessionResumePicker({
     });
   }, [open, selectedSessionId, sessions]);
 
-  const { data: preview, isLoading: isPreviewLoading } = useQuery({
+  const {
+    data: preview,
+    isLoading: isPreviewLoading,
+    isError: isPreviewError,
+    isFetching: isPreviewFetching,
+  } = useQuery({
     queryKey: [
       'agent-session-native-preview',
       normalizedScopePath,
@@ -133,6 +150,18 @@ export function AgentSessionResumePicker({
   const triggerLabel = t('agentSessionResume.open', {
     defaultValue: 'Recent agent sessions',
   });
+  const sessionListState =
+    discoveryState === 'unsupported'
+      ? 'unsupported'
+      : sessions.length === 0 && (isLoading || isFetching)
+        ? 'loading'
+        : sessions.length === 0 && isError
+          ? 'error'
+          : sessions.length === 0
+            ? 'empty'
+            : 'ready';
+  const compactStateClassName =
+    'mx-half my-half rounded-sm border border-border bg-secondary';
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -171,44 +200,64 @@ export function AgentSessionResumePicker({
           })}
         </DropdownMenuLabel>
 
-        {isLoading && (
-          <DropdownMenuItem disabled>
-            {t('agentSessionResume.loading', {
+        {sessionListState === 'loading' && (
+          <LoadingState
+            compact
+            className={compactStateClassName}
+            title={t('agentSessionResume.loading', {
               defaultValue: 'Loading sessions...',
             })}
-          </DropdownMenuItem>
+          />
         )}
 
-        {isError && (
-          <DropdownMenuItem disabled>
-            {t('agentSessionResume.error', {
-              defaultValue: 'Failed to load sessions',
-            })}
-          </DropdownMenuItem>
+        {sessionListState === 'error' && (
+          <>
+            <ErrorState
+              compact
+              className={compactStateClassName}
+              title={t('agentSessionResume.error', {
+                defaultValue: 'Failed to load sessions',
+              })}
+              description={t('agentSessionResume.errorHint', {
+                defaultValue:
+                  'The agent history could not be read from this machine.',
+              })}
+            />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                void refetchSessions();
+              }}
+            >
+              {t('agentSessionResume.retry', {
+                defaultValue: 'Try again',
+              })}
+            </DropdownMenuItem>
+          </>
         )}
 
-        {discoveryState === 'unsupported' && (
-          <DropdownMenuItem disabled>
-            {t('agentSessionResume.unsupported', {
+        {sessionListState === 'unsupported' && (
+          <DegradedState
+            compact
+            className={compactStateClassName}
+            title={t('agentSessionResume.unsupported', {
               defaultValue:
                 'Native session discovery is not available for this agent',
             })}
-          </DropdownMenuItem>
+          />
         )}
 
-        {!isLoading &&
-          !isError &&
-          discoveryState !== 'unsupported' &&
-          sessions.length === 0 && (
-            <DropdownMenuItem disabled>
-              {t('agentSessionResume.empty', {
-                defaultValue: 'No recent sessions',
-              })}
-            </DropdownMenuItem>
-          )}
+        {sessionListState === 'empty' && (
+          <EmptyState
+            compact
+            className={compactStateClassName}
+            title={t('agentSessionResume.empty', {
+              defaultValue: 'No recent sessions',
+            })}
+          />
+        )}
 
-        {!isLoading &&
-          !isError &&
+        {sessionListState === 'ready' &&
           sessions.map((session) => (
             <DropdownMenuItem
               key={session.agent_session_id}
@@ -232,28 +281,30 @@ export function AgentSessionResumePicker({
             </DropdownMenuItem>
           ))}
 
-        {!isLoading && !isError && sessions.length > 0 && (
+        {sessionListState === 'ready' && (
           <NativeSessionPreviewPanel
             preview={preview ?? null}
-            isLoading={isPreviewLoading}
+            isLoading={isPreviewLoading || (isPreviewFetching && !preview)}
+            isError={isPreviewError && !preview}
           />
         )}
 
-        {days === RECENT_DAYS && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setDays(EXTENDED_DAYS);
-              }}
-            >
-              {t('agentSessionResume.more', {
-                defaultValue: 'Show last 30 days',
-              })}
-            </DropdownMenuItem>
-          </>
-        )}
+        {days === RECENT_DAYS &&
+          (sessionListState === 'ready' || sessionListState === 'empty') && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDays(EXTENDED_DAYS);
+                }}
+              >
+                {t('agentSessionResume.more', {
+                  defaultValue: 'Show last 30 days',
+                })}
+              </DropdownMenuItem>
+            </>
+          )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -262,9 +313,11 @@ export function AgentSessionResumePicker({
 function NativeSessionPreviewPanel({
   preview,
   isLoading,
+  isError,
 }: {
   preview: NativeAgentSessionPreview | null;
   isLoading: boolean;
+  isError: boolean;
 }) {
   const { t } = useTranslation('common');
 
@@ -278,20 +331,37 @@ function NativeSessionPreviewPanel({
           })}
         </div>
         {isLoading && (
-          <div className="px-half py-base text-xs text-low">
-            {t('agentSessionResume.previewLoading', {
+          <LoadingState
+            compact
+            title={t('agentSessionResume.previewLoading', {
               defaultValue: 'Loading preview...',
             })}
-          </div>
+          />
         )}
-        {!isLoading && (!preview || preview.entries.length === 0) && (
-          <div className="px-half py-base text-xs text-low">
-            {t('agentSessionResume.previewEmpty', {
-              defaultValue: 'No preview available',
+        {!isLoading && isError && (
+          <ErrorState
+            compact
+            title={t('agentSessionResume.previewError', {
+              defaultValue: 'Preview unavailable',
             })}
-          </div>
+            description={t('agentSessionResume.previewErrorHint', {
+              defaultValue:
+                'You can still resume this session without the preview.',
+            })}
+          />
         )}
         {!isLoading &&
+          !isError &&
+          (!preview || preview.entries.length === 0) && (
+            <EmptyState
+              compact
+              title={t('agentSessionResume.previewEmpty', {
+                defaultValue: 'No preview available',
+              })}
+            />
+          )}
+        {!isLoading &&
+          !isError &&
           preview?.entries.map((entry, index) => (
             <div
               key={`${entry.role}:${index}:${entry.timestamp ?? ''}`}

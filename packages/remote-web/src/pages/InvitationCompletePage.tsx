@@ -8,6 +8,8 @@ import {
   retrieveInvitationToken,
   retrieveVerifier,
 } from "@remote/shared/lib/pkce";
+import { StandaloneStatePage } from "@remote/shared/components/StandaloneStatePage";
+import { Button } from "@vibe/ui/components/Button";
 
 export default function InvitationCompletePage() {
   const { token: urlToken } = useParams({
@@ -29,6 +31,7 @@ export default function InvitationCompletePage() {
       }
 
       if (!handoffId || !appCode) {
+        setError("Invitation callback is incomplete. Please try again.");
         return;
       }
 
@@ -74,67 +77,54 @@ export default function InvitationCompletePage() {
     const retryPath = urlToken ? `/invitations/${urlToken}/accept` : "/account";
 
     return (
-      <StatusCard title="Could not accept invitation" variant="error">
-        <p className="mt-base text-sm text-normal">{error}</p>
-        <button
-          type="button"
-          className="mt-double w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover"
-          onClick={() => {
-            window.location.assign(retryPath);
-          }}
-        >
-          Try again
-        </button>
-      </StatusCard>
+      <StandaloneStatePage
+        state="error"
+        title={<h1>Could not accept invitation</h1>}
+        description={error}
+        action={
+          <Button
+            className="min-h-11"
+            size="lg"
+            onClick={() => {
+              window.location.assign(retryPath);
+            }}
+          >
+            Try again
+          </Button>
+        }
+      />
     );
   }
 
   if (isAccepted) {
     return (
-      <StatusCard title="Invitation accepted!">
-        <p className="mt-base text-sm text-normal">
-          Your invitation is confirmed. You can now close this page.
-        </p>
-        <a
-          href="https://www.vibekanban.com/docs/getting-started"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-double block w-full rounded-sm bg-brand px-base py-half text-center text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover"
-        >
-          Get started
-        </a>
-      </StatusCard>
+      <main className="flex min-h-[100dvh] items-center justify-center overflow-auto bg-primary px-base py-double">
+        <section className="w-full max-w-md rounded-sm border border-border bg-secondary p-double text-center">
+          <h1 className="text-lg font-semibold text-high">
+            Invitation accepted!
+          </h1>
+          <p className="mt-base text-sm text-normal">
+            Your invitation is confirmed. You can now close this page.
+          </p>
+          <Button asChild className="mt-double min-h-11" size="lg">
+            <a
+              href="https://www.vibekanban.com/docs/getting-started"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Get started
+            </a>
+          </Button>
+        </section>
+      </main>
     );
   }
 
   return (
-    <StatusCard title="Completing invitation...">
-      <p className="mt-base text-sm text-low">Processing OAuth callback...</p>
-    </StatusCard>
-  );
-}
-
-function StatusCard({
-  title,
-  variant,
-  children,
-}: {
-  title: string;
-  variant?: "error";
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="h-screen overflow-auto bg-primary">
-      <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-base py-double">
-        <div className="rounded-sm border border-border bg-secondary p-double">
-          <h2
-            className={`text-lg font-semibold ${variant === "error" ? "text-error" : "text-high"}`}
-          >
-            {title}
-          </h2>
-          {children}
-        </div>
-      </div>
-    </div>
+    <StandaloneStatePage
+      state="loading"
+      title={<h1>Completing invitation</h1>}
+      description="Confirming your account and organization access."
+    />
   );
 }
