@@ -1,9 +1,14 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AppBarHost, AppBarHostStatus } from '@vibe/ui/components/AppBar';
-import type { PairRelayHostRequest, RelayPairedHost } from 'shared/types';
+import type { PairRelayHostRequest } from 'shared/types';
 import type { RelayHost } from 'shared/remote-types';
 import { relayApi } from '@/shared/lib/api';
+import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
+import {
+  listPairedRelayHosts as listBrowserPairedRelayHosts,
+  subscribeRelayPairingChanges,
+} from '@/shared/lib/relayPairingStorage';
 import { listRelayHosts } from '@/shared/lib/remoteApi';
 
 export type RemoteCloudHostStatus = AppBarHostStatus;
@@ -16,14 +21,24 @@ export interface RemoteCloudHost {
   lastUsedAt: string;
 }
 
-interface RemoteCloudHostsState {
+export interface RemoteCloudHostsState {
   hosts: RemoteCloudHost[];
+  relayHosts: RelayHost[];
 }
 
 export const REMOTE_CLOUD_HOSTS_STATE_QUERY_KEY = [
   'remote-cloud-hosts',
   'state',
 ] as const;
+
+const REMOTE_CLOUD_RELAY_HOSTS_QUERY_KEY = [
+  ...REMOTE_CLOUD_HOSTS_STATE_QUERY_KEY,
+  'relay-hosts',
+] as const;
+
+interface UseRemoteCloudHostsStateOptions {
+  enabled?: boolean;
+}
 
 function normalizeRemoteCloudHostStatus(
   status: RelayHost['status'] | undefined
@@ -35,21 +50,10 @@ function normalizeRemoteCloudHostStatus(
   return 'offline';
 }
 
-async function fetchRemoteCloudHostsState(): Promise<RemoteCloudHostsState> {
-  let pairedHosts: RelayPairedHost[] = [];
-  try {
-    pairedHosts = await relayApi.listPairedRelayHosts();
-  } catch {
-    return { hosts: [] };
-  }
-
-  let remoteHosts: RelayHost[] = [];
-  try {
-    remoteHosts = await listRelayHosts();
-  } catch {
-    remoteHosts = [];
-  }
-
+function projectRemoteCloudHostsState(
+  pairedHosts: Awaited<ReturnType<typeof relayApi.listPairedRelayHosts>>,
+  remoteHosts: RelayHost[]
+): RemoteCloudHostsState {
   const remoteHostsById = new Map(remoteHosts.map((host) => [host.id, host]));
 
   const hosts = pairedHosts
@@ -66,17 +70,149 @@ async function fetchRemoteCloudHostsState(): Promise<RemoteCloudHostsState> {
         lastUsedAt: pairedAt,
       };
     })
-    .sort((a, b) => b.pairedAt.localeCompare(a.pairedAt));
+    .sort(
+      (a, b) => b.pairedAt.localeCompare(a.pairedAt) || a.id.localeCompare(b.id)
+    );
 
-  return { hosts };
+  return { hosts, relayHosts: remoteHosts };
 }
 
-export function useRemoteCloudHostsState() {
-  return useQuery({
-    queryKey: REMOTE_CLOUD_HOSTS_STATE_QUERY_KEY,
-    queryFn: fetchRemoteCloudHostsState,
+export function useRemoteCloudHostsState(
+  options: UseRemoteCloudHostsStateOptions = {}
+) {
+  const { enabled = true } = options;
+  const runtime = useAppRuntime();
+  const queryClient = useQueryClient();
+  const pairingOwner = runtime === 'remote' ? 'browser' : 'machine';
+  const pairedHostsQueryKey = useMemo(
+    () =>
+      [
+        ...REMOTE_CLOUD_HOSTS_STATE_QUERY_KEY,
+        'paired-hosts',
+        pairingOwner,
+      ] as const,
+    [pairingOwner]
+  );
+  const {
+    data: pairedHosts,
+    error: pairedHostsError,
+    isFetching: pairedHostsFetching,
+    refetch: refetchPairedHosts,
+  } = useQuery({
+    queryKey: pairedHostsQueryKey,
+    queryFn:
+      pairingOwner === 'browser'
+        ? listBrowserPairedRelayHosts
+        : relayApi.listPairedRelayHosts,
+    enabled,
+    staleTime: pairingOwner === 'browser' ? 5_000 : 0,
+  });
+
+  useEffect(() => {
+    if (!enabled || pairingOwner !== 'browser') return;
+
+    return subscribeRelayPairingChanges(() => {
+      void queryClient.invalidateQueries({ queryKey: pairedHostsQueryKey });
+    });
+  }, [enabled, pairedHostsQueryKey, pairingOwner, queryClient]);
+
+  const {
+    data: relayHostsSnapshot,
+    error: relayHostsError,
+    isFetching: relayHostsFetching,
+    refetch: refetchRelayHosts,
+  } = useQuery({
+    queryKey: REMOTE_CLOUD_RELAY_HOSTS_QUERY_KEY,
+    queryFn: listRelayHosts,
+    enabled,
     staleTime: 0,
   });
+  const relayHosts = useMemo(
+    () =>
+      relayHostsSnapshot === undefined
+        ? undefined
+        : [...relayHostsSnapshot].sort(
+            (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+          ),
+    [relayHostsSnapshot]
+  );
+  const hasCanonicalData =
+    enabled && pairedHosts !== undefined && relayHosts !== undefined;
+  const error = enabled ? (pairedHostsError ?? relayHostsError ?? null) : null;
+  const data = useMemo(
+    () =>
+      hasCanonicalData
+        ? projectRemoteCloudHostsState(pairedHosts, relayHosts)
+        : undefined,
+    [hasCanonicalData, pairedHosts, relayHosts]
+  );
+  const isFetching = enabled && (pairedHostsFetching || relayHostsFetching);
+  const retryIdentity = `${runtime}:${pairingOwner}:${enabled ? 'enabled' : 'disabled'}`;
+  const retryIdentityRef = useRef(retryIdentity);
+  const retryEpochRef = useRef(0);
+  const retryPendingEpochRef = useRef<number | null>(null);
+  const [retryPendingEpoch, setRetryPendingEpoch] = useState<number | null>(
+    null
+  );
+
+  useEffect(() => {
+    retryIdentityRef.current = retryIdentity;
+    retryPendingEpochRef.current = null;
+    setRetryPendingEpoch(null);
+
+    return () => {
+      retryEpochRef.current += 1;
+      retryPendingEpochRef.current = null;
+    };
+  }, [retryIdentity]);
+
+  const retryPending =
+    retryPendingEpoch === retryEpochRef.current &&
+    retryPendingEpochRef.current === retryPendingEpoch;
+
+  const retry = useCallback(async () => {
+    const epoch = retryEpochRef.current;
+    if (
+      !enabled ||
+      retryIdentityRef.current !== retryIdentity ||
+      retryPendingEpochRef.current === epoch ||
+      isFetching
+    ) {
+      return;
+    }
+
+    retryPendingEpochRef.current = epoch;
+    setRetryPendingEpoch(epoch);
+    try {
+      await Promise.all([refetchPairedHosts(), refetchRelayHosts()]);
+    } finally {
+      if (
+        retryIdentityRef.current === retryIdentity &&
+        retryEpochRef.current === epoch &&
+        retryPendingEpochRef.current === epoch
+      ) {
+        retryPendingEpochRef.current = null;
+        setRetryPendingEpoch(null);
+      }
+    }
+  }, [
+    enabled,
+    isFetching,
+    refetchPairedHosts,
+    refetchRelayHosts,
+    retryIdentity,
+  ]);
+
+  return {
+    data,
+    hasCanonicalData,
+    isLoading: enabled && !hasCanonicalData && error == null,
+    isFetching,
+    isRetrying: retryPending || (error != null && isFetching),
+    error,
+    canRetry: enabled && !isFetching && !retryPending,
+    retry,
+  };
 }
 
 export function usePairRemoteCloudHostMutation() {
@@ -111,12 +247,11 @@ export function useRemoteCloudHostsAppBarModel(): {
   remoteHosts: RemoteCloudHost[];
 } {
   const { data } = useRemoteCloudHostsState();
-
-  const remoteHosts = data?.hosts ?? [];
+  const remoteHosts = data?.hosts;
 
   const hosts = useMemo<AppBarHost[]>(
     () =>
-      remoteHosts.map((host) => ({
+      (remoteHosts ?? []).map((host) => ({
         id: host.id,
         name: host.name,
         status: host.status,
@@ -126,6 +261,6 @@ export function useRemoteCloudHostsAppBarModel(): {
 
   return {
     hosts,
-    remoteHosts,
+    remoteHosts: remoteHosts ?? [],
   };
 }

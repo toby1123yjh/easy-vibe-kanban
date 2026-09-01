@@ -6,9 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { listRelayHosts } from '@/shared/lib/remoteApi';
 import { useAppRuntime, type AppRuntime } from '@/shared/hooks/useAppRuntime';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useHostId } from '@/shared/providers/HostIdProvider';
@@ -21,7 +19,6 @@ import {
   useRemoteCloudHostsState,
   type RemoteCloudHost,
 } from '@/shared/hooks/useRemoteCloudHosts';
-import { listPairedRelayHosts } from '@/shared/lib/relayPairingStorage';
 
 export type SettingsHostTargetId = 'local' | string;
 
@@ -33,6 +30,14 @@ export type SettingsHostTarget = MachineTarget & {
 interface SettingsHostContextValue {
   availableHosts: SettingsHostTarget[];
   hostsResolved: boolean;
+  hostDiscovery: {
+    hasCanonicalData: boolean;
+    isLoading: boolean;
+    isRetrying: boolean;
+    error: unknown;
+    canRetry: boolean;
+    retry: () => Promise<void>;
+  };
   selectedHostId: SettingsHostTargetId | null;
   selectedHost: SettingsHostTarget | null;
   setSelectedHostId: (hostId: SettingsHostTargetId) => void;
@@ -104,59 +109,61 @@ export function SettingsHostProvider({
   const { t } = useTranslation('settings');
   const runtime = useAppRuntime();
   const routeHostId = useHostId();
-  const { isSignedIn } = useAuth();
-  const { data: localRemoteHosts } = useRemoteCloudHostsState();
-  const { data: relayHosts = [], isLoading: relayHostsLoading } = useQuery({
-    queryKey: ['settings-dialog', 'relay-hosts'],
-    queryFn: listRelayHosts,
-    enabled: runtime === 'remote' && isSignedIn,
-    staleTime: 30_000,
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const discoveryEnabled = runtime === 'local' || (authLoaded && isSignedIn);
+  const remoteCloudHostsState = useRemoteCloudHostsState({
+    enabled: discoveryEnabled,
   });
-  const { data: pairedRelayHosts = [], isLoading: pairedRelayHostsLoading } =
-    useQuery({
-      queryKey: ['settings-dialog', 'paired-relay-hosts'],
-      queryFn: async () => {
-        try {
-          return await listPairedRelayHosts();
-        } catch {
-          return [];
-        }
-      },
-      enabled: runtime === 'remote' && isSignedIn,
-      staleTime: 5_000,
-    });
-  const hostsResolved = useMemo(() => {
-    if (runtime === 'local') {
-      return true;
-    }
+  const hostDiscoveryHasCanonicalData =
+    runtime === 'local' ||
+    (authLoaded && !isSignedIn) ||
+    remoteCloudHostsState.hasCanonicalData;
+  const hostDiscoveryLoading =
+    runtime === 'remote' &&
+    (!authLoaded || (isSignedIn && remoteCloudHostsState.isLoading));
+  const hostsResolved = !hostDiscoveryLoading;
 
-    if (!isSignedIn) {
-      return true;
-    }
-
-    return !relayHostsLoading && !pairedRelayHostsLoading;
-  }, [isSignedIn, pairedRelayHostsLoading, relayHostsLoading, runtime]);
+  const hostDiscovery = useMemo(
+    () => ({
+      hasCanonicalData: hostDiscoveryHasCanonicalData,
+      isLoading: hostDiscoveryLoading,
+      isRetrying: remoteCloudHostsState.isRetrying,
+      error: discoveryEnabled ? remoteCloudHostsState.error : null,
+      canRetry: remoteCloudHostsState.canRetry,
+      retry: remoteCloudHostsState.retry,
+    }),
+    [
+      discoveryEnabled,
+      hostDiscoveryHasCanonicalData,
+      hostDiscoveryLoading,
+      remoteCloudHostsState.canRetry,
+      remoteCloudHostsState.error,
+      remoteCloudHostsState.isRetrying,
+      remoteCloudHostsState.retry,
+    ]
+  );
 
   const availableHosts = useMemo<SettingsHostTarget[]>(() => {
     if (runtime === 'local') {
-      return toLocalRuntimeTargets(localRemoteHosts?.hosts ?? [], t);
+      return toLocalRuntimeTargets(remoteCloudHostsState.data?.hosts ?? [], t);
     }
 
-    const pairedHostIds = new Set(pairedRelayHosts.map((host) => host.host_id));
-    return relayHosts
-      .filter((host) => pairedHostIds.has(host.id))
-      .map((host) => ({
-        id: host.id,
-        apiHostId: host.id,
-        label: host.name,
-        description: t('settings.hostPicker.remoteHost', 'Remote host'),
-        status:
-          host.status === 'online' ? ('online' as const) : ('offline' as const),
-        kind: 'remote',
-      }));
-  }, [localRemoteHosts?.hosts, pairedRelayHosts, relayHosts, runtime, t]);
+    if (!remoteCloudHostsState.data) {
+      return [];
+    }
 
-  const [selectedHostId, setSelectedHostId] =
+    return remoteCloudHostsState.data.hosts.map((host) => ({
+      id: host.id,
+      apiHostId: host.id,
+      label: host.name,
+      description: t('settings.hostPicker.remoteHost', 'Remote host'),
+      status:
+        host.status === 'online' ? ('online' as const) : ('offline' as const),
+      kind: 'remote',
+    }));
+  }, [remoteCloudHostsState.data, runtime, t]);
+
+  const [storedSelectedHostId, setSelectedHostId] =
     useState<SettingsHostTargetId | null>(null);
 
   useEffect(() => {
@@ -178,6 +185,10 @@ export function SettingsHostProvider({
     });
   }, [availableHosts, initialHostId, routeHostId, runtime]);
 
+  // URL and route Host identity is authoritative immediately. Waiting for an
+  // effect here would expose one render of the previous Host's settings.
+  const selectedHostId = initialHostId ?? routeHostId ?? storedSelectedHostId;
+
   const selectedHost = useMemo(
     () => availableHosts.find((host) => host.id === selectedHostId) ?? null,
     [availableHosts, selectedHostId]
@@ -187,11 +198,12 @@ export function SettingsHostProvider({
     () => ({
       availableHosts,
       hostsResolved,
+      hostDiscovery,
       selectedHostId,
       selectedHost,
       setSelectedHostId,
     }),
-    [availableHosts, hostsResolved, selectedHost, selectedHostId]
+    [availableHosts, hostDiscovery, hostsResolved, selectedHost, selectedHostId]
   );
 
   return (

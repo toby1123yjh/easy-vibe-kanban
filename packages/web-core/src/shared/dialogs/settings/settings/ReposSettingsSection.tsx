@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isEqual } from 'lodash';
@@ -40,6 +40,7 @@ import {
   SettingsSaveBar,
 } from './SettingsComponents';
 import { useSettingsMachineClient } from './SettingsHostContext';
+import { useSettingsMachineState } from './SettingsMachineUserSystemProvider';
 import { useSettingsDirty } from './SettingsDirtyContext';
 
 interface RepoScriptsFormState {
@@ -139,6 +140,35 @@ export function ReposSettingsSection({
   const queryClient = useQueryClient();
   const { setDirty: setContextDirty } = useSettingsDirty();
   const machineClient = useSettingsMachineClient();
+  const machineState = useSettingsMachineState();
+  const machineIdentity = `${machineClient?.target.kind ?? 'unselected'}:${machineClient?.target.id ?? 'unselected'}`;
+  const mutationOwnerRef = useRef({
+    machineClient,
+    machineIdentity,
+    canMutate: machineState.canMutate,
+  });
+  // Keep event handlers current before effects run; the effect also restores
+  // the owner after React's development-only effect cleanup/setup cycle.
+  mutationOwnerRef.current = {
+    machineClient,
+    machineIdentity,
+    canMutate: machineState.canMutate,
+  };
+  useEffect(() => {
+    mutationOwnerRef.current = {
+      machineClient,
+      machineIdentity,
+      canMutate: machineState.canMutate,
+    };
+
+    return () => {
+      mutationOwnerRef.current = {
+        machineClient: null,
+        machineIdentity: 'unmounted',
+        canMutate: false,
+      };
+    };
+  }, [machineClient, machineIdentity, machineState.canMutate]);
   const isProjectWorkspace = variant === 'project-workspace';
   const repoDefaultsHostId = machineClient?.target.apiHostId;
   const reposQueryKey = useMemo(
@@ -295,8 +325,24 @@ export function ReposSettingsSection({
 
   const [removing, setRemoving] = useState(false);
 
+  useEffect(() => {
+    setSaving(false);
+    setRemoving(false);
+    setError(null);
+    setSuccess(false);
+  }, [machineIdentity]);
+
+  const setMutationUnavailableError = useCallback(() => {
+    setError(t('settings.repos.loadError'));
+  }, [t]);
+
   const handleRemoveRepo = useCallback(async () => {
     if (!selectedRepo) return;
+    const initiatingOwner = mutationOwnerRef.current;
+    if (!initiatingOwner.machineClient || !initiatingOwner.canMutate) {
+      setMutationUnavailableError();
+      return;
+    }
 
     try {
       const result = await RemoveRepoDialog.show({
@@ -304,33 +350,63 @@ export function ReposSettingsSection({
       });
       if (result !== 'removed') return;
 
-      setRemoving(true);
-      setError(null);
-
-      if (!machineClient) {
+      const currentOwner = mutationOwnerRef.current;
+      if (
+        !currentOwner.machineClient ||
+        !currentOwner.canMutate ||
+        currentOwner.machineIdentity !== initiatingOwner.machineIdentity
+      ) {
+        if (currentOwner.machineIdentity !== 'unmounted') {
+          setMutationUnavailableError();
+        }
         return;
       }
 
-      await machineClient.deleteRepo(selectedRepo.id);
+      setRemoving(true);
+      setError(null);
+      await currentOwner.machineClient.deleteRepo(selectedRepo.id);
       await queryClient.invalidateQueries({ queryKey: reposQueryKey });
+      if (
+        mutationOwnerRef.current.machineIdentity !==
+        initiatingOwner.machineIdentity
+      ) {
+        return;
+      }
       setSelectedRepoId('');
       setSelectedRepo(null);
       setDraft(null);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
+      if (
+        mutationOwnerRef.current.machineIdentity !==
+        initiatingOwner.machineIdentity
+      ) {
+        return;
+      }
       if (err instanceof ApiError && err.status === 409) {
         setError(err.message);
       } else if (err instanceof Error) {
         setError(err.message);
       }
     } finally {
-      setRemoving(false);
+      if (
+        mutationOwnerRef.current.machineIdentity ===
+        initiatingOwner.machineIdentity
+      ) {
+        setRemoving(false);
+      }
     }
-  }, [machineClient, queryClient, reposQueryKey, selectedRepo]);
+  }, [queryClient, reposQueryKey, selectedRepo, setMutationUnavailableError]);
 
   // Handle adding a new repo via folder picker
   const handleAddRepo = useCallback(async () => {
+    const initiatingOwner = mutationOwnerRef.current;
+    if (!initiatingOwner.machineClient || !initiatingOwner.canMutate) {
+      setMutationUnavailableError();
+      return;
+    }
+
     try {
       const selectedPath = await FolderPickerDialog.show({
         title: t('settings.repos.addRepo.dialogTitle'),
@@ -338,19 +414,40 @@ export function ReposSettingsSection({
       });
       if (!selectedPath) return;
 
-      if (!machineClient) {
+      const currentOwner = mutationOwnerRef.current;
+      if (
+        !currentOwner.machineClient ||
+        !currentOwner.canMutate ||
+        currentOwner.machineIdentity !== initiatingOwner.machineIdentity
+      ) {
+        if (currentOwner.machineIdentity !== 'unmounted') {
+          setMutationUnavailableError();
+        }
         return;
       }
 
-      const repo = await machineClient.registerRepo({ path: selectedPath });
+      const repo = await currentOwner.machineClient.registerRepo({
+        path: selectedPath,
+      });
       await queryClient.invalidateQueries({ queryKey: reposQueryKey });
-      setSelectedRepoId(repo.id);
+      if (
+        mutationOwnerRef.current.machineIdentity ===
+        initiatingOwner.machineIdentity
+      ) {
+        setSelectedRepoId(repo.id);
+      }
     } catch (err) {
+      if (
+        mutationOwnerRef.current.machineIdentity !==
+        initiatingOwner.machineIdentity
+      ) {
+        return;
+      }
       setError(
         err instanceof Error ? err.message : t('settings.repos.addRepo.error')
       );
     }
-  }, [machineClient, queryClient, reposQueryKey, t]);
+  }, [queryClient, reposQueryKey, setMutationUnavailableError, t]);
 
   // Populate draft from server data
   useEffect(() => {
@@ -376,6 +473,11 @@ export function ReposSettingsSection({
 
   const handleSave = async () => {
     if (!draft || !selectedRepo) return;
+    const initiatingOwner = mutationOwnerRef.current;
+    if (!initiatingOwner.machineClient || !initiatingOwner.canMutate) {
+      setMutationUnavailableError();
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -394,14 +496,16 @@ export function ReposSettingsSection({
         dev_server_script: draft.dev_server_script.trim() || null,
       };
 
-      if (!machineClient) {
-        return;
-      }
-
-      const updatedRepo = await machineClient.updateRepo(
+      const updatedRepo = await initiatingOwner.machineClient.updateRepo(
         selectedRepo.id,
         updateData
       );
+      if (
+        mutationOwnerRef.current.machineIdentity !==
+        initiatingOwner.machineIdentity
+      ) {
+        return;
+      }
       setSelectedRepo(updatedRepo);
       setDraft(repoToFormState(updatedRepo));
       queryClient.setQueryData(reposQueryKey, (old: Repo[] | undefined) =>
@@ -410,11 +514,22 @@ export function ReposSettingsSection({
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
+      if (
+        mutationOwnerRef.current.machineIdentity !==
+        initiatingOwner.machineIdentity
+      ) {
+        return;
+      }
       setError(
         err instanceof Error ? err.message : t('settings.repos.save.error')
       );
     } finally {
-      setSaving(false);
+      if (
+        mutationOwnerRef.current.machineIdentity ===
+        initiatingOwner.machineIdentity
+      ) {
+        setSaving(false);
+      }
     }
   };
 
@@ -509,7 +624,11 @@ export function ReposSettingsSection({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <PrimaryButton variant="default" onClick={handleAddRepo}>
+              <PrimaryButton
+                variant="default"
+                onClick={handleAddRepo}
+                disabled={!machineState.canMutate}
+              >
                 <PlusIcon className="size-icon-sm" weight="bold" />
                 {t('common:buttons.add')}
               </PrimaryButton>
@@ -663,7 +782,7 @@ export function ReposSettingsSection({
                   <Button
                     variant="destructive"
                     onClick={handleRemoveRepo}
-                    disabled={removing}
+                    disabled={removing || !machineState.canMutate}
                   >
                     {removing && (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -803,7 +922,7 @@ export function ReposSettingsSection({
                   <PrimaryButton
                     value={t('common:buttons.save')}
                     onClick={handleSave}
-                    disabled={saving}
+                    disabled={saving || !machineState.canMutate}
                     actionIcon={saving ? 'spinner' : undefined}
                   />
                 </div>
@@ -813,6 +932,7 @@ export function ReposSettingsSection({
             <SettingsSaveBar
               show={hasUnsavedChanges}
               saving={saving}
+              saveDisabled={!machineState.canMutate}
               onSave={handleSave}
               onDiscard={handleDiscard}
             />

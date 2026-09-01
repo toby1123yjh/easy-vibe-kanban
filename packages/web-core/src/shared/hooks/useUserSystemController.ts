@@ -27,10 +27,17 @@ export function useUserSystemController({
   value: UserSystemContextType;
   userSystemInfo: UserSystemInfo | undefined;
   isLoading: boolean;
+  error: unknown;
+  refetch: () => Promise<void>;
 } {
   const queryClient = useQueryClient();
 
-  const { data: userSystemInfo, isLoading } = useQuery({
+  const {
+    data: userSystemInfo,
+    error,
+    isLoading,
+    refetch: refetchUserSystem,
+  } = useQuery({
     queryKey,
     queryFn: load,
     enabled,
@@ -107,6 +114,10 @@ export function useUserSystemController({
   const reloadSystem = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
+
+  const refetch = useCallback(async () => {
+    await refetchUserSystem();
+  }, [refetchUserSystem]);
 
   const setEnvironment = useCallback(
     (env: Environment | null) => {
@@ -197,5 +208,7 @@ export function useUserSystemController({
     value,
     userSystemInfo,
     isLoading,
+    error,
+    refetch,
   };
 }

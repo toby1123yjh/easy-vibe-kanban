@@ -6,11 +6,17 @@ import {
   DesktopIcon,
   GearIcon,
   InfoIcon,
-  SpinnerIcon,
-  WarningCircleIcon,
 } from '@phosphor-icons/react';
+import { Button } from '@vibe/ui/components/Button';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineState,
+} from '@vibe/ui/components/StateSurface';
 import { GeneralSettingsSection } from '@/shared/dialogs/settings/settings/GeneralSettingsSection';
 import { OrganizationsSettingsSection } from '@/shared/dialogs/settings/settings/OrganizationsSettingsSection';
 import { RelaySettingsSectionContent } from '@/shared/dialogs/settings/settings/RelaySettingsSection';
@@ -23,7 +29,10 @@ import {
   useSettingsMachineClient,
 } from '@/shared/dialogs/settings/settings/SettingsHostContext';
 import { useSettingsDirty } from '@/shared/dialogs/settings/settings/SettingsDirtyContext';
-import { SettingsMachineUserSystemProvider } from '@/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
+import {
+  SettingsMachineUserSystemProvider,
+  useSettingsMachineState,
+} from '@/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
 import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useAppUpdateStore } from '@/shared/stores/useAppUpdateStore';
@@ -68,14 +77,8 @@ const SECTION_LABELS = {
 
 export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
   const { t } = useTranslation('settings');
-  const {
-    availableHosts,
-    hostsResolved,
-    selectedHost,
-    selectedHostId,
-    setSelectedHostId,
-  } = useSettingsHost();
-  const machineClient = useSettingsMachineClient();
+  const { availableHosts, selectedHostId, setSelectedHostId } =
+    useSettingsHost();
   const { clearAll: clearDirty, isDirty } = useSettingsDirty();
   const route = useMemo(() => resolveSettingsRoute(search), [search]);
   const confirmationPendingRef = useRef(false);
@@ -183,19 +186,6 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
     );
   };
 
-  if (!hostsResolved) {
-    return (
-      <div className="vk-settings-state" role="status">
-        <SpinnerIcon className="vk-settings-spin" aria-hidden="true" />
-        {t('settings.page.states.loadingHosts', 'Loading available hosts…')}
-      </div>
-    );
-  }
-
-  const hostUnavailable =
-    !machineClient ||
-    !selectedHost ||
-    (selectedHost.kind === 'remote' && selectedHost.status === 'offline');
   const requiresHost = route.tab !== 'cloud';
 
   return (
@@ -279,17 +269,259 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
       </nav>
 
       <div className="vk-settings-page__content">
-        {requiresHost && hostUnavailable ? (
-          <HostUnavailableState selectedHost={selectedHost} />
-        ) : (
-          <SettingsContent
-            key={`${selectedHostId ?? 'unselected'}:${route.section}`}
-            section={route.section}
-            hostId={route.host}
-          />
-        )}
+        <SettingsContentBoundary
+          key={`${selectedHostId ?? 'unselected'}:${route.section}`}
+          requiresHost={requiresHost}
+          section={route.section}
+          routeHostId={route.host}
+        />
       </div>
     </section>
+  );
+}
+
+function SettingsContentBoundary({
+  requiresHost,
+  section,
+  routeHostId,
+}: {
+  requiresHost: boolean;
+  section: SettingsSection;
+  routeHostId?: string;
+}) {
+  const { t } = useTranslation('settings');
+  const { hostDiscovery, selectedHost, selectedHostId } = useSettingsHost();
+  const machineClient = useSettingsMachineClient();
+  const machineState = useSettingsMachineState();
+
+  if (!requiresHost) {
+    return <SettingsContent section={section} hostId={routeHostId} />;
+  }
+
+  if (hostDiscovery.isLoading && !hostDiscovery.hasCanonicalData) {
+    return (
+      <LoadingState
+        className="vk-settings-state"
+        title={t(
+          'settings.page.states.loadingHosts',
+          'Loading available hosts…'
+        )}
+      />
+    );
+  }
+
+  if (hostDiscovery.error && !hostDiscovery.hasCanonicalData) {
+    return (
+      <ErrorState
+        className="vk-settings-state"
+        title={t(
+          'settings.page.states.hostDiscoveryErrorTitle',
+          'Hosts could not be loaded'
+        )}
+        description={t(
+          'settings.page.states.hostDiscoveryError',
+          'Try loading the available hosts again.'
+        )}
+        action={
+          hostDiscovery.canRetry ? (
+            <RetryButton
+              label={t('settings.page.states.retryHosts', 'Retry')}
+              loadingLabel={t(
+                'settings.page.states.retryingHosts',
+                'Retrying host discovery'
+              )}
+              isRetrying={hostDiscovery.isRetrying}
+              onRetry={hostDiscovery.retry}
+            />
+          ) : undefined
+        }
+      />
+    );
+  }
+
+  if (!selectedHost || !machineClient) {
+    const retryAction = hostDiscovery.canRetry ? (
+      <RetryButton
+        label={t('settings.page.states.checkHosts', 'Check again')}
+        loadingLabel={t(
+          'settings.page.states.checkingHosts',
+          'Checking available hosts'
+        )}
+        isRetrying={hostDiscovery.isRetrying}
+        onRetry={hostDiscovery.retry}
+      />
+    ) : undefined;
+
+    if (selectedHostId != null) {
+      return (
+        <ErrorState
+          className="vk-settings-state"
+          title={t(
+            'settings.page.states.selectedHostUnavailableTitle',
+            'Selected host unavailable'
+          )}
+          description={t(
+            'settings.page.states.selectedHostUnavailable',
+            'This host is not currently available to this application. Choose another host or try again.'
+          )}
+          action={retryAction}
+        />
+      );
+    }
+
+    return (
+      <EmptyState
+        className="vk-settings-state"
+        title={t('settings.page.states.noHostTitle', 'No host available')}
+        description={t(
+          'settings.page.states.noHost',
+          'Connect a host before managing host-owned settings.'
+        )}
+        action={retryAction}
+      />
+    );
+  }
+
+  if (selectedHost.kind === 'remote' && selectedHost.status === 'offline') {
+    return (
+      <OfflineState
+        className="vk-settings-state"
+        title={t('settings.page.states.hostOfflineTitle', 'Host unavailable')}
+        description={t(
+          'settings.page.states.hostOffline',
+          'Reconnect this host before viewing or changing its settings.'
+        )}
+        action={
+          hostDiscovery.canRetry ? (
+            <RetryButton
+              label={t('settings.page.states.checkHosts', 'Check again')}
+              loadingLabel={t(
+                'settings.page.states.checkingHosts',
+                'Checking available hosts'
+              )}
+              isRetrying={hostDiscovery.isRetrying}
+              onRetry={hostDiscovery.retry}
+            />
+          ) : undefined
+        }
+      />
+    );
+  }
+
+  if (machineState.isLoading && !machineState.hasCanonicalData) {
+    return (
+      <LoadingState
+        className="vk-settings-state"
+        title={t(
+          'settings.page.states.loadingHostSettings',
+          'Loading host settings…'
+        )}
+      />
+    );
+  }
+
+  if (machineState.error && !machineState.hasCanonicalData) {
+    return (
+      <ErrorState
+        className="vk-settings-state"
+        title={t(
+          'settings.page.states.hostSettingsErrorTitle',
+          'Host settings could not be loaded'
+        )}
+        description={t(
+          'settings.page.states.hostSettingsError',
+          'The selected host is available, but its settings request failed.'
+        )}
+        action={
+          <RetryButton
+            label={t('settings.page.states.retrySettings', 'Retry')}
+            loadingLabel={t(
+              'settings.page.states.retryingSettings',
+              'Retrying host settings'
+            )}
+            isRetrying={machineState.isRetrying}
+            onRetry={machineState.retry}
+          />
+        }
+      />
+    );
+  }
+
+  const hostDiscoveryDegraded =
+    hostDiscovery.hasCanonicalData && hostDiscovery.error != null;
+  const machineSettingsDegraded =
+    machineState.hasCanonicalData && machineState.error != null;
+  const isDegraded = hostDiscoveryDegraded || machineSettingsDegraded;
+  const isRetrying =
+    (hostDiscoveryDegraded && hostDiscovery.isRetrying) ||
+    (machineSettingsDegraded && machineState.isRetrying);
+  const retryDegraded = async () => {
+    await Promise.all([
+      hostDiscoveryDegraded ? hostDiscovery.retry() : Promise.resolve(),
+      machineSettingsDegraded ? machineState.retry() : Promise.resolve(),
+    ]);
+  };
+
+  return (
+    <>
+      {isDegraded && (
+        <DegradedState
+          id="settings-degraded-state"
+          compact
+          className="vk-settings-page__degraded"
+          title={t(
+            'settings.page.states.degradedTitle',
+            'Settings are temporarily read-only'
+          )}
+          description={t(
+            'settings.page.states.degraded',
+            'Previously loaded settings remain visible, but changes are disabled until the refresh succeeds.'
+          )}
+          action={
+            <RetryButton
+              label={t('settings.page.states.retryRefresh', 'Retry refresh')}
+              loadingLabel={t(
+                'settings.page.states.retryingRefresh',
+                'Retrying settings refresh'
+              )}
+              isRetrying={isRetrying}
+              onRetry={retryDegraded}
+            />
+          }
+        />
+      )}
+      <fieldset
+        className="vk-settings-page__host-content"
+        disabled={isDegraded}
+        aria-describedby={isDegraded ? 'settings-degraded-state' : undefined}
+      >
+        <SettingsContent section={section} hostId={routeHostId} />
+      </fieldset>
+    </>
+  );
+}
+
+function RetryButton({
+  label,
+  loadingLabel,
+  isRetrying,
+  onRetry,
+}: {
+  label: string;
+  loadingLabel: string;
+  isRetrying: boolean;
+  onRetry: () => Promise<void>;
+}) {
+  return (
+    <Button
+      className="min-h-11"
+      type="button"
+      loading={isRetrying}
+      loadingLabel={loadingLabel}
+      onClick={() => void onRetry()}
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -385,37 +617,6 @@ function RelaySettingsContent({ hostId }: { hostId?: string }) {
         <RelaySettingsSectionContent />
       </SettingsMachineUserSystemProvider>
     </SettingsHostProvider>
-  );
-}
-
-function HostUnavailableState({
-  selectedHost,
-}: {
-  selectedHost: ReturnType<typeof useSettingsHost>['selectedHost'];
-}) {
-  const { t } = useTranslation('settings');
-  return (
-    <div className="vk-settings-state" role="alert">
-      <WarningCircleIcon aria-hidden="true" />
-      <div>
-        <h2>
-          {selectedHost
-            ? t('settings.page.states.hostOfflineTitle', 'Host unavailable')
-            : t('settings.page.states.noHostTitle', 'No host selected')}
-        </h2>
-        <p>
-          {selectedHost
-            ? t(
-                'settings.page.states.hostOffline',
-                'Reconnect this host before viewing or changing its settings.'
-              )
-            : t(
-                'settings.page.states.noHost',
-                'Select an available host to manage host-owned settings.'
-              )}
-        </p>
-      </div>
-    </div>
   );
 }
 
