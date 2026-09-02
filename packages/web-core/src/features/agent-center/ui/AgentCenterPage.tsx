@@ -18,15 +18,33 @@ import {
   type AgentToolProvider,
 } from 'shared/types';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineState,
+} from '@vibe/ui/components/StateSurface';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { AgentConfigurationSettingsPanel } from '@/shared/dialogs/settings/settings/AgentConfigurationSettingsPanel';
 import { AgentToolsSettingsSection } from '@/shared/dialogs/settings/settings/AgentToolsSettingsSection';
 import { AgentCommandsSettingsSection } from '../AgentCommandsSettingsSection';
 import {
+  advanceAgentCenterScope,
+  agentCenterScopeIdentity,
+  canPublishAgentCenterOperation,
+  isAgentCenterScopeCurrent,
+  projectAgentCenterSource,
+  type AgentCenterScopeEpoch,
+  type AgentCenterSourceProjection,
+  type AgentCenterSourceState,
+} from '../model/agentCenterState';
+import {
   useSettingsHost,
   useSettingsMachineClient,
 } from '@/shared/dialogs/settings/settings/SettingsHostContext';
 import { useSettingsDirty } from '@/shared/dialogs/settings/settings/SettingsDirtyContext';
+import { useSettingsMachineState } from '@/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { isAgentProviderReady } from '@/shared/lib/agentProviderOptions';
 import { effectiveStringSetting } from '@/shared/lib/agentSettingsModel';
@@ -34,7 +52,33 @@ import './agent-center.css';
 
 type AgentCenterTab = 'providers' | 'mcp' | 'skills' | 'commands' | 'profiles';
 
-type SummaryState = 'loading' | 'ready' | 'unavailable' | 'error';
+type SummaryState = AgentCenterSourceState;
+
+type RefreshSource =
+  | 'hosts'
+  | 'garage'
+  | 'tools'
+  | 'commands'
+  | 'settings'
+  | 'config';
+
+type RefreshDiagnostic = {
+  source: RefreshSource;
+  message: string;
+};
+
+type RefreshStatus = {
+  scope: AgentCenterScopeEpoch;
+  pending: boolean;
+  diagnostics: RefreshDiagnostic[];
+};
+
+type DefaultMutationOwner = {
+  client: ReturnType<typeof useSettingsMachineClient>;
+  scope: AgentCenterScopeEpoch;
+  executor: BaseCodingAgent;
+  canMutate: boolean;
+};
 
 type ProviderDefinition = {
   executor: BaseCodingAgent;
@@ -113,32 +157,82 @@ function readinessKey(readiness: AgentProviderReadiness): string {
   return `agentCenter.readiness.${readiness.toLowerCase()}`;
 }
 
+function inventoryPayloadErrors(
+  inventory:
+    | {
+        errors: Array<{ provider: string; message: string }>;
+        providers: Array<{ provider: string; errors: string[] }>;
+      }
+    | undefined,
+  provider: string
+): string[] {
+  if (!inventory) return [];
+  return [
+    ...inventory.errors
+      .filter((error) => error.provider === provider)
+      .map((error) => error.message),
+    ...(inventory.providers.find((entry) => entry.provider === provider)
+      ?.errors ?? []),
+  ];
+}
+
+function settingsPayloadErrors(
+  inventory:
+    | {
+        errors: Array<{ provider: AgentSettingsProvider; message: string }>;
+        providers: Array<{
+          provider: AgentSettingsProvider;
+          errors: Array<{ message: string }>;
+        }>;
+      }
+    | undefined,
+  provider: AgentSettingsProvider
+): string[] {
+  if (!inventory) return [];
+  return [
+    ...inventory.errors
+      .filter((error) => error.provider === provider)
+      .map((error) => error.message),
+    ...(inventory.providers
+      .find((entry) => entry.provider === provider)
+      ?.errors.map((error) => error.message) ?? []),
+  ];
+}
+
 export function AgentCenterPage() {
   const { t } = useTranslation('common');
   const {
     availableHosts,
-    hostsResolved,
+    hostDiscovery,
     selectedHost,
     selectedHostId,
     setSelectedHostId,
   } = useSettingsHost();
   const { clearAll: clearDirty, isDirty } = useSettingsDirty();
   const machineClient = useSettingsMachineClient();
-  const {
-    config,
-    loading: configLoading,
-    reloadSystem,
-    updateAndSaveConfig,
-  } = useUserSystem();
+  const machineState = useSettingsMachineState();
+  const { config, updateAndSaveConfig } = useUserSystem();
   const [activeTab, setActiveTab] = useState<AgentCenterTab>('providers');
   const [selectedExecutor, setSelectedExecutor] = useState<BaseCodingAgent>(
     BaseCodingAgent.CODEX
   );
-  const [rescanning, setRescanning] = useState(false);
-  const [defaultSaving, setDefaultSaving] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(
+    null
+  );
+  const [defaultMutation, setDefaultMutation] = useState<{
+    sequence: number;
+    owner: DefaultMutationOwner;
+  } | null>(null);
+  const [actionError, setActionError] = useState<{
+    scope: AgentCenterScopeEpoch;
+    message: string;
+  } | null>(null);
   const navigationConfirmationPending = useRef(false);
   const allowNavigationRef = useRef(false);
+  const refreshPendingRef = useRef<AgentCenterScopeEpoch | null>(null);
+  const defaultMutationSequence = useRef(0);
+  const defaultMutationPendingRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
   const navigationBlocker = useBlocker({
     shouldBlockFn: () => isDirty && !allowNavigationRef.current,
     enableBeforeUnload: false,
@@ -154,6 +248,34 @@ export function AgentCenterPage() {
       (selectedHost.kind === 'local' || selectedHost.status !== 'offline')
   );
   const queryPrefix = machineClient?.queryScopeKey ?? ['machine', 'unselected'];
+  const scopeIdentity = agentCenterScopeIdentity(
+    machineClient?.queryScopeKey,
+    selectedProvider.settingsProvider,
+    activeTab
+  );
+  const activeScopeRef = useRef<AgentCenterScopeEpoch>({
+    identity: scopeIdentity,
+    epoch: 0,
+  });
+  const nextScope = advanceAgentCenterScope(
+    activeScopeRef.current,
+    scopeIdentity
+  );
+  if (nextScope !== activeScopeRef.current) {
+    activeScopeRef.current = nextScope;
+    refreshPendingRef.current = null;
+  }
+  const machineClientRef = useRef(machineClient);
+  machineClientRef.current = machineClient;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      refreshPendingRef.current = null;
+      defaultMutationPendingRef.current = null;
+    };
+  }, []);
 
   const garageQuery = useQuery({
     queryKey: [...queryPrefix, 'agent-center', 'garage'],
@@ -209,52 +331,59 @@ export function AgentCenterPage() {
   const selectedCommandInventory = commandsQuery.data?.providers.find(
     (provider) => provider.provider === selectedProvider.commandProvider
   );
-  const toolPayloadErrors = [
-    ...(toolsQuery.data?.errors
-      .filter((error) => error.provider === selectedProvider.toolProvider)
-      .map((error) => error.message) ?? []),
-    ...(selectedToolInventory?.errors ?? []),
-  ];
-  const settingsPayloadErrors = [
-    ...(settingsQuery.data?.errors
-      .filter((error) => error.provider === selectedProvider.settingsProvider)
-      .map((error) => error.message) ?? []),
-    ...(selectedSnapshot?.errors.map((error) => error.message) ?? []),
-  ];
-  const commandPayloadErrors = [
-    ...(commandsQuery.data?.errors
-      .filter((error) => error.provider === selectedProvider.commandProvider)
-      .map((error) => error.message) ?? []),
-    ...(selectedCommandInventory?.errors ?? []),
-  ];
-  const toolsState: SummaryState = toolsQuery.isLoading
-    ? 'loading'
-    : toolsQuery.isError || toolPayloadErrors.length > 0
-      ? 'error'
-      : selectedToolInventory?.installed
-        ? 'ready'
-        : 'unavailable';
-  const settingsState: SummaryState = settingsQuery.isLoading
-    ? 'loading'
-    : settingsQuery.isError || settingsPayloadErrors.length > 0
-      ? 'error'
-      : selectedSnapshot?.installed
-        ? 'ready'
-        : 'unavailable';
-  const commandsState: SummaryState = commandsQuery.isLoading
-    ? 'loading'
-    : commandsQuery.isError || commandPayloadErrors.length > 0
-      ? 'error'
-      : selectedCommandInventory?.installed
-        ? 'ready'
-        : 'unavailable';
-  const summaryDiagnostics = Array.from(
-    new Set([
-      ...toolPayloadErrors,
-      ...settingsPayloadErrors,
-      ...commandPayloadErrors,
-    ])
+  const toolPayloadErrors = inventoryPayloadErrors(
+    toolsQuery.data,
+    selectedProvider.toolProvider
   );
+  const selectedSettingsPayloadErrors = settingsPayloadErrors(
+    settingsQuery.data,
+    selectedProvider.settingsProvider
+  );
+  const commandPayloadErrors = inventoryPayloadErrors(
+    commandsQuery.data,
+    selectedProvider.commandProvider
+  );
+  const garageProjection = projectAgentCenterSource({
+    hasCanonicalData: garageQuery.data !== undefined,
+    isLoading: garageQuery.isLoading,
+    isFetching: garageQuery.isFetching,
+    error: garageQuery.error,
+    capabilityAvailable: selectedGarageEntry !== null,
+  });
+  const toolsProjection = projectAgentCenterSource({
+    hasCanonicalData: selectedToolInventory !== undefined,
+    isLoading: toolsQuery.isLoading,
+    isFetching: toolsQuery.isFetching,
+    error: toolsQuery.error,
+    diagnosticCount: toolPayloadErrors.length,
+    capabilityAvailable: Boolean(selectedToolInventory?.installed),
+  });
+  const settingsProjection = projectAgentCenterSource({
+    hasCanonicalData: selectedSnapshot !== undefined,
+    isLoading: settingsQuery.isLoading,
+    isFetching: settingsQuery.isFetching,
+    error: settingsQuery.error,
+    diagnosticCount: selectedSettingsPayloadErrors.length,
+    capabilityAvailable: Boolean(selectedSnapshot?.installed),
+  });
+  const commandsProjection = projectAgentCenterSource({
+    hasCanonicalData: selectedCommandInventory !== undefined,
+    isLoading: commandsQuery.isLoading,
+    isFetching: commandsQuery.isFetching,
+    error: commandsQuery.error,
+    diagnosticCount: commandPayloadErrors.length,
+    capabilityAvailable: Boolean(selectedCommandInventory?.installed),
+  });
+  const configProjection = projectAgentCenterSource({
+    hasCanonicalData: machineState.hasCanonicalData,
+    isLoading: machineState.isLoading,
+    isFetching: machineState.isRetrying,
+    error: machineState.error,
+    capabilityAvailable: config !== null,
+  });
+  const toolsState: SummaryState = toolsProjection.state;
+  const settingsState: SummaryState = settingsProjection.state;
+  const commandsState: SummaryState = commandsProjection.state;
   const mcpItems =
     selectedToolInventory?.items.filter((item) => item.kind === 'mcp_server') ??
     [];
@@ -263,6 +392,42 @@ export function AgentCenterPage() {
   const commandItems = selectedCommandInventory?.items ?? [];
   const isDefault =
     config?.executor_profile?.executor === selectedProvider.executor;
+  const currentRefreshStatus =
+    refreshStatus &&
+    isAgentCenterScopeCurrent(refreshStatus.scope, activeScopeRef.current)
+      ? refreshStatus
+      : null;
+  const currentActionError =
+    actionError &&
+    isAgentCenterScopeCurrent(actionError.scope, activeScopeRef.current)
+      ? actionError.message
+      : null;
+  const rescanning = Boolean(currentRefreshStatus?.pending);
+  const currentDefaultMutation =
+    defaultMutation &&
+    isAgentCenterScopeCurrent(
+      defaultMutation.owner.scope,
+      activeScopeRef.current
+    )
+      ? defaultMutation
+      : null;
+  const defaultSaving = currentDefaultMutation !== null;
+  const defaultOwnerRef = useRef<DefaultMutationOwner>({
+    client: machineClient,
+    scope: activeScopeRef.current,
+    executor: selectedProvider.executor,
+    canMutate: false,
+  });
+  defaultOwnerRef.current = {
+    client: machineClient,
+    scope: activeScopeRef.current,
+    executor: selectedProvider.executor,
+    canMutate:
+      machineState.canMutate &&
+      configProjection.canMutate &&
+      garageProjection.hasUsableData &&
+      isAgentProviderReady(readinessFor(selectedGarageEntry)),
+  };
 
   const confirmDiscard = useCallback(async (): Promise<boolean> => {
     if (navigationConfirmationPending.current) return false;
@@ -283,11 +448,15 @@ export function AgentCenterPage() {
 
   const runAfterDirtyConfirmation = useCallback(
     async (action: () => void) => {
+      const expectedScope = activeScopeRef.current;
       if (!isDirty) {
         action();
         return;
       }
       if (await confirmDiscard()) {
+        if (!isAgentCenterScopeCurrent(expectedScope, activeScopeRef.current)) {
+          return;
+        }
         clearDirty();
         action();
       }
@@ -319,6 +488,9 @@ export function AgentCenterPage() {
         allowNavigationRef.current = true;
         clearDirty();
         navigationBlocker.proceed();
+        queueMicrotask(() => {
+          allowNavigationRef.current = false;
+        });
       } else {
         navigationBlocker.reset();
       }
@@ -328,107 +500,253 @@ export function AgentCenterPage() {
     };
   }, [clearDirty, confirmDiscard, navigationBlocker]);
 
-  const refreshToolSummary = async () => {
-    const result = await toolsQuery.refetch();
-    if (result.isError) {
-      throw result.error ?? new Error(t('agentCenter.errors.loadTools'));
+  const refreshSourceMessage = (source: RefreshSource): string => {
+    switch (source) {
+      case 'garage':
+        return t('agentCenter.errors.loadProviders');
+      case 'tools':
+        return t('agentCenter.errors.loadTools');
+      case 'commands':
+      case 'settings':
+      case 'hosts':
+      case 'config':
+        return t('agentCenter.errors.rescan');
     }
+  };
+
+  const refreshSourceLabel = (source: RefreshSource): string => {
+    switch (source) {
+      case 'hosts':
+        return t('agentCenter.host');
+      case 'garage':
+        return t('agentCenter.tabs.providers');
+      case 'tools':
+        return t('agentCenter.enabledTools');
+      case 'commands':
+        return t('agentCenter.tabs.commands');
+      case 'settings':
+        return t('agentCenter.nativeSummary');
+      case 'config':
+        return t('agentCenter.tabs.profiles');
+    }
+  };
+
+  const runRefresh = async (sources: RefreshSource[]) => {
+    const scope = activeScopeRef.current;
+    if (
+      refreshPendingRef.current &&
+      isAgentCenterScopeCurrent(refreshPendingRef.current, scope)
+    ) {
+      return;
+    }
+
+    const client = machineClient;
+    if (!client || !hostAvailable) return;
+
+    refreshPendingRef.current = scope;
+    setRefreshStatus({ scope, pending: true, diagnostics: [] });
+    setActionError(null);
+
+    const attempts = sources.map(async (source) => {
+      switch (source) {
+        case 'hosts':
+          await hostDiscovery.retry();
+          return;
+        case 'garage': {
+          const result = await garageQuery.refetch();
+          if (result.isError) {
+            throw result.error ?? new Error(refreshSourceMessage(source));
+          }
+          return;
+        }
+        case 'tools': {
+          const result = await toolsQuery.refetch();
+          if (
+            result.isError ||
+            inventoryPayloadErrors(result.data, selectedProvider.toolProvider)
+              .length > 0
+          ) {
+            throw result.error ?? new Error(refreshSourceMessage(source));
+          }
+          return;
+        }
+        case 'commands': {
+          const result = await commandsQuery.refetch();
+          if (
+            result.isError ||
+            inventoryPayloadErrors(
+              result.data,
+              selectedProvider.commandProvider
+            ).length > 0
+          ) {
+            throw result.error ?? new Error(refreshSourceMessage(source));
+          }
+          return;
+        }
+        case 'settings': {
+          const result = await settingsQuery.refetch();
+          if (
+            result.isError ||
+            settingsPayloadErrors(
+              result.data,
+              selectedProvider.settingsProvider
+            ).length > 0
+          ) {
+            throw result.error ?? new Error(refreshSourceMessage(source));
+          }
+          return;
+        }
+        case 'config':
+          await machineState.retry();
+      }
+    });
+
+    try {
+      const results = await Promise.allSettled(attempts);
+      if (
+        !canPublishAgentCenterOperation(
+          scope,
+          activeScopeRef.current,
+          mountedRef.current
+        ) ||
+        machineClientRef.current !== client
+      ) {
+        return;
+      }
+      const diagnostics = results.flatMap<RefreshDiagnostic>((result, index) =>
+        result.status === 'rejected'
+          ? [
+              {
+                source: sources[index],
+                message: refreshSourceMessage(sources[index]),
+              },
+            ]
+          : []
+      );
+      setRefreshStatus({ scope, pending: false, diagnostics });
+    } finally {
+      if (
+        canPublishAgentCenterOperation(
+          scope,
+          activeScopeRef.current,
+          mountedRef.current
+        ) &&
+        refreshPendingRef.current &&
+        isAgentCenterScopeCurrent(refreshPendingRef.current, scope)
+      ) {
+        refreshPendingRef.current = null;
+        setRefreshStatus((current) =>
+          current && isAgentCenterScopeCurrent(current.scope, scope)
+            ? { ...current, pending: false }
+            : current
+        );
+      }
+    }
+  };
+
+  const refreshToolSummary = async () => {
+    await runRefresh(['tools']);
   };
 
   const refreshCommandSummary = async () => {
-    const result = await commandsQuery.refetch();
-    if (result.isError) {
-      throw result.error ?? new Error(t('agentCenter.errors.loadCommands'));
-    }
+    await runRefresh(['commands']);
   };
 
-  const rescan = async () => {
-    setRescanning(true);
-    setActionError(null);
-    try {
-      const [garageResult, toolsResult, commandsResult, settingsResult] =
-        await Promise.all([
-          garageQuery.refetch(),
-          toolsQuery.refetch(),
-          commandsQuery.refetch(),
-          settingsQuery.refetch(),
-          reloadSystem(),
-        ]);
-      if (
-        garageResult.isError ||
-        toolsResult.isError ||
-        commandsResult.isError ||
-        settingsResult.isError ||
-        Boolean(toolsResult.data?.errors.length) ||
-        Boolean(
-          toolsResult.data?.providers.some(
-            (providerInventory) => providerInventory.errors.length > 0
-          )
-        ) ||
-        Boolean(commandsResult.data?.errors.length) ||
-        Boolean(
-          commandsResult.data?.providers.some(
-            (providerInventory) => providerInventory.errors.length > 0
-          )
-        ) ||
-        Boolean(settingsResult.data?.errors.length) ||
-        Boolean(
-          settingsResult.data?.providers.some(
-            (snapshot) => snapshot.errors.length > 0
-          )
-        )
-      ) {
-        throw new Error(t('agentCenter.errors.rescan'));
-      }
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : t('agentCenter.errors.rescan')
-      );
-    } finally {
-      setRescanning(false);
-    }
+  const ownerIsCurrent = (owner: DefaultMutationOwner): boolean => {
+    const current = defaultOwnerRef.current;
+    return (
+      current.client === owner.client &&
+      current.executor === owner.executor &&
+      current.canMutate &&
+      mountedRef.current &&
+      isAgentCenterScopeCurrent(owner.scope, current.scope)
+    );
   };
 
   const setDefaultProvider = async () => {
-    setDefaultSaving(true);
+    const owner = defaultOwnerRef.current;
+    if (
+      !owner.canMutate ||
+      defaultMutationPendingRef.current !== null ||
+      !ownerIsCurrent(owner)
+    ) {
+      return;
+    }
+
+    const sequence = ++defaultMutationSequence.current;
+    defaultMutationPendingRef.current = sequence;
+    setDefaultMutation({ sequence, owner });
     setActionError(null);
     try {
+      if (!ownerIsCurrent(owner)) return;
       const saved = await updateAndSaveConfig({
         executor_profile: {
-          executor: selectedProvider.executor,
+          executor: owner.executor,
           variant: null,
         },
       });
       if (!saved) throw new Error(t('agentCenter.errors.setDefault'));
     } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : t('agentCenter.errors.setDefault')
-      );
+      if (ownerIsCurrent(owner)) {
+        setActionError({
+          scope: owner.scope,
+          message:
+            error instanceof Error
+              ? error.message
+              : t('agentCenter.errors.setDefault'),
+        });
+      }
     } finally {
-      setDefaultSaving(false);
+      if (defaultMutationPendingRef.current === sequence) {
+        defaultMutationPendingRef.current = null;
+        if (mountedRef.current) {
+          setDefaultMutation((current) =>
+            current?.sequence === sequence ? null : current
+          );
+        }
+      }
     }
   };
 
-  if (!hostsResolved) {
+  if (!hostDiscovery.hasCanonicalData && hostDiscovery.isLoading) {
     return (
-      <div className="vk-agent-center-state" role="status">
-        <SpinnerIcon className="vk-agent-center-spin" aria-hidden="true" />
-        {t('agentCenter.states.loadingHosts')}
-      </div>
+      <section className="vk-agent-center" aria-label={t('agentCenter.title')}>
+        <LoadingState title={t('agentCenter.states.loadingHosts')} />
+      </section>
+    );
+  }
+
+  if (!hostDiscovery.hasCanonicalData && hostDiscovery.error) {
+    return (
+      <section className="vk-agent-center" aria-label={t('agentCenter.title')}>
+        <ErrorState
+          title={t('agentCenter.title')}
+          description={t('agentCenter.errors.rescan')}
+          action={
+            hostDiscovery.canRetry ? (
+              <button
+                type="button"
+                className="vk-agent-center__state-action"
+                disabled={hostDiscovery.isRetrying}
+                onClick={() => void hostDiscovery.retry()}
+              >
+                {t('buttons.retry')}
+              </button>
+            ) : undefined
+          }
+        />
+      </section>
     );
   }
 
   if (!selectedHost) {
     return (
-      <div className="vk-agent-center-state" role="status">
-        <WarningCircleIcon aria-hidden="true" />
-        <div>
-          <h1>{t('agentCenter.title')}</h1>
-          <p>{t('agentCenter.states.noHost')}</p>
-        </div>
-      </div>
+      <section className="vk-agent-center" aria-label={t('agentCenter.title')}>
+        <EmptyState
+          title={t('agentCenter.title')}
+          description={t('agentCenter.states.noHost')}
+        />
+      </section>
     );
   }
 
@@ -452,6 +770,9 @@ export function AgentCenterPage() {
                 onChange={(event) => {
                   const hostId = event.target.value;
                   if (hostId === selectedHostId) return;
+                  // Keep the controlled selection on the canonical Host while
+                  // the discard confirmation is open or gets cancelled.
+                  event.currentTarget.value = selectedHostId ?? '';
                   void runAfterDirtyConfirmation(() =>
                     setSelectedHostId(hostId)
                   );
@@ -477,7 +798,18 @@ export function AgentCenterPage() {
                 ? undefined
                 : t('agentCenter.disabled.hostUnavailable')
             }
-            onClick={() => void rescan()}
+            onClick={() =>
+              void runRefresh([
+                ...(hostDiscovery.canRetry
+                  ? (['hosts'] as RefreshSource[])
+                  : []),
+                'garage',
+                'tools',
+                'commands',
+                'settings',
+                'config',
+              ])
+            }
           >
             {rescanning ? (
               <SpinnerIcon
@@ -491,6 +823,45 @@ export function AgentCenterPage() {
           </button>
         </div>
       </header>
+
+      {Boolean(hostDiscovery.error) && hostDiscovery.hasCanonicalData && (
+        <DegradedState
+          compact
+          title={t('agentCenter.readiness.degraded')}
+          description={t('agentCenter.errors.rescan')}
+          action={
+            hostDiscovery.canRetry ? (
+              <button
+                type="button"
+                className="vk-agent-center__state-action"
+                disabled={hostDiscovery.isRetrying}
+                onClick={() => void hostDiscovery.retry()}
+              >
+                {t('buttons.retry')}
+              </button>
+            ) : undefined
+          }
+        />
+      )}
+
+      {currentRefreshStatus &&
+        !currentRefreshStatus.pending &&
+        currentRefreshStatus.diagnostics.length > 0 && (
+          <DegradedState
+            compact
+            title={t('agentCenter.readiness.degraded')}
+            description={
+              <ul className="vk-agent-center__refresh-diagnostics">
+                {currentRefreshStatus.diagnostics.map((diagnostic) => (
+                  <li key={diagnostic.source}>
+                    <strong>{refreshSourceLabel(diagnostic.source)}</strong>
+                    <span>{diagnostic.message}</span>
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        )}
 
       <nav
         className="vk-agent-center__tabs"
@@ -512,13 +883,10 @@ export function AgentCenterPage() {
       </nav>
 
       {hostOffline ? (
-        <div className="vk-agent-center-state" role="alert">
-          <WarningCircleIcon aria-hidden="true" />
-          <div>
-            <h2>{t('agentCenter.states.hostOfflineTitle')}</h2>
-            <p>{t('agentCenter.states.hostOffline')}</p>
-          </div>
-        </div>
+        <OfflineState
+          title={t('agentCenter.states.hostOfflineTitle')}
+          description={t('agentCenter.states.hostOffline')}
+        />
       ) : (
         <div className="vk-agent-center__workspace">
           <aside
@@ -558,19 +926,12 @@ export function AgentCenterPage() {
           </aside>
 
           <section className="vk-agent-center__content">
-            {actionError && (
+            {currentActionError && (
               <div className="vk-agent-center__alert" role="alert">
                 <WarningCircleIcon aria-hidden="true" />
-                {actionError}
+                {currentActionError}
               </div>
             )}
-            {garageQuery.isError && activeTab === 'providers' && (
-              <div className="vk-agent-center__alert" role="alert">
-                <WarningCircleIcon aria-hidden="true" />
-                {t('agentCenter.errors.loadProviders')}
-              </div>
-            )}
-
             {activeTab === 'providers' && (
               <ProviderOverview
                 provider={selectedProvider}
@@ -593,13 +954,22 @@ export function AgentCenterPage() {
                 toolsState={toolsState}
                 commandsState={commandsState}
                 settingsState={settingsState}
-                summaryDiagnostics={summaryDiagnostics}
-                defaultState={
-                  configLoading ? 'loading' : config ? 'ready' : 'unavailable'
-                }
+                toolsProjection={toolsProjection}
+                commandsProjection={commandsProjection}
+                settingsProjection={settingsProjection}
+                configProjection={configProjection}
+                garageProjection={garageProjection}
                 isDefault={isDefault}
-                loading={garageQuery.isLoading}
+                canSetDefault={
+                  defaultOwnerRef.current.canMutate &&
+                  defaultMutationPendingRef.current === null
+                }
                 defaultSaving={defaultSaving}
+                onRetryGarage={() => void runRefresh(['garage'])}
+                onRetryTools={() => void runRefresh(['tools'])}
+                onRetryCommands={() => void runRefresh(['commands'])}
+                onRetrySettings={() => void runRefresh(['settings'])}
+                onRetryConfig={() => void runRefresh(['config'])}
                 onSetDefault={() => void setDefaultProvider()}
                 onOpenConfiguration={() =>
                   void runAfterDirtyConfirmation(() => setActiveTab('profiles'))
@@ -658,11 +1028,19 @@ function ProviderOverview({
   toolsState,
   commandsState,
   settingsState,
-  summaryDiagnostics,
-  defaultState,
+  toolsProjection,
+  commandsProjection,
+  settingsProjection,
+  configProjection,
+  garageProjection,
   isDefault,
-  loading,
+  canSetDefault,
   defaultSaving,
+  onRetryGarage,
+  onRetryTools,
+  onRetryCommands,
+  onRetrySettings,
+  onRetryConfig,
   onSetDefault,
   onOpenConfiguration,
   onOpenTools,
@@ -681,17 +1059,27 @@ function ProviderOverview({
   toolsState: SummaryState;
   commandsState: SummaryState;
   settingsState: SummaryState;
-  summaryDiagnostics: string[];
-  defaultState: SummaryState;
+  toolsProjection: AgentCenterSourceProjection;
+  commandsProjection: AgentCenterSourceProjection;
+  settingsProjection: AgentCenterSourceProjection;
+  configProjection: AgentCenterSourceProjection;
+  garageProjection: AgentCenterSourceProjection;
   isDefault: boolean;
-  loading: boolean;
+  canSetDefault: boolean;
   defaultSaving: boolean;
+  onRetryGarage: () => void;
+  onRetryTools: () => void;
+  onRetryCommands: () => void;
+  onRetrySettings: () => void;
+  onRetryConfig: () => void;
   onSetDefault: () => void;
   onOpenConfiguration: () => void;
   onOpenTools: () => void;
 }) {
   const { t } = useTranslation('common');
   const readiness = readinessFor(entry);
+  const hasGarageProviderData =
+    garageProjection.hasUsableData && entry !== null;
   const capabilities = entry?.policy?.capabilities ?? [];
   const diagnostics = entry?.policy?.diagnostics ?? [];
   const configurationSource =
@@ -701,10 +1089,11 @@ function ProviderOverview({
         ? t('agentCenter.configurationSources.nativeUser')
         : t('agentCenter.adapterManaged');
   const providerReady = isAgentProviderReady(readiness);
+  const defaultState = configProjection.state;
   const defaultUnavailableReason =
     defaultState === 'loading'
       ? t('agentCenter.disabled.configLoading')
-      : defaultState === 'unavailable'
+      : defaultState !== 'ready'
         ? t('agentCenter.disabled.configUnavailable')
         : !providerReady
           ? t('agentCenter.disabled.providerUnavailable')
@@ -722,6 +1111,7 @@ function ProviderOverview({
         return t('agentCenter.states.summaryError');
       case 'unavailable':
         return unavailableValue;
+      case 'degraded':
       case 'ready':
         return readyValue;
     }
@@ -733,14 +1123,28 @@ function ProviderOverview({
         <div>
           <p>{t('agentCenter.selectedProvider')}</p>
           <h2>{provider.label}</h2>
-          <span data-tone={readinessTone(readiness)}>
-            {t(readinessKey(readiness))}
-            {' · '}
-            {entry?.bundled_version
-              ? t('agentCenter.bundledVersion', {
-                  version: entry.bundled_version,
-                })
-              : t('agentCenter.versionUnavailable')}
+          <span
+            data-tone={
+              hasGarageProviderData ? readinessTone(readiness) : 'unavailable'
+            }
+          >
+            {hasGarageProviderData ? (
+              <>
+                {t(readinessKey(readiness))}
+                {' · '}
+                {entry.bundled_version
+                  ? t('agentCenter.bundledVersion', {
+                      version: entry.bundled_version,
+                    })
+                  : t('agentCenter.versionUnavailable')}
+              </>
+            ) : garageProjection.state === 'loading' ? (
+              t('agentCenter.states.loadingProvider')
+            ) : garageProjection.state === 'error' ? (
+              t('agentCenter.errors.loadProviders')
+            ) : (
+              t('agentCenter.states.summaryUnavailable')
+            )}
           </span>
         </div>
         <div className="vk-agent-center__provider-actions">
@@ -748,7 +1152,7 @@ function ProviderOverview({
             type="button"
             disabled={
               isDefault ||
-              !providerReady ||
+              !canSetDefault ||
               defaultSaving ||
               defaultState !== 'ready'
             }
@@ -776,124 +1180,221 @@ function ProviderOverview({
         </div>
       </div>
 
-      {loading ? (
-        <div className="vk-agent-center__loading" role="status">
-          <SpinnerIcon className="vk-agent-center-spin" aria-hidden="true" />
-          {t('agentCenter.states.loadingProvider')}
-        </div>
-      ) : (
-        <>
-          {diagnostics.length > 0 && (
-            <div className="vk-agent-center__diagnostics">
-              {diagnostics.map((diagnostic) => (
-                <p key={`${diagnostic.kind}:${diagnostic.message}`}>
-                  <WarningCircleIcon aria-hidden="true" />
-                  {diagnostic.message}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {summaryDiagnostics.length > 0 && (
-            <div
-              className="vk-agent-center__diagnostics"
-              role="alert"
-              aria-label={t('agentCenter.states.summaryDiagnostics')}
+      {garageProjection.state === 'loading' ? (
+        <LoadingState title={t('agentCenter.states.loadingProvider')} />
+      ) : garageProjection.state === 'error' ? (
+        <ErrorState
+          title={t('agentCenter.errors.loadProviders')}
+          action={
+            <button
+              type="button"
+              className="vk-agent-center__state-action"
+              onClick={onRetryGarage}
             >
-              {summaryDiagnostics.map((diagnostic) => (
-                <p key={diagnostic}>
-                  <WarningCircleIcon aria-hidden="true" />
-                  {diagnostic}
-                </p>
+              {t('buttons.retry')}
+            </button>
+          }
+        />
+      ) : garageProjection.state === 'unavailable' ? (
+        <EmptyState
+          title={t('agentCenter.states.summaryUnavailable')}
+          description={t('agentCenter.errors.loadProviders')}
+          action={
+            <button
+              type="button"
+              className="vk-agent-center__state-action"
+              onClick={onRetryGarage}
+            >
+              {t('buttons.retry')}
+            </button>
+          }
+        />
+      ) : garageProjection.state === 'degraded' ? (
+        <DegradedState
+          compact
+          title={t('agentCenter.readiness.degraded')}
+          description={t('agentCenter.errors.loadProviders')}
+          action={
+            <button
+              type="button"
+              className="vk-agent-center__state-action"
+              onClick={onRetryGarage}
+            >
+              {t('buttons.retry')}
+            </button>
+          }
+        />
+      ) : null}
+
+      <div className="vk-agent-center__source-states">
+        <SourceProjectionNotice
+          projection={toolsProjection}
+          title={t('agentCenter.enabledTools')}
+          description={t('agentCenter.errors.loadTools')}
+          onRetry={onRetryTools}
+        />
+        <SourceProjectionNotice
+          projection={commandsProjection}
+          title={t('agentCenter.tabs.commands')}
+          description={t('agentCenter.errors.rescan')}
+          onRetry={onRetryCommands}
+        />
+        <SourceProjectionNotice
+          projection={settingsProjection}
+          title={t('agentCenter.nativeSummary')}
+          description={t('agentCenter.errors.rescan')}
+          onRetry={onRetrySettings}
+        />
+        <SourceProjectionNotice
+          projection={configProjection}
+          title={t('agentCenter.tabs.profiles')}
+          description={t('agentCenter.errors.rescan')}
+          onRetry={onRetryConfig}
+        />
+      </div>
+      {diagnostics.length > 0 && (
+        <div className="vk-agent-center__diagnostics">
+          {diagnostics.map((diagnostic) => (
+            <p key={`${diagnostic.kind}:${diagnostic.message}`}>
+              <WarningCircleIcon aria-hidden="true" />
+              {diagnostic.message}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {hasGarageProviderData && (
+        <section className="vk-agent-center__section">
+          <h3>{t('agentCenter.capabilities')}</h3>
+          {capabilities.length > 0 ? (
+            <div className="vk-agent-center__capabilities">
+              {capabilities.map((capability) => (
+                <span key={capability}>
+                  <CheckCircleIcon aria-hidden="true" />
+                  {t(capabilityKey(capability))}
+                </span>
               ))}
             </div>
+          ) : (
+            <p className="vk-agent-center__empty">
+              {t('agentCenter.noCapabilities')}
+            </p>
           )}
-
-          <section className="vk-agent-center__section">
-            <h3>{t('agentCenter.capabilities')}</h3>
-            {capabilities.length > 0 ? (
-              <div className="vk-agent-center__capabilities">
-                {capabilities.map((capability) => (
-                  <span key={capability}>
-                    <CheckCircleIcon aria-hidden="true" />
-                    {t(capabilityKey(capability))}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="vk-agent-center__empty">
-                {t('agentCenter.noCapabilities')}
-              </p>
-            )}
-          </section>
-
-          <section className="vk-agent-center__section">
-            <div className="vk-agent-center__section-heading">
-              <h3>{t('agentCenter.enabledTools')}</h3>
-              <button type="button" onClick={onOpenTools}>
-                {t('agentCenter.manageTools')}
-              </button>
-            </div>
-            <div className="vk-agent-center__metric-grid">
-              <Metric
-                label={t('agentCenter.tabs.mcp')}
-                value={summaryValue(toolsState, `${mcpEnabled} / ${mcpTotal}`)}
-                state={toolsState}
-              />
-              <Metric
-                label={t('agentCenter.tabs.skills')}
-                value={summaryValue(
-                  toolsState,
-                  `${skillsEnabled} / ${skillsTotal}`
-                )}
-                state={toolsState}
-              />
-              <Metric
-                label={t('agentCenter.tabs.commands')}
-                value={summaryValue(
-                  commandsState,
-                  `${commandsEnabled} / ${commandsTotal}`
-                )}
-                state={commandsState}
-              />
-            </div>
-          </section>
-
-          <section className="vk-agent-center__section">
-            <div className="vk-agent-center__section-heading">
-              <h3>{t('agentCenter.nativeSummary')}</h3>
-              <button type="button" onClick={onOpenConfiguration}>
-                {t('buttons.edit')}
-              </button>
-            </div>
-            <div className="vk-agent-center__metric-grid">
-              <Metric
-                label={t('agentCenter.defaultModel')}
-                value={summaryValue(
-                  settingsState,
-                  model ?? t('agentCenter.inheritedOrUnset')
-                )}
-                state={settingsState}
-              />
-              <Metric
-                label={t('agentCenter.apiAddress')}
-                value={summaryValue(
-                  settingsState,
-                  apiAddress ?? t('agentCenter.inheritedOrUnset')
-                )}
-                state={settingsState}
-              />
-              <Metric
-                label={t('agentCenter.configurationSource')}
-                value={summaryValue(settingsState, configurationSource)}
-                state={settingsState}
-              />
-            </div>
-          </section>
-        </>
+        </section>
       )}
+
+      <section className="vk-agent-center__section">
+        <div className="vk-agent-center__section-heading">
+          <h3>{t('agentCenter.enabledTools')}</h3>
+          <button type="button" onClick={onOpenTools}>
+            {t('agentCenter.manageTools')}
+          </button>
+        </div>
+        <div className="vk-agent-center__metric-grid">
+          <Metric
+            label={t('agentCenter.tabs.mcp')}
+            value={summaryValue(toolsState, `${mcpEnabled} / ${mcpTotal}`)}
+            state={toolsState}
+          />
+          <Metric
+            label={t('agentCenter.tabs.skills')}
+            value={summaryValue(
+              toolsState,
+              `${skillsEnabled} / ${skillsTotal}`
+            )}
+            state={toolsState}
+          />
+          <Metric
+            label={t('agentCenter.tabs.commands')}
+            value={summaryValue(
+              commandsState,
+              `${commandsEnabled} / ${commandsTotal}`
+            )}
+            state={commandsState}
+          />
+        </div>
+      </section>
+
+      <section className="vk-agent-center__section">
+        <div className="vk-agent-center__section-heading">
+          <h3>{t('agentCenter.nativeSummary')}</h3>
+          <button type="button" onClick={onOpenConfiguration}>
+            {t('buttons.edit')}
+          </button>
+        </div>
+        <div className="vk-agent-center__metric-grid">
+          <Metric
+            label={t('agentCenter.defaultModel')}
+            value={summaryValue(
+              settingsState,
+              model ?? t('agentCenter.inheritedOrUnset')
+            )}
+            state={settingsState}
+          />
+          <Metric
+            label={t('agentCenter.apiAddress')}
+            value={summaryValue(
+              settingsState,
+              apiAddress ?? t('agentCenter.inheritedOrUnset')
+            )}
+            state={settingsState}
+          />
+          <Metric
+            label={t('agentCenter.configurationSource')}
+            value={summaryValue(settingsState, configurationSource)}
+            state={settingsState}
+          />
+        </div>
+      </section>
     </div>
   );
+}
+
+function SourceProjectionNotice({
+  projection,
+  title,
+  description,
+  onRetry,
+}: {
+  projection: AgentCenterSourceProjection;
+  title: string;
+  description: string;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation('common');
+  const action = (
+    <button
+      type="button"
+      className="vk-agent-center__state-action"
+      onClick={onRetry}
+    >
+      {t('buttons.retry')}
+    </button>
+  );
+
+  if (projection.state === 'error') {
+    return (
+      <ErrorState
+        compact
+        title={title}
+        description={description}
+        action={action}
+      />
+    );
+  }
+
+  if (projection.state === 'degraded') {
+    return (
+      <DegradedState
+        compact
+        title={title}
+        description={description}
+        action={action}
+      />
+    );
+  }
+
+  return null;
 }
 
 function Metric({

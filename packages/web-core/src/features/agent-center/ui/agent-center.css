@@ -13,13 +13,12 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--vk-space-4);
+  min-width: 0;
 }
 
 .vk-agent-center__header h1,
 .vk-agent-center__provider-heading h2,
-.vk-agent-center__section h3,
-.vk-agent-center-state h1,
-.vk-agent-center-state h2 {
+.vk-agent-center__section h3 {
   margin: 0;
   color: var(--vk-text-high);
 }
@@ -29,8 +28,7 @@
   line-height: 1.2;
 }
 
-.vk-agent-center__header > div:first-child > p:last-child,
-.vk-agent-center-state p {
+.vk-agent-center__header > div:first-child > p:last-child {
   max-width: 720px;
   margin: var(--vk-space-2) 0 0;
   color: var(--vk-text-low);
@@ -56,6 +54,7 @@
   align-items: flex-end;
   justify-content: flex-end;
   gap: var(--vk-space-2);
+  max-width: 100%;
 }
 
 .vk-agent-center__host-picker {
@@ -63,6 +62,8 @@
   gap: var(--vk-space-1);
   color: var(--vk-text-low);
   font-size: var(--vk-font-size-2xs);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .vk-agent-center__host-picker select,
@@ -78,12 +79,14 @@
 
 .vk-agent-center__host-picker select {
   min-width: 160px;
+  max-width: 100%;
   padding: 0 var(--vk-space-3);
 }
 
 .vk-agent-center__rescan,
 .vk-agent-center__provider-actions button,
-.vk-agent-center__section-heading button {
+.vk-agent-center__section-heading button,
+.vk-agent-center__state-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -92,12 +95,26 @@
   cursor: pointer;
 }
 
+.vk-agent-center__state-action {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 var(--vk-space-3);
+  border: 1px solid currentColor;
+  border-radius: var(--vk-radius-sm);
+  color: inherit;
+  background: transparent;
+}
+
 .vk-agent-center__rescan:hover:not(:disabled),
 .vk-agent-center__provider-actions button:hover:not(:disabled),
 .vk-agent-center__section-heading button:hover:not(:disabled) {
   border-color: var(--vk-border-strong);
   color: var(--vk-text-high);
   background: var(--vk-surface-hover);
+}
+
+.vk-agent-center__state-action:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
 .vk-agent-center button:disabled {
@@ -109,6 +126,31 @@
 .vk-agent-center select:focus-visible {
   outline: 2px solid var(--vk-brand);
   outline-offset: 2px;
+}
+
+.vk-agent-center__source-states {
+  display: grid;
+  gap: var(--vk-space-2);
+}
+
+.vk-agent-center__source-states:empty {
+  display: none;
+}
+
+.vk-agent-center__refresh-diagnostics {
+  display: grid;
+  gap: var(--vk-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vk-agent-center__refresh-diagnostics li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--vk-space-1);
+  overflow-wrap: anywhere;
 }
 
 .vk-agent-center__rescan svg,
@@ -292,13 +334,11 @@
 
 .vk-agent-center__metric strong {
   display: block;
-  overflow: hidden;
   margin-top: var(--vk-space-1);
   color: var(--vk-text-high);
   font-size: var(--vk-font-size-sm);
   font-weight: var(--vk-font-weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .vk-agent-center__metric[data-state='loading'] strong,
@@ -315,6 +355,15 @@
   color: var(--vk-status-error-text);
 }
 
+.vk-agent-center__metric[data-state='degraded'] {
+  border-color: var(--vk-status-waiting);
+  background: var(--vk-status-waiting-subtle);
+}
+
+.vk-agent-center__metric[data-state='degraded'] strong {
+  color: var(--vk-status-waiting-text);
+}
+
 .vk-agent-center__alert,
 .vk-agent-center__diagnostics p {
   display: flex;
@@ -327,22 +376,6 @@
   color: var(--vk-status-error-text);
   background: var(--vk-status-error-subtle);
   font-size: var(--vk-font-size-sm);
-}
-
-.vk-agent-center__loading,
-.vk-agent-center-state {
-  display: flex;
-  align-items: center;
-  gap: var(--vk-space-3);
-  min-height: 160px;
-  color: var(--vk-text-low);
-}
-
-.vk-agent-center-state {
-  justify-content: center;
-  padding: var(--vk-space-8);
-  border: 1px dashed var(--vk-border-subtle);
-  border-radius: var(--vk-radius-lg);
 }
 
 .vk-agent-center__empty {
@@ -371,6 +404,11 @@
   .vk-agent-center__provider-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .vk-agent-center__host-picker,
+  .vk-agent-center__host-picker select {
+    width: 100%;
   }
 
   .vk-agent-center__workspace {
@@ -407,6 +445,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vk-agent-center-spin {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
