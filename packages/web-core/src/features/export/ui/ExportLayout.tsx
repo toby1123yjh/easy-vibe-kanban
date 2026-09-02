@@ -10,8 +10,12 @@ interface ExportLayoutProps {
   exportFn: (request: ExportRequest) => Promise<Response>;
   organizations: ExportOrganization[];
   orgsLoading: boolean;
+  orgsError: unknown;
+  onRetryOrganizations: () => void;
   projects: ExportProject[];
   projectsLoading: boolean;
+  projectsError: unknown;
+  onRetryProjects: () => void;
   selectedOrgId: string | null;
   onOrgChange: (orgId: string) => void;
 }
@@ -26,8 +30,12 @@ export function ExportLayout({
   exportFn,
   organizations,
   orgsLoading,
+  orgsError,
+  onRetryOrganizations,
   projects,
   projectsLoading,
+  projectsError,
+  onRetryProjects,
   selectedOrgId,
   onOrgChange,
 }: ExportLayoutProps) {
@@ -61,8 +69,12 @@ export function ExportLayout({
     <ExportChooseProjects
       organizations={organizations}
       orgsLoading={orgsLoading}
+      orgsError={orgsError}
+      onRetryOrganizations={onRetryOrganizations}
       projects={projects}
       projectsLoading={projectsLoading}
+      projectsError={projectsError}
+      onRetryProjects={onRetryProjects}
       selectedOrgId={selectedOrgId}
       onOrgChange={onOrgChange}
       onContinue={handleChooseProjectsContinue}

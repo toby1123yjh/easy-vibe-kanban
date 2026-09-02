@@ -1,5 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CheckCircleIcon, CircleIcon, ImageIcon } from '@phosphor-icons/react';
+import { Button } from '@vibe/ui/components/Button';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
+import {
+  projectExportSelectionState,
+  reconcileExportProjectSelection,
+  type ExportProjectSelection,
+} from '@/features/utility/model/utilityState';
 
 export interface ExportOrganization {
   id: string;
@@ -14,8 +26,12 @@ export interface ExportProject {
 interface ExportChooseProjectsProps {
   organizations: ExportOrganization[];
   orgsLoading: boolean;
+  orgsError: unknown;
+  onRetryOrganizations: () => void;
   projects: ExportProject[];
   projectsLoading: boolean;
+  projectsError: unknown;
+  onRetryProjects: () => void;
   selectedOrgId: string | null;
   onOrgChange: (orgId: string) => void;
   onContinue: (
@@ -28,26 +44,69 @@ interface ExportChooseProjectsProps {
 export function ExportChooseProjects({
   organizations,
   orgsLoading,
+  orgsError,
+  onRetryOrganizations,
   projects,
   projectsLoading,
+  projectsError,
+  onRetryProjects,
   selectedOrgId,
   onOrgChange,
   onContinue,
 }: ExportChooseProjectsProps) {
-  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(
-    new Set()
-  );
+  const [projectSelection, setProjectSelection] =
+    useState<ExportProjectSelection | null>(null);
   const [includeAttachments, setIncludeAttachments] = useState(true);
 
-  // Select all projects by default when they load
+  const selectionState = projectExportSelectionState({
+    organizationCount: organizations.length,
+    organizationsLoading: orgsLoading,
+    organizationsError: orgsError,
+    selectedOrganizationId: selectedOrgId,
+    projectCount: projects.length,
+    projectsLoading,
+    projectsError,
+  });
+
+  // Select all on first load for an organization. Same-owner refreshes retain
+  // the user's choices, and a degraded refresh never clears cached selection.
   useEffect(() => {
-    if (projects.length > 0) {
-      setSelectedProjectIds(new Set(projects.map((p) => p.id)));
-    }
-  }, [projects]);
+    if (selectionState !== 'ready' || !selectedOrgId) return;
+    setProjectSelection((previous) =>
+      reconcileExportProjectSelection(
+        previous,
+        selectedOrgId,
+        projects.map((project) => project.id)
+      )
+    );
+  }, [projects, selectedOrgId, selectionState]);
+
+  const selectedProjectIds = useMemo(
+    () =>
+      projectSelection?.organizationId === selectedOrgId
+        ? new Set(projectSelection.projectIds)
+        : new Set<string>(),
+    [projectSelection, selectedOrgId]
+  );
+
+  const updateSelectedProjectIds = (
+    update: (previous: Set<string>) => Set<string>
+  ) => {
+    if (!selectedOrgId) return;
+    setProjectSelection((previous) => ({
+      organizationId: selectedOrgId,
+      projectIds: Array.from(
+        update(
+          previous?.organizationId === selectedOrgId
+            ? new Set(previous.projectIds)
+            : new Set()
+        )
+      ),
+    }));
+  };
 
   const handleToggleProject = (projectId: string) => {
-    setSelectedProjectIds((prev) => {
+    updateSelectedProjectIds((prev) => {
       const next = new Set(prev);
       if (next.has(projectId)) {
         next.delete(projectId);
@@ -60,14 +119,18 @@ export function ExportChooseProjects({
 
   const handleSelectAll = () => {
     if (selectedProjectIds.size === projects.length) {
-      setSelectedProjectIds(new Set());
+      updateSelectedProjectIds(() => new Set());
     } else {
-      setSelectedProjectIds(new Set(projects.map((p) => p.id)));
+      updateSelectedProjectIds(() => new Set(projects.map((p) => p.id)));
     }
   };
 
   const handleContinue = () => {
-    if (selectedOrgId && selectedProjectIds.size > 0) {
+    if (
+      selectionState === 'ready' &&
+      selectedOrgId &&
+      selectedProjectIds.size > 0
+    ) {
       onContinue(
         selectedOrgId,
         Array.from(selectedProjectIds),
@@ -76,7 +139,10 @@ export function ExportChooseProjects({
     }
   };
 
-  const isLoading = orgsLoading || projectsLoading;
+  const retryFailedSource = () => {
+    if (orgsError) onRetryOrganizations();
+    if (projectsError) onRetryProjects();
+  };
 
   return (
     <div className="p-double space-y-double">
@@ -101,12 +167,47 @@ export function ExportChooseProjects({
         </div>
       )}
 
-      {isLoading ? (
-        <p className="text-sm text-low">Loading projects...</p>
-      ) : projects.length === 0 ? (
-        <p className="text-sm text-low">No projects found.</p>
+      {selectionState === 'loading' ? (
+        <LoadingState compact title="Loading export data…" />
+      ) : selectionState === 'error' ? (
+        <ErrorState
+          compact
+          title="Export data could not be loaded"
+          description="Organizations and projects must load successfully before an export can start."
+          action={
+            <Button variant="outline" onClick={retryFailedSource}>
+              Retry
+            </Button>
+          }
+        />
+      ) : selectionState === 'empty' ? (
+        <EmptyState
+          compact
+          title={
+            organizations.length === 0
+              ? 'No organizations available'
+              : 'No projects available'
+          }
+          description={
+            organizations.length === 0
+              ? 'Join or create an organization before exporting cloud data.'
+              : 'This organization has no projects to export.'
+          }
+        />
       ) : (
         <div className="space-y-half">
+          {selectionState === 'degraded' && (
+            <DegradedState
+              compact
+              title="Export choices may be out of date"
+              description="Cached organizations and projects remain visible, but export is paused until they refresh."
+              action={
+                <Button variant="outline" onClick={retryFailedSource}>
+                  Retry
+                </Button>
+              }
+            />
+          )}
           <div className="flex items-center justify-between">
             <span className="text-sm text-normal">
               {selectedProjectIds.size} of {projects.length} selected
@@ -166,8 +267,9 @@ export function ExportChooseProjects({
       </label>
 
       <button
+        type="button"
         onClick={handleContinue}
-        disabled={selectedProjectIds.size === 0}
+        disabled={selectionState !== 'ready' || selectedProjectIds.size === 0}
         className="w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-white hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Export

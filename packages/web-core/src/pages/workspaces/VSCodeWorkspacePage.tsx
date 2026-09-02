@@ -22,6 +22,16 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
+import { Button } from '@vibe/ui/components/Button';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
+import { projectEmbeddedWorkspaceState } from '@/features/utility/model/utilityState';
+import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
+import { getDestinationHostId } from '@/shared/lib/routes/appNavigation';
 
 function VSCodeChatBox({
   session,
@@ -82,6 +92,7 @@ function VSCodeChatBox({
 
 export function VSCodeWorkspacePage() {
   const { t } = useTranslation('common');
+  const currentDestination = useCurrentAppDestination();
   const setTheme = useStyleOverrideThemeSetter();
   const mainContainerRef = useRef<HTMLElement>(null);
   const conversationListRef = useRef<ConversationListHandle>(null);
@@ -89,16 +100,76 @@ export function VSCodeWorkspacePage() {
   const isAtBottomRef = useRef(isAtBottom);
 
   const {
+    workspaceId,
     workspace,
     sessions,
     selectedSession,
     selectedSessionId,
     selectSession,
-    isLoading,
+    isWorkspaceLoading,
+    workspaceError,
+    retryWorkspace,
+    isSessionsLoading,
+    sessionsError,
+    retrySessions,
     isNewSessionMode,
     startNewSession,
     repos,
+    reposError,
+    retryRepos,
   } = useWorkspaceContext();
+  const workspaceScopeKey = `${getDestinationHostId(currentDestination) ?? 'local'}:${workspaceId ?? 'missing'}`;
+  const retryScopeRef = useRef({ key: workspaceScopeKey, epoch: 0 });
+  if (retryScopeRef.current.key !== workspaceScopeKey) {
+    retryScopeRef.current = {
+      key: workspaceScopeKey,
+      epoch: retryScopeRef.current.epoch + 1,
+    };
+  }
+  const retryScopeEpoch = retryScopeRef.current.epoch;
+  const [retryingScopeEpoch, setRetryingScopeEpoch] = useState<number | null>(
+    null
+  );
+  const retryLockRef = useRef<number | null>(null);
+  const isRetrying = retryingScopeEpoch === retryScopeEpoch;
+
+  const pageState = projectEmbeddedWorkspaceState({
+    hasWorkspace: workspace != null,
+    workspaceLoading: isWorkspaceLoading,
+    workspaceError,
+    sessionCount: sessions.length,
+    sessionsLoading: isSessionsLoading,
+    sessionsError,
+    reposError,
+  });
+
+  const handleRetry = useCallback(async () => {
+    const requestScopeEpoch = retryScopeRef.current.epoch;
+    if (retryLockRef.current === requestScopeEpoch) return;
+    retryLockRef.current = requestScopeEpoch;
+    setRetryingScopeEpoch(requestScopeEpoch);
+    try {
+      const retries: Promise<void>[] = [];
+      if (workspaceError) retries.push(retryWorkspace());
+      if (sessionsError) retries.push(retrySessions());
+      if (reposError) retries.push(retryRepos());
+      await Promise.all(retries);
+    } finally {
+      if (retryLockRef.current === requestScopeEpoch) {
+        retryLockRef.current = null;
+      }
+      if (retryScopeRef.current.epoch === requestScopeEpoch) {
+        setRetryingScopeEpoch(null);
+      }
+    }
+  }, [
+    reposError,
+    retryRepos,
+    retrySessions,
+    retryWorkspace,
+    sessionsError,
+    workspaceError,
+  ]);
 
   usePageTitle(workspace?.name);
 
@@ -188,71 +259,116 @@ export function VSCodeWorkspacePage() {
               }
             >
               <MessageEditProvider>
-                {isLoading ? (
-                  <div className="flex-1 flex items-center justify-center">
-                    <p className="text-low">{t('workspaces.loading')}</p>
-                  </div>
-                ) : !workspaceWithSession ? (
-                  <div className="flex-1 flex items-center justify-center">
-                    <p className="text-low">{t('workspaces.notFound')}</p>
-                  </div>
-                ) : (
-                  <div
-                    className="flex-1 min-h-0 overflow-hidden flex justify-center"
-                    onWheel={(e) =>
-                      forwardWheelToScroller(e, conversationListRef)
+                {pageState === 'loading' ? (
+                  <LoadingState
+                    className="flex-1"
+                    title={t('workspaces.loading')}
+                  />
+                ) : pageState === 'error' ? (
+                  <ErrorState
+                    className="flex-1"
+                    title="Workspace could not be loaded"
+                    description="The embedded workspace failed before its conversation became available."
+                    action={
+                      <Button
+                        variant="outline"
+                        loading={isRetrying}
+                        loadingLabel="Retrying workspace"
+                        onClick={() => void handleRetry()}
+                      >
+                        Retry
+                      </Button>
                     }
-                  >
-                    <div className="w-chat max-w-full h-full">
-                      <RetryUiProvider workspaceId={workspaceWithSession.id}>
-                        <ConversationList
-                          key={`${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`}
-                          ref={conversationListRef}
-                          attempt={workspaceWithSession}
-                          repos={repos}
-                          onAtBottomChange={handleAtBottomChange}
-                          sessionScopeId={selectedSessionId}
-                        />
-                      </RetryUiProvider>
+                  />
+                ) : pageState === 'empty' || !workspaceWithSession ? (
+                  <EmptyState
+                    className="flex-1"
+                    title={t('workspaces.notFound')}
+                    description="Return to Vibe Kanban and open an existing workspace."
+                  />
+                ) : (
+                  <>
+                    {pageState === 'degraded' && (
+                      <DegradedState
+                        compact
+                        title="Workspace data may be out of date"
+                        description="The available conversation remains visible while workspace data refreshes."
+                        action={
+                          <Button
+                            variant="outline"
+                            loading={isRetrying}
+                            loadingLabel="Retrying workspace"
+                            onClick={() => void handleRetry()}
+                          >
+                            Retry
+                          </Button>
+                        }
+                      />
+                    )}
+                    <div
+                      className="flex-1 min-h-0 overflow-hidden flex justify-center"
+                      onWheel={(e) =>
+                        forwardWheelToScroller(e, conversationListRef)
+                      }
+                    >
+                      <div className="w-chat max-w-full h-full">
+                        <RetryUiProvider workspaceId={workspaceWithSession.id}>
+                          <ConversationList
+                            key={`${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`}
+                            ref={conversationListRef}
+                            attempt={workspaceWithSession}
+                            repos={repos}
+                            onAtBottomChange={handleAtBottomChange}
+                            sessionScopeId={selectedSessionId}
+                          />
+                        </RetryUiProvider>
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
 
-                {workspaceWithSession && !isAtBottom && (
-                  <div className="flex justify-center pointer-events-none">
-                    <div className="w-chat max-w-full relative">
-                      <button
-                        type="button"
-                        onClick={() => handleScrollToBottom('auto')}
-                        className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
-                        aria-label="Scroll to bottom"
-                        title="Scroll to bottom"
-                      >
-                        <ArrowDownIcon
-                          className="size-icon-base"
-                          weight="bold"
-                        />
-                      </button>
+                {workspaceWithSession &&
+                  (pageState === 'ready' || pageState === 'degraded') &&
+                  !isAtBottom && (
+                    <div className="flex justify-center pointer-events-none">
+                      <div className="w-chat max-w-full relative">
+                        <button
+                          type="button"
+                          onClick={() => handleScrollToBottom('auto')}
+                          className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
+                          aria-label="Scroll to bottom"
+                          title="Scroll to bottom"
+                        >
+                          <ArrowDownIcon
+                            className="size-icon-base"
+                            weight="bold"
+                          />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-                <div
-                  className="flex justify-center @container pl-px"
-                  data-chatbox-container="true"
-                >
-                  <VSCodeChatBox
-                    session={selectedSession}
-                    workspaceId={workspaceWithSession?.id}
-                    isNewSessionMode={isNewSessionMode}
-                    sessions={sessions}
-                    onSelectSession={selectSession}
-                    onStartNewSession={startNewSession}
-                    onScrollToPreviousMessage={handleScrollToPreviousMessage}
-                    onScrollToBottom={handleScrollToBottom}
-                    onScrollToUserMessage={handleScrollToUserMessage}
-                    getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
-                  />
-                </div>
+                  )}
+                {workspaceWithSession &&
+                  (pageState === 'ready' || pageState === 'degraded') && (
+                    <div
+                      className="flex justify-center @container pl-px"
+                      data-chatbox-container="true"
+                    >
+                      <VSCodeChatBox
+                        session={selectedSession}
+                        workspaceId={workspaceWithSession.id}
+                        isNewSessionMode={isNewSessionMode}
+                        sessions={sessions}
+                        onSelectSession={selectSession}
+                        onStartNewSession={startNewSession}
+                        onScrollToPreviousMessage={
+                          handleScrollToPreviousMessage
+                        }
+                        onScrollToBottom={handleScrollToBottom}
+                        onScrollToUserMessage={handleScrollToUserMessage}
+                        getActiveTurnPatchKey={handleGetActiveTurnPatchKey}
+                      />
+                    </div>
+                  )}
               </MessageEditProvider>
             </EntriesProvider>
           </ApprovalFeedbackProvider>

@@ -230,6 +230,26 @@ test('invalid Input exposes its description association', async ({ page }) => {
   );
 });
 
+test('CrashScreen uses the canonical error state and preserves recovery controls', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const crashScreen = page
+    .getByTestId('crash-screen-harness')
+    .locator('[data-state="error"]');
+  await expect(crashScreen).toBeVisible();
+  await expect(crashScreen).toHaveAttribute('role', 'alert');
+
+  const buttons = crashScreen.getByRole('button');
+  await buttons.first().click();
+  await expect(page.getByTestId('crash-reload-count')).toHaveText('1');
+
+  await buttons.nth(1).click();
+  await expect(crashScreen.getByText('Fixture crash')).toBeVisible();
+  await expect(crashScreen.getByText('Component stack:')).toBeVisible();
+});
+
 test('FloatingPanel keeps non-modal focus ownership explicit', async ({
   page,
 }) => {

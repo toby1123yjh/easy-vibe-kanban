@@ -27,6 +27,8 @@ interface UseWorkspaceSessionsResult {
   selectSession: (sessionId: string) => void;
   selectLatestSession: () => void;
   isLoading: boolean;
+  error: unknown;
+  retry: () => Promise<void>;
   /** Whether user is creating a new session */
   isNewSessionMode: boolean;
   /** Enter new session mode */
@@ -47,20 +49,27 @@ export function useWorkspaceSessions(
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
-  const prevWorkspaceIdRef = useRef(workspaceId);
+  const workspaceScopeKey = `${hostId ?? 'local'}:${workspaceId ?? 'missing'}`;
+  const previousWorkspaceScopeRef = useRef(workspaceScopeKey);
 
-  const { data: sessions = [], isLoading } = useQuery<Session[]>({
+  const sessionsQuery = useQuery<Session[]>({
     queryKey: workspaceSessionKeys.byWorkspace(workspaceId, hostId),
     queryFn: () => sessionsApi.getByWorkspace(workspaceId!),
     enabled: enabled && !!workspaceId,
   });
+  const { data: sessions = [], isLoading, error, refetch } = sessionsQuery;
+
+  const retry = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   // Combined effect: handle workspace changes and auto-select sessions
   // This replaces two separate effects that had a race condition where the reset
   // effect would fire after auto-select when sessions were cached, undoing the selection.
   useEffect(() => {
-    const workspaceChanged = prevWorkspaceIdRef.current !== workspaceId;
-    prevWorkspaceIdRef.current = workspaceId;
+    const workspaceChanged =
+      previousWorkspaceScopeRef.current !== workspaceScopeKey;
+    previousWorkspaceScopeRef.current = workspaceScopeKey;
     const requestedSessionId = getRequestedSessionId();
 
     if (sessions.length > 0) {
@@ -80,7 +89,7 @@ export function useWorkspaceSessions(
     } else {
       setSelection(undefined);
     }
-  }, [workspaceId, sessions]);
+  }, [sessions, workspaceScopeKey]);
 
   const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
   const selectedSessionId =
@@ -112,6 +121,8 @@ export function useWorkspaceSessions(
     selectSession,
     selectLatestSession,
     isLoading,
+    error,
+    retry,
     isNewSessionMode,
     startNewSession,
   };

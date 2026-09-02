@@ -252,10 +252,10 @@ description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、�
 | Onboarding | ✓ | ✓ | △ | ✓ | N/A | N/A | N/A | △ | △ | StateSurface 迁移；P8-S1、P8-R1、P8-A1 |
 | Remote 登录 / 账户 / 邀请 | ✓ | ✓ | N/A | ✓ | △ | △ | △ | △ | △ | Remote auth milestone；P8-S1、P8-R1、P8-A1 |
 | Remote Home / 组织项目 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Remote Home milestone；P8-S1、P8-R1、P8-A1 |
-| Notifications | △ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | P8-S1、P8-R1、P8-A1 |
-| Export | ✓ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | Export StateSurface 迁移；P8-S1、P8-R1、P8-A1 |
-| VS Code | △ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | P8-S1、P8-R1、P8-A1 |
-| Crash Screen | △ | N/A | N/A | △ | N/A | N/A | N/A | 缺 | 缺 | 仅 Error 语义适用；P8-S1、P8-R1、P8-A1 |
+| Notifications | ✓ | ✓ | ✓ | ✓ | N/A | ✓ | ✓ | 缺 | 缺 | Utility state 10/10；P8-R1、P8-A1 |
+| Export | ✓ | ✓ | ✓ | ✓ | N/A | ✓ | ✓ | 缺 | 缺 | Utility state 10/10；P8-R1、P8-A1 |
+| VS Code | ✓ | ✓ | ✓ | ✓ | N/A | N/A | ✓ | 缺 | 缺 | Utility state 10/10；Host Offline 由外层路由负责；P8-R1、P8-A1 |
+| Crash Screen | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | 缺 | 缺 | 真实 CrashScreen browser 11/11；P8-R1、P8-A1 |
 | 404 | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | △ | △ | 404 StateSurface 迁移；P8-R1、P8-A1 |
 | Project Sunset | ✓ | N/A | N/A | N/A | N/A | △ | ✓ | △ | △ | Sunset Degraded 迁移；P8-S1、P8-R1、P8-A1 |
 | Release Notes | ✓ | ✓ | ✓ | ✓ | △ | N/A | N/A | △ | ✓ | Release Notes milestone；P8-S1、P8-R1 |

@@ -35,6 +35,9 @@ export interface WorkspaceContextValue {
   archivedWorkspaces: SidebarWorkspace[];
   isWorkspacesListLoading: boolean;
   isLoading: boolean;
+  isWorkspaceLoading: boolean;
+  workspaceError: unknown;
+  retryWorkspace: () => Promise<void>;
   isCreateMode: boolean;
   selectWorkspace: (id: string) => void;
   navigateToCreate: () => void;
@@ -45,6 +48,8 @@ export interface WorkspaceContextValue {
   selectSession: (sessionId: string) => void;
   selectLatestSession: () => void;
   isSessionsLoading: boolean;
+  sessionsError: unknown;
+  retrySessions: () => Promise<void>;
   /** Whether user is creating a new session */
   isNewSessionMode: boolean;
   /** Enter new session mode */
@@ -52,6 +57,8 @@ export interface WorkspaceContextValue {
   /** Repos for the current workspace */
   repos: RepoWithTargetBranch[];
   isReposLoading: boolean;
+  reposError: unknown;
+  retryRepos: () => Promise<void>;
 }
 
 // Exported for optional usage outside WorkspaceProvider (e.g., old UI)

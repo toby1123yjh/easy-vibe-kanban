@@ -76,6 +76,7 @@ export function useWorkspaceRepo(
     selectedRepoId,
     setSelectedRepoId,
     isLoading: query.isLoading,
+    error: query.error,
     refetch: query.refetch,
   } as const;
 }

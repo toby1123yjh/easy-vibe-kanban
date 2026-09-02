@@ -11,7 +11,12 @@ import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { useOrganizationProjects } from '@/shared/hooks/useOrganizationProjects';
 import { makeRequest as makeRemoteRequest } from '@/shared/lib/remoteApi';
-import { LoginRequiredPrompt } from '@/shared/dialogs/shared/LoginRequiredPrompt';
+import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
+import { Button } from '@vibe/ui/components/Button';
+import {
+  LoadingState,
+  PermissionState,
+} from '@vibe/ui/components/StateSurface';
 
 function resolveTheme(theme: ThemeMode): 'light' | 'dark' {
   if (theme === ThemeMode.SYSTEM) {
@@ -26,8 +31,12 @@ interface ExportPageProps {
   exportFn: (request: ExportRequest) => Promise<Response>;
   organizations: ExportOrganization[];
   orgsLoading: boolean;
+  orgsError: unknown;
+  onRetryOrganizations: () => void;
   projects: ExportProject[];
   projectsLoading: boolean;
+  projectsError: unknown;
+  onRetryProjects: () => void;
   selectedOrgId: string | null;
   onOrgChange: (orgId: string) => void;
 }
@@ -36,8 +45,12 @@ export function ExportPage({
   exportFn,
   organizations,
   orgsLoading,
+  orgsError,
+  onRetryOrganizations,
   projects,
   projectsLoading,
+  projectsError,
+  onRetryProjects,
   selectedOrgId,
   onOrgChange,
 }: ExportPageProps) {
@@ -69,8 +82,12 @@ export function ExportPage({
             exportFn={exportFn}
             organizations={organizations}
             orgsLoading={orgsLoading}
+            orgsError={orgsError}
+            onRetryOrganizations={onRetryOrganizations}
             projects={projects}
             projectsLoading={projectsLoading}
+            projectsError={projectsError}
+            onRetryProjects={onRetryProjects}
             selectedOrgId={selectedOrgId}
             onOrgChange={onOrgChange}
           />
@@ -82,7 +99,13 @@ export function ExportPage({
 
 export function ExportPageContainer() {
   const { isLoaded, isSignedIn } = useAuth();
-  const { data: orgsData, isLoading: orgsLoading } = useUserOrganizations();
+  const organizationsQuery = useUserOrganizations();
+  const {
+    data: orgsData,
+    isLoading: orgsLoading,
+    error: orgsError,
+    refetch: retryOrganizations,
+  } = organizationsQuery;
   const organizations = useMemo<ExportOrganization[]>(
     () =>
       (orgsData?.organizations ?? []).map((organization) => ({
@@ -107,8 +130,18 @@ export function ExportPageContainer() {
     }
   }, [organizations, selectedOrgId]);
 
-  const { data: projectData = [], isLoading: projectsLoading } =
-    useOrganizationProjects(selectedOrgId);
+  const effectiveSelectedOrgId =
+    selectedOrgId &&
+    organizations.some((organization) => organization.id === selectedOrgId)
+      ? selectedOrgId
+      : (organizations[0]?.id ?? null);
+
+  const {
+    data: projectData = [],
+    isLoading: projectsLoading,
+    error: projectsError,
+    retry: retryProjects,
+  } = useOrganizationProjects(effectiveSelectedOrgId);
   const projects = useMemo<ExportProject[]>(
     () =>
       projectData.map((project) => ({
@@ -128,22 +161,25 @@ export function ExportPageContainer() {
 
   if (!isLoaded) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-primary">
-        <p className="text-sm text-low">Loading...</p>
-      </div>
+      <LoadingState
+        className="h-full w-full bg-primary"
+        title="Loading export access…"
+      />
     );
   }
 
   if (!isSignedIn) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-primary p-base">
-        <LoginRequiredPrompt
-          className="max-w-md"
-          title="Sign in to export your cloud data"
-          description="Sign in to choose the organizations and projects available to your account."
-          actionLabel="Sign in"
-        />
-      </div>
+      <PermissionState
+        className="h-full w-full bg-primary"
+        title="Sign in to export your cloud data"
+        description="Sign in to choose the organizations and projects available to your account."
+        action={
+          <Button variant="outline" onClick={() => void OAuthDialog.show({})}>
+            Sign in
+          </Button>
+        }
+      />
     );
   }
 
@@ -152,9 +188,13 @@ export function ExportPageContainer() {
       exportFn={exportFn}
       organizations={organizations}
       orgsLoading={orgsLoading}
+      orgsError={orgsError}
+      onRetryOrganizations={() => void retryOrganizations()}
       projects={projects}
       projectsLoading={projectsLoading}
-      selectedOrgId={selectedOrgId}
+      projectsError={projectsError}
+      onRetryProjects={retryProjects}
+      selectedOrgId={effectiveSelectedOrgId}
       onOrgChange={setSelectedOrgId}
     />
   );

@@ -10,6 +10,7 @@ import {
 import { Button } from '../../../../packages/ui/src/components/Button';
 import { Input } from '../../../../packages/ui/src/components/Input';
 import { SplitLayout } from '../../../../packages/ui/src/components/SplitLayout';
+import { CrashScreen } from '../../../../packages/ui/src/components/CrashScreen';
 import {
   createBrowserThemeController,
   type ThemeMode,
@@ -214,6 +215,24 @@ function InteractionContractHarness() {
   );
 }
 
+function CrashScreenHarness() {
+  const [reloadCount, setReloadCount] = React.useState(0);
+
+  return (
+    <section aria-labelledby="crash-screen-contract-title">
+      <h2 id="crash-screen-contract-title">Crash screen contract</h2>
+      <output data-testid="crash-reload-count">{reloadCount}</output>
+      <div data-testid="crash-screen-harness">
+        <CrashScreen
+          error="Fixture crash"
+          componentStack="\n at Fixture"
+          onReload={() => setReloadCount((count) => count + 1)}
+        />
+      </div>
+    </section>
+  );
+}
+
 const componentRoot = document.getElementById('component-root');
 if (!componentRoot) {
   throw new Error('Component contract root is missing');
@@ -224,5 +243,6 @@ createRoot(componentRoot).render(
     <FloatingPanelHarness />
     <SplitLayoutHarness />
     <InteractionContractHarness />
+    <CrashScreenHarness />
   </React.StrictMode>
 );

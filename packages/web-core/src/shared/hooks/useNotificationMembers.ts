@@ -42,5 +42,8 @@ export function useNotificationMembers(notifications: Notification[]) {
     isLoading: memberQueries.some((query) => query.isLoading),
     isFetching: memberQueries.some((query) => query.isFetching),
     isError: memberQueries.some((query) => query.isError),
+    retry: async () => {
+      await Promise.all(memberQueries.map((query) => query.refetch()));
+    },
   };
 }

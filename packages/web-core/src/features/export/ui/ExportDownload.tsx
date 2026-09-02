@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  CheckCircleIcon,
-  SpinnerIcon,
-  WarningIcon,
-  DownloadSimpleIcon,
-} from '@phosphor-icons/react';
+import { CheckCircleIcon, DownloadSimpleIcon } from '@phosphor-icons/react';
+import { Button } from '@vibe/ui/components/Button';
+import { ErrorState, LoadingState } from '@vibe/ui/components/StateSurface';
 
 export interface ExportRequest {
   organization_id: string;
@@ -106,40 +103,30 @@ export function ExportDownload({
   return (
     <div className="p-double space-y-double">
       {isExporting && (
-        <div className="flex flex-col items-center gap-base py-double">
-          <SpinnerIcon
-            className="size-icon-lg text-brand animate-spin"
-            weight="bold"
-          />
-          <div className="text-center space-y-half">
-            <p className="text-sm font-medium text-high">
-              Generating your export...
-            </p>
-            <p className="text-xs text-low">
-              This may take a moment
-              {includeAttachments ? ', especially with attachments' : ''}.
-            </p>
-          </div>
-        </div>
+        <LoadingState
+          title="Generating your export…"
+          description={`This may take a moment${
+            includeAttachments ? ', especially with attachments' : ''
+          }.`}
+        />
       )}
 
       {error && (
-        <div className="space-y-base">
-          <div className="flex items-center gap-base text-danger">
-            <WarningIcon className="size-icon-sm" weight="fill" />
-            <p className="text-sm font-medium">Export failed</p>
-          </div>
-          <p className="text-sm text-normal">{error}</p>
-          <button
-            onClick={() => {
-              hasStartedRef.current = false;
-              void startExport();
-            }}
-            className="w-full rounded-sm border border-border bg-secondary px-base py-half text-sm font-medium text-normal hover:bg-primary transition-colors"
-          >
-            Retry
-          </button>
-        </div>
+        <ErrorState
+          title="Export failed"
+          description={error}
+          action={
+            <Button
+              variant="outline"
+              onClick={() => {
+                hasStartedRef.current = false;
+                void startExport();
+              }}
+            >
+              Retry
+            </Button>
+          }
+        />
       )}
 
       {!isExporting && !error && downloadUrl && (

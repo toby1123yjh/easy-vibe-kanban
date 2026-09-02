@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { WarningIcon, ArrowClockwiseIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './Button';
+import { StateSurface } from './StateSurface';
 
 export interface CrashScreenProps {
   error?: Error | string;
@@ -22,46 +24,50 @@ export function CrashScreen({
 
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-primary p-double font-ibm-plex-sans">
-      <div className="flex max-w-md flex-col items-center gap-double text-center">
-        <WarningIcon className="size-12 text-error" weight="fill" />
-
-        <div className="flex flex-col gap-half">
-          <h1 className="text-xl font-semibold text-high">
-            {t('crashScreen.title')}
-          </h1>
-          <p className="text-base text-low">{t('crashScreen.description')}</p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => (onReload ?? (() => window.location.reload()))()}
-          className="flex items-center gap-half rounded-md bg-brand px-double py-base text-base font-medium text-white hover:bg-brand/90 transition-colors"
-        >
-          <ArrowClockwiseIcon className="size-icon-base" weight="bold" />
-          {t('crashScreen.reload')}
-        </button>
-
-        {hasDetails && (
-          <div className="w-full">
-            <button
+      <StateSurface
+        state="error"
+        className="w-full max-w-md"
+        icon={<WarningIcon className="size-12" weight="fill" />}
+        title={<h1>{t('crashScreen.title')}</h1>}
+        description={t('crashScreen.description')}
+        action={
+          <div className="flex w-full flex-col items-center gap-base">
+            <Button
               type="button"
-              onClick={() => setShowDetails((v) => !v)}
-              className="text-sm text-low hover:text-normal transition-colors"
+              onClick={() => (onReload ?? (() => window.location.reload()))()}
             >
-              {showDetails
-                ? t('crashScreen.hideDetails')
-                : t('crashScreen.showDetails')}
-            </button>
+              <ArrowClockwiseIcon
+                aria-hidden="true"
+                className="size-icon-base"
+                weight="bold"
+              />
+              {t('crashScreen.reload')}
+            </Button>
 
-            {showDetails && (
-              <pre className="mt-half max-h-48 w-full overflow-auto rounded-sm bg-secondary p-base text-left text-xs text-low">
-                {errorMessage}
-                {componentStack && `\n\nComponent stack:${componentStack}`}
-              </pre>
+            {hasDetails && (
+              <div className="w-full">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-expanded={showDetails}
+                  onClick={() => setShowDetails((value) => !value)}
+                >
+                  {showDetails
+                    ? t('crashScreen.hideDetails')
+                    : t('crashScreen.showDetails')}
+                </Button>
+
+                {showDetails && (
+                  <pre className="mt-half max-h-48 w-full overflow-auto rounded-sm bg-secondary p-base text-left text-xs text-low">
+                    {errorMessage}
+                    {componentStack && `\n\nComponent stack:${componentStack}`}
+                  </pre>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        }
+      />
     </div>
   );
 }

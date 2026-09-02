@@ -34,10 +34,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     isLoading: isLoadingList,
   } = useWorkspaces();
 
-  const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspaceRecord(
-    workspaceId,
-    { enabled: !!workspaceId && !isCreateMode }
-  );
+  const {
+    data: workspace,
+    isLoading: isLoadingWorkspace,
+    error: workspaceError,
+    refetch: refetchWorkspace,
+  } = useWorkspaceRecord(workspaceId, {
+    enabled: !!workspaceId && !isCreateMode,
+  });
 
   const {
     sessions,
@@ -46,13 +50,26 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     selectSession,
     selectLatestSession,
     isLoading: isSessionsLoading,
+    error: sessionsError,
+    retry: retrySessions,
     isNewSessionMode,
     startNewSession,
   } = useWorkspaceSessions(workspaceId, { enabled: !isCreateMode });
 
-  const { repos, isLoading: isReposLoading } = useWorkspaceRepo(workspaceId, {
-    enabled: !isCreateMode,
-  });
+  const {
+    repos,
+    isLoading: isReposLoading,
+    error: reposError,
+    refetch: refetchRepos,
+  } = useWorkspaceRepo(workspaceId, { enabled: !isCreateMode });
+
+  const retryWorkspace = useCallback(async () => {
+    await refetchWorkspace();
+  }, [refetchWorkspace]);
+
+  const retryRepos = useCallback(async () => {
+    await refetchRepos();
+  }, [refetchRepos]);
 
   // TODO: Support multiple repos - currently only fetches comments from the primary repo.
   const primaryRepoId = repos[0]?.id;
@@ -198,6 +215,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       archivedWorkspaces,
       isWorkspacesListLoading: isLoadingList,
       isLoading,
+      isWorkspaceLoading: isLoadingWorkspace,
+      workspaceError,
+      retryWorkspace,
       isCreateMode,
       selectWorkspace,
       navigateToCreate,
@@ -207,10 +227,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       selectSession,
       selectLatestSession,
       isSessionsLoading,
+      sessionsError,
+      retrySessions,
       isNewSessionMode,
       startNewSession,
       repos,
       isReposLoading,
+      reposError,
+      retryRepos,
     }),
     [
       workspaceId,
@@ -219,6 +243,9 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       archivedWorkspaces,
       isLoadingList,
       isLoading,
+      isLoadingWorkspace,
+      workspaceError,
+      retryWorkspace,
       isCreateMode,
       selectWorkspace,
       navigateToCreate,
@@ -228,10 +255,14 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       selectSession,
       selectLatestSession,
       isSessionsLoading,
+      sessionsError,
+      retrySessions,
       isNewSessionMode,
       startNewSession,
       repos,
       isReposLoading,
+      reposError,
+      retryRepos,
     ]
   );
 
