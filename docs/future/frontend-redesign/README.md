@@ -7,12 +7,16 @@ description: '定义 Vibe Kanban 全页面重构的产品定位、信息架构�
 
 | 项目       | 内容                                                                                            |
 | ---------- | ----------------------------------------------------------------------------------------------- |
-| 状态       | 产品、UI 与 canonical Task 数据架构已收敛，等待最终实施规划确认                                 |
+| 状态       | Phase 1–7 已完成，Phase 8 按四个有限 gate 收口，Phase 9 为下一实施阶段                          |
 | 分支       | `refactor/frontend-redesign`                                                                    |
-| 更新时间   | 2026-08-28                                                                                      |
+| 更新时间   | 2026-09-02                                                                                      |
 | 已确认范围 | Local/Remote 全页面重做；同步重构 canonical Task、Workflow revision、Arena candidate 与查询投影 |
 | 已确认布局 | 固定分区式工作台侧栏 + 单一右侧页面画布                                                         |
 | 已确认定位 | 保留 `Vibe Kanban` 产品名，定位为“多智能体开发控制台”                                           |
+
+Phase 0 仅保留一项脱敏 before-screenshot 证据债；它不代表 Phase 1–7 需要重做。
+Phase 8 只剩页面状态、响应式、无障碍/本地化和实测性能四个退出 gate，全部通过后
+直接进入 Phase 9 的旧实现删除与全量验证。
 
 本轮重构不是给现有页面换主题，而是重新建立产品的信息架构、canonical Task 数据底座、应用外壳、页面模板和设计系统。已经稳定的 Agent Runtime、Session identity 和 Workflow run snapshot 继续作为事实来源；当前分裂的 Task/Workspace/Workflow/Arena 关系、缺失的 Workflow database revision 和名称推断 Arena purpose 一并重构。
 

@@ -226,24 +226,45 @@ description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、�
 
 通用 Dialog 必须复用统一 Shell、表单组件、错误区和底部操作栏。业务流程超过两个显著步骤时使用页面或 Stepper，不继续扩张 Modal。
 
-## 状态覆盖矩阵
+## 实现与验证状态矩阵
 
-每个页面族至少检查以下状态：
+这张表记录当前证据，不再用预期中的 `✓` 代替已完成验证：
 
-| 页面族                | Loading | Empty | Error | Offline | Permission | Mobile | Keyboard |
-| --------------------- | :-----: | :---: | :---: | :-----: | :--------: | :----: | :------: |
-| 总览                  |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Global Search Palette |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| 项目 / 看板           |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Issue 详情            |    ✓    |   —   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| 工作区列表            |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Agent 工作台          |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Workflow 编辑         |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Workflow 运行         |    ✓    |   —   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Arena                 |    ✓    |   —   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| 智能体中心            |    ✓    |   ✓   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| 设置                  |    ✓    |   —   |   ✓   |    ✓    |     ✓      |   ✓    |    ✓     |
-| Onboarding            |    ✓    |   —   |   ✓   |    ✓    |     —      |   ✓    |    ✓     |
+- `✓`：已实现且有当前任务记录中的自动化或检查证据。
+- `△`：已实现或部分验证，但仍需对应的 Phase 8 gate 收口。
+- `缺`：业务上适用，但当前没有实现或验证证据。
+- `N/A`：该状态对这个页面族没有业务意义；不能用同组其他页面已覆盖或
+  暂时找不到证据来替代 `N/A` 理由。
+
+| 页面 / 表面族 | 实现 | Loading | Empty | Error | Offline | Permission | Degraded | 响应式 | 键盘 / a11y | 证据或剩余 gate |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
+| App Shell / Sidebar | ✓ | △ | △ | △ | ✓ | N/A | △ | △ | ✓ | App Shell Chromium；P8-S1、P8-R1 |
+| Dashboard | ✓ | △ | △ | △ | △ | N/A | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
+| Global Search Palette | ✓ | △ | ✓ | △ | N/A | N/A | △ | △ | ✓ | Shell/Search 覆盖；P8-S1、P8-R1 |
+| 项目目录 | ✓ | △ | △ | △ | △ | N/A | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
+| 项目看板 / Issue 浮动框 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | ✓ | Kanban Playwright 8/8；P8-S1、P8-R1 |
+| 工作区列表 | ✓ | △ | △ | △ | △ | △ | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
+| Agent 工作台 / 原生接管 | ✓ | ✓ | ✓ | ✓ | △ | △ | △ | △ | ✓ | 原生接管状态与 390/reduced-motion 覆盖；P8-S1、P8-R1 |
+| Workflow 列表 / 编辑 / 运行 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Workflow route-state 覆盖；P8-S1、P8-R1、P8-A1 |
+| Arena | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Arena zero-result Empty 与 route-state 覆盖；P8-S1、P8-R1、P8-A1 |
+| 智能体中心 | ✓ | ✓ | ✓ | ✓ | ✓ | △ | ✓ | △ | △ | Settings model Playwright；P8-S1、P8-R1、P8-A1 |
+| 设置 / Host / 更新 | ✓ | ✓ | ✓ | ✓ | ✓ | △ | ✓ | △ | ✓ | Settings 20/20、App Shell 5/5；P8-S1、P8-R1、P8-A1 |
+| Onboarding | ✓ | ✓ | △ | ✓ | N/A | N/A | N/A | △ | △ | StateSurface 迁移；P8-S1、P8-R1、P8-A1 |
+| Remote 登录 / 账户 / 邀请 | ✓ | ✓ | N/A | ✓ | △ | △ | △ | △ | △ | Remote auth milestone；P8-S1、P8-R1、P8-A1 |
+| Remote Home / 组织项目 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Remote Home milestone；P8-S1、P8-R1、P8-A1 |
+| Notifications | △ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | P8-S1、P8-R1、P8-A1 |
+| Export | ✓ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | Export StateSurface 迁移；P8-S1、P8-R1、P8-A1 |
+| VS Code | △ | △ | △ | △ | △ | △ | △ | 缺 | 缺 | P8-S1、P8-R1、P8-A1 |
+| Crash Screen | △ | N/A | N/A | △ | N/A | N/A | N/A | 缺 | 缺 | 仅 Error 语义适用；P8-S1、P8-R1、P8-A1 |
+| 404 | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | △ | △ | 404 StateSurface 迁移；P8-R1、P8-A1 |
+| Project Sunset | ✓ | N/A | N/A | N/A | N/A | △ | ✓ | △ | △ | Sunset Degraded 迁移；P8-S1、P8-R1、P8-A1 |
+| Release Notes | ✓ | ✓ | ✓ | ✓ | △ | N/A | N/A | △ | ✓ | Release Notes milestone；P8-S1、P8-R1 |
+| 共享 Dialog / Confirmation | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | ✓ | ✓ | UI foundations browser suite |
+
+`P8-P1` 是全局性能 gate，适用于 Dashboard 初始 bundle、Workflow、Arena、
+editor、terminal，以及大列表和长会话，不在每一行重复标记。只有表中全部
+适用状态从 `△` / `缺` 收敛为 `✓` 或有理由的 `N/A`，P8-S1、P8-R1、P8-A1
+才可以关闭。
 
 ## 完成检查
 

@@ -31,6 +31,28 @@ flowchart LR
 - 同一个阶段内同时维护 Local 与 Remote 入口。
 - 每个阶段完成后保持分支可启动、可测试、可继续开发。
 
+## 阶段状态与退出台账
+
+截至 2026-09-02，后续工作只按本表推进，不再因为后续状态加固反复重开已
+完成阶段：
+
+| 阶段 | 状态 | 关闭证据 / 唯一剩余出口 |
+| --- | --- | --- |
+| 0 | 部分完成 | 路由、契约、冲突清单和 harness 已完成；仅剩 sanitized before-screenshot manifest |
+| 1 | 已完成 | `b94aef58`；`20260828000000_canonical_tasks.sql`、`canonical_tasks_migration.rs`、`canonical_execution_data.rs`、DB/server/SQLx/类型生成及 46/46 Workflow route tests |
+| 2 | 已完成 | `4cf455cc`，Token、ThemeMode、基础组件与 browser harness |
+| 3 | 已完成 | `4d6d0877`，共享 App Shell、Sidebar、Dashboard 与 Global Search |
+| 4 | 已完成 | `aab15b05`，项目、Kanban、Issue panel 与执行入口 |
+| 5 | 已完成 | `9963e043`，工作区、会话与 Agent Workbench |
+| 6 | 已完成 | `ec61dde0`、`9f81f182`、`09124efc`，Workflow 与 Arena |
+| 7 | 已完成 | `ffaeda25` 至 `292db64e`，Agent Center 与 Settings；后续状态加固不重开本阶段 |
+| 8 | 收口中 | 只剩 P8-S1、P8-R1、P8-A1、P8-P1 四个 gate |
+| 9 | 未开始 | Phase 8 四个 gate 全绿后直接进入旧实现删除与全量 convergence |
+
+Phase 0 的截图证据债不阻止已经通过的实现阶段保持关闭，但在最终 Definition
+of Done 前必须以脱敏 fixture 补齐。找不到现有验证记录的项目按“缺少证据”
+处理，不能从实现提交标题推断为已验证。
+
 ## 目标代码结构
 
 ```text
@@ -435,6 +457,28 @@ Workflow Draft 中的 `TaskSpec` 属于草稿状态；数据库 `Task` 属于服
 
 ## 阶段 8：辅助页面、状态与响应式
 
+当前阶段只允许以下四个退出 gate；它们全部通过后直接进入阶段 9：
+
+1. **P8-S1 — 页面状态矩阵**：逐个真实页面族补齐适用的 Loading、Empty、
+   Error、Offline、Permission、Degraded 证据；不适用项明确写 `N/A`。
+2. **P8-R1 — 响应式矩阵**：对仍无证据的核心页面族完成 375、768、1024、
+   1440 验证，覆盖固定 Header/Composer、触控和虚拟键盘。
+3. **P8-A1 — 无障碍与本地化**：覆盖现有七种 locale 长内容、200% 缩放、
+   键盘、焦点顺序与返回、live announcement、touch target、对比度和减少
+   动效。
+4. **P8-P1 — 实测性能**：记录 Dashboard 初始 bundle，Workflow/Arena/
+   editor/terminal route split，以及列表和长会话 runtime；只修复实测超出
+   下文固定退出预算的项目。
+
+四个 gate 的证据边界固定为：P8-S1 只判断业务状态语义，P8-R1 只判断
+viewport、触控与虚拟键盘布局，P8-A1 只判断 locale 与可访问交互，P8-P1
+只判断构建依赖和运行测量。同一浏览器用例可以产生多份证据，但不能用一个
+gate 的通过结论替代另一个 gate 的记录。
+
+Settings Host、更新生命周期、Agent Center 和各业务路由的状态加固属于本
+阶段的已有证据，不会重开阶段 7。legacy AppBar 删除及 Tool/Command/Profile
+子组件 Portal-time owner race 收敛属于阶段 9，不扩张上述四个 gate。
+
 ### 产出
 
 - Onboarding、登录、Export、VS Code、Crash、404 和 Sunset 页面。
@@ -445,11 +489,15 @@ Workflow Draft 中的 `TaskSpec` 属于草稿状态；数据库 `Task` 属于服
 
 ### 验收
 
+- [实现与验证状态矩阵](./04-page-matrix.md#实现与验证状态矩阵) 中所有适用
+  单元格均为 `✓` 或有理由的 `N/A`，P8-S1 关闭。
 - 移动端虚拟键盘不遮挡 Agent 输入和审批操作。
 - 没有只依赖 hover 的关键操作。
 - 移动端底部导航与桌面产品入口使用同一份路由清单；项目/会话 Drawer 或全屏选择页复用桌面列表的数据源、排序和 current 状态。
 - 200% 缩放仍可以完成主要任务。
 - 长中文、英文、路径、分支名和 Provider 错误不会破坏布局。
+- 四个 viewport、无障碍/本地化与实测性能证据分别关闭 P8-R1、P8-A1 和
+  P8-P1；任何一项没有记录时 Phase 8 保持打开。
 
 ## 阶段 9：删除旧实现
 
@@ -531,6 +579,24 @@ pnpm run prepare-db
 数据库/SQLx owner 变化时必须执行 `pnpm run prepare-db`、目标 migration fixture 和 backend checks；仅修改前端时仍要至少执行受影响包的 TypeScript、ESLint、Vitest 和 Playwright 检查。发布验证继续使用 GitHub Actions 和官方 npm registry，不在本机制作 release 包。
 
 ## 性能要求
+
+P8-P1 使用以下固定退出预算，测量基线为 Phase 8 收口前的 `65a62900`，候选
+与基线必须在同一机器、同一浏览器版本、同一 fixture 和同一 viewport 下各
+运行三次并记录中位数：
+
+- Dashboard 初始入口的构建依赖图中，Workflow、Arena、editor 和 terminal
+  模块静态依赖数必须为 `0`；同时记录初始 JavaScript gzip 总量，候选不得比
+  `65a62900` 增长超过 `5%`。
+- 项目、会话或 Task fixture 超过 200 条时，稳定后的可见列表行 DOM 不得
+  超过 `50`；滚动到底部仍能访问全部记录且顺序不丢失。
+- 1000 条消息的会话只挂载 viewport 与 overscan，消息行 DOM 不得超过
+  `200`；Inspector 收起时 Diff、终端、预览等大型子树不得保持挂载。
+- 在四倍 CPU 降速下连续输入和列表滚动的 interaction-to-next-paint 中位数
+  必须不超过 `100ms`，且不得比 `65a62900` 回退超过 `10%`。
+
+证据表必须记录 commit、命令或脚本、fixture、viewport、浏览器版本、三次
+原始结果和通过/失败结论。四条任一缺记录或超预算时 P8-P1 保持打开；不再
+以“感觉流畅”或只看到独立 chunk 文件作为通过依据。
 
 - 按路由和大型 Feature 拆包，Workflow、Arena、编辑器和终端不进入首次总览 bundle。
 - 看板卡片不挂载完整 Workflow 画布或完整会话。
