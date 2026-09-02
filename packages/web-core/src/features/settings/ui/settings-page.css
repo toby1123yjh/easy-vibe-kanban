@@ -206,12 +206,65 @@
 .vk-settings-page__version-row strong,
 .vk-settings-page__version-row p {
   margin: 0;
+  overflow-wrap: anywhere;
   color: var(--vk-text-high);
   font-size: 13px;
 }
 
-.vk-settings-page__version-row > button {
+.vk-settings-page__update-stack,
+.vk-settings-page__update-status,
+.vk-settings-page__update-action {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.vk-settings-page__update-status {
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-md);
+  background: var(--vk-surface-secondary);
+  padding: 14px;
+}
+
+.vk-settings-page__update-status[data-update-phase='available'] {
+  background: var(--vk-status-running-subtle);
+}
+
+.vk-settings-page__update-status[data-update-phase='restart-ready'] {
+  background: var(--vk-status-success-subtle);
+}
+
+.vk-settings-page__update-state {
+  border: 1px solid var(--vk-border-subtle);
+}
+
+.vk-settings-page__update-notes {
+  min-width: 0;
+  color: var(--vk-text-normal);
+  font-size: 12px;
+}
+
+.vk-settings-page__update-notes summary {
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--vk-text-high);
+  font-weight: 600;
+  line-height: 44px;
+}
+
+.vk-settings-page__update-notes p {
+  max-height: 160px;
+  overflow: auto;
+  padding-right: 8px;
+  white-space: pre-wrap;
+}
+
+.vk-settings-page__update-action > button {
   justify-self: start;
+}
+
+.vk-settings-page__update-action > p[role='alert'] {
+  color: var(--vk-status-error);
 }
 
 @media (max-width: 767px) {

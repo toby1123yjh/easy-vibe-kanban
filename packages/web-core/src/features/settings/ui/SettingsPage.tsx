@@ -9,7 +9,6 @@ import {
 } from '@phosphor-icons/react';
 import { Button } from '@vibe/ui/components/Button';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
-import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import {
   DegradedState,
   EmptyState,
@@ -35,7 +34,16 @@ import {
 } from '@/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
 import { useAppRuntime } from '@/shared/hooks/useAppRuntime';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
-import { useAppUpdateStore } from '@/shared/stores/useAppUpdateStore';
+import {
+  useAppUpdateStore,
+  type AppUpdateMonitoringRetry,
+  type AppUpdateMonitoringStatus,
+  type AppUpdateRestart,
+} from '@/shared/stores/useAppUpdateStore';
+import {
+  projectAppUpdateSurface,
+  type AppUpdateSurfaceProjection,
+} from '../model/appUpdate';
 import {
   isCanonicalSettingsSearch,
   resolveSettingsRoute,
@@ -557,19 +565,25 @@ function VersionSettings() {
   const runtime = useAppRuntime();
   const { selectedHost } = useSettingsHost();
   const { appVersion } = useUserSystem();
-  const updateVersion = useAppUpdateStore((state) => state.updateVersion);
-  const restart = useAppUpdateStore((state) => state.restart);
-  const canInstallUpdate =
-    runtime === 'local' &&
-    selectedHost?.kind === 'local' &&
-    Boolean(updateVersion && restart);
+  const snapshot = useAppUpdateStore((state) => state.snapshot);
+  const monitoringStatus = useAppUpdateStore((state) => state.monitoringStatus);
+  const monitoringRetry = useAppUpdateStore((state) => state.monitoringRetry);
+  const restartStatus = useAppUpdateStore((state) => state.restartStatus);
+  const requestRestart = useAppUpdateStore((state) => state.requestRestart);
+  const update = projectAppUpdateSurface({
+    runtime,
+    hostKind: selectedHost?.kind ?? null,
+    snapshot,
+    monitoringStatus,
+    restartStatus,
+  });
 
   return (
     <SettingsCard
       title={t('settings.page.version.title', 'Version and updates')}
       description={t(
         'settings.page.version.description',
-        'Review the version reported by this host and any downloaded desktop update.'
+        'Review the version reported by this host and update facts reported by the desktop runtime.'
       )}
     >
       <div className="vk-settings-page__version-row">
@@ -579,25 +593,216 @@ function VersionSettings() {
             {appVersion || t('settings.page.version.unknown', 'Unavailable')}
           </strong>
         </div>
-        {canInstallUpdate && (
-          <div>
-            <span>
-              {t('settings.page.version.update', 'Downloaded update')}
-            </span>
-            <p>
-              {t(
+        <AppUpdateStatus
+          update={update}
+          monitoringRetry={monitoringRetry}
+          monitoringStatus={monitoringStatus}
+          onRestart={requestRestart}
+        />
+      </div>
+    </SettingsCard>
+  );
+}
+
+function AppUpdateStatus({
+  update,
+  monitoringRetry,
+  monitoringStatus,
+  onRestart,
+}: {
+  update: AppUpdateSurfaceProjection;
+  monitoringRetry: AppUpdateMonitoringRetry | null;
+  monitoringStatus: AppUpdateMonitoringStatus;
+  onRestart: AppUpdateRestart;
+}) {
+  const { t } = useTranslation('settings');
+
+  const retryMonitoring = monitoringRetry ? (
+    <Button
+      className="min-h-11"
+      type="button"
+      loading={monitoringStatus === 'connecting'}
+      loadingLabel={t(
+        'settings.page.version.reconnecting',
+        'Reconnecting update status'
+      )}
+      onClick={() => void monitoringRetry()}
+    >
+      {t('settings.page.version.retryMonitoring', 'Retry')}
+    </Button>
+  ) : undefined;
+
+  if (update.kind === 'unavailable') {
+    const description = {
+      'remote-runtime': t(
+        'settings.page.version.remoteRuntime',
+        'Desktop updates are managed by the installed application on that machine, not by the Remote web interface.'
+      ),
+      'remote-host': t(
+        'settings.page.version.remoteHost',
+        'This application cannot update the selected remote host.'
+      ),
+      'host-unavailable': t(
+        'settings.page.version.hostUnavailable',
+        'Select this local host to view its desktop update status.'
+      ),
+      browser: t(
+        'settings.page.version.browserRuntime',
+        'Automatic application updates are available only in the installed desktop application.'
+      ),
+    }[update.reason];
+
+    return (
+      <div
+        className="vk-settings-page__update-status"
+        data-update-phase="unavailable"
+      >
+        <span>
+          {t('settings.page.version.updateStatus', 'Application update')}
+        </span>
+        <strong>{t('settings.page.version.unavailable', 'Unavailable')}</strong>
+        <p>{description}</p>
+      </div>
+    );
+  }
+
+  if (update.kind === 'connecting') {
+    return (
+      <LoadingState
+        compact
+        className="vk-settings-page__update-state"
+        title={t(
+          'settings.page.version.connecting',
+          'Connecting to desktop update status…'
+        )}
+        description={t(
+          'settings.page.version.connectingDescription',
+          'This connects to update events; it does not mean an update check is running.'
+        )}
+      />
+    );
+  }
+
+  if (update.kind === 'monitoring-error') {
+    return (
+      <ErrorState
+        compact
+        className="vk-settings-page__update-state"
+        title={t(
+          'settings.page.version.monitoringErrorTitle',
+          'Update status could not be connected'
+        )}
+        description={t(
+          'settings.page.version.monitoringError',
+          'The application could not subscribe to desktop update events.'
+        )}
+        action={retryMonitoring}
+      />
+    );
+  }
+
+  if (update.kind === 'initial') {
+    return (
+      <div
+        className="vk-settings-page__update-status"
+        data-update-phase="initial"
+      >
+        <span>
+          {t('settings.page.version.updateStatus', 'Application update')}
+        </span>
+        <strong>
+          {t('settings.page.version.automatic', 'Automatic updates active')}
+        </strong>
+        <p>
+          {t(
+            'settings.page.version.initial',
+            'The desktop runtime checks and downloads updates in the background. It has not reported an available update in this app session.'
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="vk-settings-page__update-stack">
+      {update.degraded && (
+        <DegradedState
+          compact
+          className="vk-settings-page__update-state"
+          title={t(
+            'settings.page.version.degradedTitle',
+            'Update information may be stale'
+          )}
+          description={t(
+            'settings.page.version.degraded',
+            'The last reported update remains visible, but the desktop event connection needs to be restored.'
+          )}
+          action={retryMonitoring}
+        />
+      )}
+      <div
+        className="vk-settings-page__update-status"
+        data-update-phase={update.kind}
+        role="status"
+        aria-live="polite"
+      >
+        <span>
+          {t('settings.page.version.updateStatus', 'Application update')}
+        </span>
+        <strong>
+          {update.kind === 'restart-ready'
+            ? t('settings.page.version.update', 'Downloaded update')
+            : t('settings.page.version.reported', 'Update reported')}
+        </strong>
+        <p>
+          {update.kind === 'restart-ready'
+            ? t(
                 'settings.page.version.ready',
-                'Version {{version}} is ready to install.',
-                { version: updateVersion }
+                'Version {{version}} is downloaded and ready to install.',
+                { version: update.version }
+              )
+            : t(
+                'settings.page.version.available',
+                'The desktop runtime reported version {{version}}. It will notify the application when the download is ready.',
+                { version: update.version }
               )}
-            </p>
-            <PrimaryButton onClick={() => restart?.()}>
-              {t('settings.page.version.restart', 'Restart and install')}
-            </PrimaryButton>
+        </p>
+        {update.releaseNotes && (
+          <details className="vk-settings-page__update-notes">
+            <summary>
+              {t('settings.page.version.releaseNotes', "What's new")}
+            </summary>
+            <p>{update.releaseNotes}</p>
+          </details>
+        )}
+        {update.kind === 'restart-ready' && (
+          <div className="vk-settings-page__update-action">
+            {update.restartStatus === 'error' && (
+              <p role="alert">
+                {t(
+                  'settings.page.version.restartError',
+                  'The restart request could not be sent. The downloaded update remains ready.'
+                )}
+              </p>
+            )}
+            <Button
+              className="min-h-11"
+              type="button"
+              loading={update.restartStatus === 'pending'}
+              loadingLabel={t(
+                'settings.page.version.restarting',
+                'Requesting application restart'
+              )}
+              onClick={() => void onRestart()}
+            >
+              {update.restartStatus === 'error'
+                ? t('settings.page.version.retryRestart', 'Retry restart')
+                : t('settings.page.version.restart', 'Restart and install')}
+            </Button>
           </div>
         )}
       </div>
-    </SettingsCard>
+    </div>
   );
 }
 

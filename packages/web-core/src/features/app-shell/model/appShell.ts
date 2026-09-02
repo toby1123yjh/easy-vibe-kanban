@@ -23,10 +23,17 @@ export type AppShellModuleCapability =
 
 export type PageCanvasMode = 'contained' | 'full-bleed';
 
+export interface AppShellUpdateNotice {
+  phase: 'available' | 'restart-ready';
+  version: string;
+  open(): void;
+}
+
 export interface AppShellCapabilityAdapter {
   deployment: 'local' | 'remote';
   environmentLabel: string;
   versionLabel?: string | null;
+  updateNotice?: AppShellUpdateNotice | null;
   userLabel?: string | null;
   moduleCapabilities: Readonly<
     Record<NavigableShellModule, AppShellModuleCapability>

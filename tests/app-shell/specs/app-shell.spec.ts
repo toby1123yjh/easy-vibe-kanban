@@ -37,6 +37,12 @@ test('desktop keeps fixed shell zones and automatically pages the middle object 
   await unavailableWorkflow.press('Enter');
   await expect(page.getByTestId('current-route')).toHaveText('/dashboard');
   await expect(system.getByRole('button', { name: 'Settings' })).toBeVisible();
+  await expect(
+    system.getByRole('button', { name: 'Update 2.0.0 ready' })
+  ).toBeVisible();
+  await expect(page.locator('.vk-app-shell__update-announcement')).toHaveText(
+    'Update 2.0.0 ready'
+  );
   await expect(system).toContainText('v0.1.0-contract');
   await expect(objectList).toHaveCSS('overflow-y', 'auto');
   await expect
@@ -152,6 +158,13 @@ test('tablet object drawer reaches every object and restores focus on Escape', a
   await unavailableWorkflow.press('Enter');
   await expect(page.getByTestId('current-route')).toHaveText('/dashboard');
 
+  const updateTrigger = page
+    .locator('.vk-product-rail')
+    .getByRole('button', { name: 'Update 2.0.0 ready' });
+  await expect(updateTrigger).toBeVisible();
+  await expect(updateTrigger).toHaveCSS('width', '44px');
+  await expect(updateTrigger).toHaveCSS('height', '44px');
+
   const browseTrigger = page
     .locator('.vk-product-rail')
     .getByRole('button', { name: 'Browse projects and sessions' });
@@ -227,6 +240,9 @@ test('mobile exposes five modules, object browsing, system actions, and no horiz
   ).toBeVisible();
   await expect(
     productMenu.getByRole('menuitem', { name: 'Fixture User' })
+  ).toBeVisible();
+  await expect(
+    productMenu.getByRole('menuitem', { name: 'Update 2.0.0 ready' })
   ).toBeVisible();
   await expect(productMenu).toContainText('Version 0.1.0-contract');
   await productMenu.getByRole('menuitem', { name: 'Settings' }).click();

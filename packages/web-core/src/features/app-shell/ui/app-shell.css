@@ -18,6 +18,18 @@
   font: inherit;
 }
 
+.vk-app-shell__update-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
+}
+
 .vk-app-shell__layout {
   display: grid;
   grid-template-columns: var(--vk-product-sidebar-width) minmax(0, 1fr);
@@ -300,6 +312,15 @@ button:focus-visible > .vk-module-unavailable-reason {
   text-align: left;
 }
 
+.vk-system-zone .vk-system-zone__update {
+  background: var(--vk-status-running-subtle);
+  color: var(--vk-text-high);
+}
+
+.vk-system-zone .vk-system-zone__update[data-update-phase='restart-ready'] {
+  background: var(--vk-status-success-subtle);
+}
+
 .vk-system-zone > small {
   padding: var(--vk-space-1) var(--vk-space-3) 0;
 }
@@ -393,6 +414,7 @@ button:focus-visible > .vk-module-unavailable-reason {
 
 .vk-search-palette__input-row button,
 .vk-object-drawer__header button,
+.vk-product-rail__update,
 .vk-product-rail__settings {
   display: inline-flex;
   align-items: center;
@@ -406,8 +428,17 @@ button:focus-visible > .vk-module-unavailable-reason {
   background: transparent;
 }
 
+.vk-product-rail__update {
+  background: var(--vk-status-running-subtle);
+}
+
+.vk-product-rail__update[data-update-phase='restart-ready'] {
+  background: var(--vk-status-success-subtle);
+}
+
 .vk-search-palette__input-row button:hover,
 .vk-object-drawer__header button:hover,
+.vk-product-rail__update:hover,
 .vk-product-rail__settings:hover {
   color: var(--vk-text-high);
   background: var(--vk-surface-hover);
@@ -719,10 +750,22 @@ button.vk-dashboard-state {
 
   .vk-product-rail .vk-primary-nav__item {
     justify-content: center;
-    width: 40px;
-    min-height: 40px;
+    width: 44px;
+    min-height: 44px;
     margin-inline: auto;
     padding: 0;
+  }
+
+  .vk-product-rail__system {
+    display: grid;
+    align-content: end;
+    gap: var(--vk-space-1);
+  }
+
+  .vk-product-rail__update,
+  .vk-product-rail__settings {
+    width: 44px;
+    height: 44px;
   }
 
   .vk-object-drawer-scrim {
@@ -829,7 +872,7 @@ button.vk-dashboard-state {
   .vk-mobile-header__actions > button,
   .vk-mobile-header__menu button {
     display: inline-flex;
-    min-height: 40px;
+    min-height: 44px;
     align-items: center;
     gap: var(--vk-space-2);
     border: 0;

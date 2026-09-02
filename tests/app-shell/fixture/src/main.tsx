@@ -80,6 +80,14 @@ function AppShellHarness() {
       deployment: 'local',
       environmentLabel: 'Fixture / Local',
       versionLabel: '0.1.0-contract',
+      updateNotice: {
+        phase: 'restart-ready',
+        version: '2.0.0',
+        open: () => {
+          setSystemAction('update');
+          navigate('/settings');
+        },
+      },
       userLabel: 'Fixture User',
       moduleCapabilities: {
         dashboard: {

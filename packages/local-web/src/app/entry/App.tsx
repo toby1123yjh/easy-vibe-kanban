@@ -7,13 +7,13 @@ import { LocalAuthProvider } from '@/shared/providers/auth/LocalAuthProvider';
 import { AppRuntimeProvider } from '@/shared/hooks/useAppRuntime';
 import { AppNavigationProvider } from '@/shared/hooks/useAppNavigation';
 import { useTauriNotificationNavigation } from '@web/app/hooks/useTauriNotificationNavigation';
-import { useTauriUpdateReady } from '@web/app/hooks/useTauriUpdateReady';
+import { useTauriUpdateLifecycle } from '@web/app/hooks/useTauriUpdateLifecycle';
 import { AppSystemNotifications } from '@web/app/notifications/AppSystemNotifications';
 import { router } from '@web/app/router';
 
 function TauriListeners() {
   useTauriNotificationNavigation();
-  useTauriUpdateReady();
+  useTauriUpdateLifecycle();
   return null;
 }
 

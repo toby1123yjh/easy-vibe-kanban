@@ -6,6 +6,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
+import { useAppUpdateStore } from '@/shared/stores/useAppUpdateStore';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 
@@ -15,6 +16,7 @@ export function SharedAppLayout() {
   const { appVersion, environment } = useUserSystem();
   const { isSignedIn } = useAuth();
   const { openSettings } = useSettingsNavigation();
+  const updateSnapshot = useAppUpdateStore((state) => state.snapshot);
 
   const adapter = useMemo<AppShellCapabilityAdapter>(
     () => ({
@@ -23,6 +25,15 @@ export function SharedAppLayout() {
         ? `Local · ${environment.os_type}`
         : 'Local environment',
       versionLabel: appVersion,
+      updateNotice:
+        updateSnapshot.phase === 'available' ||
+        updateSnapshot.phase === 'restart-ready'
+          ? {
+              phase: updateSnapshot.phase,
+              version: updateSnapshot.version,
+              open: () => openSettings('application'),
+            }
+          : null,
       userLabel: isSignedIn ? 'Account' : 'Sign in',
       moduleCapabilities: {
         dashboard: {
@@ -75,7 +86,15 @@ export function SharedAppLayout() {
         else void OAuthDialog.show({});
       },
     }),
-    [appNavigation, appVersion, environment, isSignedIn, navigate, openSettings]
+    [
+      appNavigation,
+      appVersion,
+      environment,
+      isSignedIn,
+      navigate,
+      openSettings,
+      updateSnapshot,
+    ]
   );
 
   return (

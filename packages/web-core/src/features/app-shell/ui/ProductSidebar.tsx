@@ -27,7 +27,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { ProjectListItem, SessionListItem } from 'shared/types';
-import type { AppShellCapabilityAdapter, ShellModule } from '../model/appShell';
+import type {
+  AppShellCapabilityAdapter,
+  AppShellUpdateNotice,
+  ShellModule,
+} from '../model/appShell';
 import { activateShellModuleCapability } from '../model/appShell';
 
 const MODULES: readonly {
@@ -41,6 +45,12 @@ const MODULES: readonly {
   { id: 'workflows', label: 'Workflows', icon: GitBranch },
   { id: 'agents', label: 'Agents', icon: Bot },
 ];
+
+function getUpdateNoticeLabel(updateNotice: AppShellUpdateNotice) {
+  return updateNotice.phase === 'restart-ready'
+    ? `Update ${updateNotice.version} ready`
+    : `Update ${updateNotice.version} available`;
+}
 
 export interface SidebarSectionState<T> {
   items: readonly T[];
@@ -534,6 +544,10 @@ function MobileHeader({
     setMenuOpen(false);
     action();
   };
+  const updateNotice = adapter.updateNotice;
+  const updateNoticeLabel = updateNotice
+    ? getUpdateNoticeLabel(updateNotice)
+    : null;
 
   return (
     <header className="vk-mobile-header">
@@ -577,6 +591,16 @@ function MobileHeader({
               {adapter.userLabel ?? 'User'}
             </button>
           )}
+          {updateNotice && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => invoke(updateNotice.open)}
+            >
+              <RefreshCw aria-hidden="true" size={17} />
+              {updateNoticeLabel}
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -607,6 +631,11 @@ function Identity({ adapter }: { adapter: AppShellCapabilityAdapter }) {
 }
 
 function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
+  const updateNotice = adapter.updateNotice;
+  const updateNoticeLabel = updateNotice
+    ? getUpdateNoticeLabel(updateNotice)
+    : null;
+
   return (
     <div className="vk-system-zone">
       {adapter.openUser && (
@@ -619,6 +648,17 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
         <Settings aria-hidden="true" size={17} />
         <span>Settings</span>
       </button>
+      {updateNotice && (
+        <button
+          type="button"
+          className="vk-system-zone__update"
+          data-update-phase={updateNotice.phase}
+          onClick={updateNotice.open}
+        >
+          <RefreshCw aria-hidden="true" size={17} />
+          <span>{updateNoticeLabel}</span>
+        </button>
+      )}
       {adapter.versionLabel && <small>v{adapter.versionLabel}</small>}
     </div>
   );
@@ -626,9 +666,21 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
 
 export function ProductSidebar(props: ProductSidebarProps) {
   const mobileReasonIdPrefix = useId();
+  const updateNotice = props.adapter.updateNotice;
+  const updateNoticeLabel = updateNotice
+    ? getUpdateNoticeLabel(updateNotice)
+    : '';
 
   return (
     <>
+      <p
+        className="vk-app-shell__update-announcement"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {updateNoticeLabel}
+      </p>
       <MobileHeader
         adapter={props.adapter}
         onBrowse={() => props.onObjectDrawerOpenChange(true)}
@@ -653,15 +705,29 @@ export function ProductSidebar(props: ProductSidebarProps) {
           iconOnly
           onOpenObjects={() => props.onObjectDrawerOpenChange(true)}
         />
-        <button
-          type="button"
-          className="vk-product-rail__settings"
-          aria-label="Settings"
-          title="Settings"
-          onClick={props.adapter.openSettings}
-        >
-          <Settings aria-hidden="true" size={18} />
-        </button>
+        <div className="vk-product-rail__system">
+          {updateNotice && (
+            <button
+              type="button"
+              className="vk-product-rail__update"
+              data-update-phase={updateNotice.phase}
+              aria-label={updateNoticeLabel}
+              title={updateNoticeLabel}
+              onClick={updateNotice.open}
+            >
+              <RefreshCw aria-hidden="true" size={18} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="vk-product-rail__settings"
+            aria-label="Settings"
+            title="Settings"
+            onClick={props.adapter.openSettings}
+          >
+            <Settings aria-hidden="true" size={18} />
+          </button>
+        </div>
       </aside>
 
       {props.objectDrawerOpen && <ObjectDrawer {...props} />}
