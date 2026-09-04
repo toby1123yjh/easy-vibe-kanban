@@ -2,6 +2,13 @@ import type { ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon, SpinnerIcon } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from './StateSurface';
+import { Button } from './Button';
 
 export interface WorkspacesMainWorkspace {
   id: string;
@@ -10,6 +17,9 @@ export interface WorkspacesMainWorkspace {
 interface WorkspacesMainProps {
   workspaceWithSession: WorkspacesMainWorkspace | undefined;
   isLoading: boolean;
+  workspaceState?: 'loading' | 'empty' | 'error' | 'ready' | 'degraded';
+  isRetryingWorkspace?: boolean;
+  onRetryWorkspace?: () => void | Promise<void>;
   showLoadingOverlay?: boolean;
   containerRef: RefObject<HTMLElement>;
   conversationContent?: ReactNode;
@@ -26,6 +36,9 @@ interface WorkspacesMainProps {
 export function WorkspacesMain({
   workspaceWithSession,
   isLoading,
+  workspaceState = 'ready',
+  isRetryingWorkspace = false,
+  onRetryWorkspace,
   showLoadingOverlay = false,
   containerRef,
   conversationContent,
@@ -48,14 +61,73 @@ export function WorkspacesMain({
       )}
     >
       {/* Conversation content - conditional based on loading/workspace state */}
-      {isLoading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <SpinnerIcon className="size-6 animate-spin text-low" />
-        </div>
-      ) : !workspaceWithSession ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-low">{t('common:workspaces.selectToStart')}</p>
-        </div>
+      {isLoading || workspaceState === 'loading' ? (
+        <LoadingState
+          className="flex-1"
+          title={t('common:workspaces.loadingTitle', {
+            defaultValue: 'Loading workspace',
+          })}
+        />
+      ) : workspaceState === 'error' ? (
+        <ErrorState
+          className="flex-1"
+          title={t('common:workspaces.errorTitle', {
+            defaultValue: 'Workspace could not be loaded',
+          })}
+          description={t('common:workspaces.errorDescription', {
+            defaultValue: 'Check the connection and try again.',
+          })}
+          action={
+            onRetryWorkspace ? (
+              <Button
+                className="min-h-11"
+                loading={isRetryingWorkspace}
+                loadingLabel={t('common:workspaces.retrying', {
+                  defaultValue: 'Retrying workspace',
+                })}
+                onClick={() => void onRetryWorkspace()}
+              >
+                {t('common:buttons.retry', { defaultValue: 'Retry' })}
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : workspaceState === 'degraded' && workspaceWithSession ? (
+        <>
+          <DegradedState
+            compact
+            className="mx-auto w-chat max-w-full"
+            title={t('common:workspaces.degradedTitle', {
+              defaultValue: 'Workspace may be out of date',
+            })}
+            description={t('common:workspaces.degradedDescription', {
+              defaultValue:
+                'The last loaded workspace remains available while the connection recovers.',
+            })}
+            action={
+              onRetryWorkspace ? (
+                <Button
+                  className="min-h-11"
+                  loading={isRetryingWorkspace}
+                  loadingLabel={t('common:workspaces.retrying', {
+                    defaultValue: 'Retrying workspace',
+                  })}
+                  onClick={() => void onRetryWorkspace()}
+                >
+                  {t('common:buttons.retry', { defaultValue: 'Retry' })}
+                </Button>
+              ) : undefined
+            }
+          />
+          {conversationContent}
+        </>
+      ) : workspaceState === 'empty' || !workspaceWithSession ? (
+        <EmptyState
+          className="flex-1"
+          title={t('common:workspaces.selectToStart', {
+            defaultValue: 'Select a workspace to start',
+          })}
+        />
       ) : (
         <>
           {showLoadingOverlay && (
@@ -86,12 +158,16 @@ export function WorkspacesMain({
           the composer, inside the keyboard-aware shell so it stays reachable */}
       {approvalBannerContent}
       {/* Chat box - always rendered to prevent flash during workspace switch */}
-      <div
-        className="flex justify-center @container pl-px"
-        data-chatbox-container="true"
-      >
-        {chatBoxContent}
-      </div>
+      {!isLoading &&
+        workspaceState !== 'loading' &&
+        workspaceState !== 'error' && (
+          <div
+            className="flex justify-center @container pl-px"
+            data-chatbox-container="true"
+          >
+            {chatBoxContent}
+          </div>
+        )}
       {/* Context Bar - floating toolbar */}
       {workspaceWithSession ? contextBarContent : null}
     </main>

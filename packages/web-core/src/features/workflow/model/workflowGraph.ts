@@ -2,7 +2,6 @@ import type {
   Node as ReactFlowNode,
   Edge as ReactFlowEdge,
 } from '@xyflow/react';
-import type { SelectedSkill } from 'shared/types';
 import { createDefaultNodeData } from './workflowNodeCatalog';
 import { getWorkflowEdgeLabel } from './workflowPresentation';
 
@@ -13,8 +12,20 @@ export const WORKFLOW_PORT_HANDLE_IDS = {
   right: 'port-right',
   bottom: 'port-bottom',
 } as const;
-export const DEFAULT_SOURCE_HANDLE = WORKFLOW_PORT_HANDLE_IDS.right;
-export const DEFAULT_TARGET_HANDLE = WORKFLOW_PORT_HANDLE_IDS.left;
+
+/**
+ * Handles persisted by the current Workflow contract. Positional `port-*`
+ * IDs remain recognized only while importing older drafts.
+ */
+const WORKFLOW_SEMANTIC_HANDLE_IDS = {
+  input: 'input',
+  default: 'default',
+  winner: 'winner',
+  approve: 'approve',
+  reject: 'reject',
+} as const;
+export const DEFAULT_SOURCE_HANDLE = WORKFLOW_SEMANTIC_HANDLE_IDS.default;
+export const DEFAULT_TARGET_HANDLE = WORKFLOW_SEMANTIC_HANDLE_IDS.input;
 
 export type WorkflowNodeKind =
   | 'start'
@@ -92,7 +103,6 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   role_template_id?: string;
   executor_config?: unknown;
   prompt_template?: string;
-  selected_skills?: SelectedSkill[];
   include_workflow_context?: boolean;
   output_capture?: OutputCaptureMode;
   attempts?: WorkflowArenaAttemptConfig[];
@@ -268,6 +278,19 @@ const WORKFLOW_TIDY_NODE_SIZES = {
   arena: { width: 280, height: 170 },
 } as const satisfies Record<WorkflowNodeKind, WorkflowCanvasObjectSize>;
 
+// These dimensions are only a first-render hint for React Flow. The custom
+// node measures its real content immediately afterwards; keeping the hint
+// close to the rendered card prevents a large blank drag area on first paint.
+const WORKFLOW_NODE_INITIAL_SIZES = {
+  start: { width: 140, height: 64 },
+  end: { width: 140, height: 64 },
+  agent: { width: 232, height: 64 },
+  condition: { width: 232, height: 64 },
+  human_gate: { width: 232, height: 64 },
+  transform: { width: 232, height: 64 },
+  arena: { width: 232, height: 96 },
+} as const satisfies Record<WorkflowNodeKind, WorkflowCanvasObjectSize>;
+
 const WORKFLOW_TIDY_NODE_KIND_ORDER = {
   start: 0,
   condition: 1,
@@ -298,6 +321,68 @@ export function normalizeWorkflowPortHandle(
     default:
       return handle ?? fallback;
   }
+}
+
+function resolveWorkflowSemanticTargetHandle(
+  handle: string | null | undefined
+): string {
+  if (!handle) return DEFAULT_TARGET_HANDLE;
+  if (
+    handle === WORKFLOW_PORT_HANDLE_IDS.left ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.top ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.right ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.bottom ||
+    handle.startsWith('input-')
+  ) {
+    return WORKFLOW_SEMANTIC_HANDLE_IDS.input;
+  }
+  return handle;
+}
+
+function resolveWorkflowSemanticSourceHandle(
+  source: WorkflowNode | undefined,
+  edge: Pick<WorkflowEdge, 'source_handle' | 'target' | 'type' | 'id'>
+): string {
+  const rawHandle = edge.source_handle;
+  if (source?.type === 'condition') {
+    if (rawHandle?.startsWith('branch:')) return rawHandle;
+    const branch = source.data.branches?.find(
+      (candidate) => candidate.target_node_id === edge.target
+    );
+    return `branch:${branch?.id ?? `branch-${edge.id}`}`;
+  }
+  if (source?.type === 'human_gate') {
+    if (rawHandle === WORKFLOW_SEMANTIC_HANDLE_IDS.reject) return rawHandle;
+    return edge.type === 'rejection'
+      ? WORKFLOW_SEMANTIC_HANDLE_IDS.reject
+      : WORKFLOW_SEMANTIC_HANDLE_IDS.approve;
+  }
+  if (source?.type === 'arena') return WORKFLOW_SEMANTIC_HANDLE_IDS.winner;
+  if (rawHandle && !isLegacyWorkflowPortHandle(rawHandle)) return rawHandle;
+  return DEFAULT_SOURCE_HANDLE;
+}
+
+function isLegacyWorkflowPortHandle(handle: string): boolean {
+  return (
+    handle === WORKFLOW_PORT_HANDLE_IDS.left ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.top ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.right ||
+    handle === WORKFLOW_PORT_HANDLE_IDS.bottom ||
+    /^(?:input|output)-(?:left|top|right|bottom)$/.test(handle)
+  );
+}
+
+function normalizeWorkflowSemanticHandles(graph: WorkflowGraph): WorkflowGraph {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edges = graph.edges.map((edge) => ({
+    ...edge,
+    source_handle: resolveWorkflowSemanticSourceHandle(
+      nodeById.get(edge.source),
+      edge
+    ),
+    target_handle: resolveWorkflowSemanticTargetHandle(edge.target_handle),
+  }));
+  return { ...graph, edges };
 }
 
 function getNodeLabel(
@@ -534,7 +619,10 @@ export function migrateWorkflowGraph(
     })),
     ...(canvas ? { canvas } : {}),
   };
-  return syncConditionBranches(normalizeConditionEdgeTypes(migrated));
+  const synchronized = syncConditionBranches(
+    normalizeConditionEdgeTypes(migrated)
+  );
+  return normalizeWorkflowSemanticHandles(synchronized);
 }
 
 export function instantiateWorkflowGraphTemplate(
@@ -645,6 +733,10 @@ export function toReactFlowNodes(
     type: node.type,
     data: node.data,
     position: node.position ?? positions?.[node.id] ?? { x: 0, y: 0 },
+    // React Flow hides a node until dimensions are measured. Stable initial
+    // dimensions prevent a hidden first render while DOM measurement runs.
+    initialWidth: WORKFLOW_NODE_INITIAL_SIZES[node.type].width,
+    initialHeight: WORKFLOW_NODE_INITIAL_SIZES[node.type].height,
   }));
 }
 
@@ -702,18 +794,16 @@ export function toReactFlowCanvasNodes(
 export function toReactFlowEdges(
   graph: WorkflowGraph
 ): ReactFlowEdge<ReactFlowWorkflowEdgeData>[] {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   return graph.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
-    sourceHandle: normalizeWorkflowPortHandle(
-      edge.source_handle,
-      DEFAULT_SOURCE_HANDLE
+    sourceHandle: resolveWorkflowSemanticSourceHandle(
+      nodeById.get(edge.source),
+      edge
     ),
     target: edge.target,
-    targetHandle: normalizeWorkflowPortHandle(
-      edge.target_handle,
-      DEFAULT_TARGET_HANDLE
-    ),
+    targetHandle: resolveWorkflowSemanticTargetHandle(edge.target_handle),
     type: WORKFLOW_REACT_FLOW_EDGE_TYPE,
     data: { ...(edge.data ?? {}), workflowType: edge.type },
     label: getWorkflowEdgeLabel(edge.type),
@@ -755,6 +845,7 @@ export function fromReactFlowGraph(
 ): WorkflowGraph {
   const canvas = normalizeWorkflowCanvas(baseGraph?.canvas);
   const { canvas: _canvas, ...baseGraphWithoutCanvas } = baseGraph ?? {};
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const nextGraph = {
     ...baseGraphWithoutCanvas,
     version: WORKFLOW_GRAPH_VERSION,
@@ -769,24 +860,25 @@ export function fromReactFlowGraph(
       return {
         id: edge.id,
         source: edge.source,
-        source_handle: normalizeWorkflowPortHandle(
-          edge.sourceHandle,
-          DEFAULT_SOURCE_HANDLE
+        source_handle: resolveWorkflowSemanticSourceHandle(
+          nodeById.get(edge.source),
+          {
+            id: edge.id,
+            source_handle: edge.sourceHandle ?? undefined,
+            target: edge.target,
+            type: getWorkflowTypeFromReactFlowEdge(edge),
+          }
         ),
         target: edge.target,
-        target_handle: normalizeWorkflowPortHandle(
-          edge.targetHandle,
-          DEFAULT_TARGET_HANDLE
-        ),
+        target_handle: resolveWorkflowSemanticTargetHandle(edge.targetHandle),
         type: getWorkflowTypeFromReactFlowEdge(edge),
         ...(data ? { data } : {}),
       };
     }),
     ...(canvas ? { canvas } : {}),
   };
-  return syncConditionBranches(
-    normalizeConditionEdgeTypes(nextGraph),
-    baseGraph
+  return normalizeWorkflowSemanticHandles(
+    syncConditionBranches(normalizeConditionEdgeTypes(nextGraph), baseGraph)
   );
 }
 
@@ -964,16 +1056,13 @@ export function tidyWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
   const edges = graph.edges.map((edge) => {
     const sourceNode = nextNodeById.get(edge.source);
     const targetNode = nextNodeById.get(edge.target);
-    const source = sourceNode ? getWorkflowTidyNodeCenter(sourceNode) : null;
-    const target = targetNode ? getWorkflowTidyNodeCenter(targetNode) : null;
-    if (!source || !target) return edge;
-    return {
-      ...edge,
-      ...getDirectionalEdgeHandles(source, target),
-    };
+    if (!sourceNode || !targetNode) return edge;
+    return edge;
   });
 
-  return { ...graph, nodes, edges };
+  return normalizeWorkflowSemanticHandles(
+    syncConditionBranches({ ...graph, nodes, edges })
+  );
 }
 
 interface WorkflowTidyAdjacency {
@@ -1301,17 +1390,6 @@ function getWorkflowTidyNodeSize(node: WorkflowNode): WorkflowCanvasObjectSize {
   return WORKFLOW_TIDY_NODE_SIZES[node.type];
 }
 
-function getWorkflowTidyNodeCenter(
-  node: WorkflowNode
-): WorkflowNodePosition | null {
-  if (!node.position) return null;
-  const size = getWorkflowTidyNodeSize(node);
-  return {
-    x: node.position.x + size.width / 2,
-    y: node.position.y + size.height / 2,
-  };
-}
-
 function getWorkflowNodeLevels(
   graph: WorkflowGraph,
   adjacency: WorkflowTidyAdjacency
@@ -1361,32 +1439,4 @@ function getWorkflowNodeLevels(
   });
 
   return levels;
-}
-
-function getDirectionalEdgeHandles(
-  source: WorkflowNodePosition,
-  target: WorkflowNodePosition
-): Pick<WorkflowEdge, 'source_handle' | 'target_handle'> {
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return dx >= 0
-      ? {
-          source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
-          target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
-        }
-      : {
-          source_handle: WORKFLOW_PORT_HANDLE_IDS.left,
-          target_handle: WORKFLOW_PORT_HANDLE_IDS.right,
-        };
-  }
-  return dy >= 0
-    ? {
-        source_handle: WORKFLOW_PORT_HANDLE_IDS.bottom,
-        target_handle: WORKFLOW_PORT_HANDLE_IDS.top,
-      }
-    : {
-        source_handle: WORKFLOW_PORT_HANDLE_IDS.top,
-        target_handle: WORKFLOW_PORT_HANDLE_IDS.bottom,
-      };
 }

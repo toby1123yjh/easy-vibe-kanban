@@ -93,9 +93,8 @@ import type {
   GlobalActionDefinition,
   WorkspaceActionDefinition,
   IssueActionDefinition,
-  NavbarItem,
 } from '@/shared/types/actions';
-import { ActionTargetType, NavbarDivider } from '@/shared/types/actions';
+import { ActionTargetType } from '@/shared/types/actions';
 
 async function resolveLinkedIssue(
   workspaceId: string,
@@ -1543,29 +1542,6 @@ export const Actions = {
     },
   } satisfies IssueActionDefinition,
 } as const satisfies Record<string, ActionDefinition>;
-
-// Navbar action groups define which actions appear in each section
-export const NavbarActionGroups = {
-  left: [Actions.ArchiveWorkspace] as NavbarItem[],
-  right: [
-    Actions.ToggleDiffViewMode,
-    Actions.ToggleAllDiffs,
-    NavbarDivider,
-    Actions.ToggleLeftSidebar,
-    Actions.ToggleLeftMainPanel,
-    Actions.ToggleChangesMode,
-    Actions.ToggleFilesMode,
-    Actions.ToggleLogsMode,
-    Actions.TogglePreviewMode,
-    Actions.ToggleRightSidebar,
-    NavbarDivider,
-    Actions.OpenCommandBar,
-    Actions.Feedback,
-    Actions.WorkspacesGuide,
-    Actions.ProjectsGuide,
-    Actions.Settings,
-  ] as NavbarItem[],
-};
 
 // ContextBar action groups define which actions appear in each section
 export const ContextBarActionGroups = {

@@ -1,6 +1,6 @@
 import type { DataChannelResponse } from "shared/types";
 import { base64ToBytes } from "@remote/shared/lib/relay/bytes";
-import { getActiveRelayHostId } from "@remote/shared/lib/relay/activeHostContext";
+import { resolveRelayRequestHostId } from "@remote/shared/lib/relay/activeHostContext";
 import {
   shouldRelayApiPath,
   toPathAndQuery,
@@ -14,18 +14,9 @@ import type {
   LocalApiRequestOptions,
   LocalApiWebSocketOptions,
 } from "@/shared/lib/localApiTransport";
+import { toFetchRequestInit } from "@/shared/lib/localApiTransport";
 import { getWebRtcConnection } from "./connectionManager";
 import { createDataChannelWebSocket } from "./dataChannelWebSocket";
-
-function resolveHostId(
-  options: { relayHostId?: string | null } = {},
-): string | null {
-  return (
-    options.relayHostId ??
-    resolveRelayHostIdForCurrentPage() ??
-    getActiveRelayHostId()
-  );
-}
 
 function normalizeWebSocketUrl(pathOrUrl: string): string {
   const url = new URL(pathOrUrl, window.location.href);
@@ -44,13 +35,18 @@ export async function requestLocalApiViaWebRtc(
   const pathAndQuery = toPathAndQuery(pathOrUrl);
 
   if (!shouldRelayApiPath(pathAndQuery)) {
-    return fetch(pathOrUrl, requestInit);
+    return fetch(pathOrUrl, toFetchRequestInit(requestInit));
   }
 
-  const hostId = resolveHostId(requestInit);
+  const hostId = resolveRelayRequestHostId(
+    requestInit,
+    resolveRelayHostIdForCurrentPage(),
+  );
   if (!hostId) {
     return requestLocalApiViaRelay(pathOrUrl, requestInit);
   }
+
+  requestInit.signal?.throwIfAborted();
 
   const conn = getWebRtcConnection(hostId);
   if (!conn) {
@@ -93,8 +89,12 @@ export async function requestLocalApiViaWebRtc(
       headers,
       bodyBytes,
     );
+    requestInit.signal?.throwIfAborted();
     return dataChannelResponseToResponse(dcResp);
   } catch (err) {
+    if (requestInit.signal?.aborted) {
+      requestInit.signal.throwIfAborted();
+    }
     console.warn("[webrtc] request failed, falling back to relay:", err);
     return requestLocalApiViaRelay(pathOrUrl, requestInit);
   }
@@ -110,7 +110,10 @@ export async function openLocalApiWebSocketViaWebRtc(
     return new WebSocket(normalizeWebSocketUrl(pathOrUrl));
   }
 
-  const hostId = resolveHostId(options);
+  const hostId = resolveRelayRequestHostId(
+    options,
+    resolveRelayHostIdForCurrentPage(),
+  );
   if (!hostId) {
     return openLocalApiWebSocketViaRelay(pathOrUrl, options);
   }

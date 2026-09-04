@@ -9,6 +9,7 @@ import { WorkspacesLanding } from "@/pages/workspaces/WorkspacesLanding";
 import { RemoteWorkspacesPageShell } from "@remote/pages/RemoteWorkspacesPageShell";
 import { useIsMobile } from "@/shared/hooks/useIsMobile";
 import { useWorkspaceContext } from "@/shared/hooks/useWorkspaceContext";
+import { useAppTranslation } from "@/i18n/useAppTranslation";
 import { cn } from "@/shared/lib/utils";
 import { CommandBarDialog } from "@/shared/dialogs/command-bar/CommandBarDialog";
 import {
@@ -25,7 +26,14 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
 } from "@phosphor-icons/react";
+import { Button } from "@vibe/ui/components/Button";
 import { RunningDots } from "@vibe/ui/components/RunningDots";
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@vibe/ui/components/StateSurface";
 
 export const Route = createFileRoute("/hosts/$hostId/workspaces")({
   beforeLoad: async ({ location }) => {
@@ -44,12 +52,21 @@ function WorkspacesRouteComponent() {
 }
 
 function MobileWorkspacesList() {
+  const { t, i18n } = useAppTranslation("common");
   const navigate = useNavigate();
   const { hostId } = useParams({ from: "/hosts/$hostId/workspaces" });
-  const { activeWorkspaces, archivedWorkspaces, selectWorkspace } =
-    useWorkspaceContext();
+  const {
+    activeWorkspaces,
+    archivedWorkspaces,
+    workspaceListState,
+    isWorkspacesListRetrying,
+    retryWorkspaces,
+    selectWorkspace,
+  } = useWorkspaceContext();
   const [showArchive, setShowArchive] = useState(false);
   const workspaces = showArchive ? archivedWorkspaces : activeWorkspaces;
+  const canCreate =
+    workspaceListState !== "loading" && workspaceListState !== "error";
 
   const handleSelectWorkspace = (id: string) => {
     selectWorkspace(id);
@@ -60,6 +77,7 @@ function MobileWorkspacesList() {
   };
 
   const handleCreateWorkspace = () => {
+    if (!canCreate) return;
     navigate({ to: "/hosts/$hostId/workspaces/create", params: { hostId } });
   };
 
@@ -68,202 +86,288 @@ function MobileWorkspacesList() {
       {/* Header */}
       <div className="flex items-center justify-between px-base py-base border-b border-border">
         <h1 className="text-lg font-semibold text-high">
-          {showArchive ? "Archived" : "Workspaces"}
+          {showArchive ? t("workspaces.archived") : t("workspaces.title")}
         </h1>
         <button
+          type="button"
           onClick={handleCreateWorkspace}
+          disabled={!canCreate}
           className={cn(
-            "flex items-center gap-half rounded-md px-plusfifty py-half",
+            "flex min-h-11 items-center gap-half rounded-md px-plusfifty py-half",
             "bg-brand text-on-brand text-sm font-medium",
-            "active:opacity-80 transition-opacity",
+            "transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
           <PlusIcon className="size-icon-sm" />
-          New
+          {t("workspaces.newWorkspace")}
         </button>
       </div>
 
       {/* Workspace list */}
       <div className="flex-1 overflow-y-auto">
-        {workspaces.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full px-double text-center">
-            <p className="text-low text-sm">
-              {showArchive ? "No archived workspaces" : "No workspaces yet"}
-            </p>
-            {!showArchive && (
-              <button
-                onClick={handleCreateWorkspace}
-                className="mt-base text-brand text-sm font-medium active:opacity-80"
+        {workspaceListState === "loading" ? (
+          <LoadingState
+            className="h-full"
+            title={t("workspaces.loadingTitle", {
+              defaultValue: "Loading workspaces",
+            })}
+          />
+        ) : workspaceListState === "error" ? (
+          <ErrorState
+            className="h-full"
+            title={t("workspaces.errorTitle", {
+              defaultValue: "Workspaces could not be loaded",
+            })}
+            description={t("workspaces.errorDescription", {
+              defaultValue: "Check the connection and try again.",
+            })}
+            action={
+              <Button
+                className="min-h-11"
+                loading={isWorkspacesListRetrying}
+                loadingLabel={t("workspaces.retrying", {
+                  defaultValue: "Retrying workspaces",
+                })}
+                onClick={() => void retryWorkspaces()}
               >
-                Create your first workspace
-              </button>
-            )}
-          </div>
+                {t("buttons.retry")}
+              </Button>
+            }
+          />
         ) : (
-          <div className="flex flex-col">
-            {workspaces.map((workspace) => {
-              const isFailed =
-                workspace.latestProcessStatus === "failed" ||
-                workspace.latestProcessStatus === "crashed" ||
-                workspace.latestProcessStatus === "audit_failed";
-              const hasChanges =
-                workspace.filesChanged !== undefined &&
-                workspace.filesChanged > 0;
-
-              return (
-                <div
-                  key={workspace.id}
-                  className={cn(
-                    "group relative flex items-center gap-half px-base py-plusfifty",
-                    "border-b border-border",
-                  )}
-                >
-                  <button
-                    onClick={() => handleSelectWorkspace(workspace.id)}
-                    className={cn(
-                      "flex flex-1 flex-col gap-half min-w-0",
-                      "text-left active:bg-secondary transition-colors",
-                    )}
+          <>
+            {workspaceListState === "degraded" && (
+              <DegradedState
+                compact
+                className="m-base"
+                title={t("workspaces.degradedTitle", {
+                  defaultValue: "Workspaces may be out of date",
+                })}
+                description={t("workspaces.degradedDescription", {
+                  defaultValue:
+                    "The last loaded workspaces remain available while the connection recovers.",
+                })}
+                action={
+                  <Button
+                    className="min-h-11"
+                    loading={isWorkspacesListRetrying}
+                    loadingLabel={t("workspaces.retrying", {
+                      defaultValue: "Retrying workspaces",
+                    })}
+                    onClick={() => void retryWorkspaces()}
                   >
-                    <span className="text-sm font-medium text-high truncate">
-                      {workspace.name}
-                    </span>
-                    <span className="flex items-center gap-base text-xs text-low">
-                      {/* Branch */}
-                      {workspace.branch && (
-                        <span className="flex items-center gap-half min-w-0 shrink truncate">
-                          <GitBranchIcon className="size-icon-xs shrink-0" />
-                          <span className="truncate">{workspace.branch}</span>
-                        </span>
+                    {t("buttons.retry")}
+                  </Button>
+                }
+              />
+            )}
+            {workspaces.length === 0 ? (
+              <EmptyState
+                className="h-full"
+                title={
+                  showArchive
+                    ? t("workspaces.noArchived")
+                    : t("workspaces.emptyTitle", {
+                        defaultValue: "No workspaces yet",
+                      })
+                }
+                description={
+                  showArchive
+                    ? undefined
+                    : t("workspaces.emptyDescription", {
+                        defaultValue: "Start a workspace to run an Agent task.",
+                      })
+                }
+                action={
+                  !showArchive ? (
+                    <Button
+                      className="min-h-11"
+                      onClick={handleCreateWorkspace}
+                    >
+                      {t("workspaces.newWorkspace")}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="flex flex-col">
+                {workspaces.map((workspace) => {
+                  const isFailed =
+                    workspace.latestProcessStatus === "failed" ||
+                    workspace.latestProcessStatus === "crashed" ||
+                    workspace.latestProcessStatus === "audit_failed";
+                  const hasChanges =
+                    workspace.filesChanged !== undefined &&
+                    workspace.filesChanged > 0;
+
+                  return (
+                    <div
+                      key={workspace.id}
+                      className={cn(
+                        "group relative flex items-center gap-half px-base py-plusfifty",
+                        "border-b border-border",
                       )}
-
-                      {/* Status indicators */}
-                      <span className="flex items-center gap-half shrink-0">
-                        {/* Dev server running */}
-                        {workspace.hasRunningDevServer && (
-                          <PlayIcon
-                            className="size-icon-xs text-brand shrink-0"
-                            weight="fill"
-                          />
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelectWorkspace(workspace.id)}
+                        className={cn(
+                          "flex min-h-11 min-w-0 flex-1 flex-col gap-half text-left",
+                          "transition-colors active:bg-secondary",
                         )}
-
-                        {/* Failed/killed status (only when not running) */}
-                        {!workspace.isRunning && isFailed && (
-                          <TriangleIcon
-                            className="size-icon-xs text-error shrink-0"
-                            weight="fill"
-                          />
-                        )}
-
-                        {/* Running dots OR hand icon for pending approval */}
-                        {workspace.isRunning &&
-                          (workspace.hasPendingApproval ? (
-                            <HandIcon
-                              className="size-icon-xs text-brand shrink-0"
-                              weight="fill"
-                            />
-                          ) : (
-                            <RunningDots />
-                          ))}
-
-                        {/* Unseen activity indicator (only when not running and not failed) */}
-                        {workspace.hasUnseenActivity &&
-                          !workspace.isRunning &&
-                          !isFailed && (
-                            <CircleIcon
-                              className="size-icon-xs text-brand shrink-0"
-                              weight="fill"
-                            />
+                      >
+                        <span className="text-sm font-medium text-high truncate">
+                          {workspace.name}
+                        </span>
+                        <span className="flex items-center gap-base text-xs text-low">
+                          {/* Branch */}
+                          {workspace.branch && (
+                            <span className="flex items-center gap-half min-w-0 shrink truncate">
+                              <GitBranchIcon className="size-icon-xs shrink-0" />
+                              <span className="truncate">
+                                {workspace.branch}
+                              </span>
+                            </span>
                           )}
 
-                        {/* PR status icon */}
-                        {workspace.prStatus === "open" && (
-                          <GitPullRequestIcon
-                            className="size-icon-xs text-success shrink-0"
-                            weight="fill"
-                          />
-                        )}
-                        {workspace.prStatus === "merged" && (
-                          <GitPullRequestIcon
-                            className="size-icon-xs text-merged shrink-0"
-                            weight="fill"
-                          />
-                        )}
+                          {/* Status indicators */}
+                          <span className="flex items-center gap-half shrink-0">
+                            {/* Dev server running */}
+                            {workspace.hasRunningDevServer && (
+                              <PlayIcon
+                                className="size-icon-xs text-brand shrink-0"
+                                weight="fill"
+                              />
+                            )}
 
-                        {/* Pin icon */}
-                        {workspace.isPinned && (
-                          <PushPinIcon
-                            className="size-icon-xs text-brand shrink-0"
-                            weight="fill"
-                          />
-                        )}
-                      </span>
+                            {/* Failed/killed status (only when not running) */}
+                            {!workspace.isRunning && isFailed && (
+                              <TriangleIcon
+                                className="size-icon-xs text-error shrink-0"
+                                weight="fill"
+                              />
+                            )}
 
-                      {/* Elapsed time */}
-                      {!workspace.isRunning &&
-                        workspace.latestProcessCompletedAt && (
-                          <span className="shrink-0">
-                            {formatRelativeElapsed(
-                              workspace.latestProcessCompletedAt,
+                            {/* Running dots OR hand icon for pending approval */}
+                            {workspace.isRunning &&
+                              (workspace.hasPendingApproval ? (
+                                <HandIcon
+                                  className="size-icon-xs text-brand shrink-0"
+                                  weight="fill"
+                                />
+                              ) : (
+                                <RunningDots />
+                              ))}
+
+                            {/* Unseen activity indicator (only when not running and not failed) */}
+                            {workspace.hasUnseenActivity &&
+                              !workspace.isRunning &&
+                              !isFailed && (
+                                <CircleIcon
+                                  className="size-icon-xs text-brand shrink-0"
+                                  weight="fill"
+                                />
+                              )}
+
+                            {/* PR status icon */}
+                            {workspace.prStatus === "open" && (
+                              <GitPullRequestIcon
+                                className="size-icon-xs text-success shrink-0"
+                                weight="fill"
+                              />
+                            )}
+                            {workspace.prStatus === "merged" && (
+                              <GitPullRequestIcon
+                                className="size-icon-xs text-merged shrink-0"
+                                weight="fill"
+                              />
+                            )}
+
+                            {/* Pin icon */}
+                            {workspace.isPinned && (
+                              <PushPinIcon
+                                className="size-icon-xs text-brand shrink-0"
+                                weight="fill"
+                              />
                             )}
                           </span>
-                        )}
 
-                      {/* File changes */}
-                      {hasChanges && (
-                        <span className="shrink-0 flex items-center gap-half">
-                          <FileIcon className="size-icon-xs" weight="fill" />
-                          <span>{workspace.filesChanged}</span>
-                          {workspace.linesAdded !== undefined && (
-                            <span className="text-success">
-                              +{workspace.linesAdded}
-                            </span>
-                          )}
-                          {workspace.linesRemoved !== undefined && (
-                            <span className="text-error">
-                              -{workspace.linesRemoved}
+                          {/* Elapsed time */}
+                          {!workspace.isRunning &&
+                            workspace.latestProcessCompletedAt && (
+                              <span className="shrink-0">
+                                {formatRelativeElapsed(
+                                  workspace.latestProcessCompletedAt,
+                                  i18n.resolvedLanguage ?? i18n.language,
+                                )}
+                              </span>
+                            )}
+
+                          {/* File changes */}
+                          {hasChanges && (
+                            <span className="shrink-0 flex items-center gap-half">
+                              <FileIcon
+                                className="size-icon-xs"
+                                weight="fill"
+                              />
+                              <span>{workspace.filesChanged}</span>
+                              {workspace.linesAdded !== undefined && (
+                                <span className="text-success">
+                                  +{workspace.linesAdded}
+                                </span>
+                              )}
+                              {workspace.linesRemoved !== undefined && (
+                                <span className="text-error">
+                                  -{workspace.linesRemoved}
+                                </span>
+                              )}
                             </span>
                           )}
                         </span>
-                      )}
-                    </span>
-                  </button>
-                  {/* Workspace actions menu */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      CommandBarDialog.show({
-                        page: "workspaceActions",
-                        workspaceId: workspace.id,
-                      });
-                    }}
-                    className="shrink-0 p-1.5 rounded-sm text-low hover:text-normal hover:bg-tertiary active:bg-tertiary"
-                    aria-label="Workspace actions"
-                  >
-                    <DotsThreeIcon className="size-5" weight="bold" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                      </button>
+                      {/* Workspace actions menu */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          CommandBarDialog.show({
+                            page: "workspaceActions",
+                            workspaceId: workspace.id,
+                          });
+                        }}
+                        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-sm text-low hover:bg-tertiary hover:text-normal active:bg-tertiary"
+                        aria-label={t("workspaces.actionsFor", {
+                          name: workspace.name,
+                          defaultValue: "Actions for {{name}}",
+                        })}
+                      >
+                        <DotsThreeIcon className="size-5" weight="bold" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* Fixed footer toggle */}
       <div className="border-t border-border p-base">
         <button
+          type="button"
           onClick={() => setShowArchive(!showArchive)}
-          className="w-full flex items-center gap-base text-sm text-low hover:text-normal transition-colors duration-100"
+          className="flex min-h-11 w-full items-center gap-base text-sm text-low transition-colors duration-100 hover:text-normal"
         >
           {showArchive ? (
             <>
               <ArrowLeftIcon className="size-icon-xs" />
-              <span>Back to Active</span>
+              <span>{t("workspaces.backToActive")}</span>
             </>
           ) : (
             <>
               <ArchiveIcon className="size-icon-xs" />
-              <span>View Archive</span>
+              <span>{t("workspaces.viewArchive")}</span>
               {archivedWorkspaces.length > 0 && (
                 <span className="ml-auto text-xs bg-tertiary px-1.5 py-0.5 rounded">
                   {archivedWorkspaces.length}
@@ -277,7 +381,7 @@ function MobileWorkspacesList() {
   );
 }
 
-const formatRelativeElapsed = (dateString: string): string => {
+const formatRelativeElapsed = (dateString: string, locale: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -286,8 +390,10 @@ const formatRelativeElapsed = (dateString: string): string => {
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
 
-  if (diffSecs < 60) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+
+  if (diffSecs < 60) return formatter.format(0, "second");
+  if (diffMins < 60) return formatter.format(-diffMins, "minute");
+  if (diffHours < 24) return formatter.format(-diffHours, "hour");
+  return formatter.format(-diffDays, "day");
 };

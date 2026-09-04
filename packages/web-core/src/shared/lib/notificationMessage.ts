@@ -209,6 +209,25 @@ export function getGroupedNotificationSegments(
   }
 }
 
+/**
+ * Produces the text equivalent of a grouped notification for accessible names.
+ * User mentions render as avatars in the visual message, so screen readers need
+ * the member's display name in the same position instead.
+ */
+export function getGroupedNotificationAccessibleText(
+  group: GroupedNotification,
+  membersByUserId: ReadonlyMap<string, OrganizationMemberWithProfile>
+): string {
+  return getGroupedNotificationSegments(group)
+    .map((segment) => {
+      if (segment.type !== 'user') return segment.value;
+      return getMemberLabel(membersByUserId.get(segment.userId)) ?? 'Someone';
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function getGroupedNotificationText(
   group: GroupedNotification,
   membersByUserId?: Map<string, OrganizationMemberWithProfile>

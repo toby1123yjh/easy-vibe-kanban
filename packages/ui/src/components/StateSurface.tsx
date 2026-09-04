@@ -85,7 +85,11 @@ export function StateSurface({
     },
     empty: {},
     permission: {},
-    degraded: {},
+    degraded: {
+      role: 'status' as const,
+      'aria-live': 'polite' as const,
+      'aria-atomic': true,
+    },
   }[state];
 
   return (

@@ -602,6 +602,7 @@ export function ArenaView({
               type="button"
               size="xs"
               variant="outline"
+              className="min-h-11 sm:min-h-8"
               disabled={
                 !canSynthesize ||
                 candidateActionsDisabled ||
@@ -619,6 +620,7 @@ export function ArenaView({
                 type="button"
                 size="xs"
                 variant="outline"
+                className="min-h-11 sm:min-h-8"
                 disabled={candidateActionsDisabled}
                 loading={actions.stopAll.isPending}
                 loadingLabel={t('arena.stopAll.stopping')}
@@ -637,6 +639,7 @@ export function ArenaView({
                     type="button"
                     size="icon"
                     variant="icon"
+                    className="size-11 sm:size-8"
                     aria-label={t('arena.moreActions')}
                     disabled={candidateActionsDisabled}
                   >
@@ -645,7 +648,10 @@ export function ArenaView({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {comparison.canClose ? (
-                    <DropdownMenuItem onSelect={() => void handleClose()}>
+                    <DropdownMenuItem
+                      className="!min-h-11 sm:!min-h-8"
+                      onSelect={() => void handleClose()}
+                    >
                       {t('arena.lifecycleActions.closeRound')}
                     </DropdownMenuItem>
                   ) : null}
@@ -654,6 +660,7 @@ export function ArenaView({
                   ) : null}
                   {comparison.canDissolve ? (
                     <DropdownMenuItem
+                      className="!min-h-11 sm:!min-h-8"
                       variant="danger"
                       onSelect={() => void handleDissolve()}
                     >
@@ -732,7 +739,7 @@ export function ArenaView({
               >
                 <SelectTrigger
                   id="arena-candidate-selector"
-                  className="mt-[var(--vk-space-2)] rounded-[var(--vk-radius-md)] bg-[var(--vk-surface-secondary)]"
+                  className="mt-[var(--vk-space-2)] min-h-11 rounded-[var(--vk-radius-md)] bg-[var(--vk-surface-secondary)] sm:min-h-10"
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -741,6 +748,7 @@ export function ArenaView({
                     <SelectItem
                       key={candidate.candidateId}
                       value={candidate.candidateId}
+                      className="min-h-11 shrink-0 sm:min-h-8"
                     >
                       {candidate.label} ·{' '}
                       {t(`arena.purpose.${candidate.purpose}`)} ·{' '}

@@ -13,7 +13,6 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -50,26 +49,33 @@ function flattenKeys(obj, prefix = '') {
   return keys;
 }
 
-/** Collect the concatenated contents of every .ts/.tsx file under `dirs`. */
-function loadSourceContent(dirs) {
-  let content = '';
-  for (const dir of dirs) {
-    try {
-      const files = execSync(
-        `find "${dir}" \\( -name "*.tsx" -o -name "*.ts" \\) ! -name "*.d.ts"`,
-        { encoding: 'utf8' },
-      )
-        .trim()
-        .split('\n')
-        .filter(Boolean);
-      for (const file of files) {
-        content += fs.readFileSync(file, 'utf8') + '\n';
-      }
-    } catch {
-      // directory might not exist
+function collectSourceFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectSourceFiles(entryPath));
+      continue;
+    }
+    if (
+      entry.isFile() &&
+      (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) &&
+      !entry.name.endsWith('.d.ts')
+    ) {
+      files.push(entryPath);
     }
   }
-  return content;
+  return files;
+}
+
+/** Collect the concatenated contents of every .ts/.tsx file under `dirs`. */
+function loadSourceContent(dirs) {
+  return dirs
+    .flatMap((dir) => collectSourceFiles(dir))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
 }
 
 function isStaticKeyUsed(key, ns, src) {

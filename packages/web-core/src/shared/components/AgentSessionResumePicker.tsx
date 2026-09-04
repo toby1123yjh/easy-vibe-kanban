@@ -157,9 +157,11 @@ export function AgentSessionResumePicker({
         ? 'loading'
         : sessions.length === 0 && isError
           ? 'error'
-          : sessions.length === 0
-            ? 'empty'
-            : 'ready';
+          : sessions.length > 0 && isError
+            ? 'degraded'
+            : sessions.length === 0
+              ? 'empty'
+              : 'ready';
   const compactStateClassName =
     'mx-half my-half rounded-sm border border-border bg-secondary';
 
@@ -247,6 +249,32 @@ export function AgentSessionResumePicker({
           />
         )}
 
+        {sessionListState === 'degraded' && (
+          <DegradedState
+            compact
+            className={compactStateClassName}
+            title={t('agentSessionResume.degraded', {
+              defaultValue: 'Recent sessions may be out of date',
+            })}
+            description={t('agentSessionResume.degradedHint', {
+              defaultValue:
+                'The last loaded sessions remain available while native history is retried.',
+            })}
+            action={
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void refetchSessions();
+                }}
+              >
+                {t('agentSessionResume.retry', {
+                  defaultValue: 'Try again',
+                })}
+              </DropdownMenuItem>
+            }
+          />
+        )}
+
         {sessionListState === 'empty' && (
           <EmptyState
             compact
@@ -257,7 +285,7 @@ export function AgentSessionResumePicker({
           />
         )}
 
-        {sessionListState === 'ready' &&
+        {(sessionListState === 'ready' || sessionListState === 'degraded') &&
           sessions.map((session) => (
             <DropdownMenuItem
               key={session.agent_session_id}
@@ -281,7 +309,7 @@ export function AgentSessionResumePicker({
             </DropdownMenuItem>
           ))}
 
-        {sessionListState === 'ready' && (
+        {(sessionListState === 'ready' || sessionListState === 'degraded') && (
           <NativeSessionPreviewPanel
             preview={preview ?? null}
             isLoading={isPreviewLoading || (isPreviewFetching && !preview)}
@@ -290,7 +318,9 @@ export function AgentSessionResumePicker({
         )}
 
         {days === RECENT_DAYS &&
-          (sessionListState === 'ready' || sessionListState === 'empty') && (
+          (sessionListState === 'ready' ||
+            sessionListState === 'degraded' ||
+            sessionListState === 'empty') && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem

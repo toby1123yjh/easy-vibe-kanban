@@ -6,19 +6,32 @@ import {
   ArrowLeftIcon,
   ArchiveIcon,
   StackIcon,
-  SpinnerIcon,
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import { InputField } from './InputField';
 import { WorkspaceSummary } from './WorkspaceSummary';
-import type { AppBarHostStatus } from './AppBar';
 import {
   CollapsibleSectionHeader,
   type SectionAction,
 } from './CollapsibleSectionHeader';
+import { Button } from './Button';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from './StateSurface';
+
+export type WorkspaceCollectionState =
+  | 'loading'
+  | 'empty'
+  | 'error'
+  | 'ready'
+  | 'degraded';
 
 export type WorkspaceLayoutMode = 'flat' | 'accordion';
+export type WorkspaceSidebarHostStatus = 'online' | 'offline' | 'unpaired';
 
 export interface WorkspacesSidebarWorkspace {
   id: string;
@@ -53,6 +66,9 @@ export interface WorkspacesSidebarProps {
   totalWorkspacesCount: number;
   archivedWorkspaces?: WorkspacesSidebarWorkspace[];
   isLoading?: boolean;
+  listState?: WorkspaceCollectionState;
+  isRetrying?: boolean;
+  onRetry?: () => void;
   selectedWorkspaceId: string | null;
   onSelectWorkspace: (id: string) => void;
   onAddWorkspace?: () => void;
@@ -84,7 +100,7 @@ export interface WorkspacesSidebarProps {
   persistKeys?: WorkspacesSidebarPersistKeys;
   activeRemoteHost?: {
     name: string;
-    status: AppBarHostStatus;
+    status: WorkspaceSidebarHostStatus;
   } | null;
   onOpenRemoteHostSettings?: () => void;
 }
@@ -172,6 +188,9 @@ export function WorkspacesSidebar({
   totalWorkspacesCount,
   archivedWorkspaces = [],
   isLoading = false,
+  listState,
+  isRetrying = false,
+  onRetry,
   selectedWorkspaceId,
   onSelectWorkspace,
   onAddWorkspace,
@@ -194,6 +213,10 @@ export function WorkspacesSidebar({
 }: WorkspacesSidebarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const resolvedListState =
+    listState === 'empty' && draftTitle
+      ? 'ready'
+      : (listState ?? (isLoading ? 'loading' : 'ready'));
   const handleOpenWorkspaceActions = useCallback(
     (workspaceId: string) => {
       onOpenWorkspaceActions?.(workspaceId);
@@ -238,10 +261,14 @@ export function WorkspacesSidebar({
       icon: StackIcon,
       onClick: () => onToggleLayoutMode?.(),
       isActive: layoutMode === 'accordion',
+      label: t('common:workspaces.toggleLayout', {
+        defaultValue: 'Toggle workspace layout',
+      }),
     },
     {
       icon: PlusIcon,
       onClick: () => onAddWorkspace?.(),
+      label: t('common:workspaces.newWorkspace'),
     },
   ];
 
@@ -255,7 +282,7 @@ export function WorkspacesSidebar({
           actions={headerActions}
           className="border-b"
         />
-        {!isLoading && (
+        {resolvedListState !== 'loading' && resolvedListState !== 'error' && (
           <div className="px-base flex items-stretch gap-half">
             <div className="flex-1 min-w-0">
               <InputField
@@ -317,57 +344,209 @@ export function WorkspacesSidebar({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto py-base"
       >
-        {isLoading ? (
-          <div className="flex h-full min-h-[220px] items-center justify-center px-base">
-            <div className="flex items-center justify-center text-low">
-              <SpinnerIcon className="size-6 animate-spin" weight="bold" />
-            </div>
-          </div>
-        ) : showArchive ? (
-          /* Archived workspaces view */
-          <div className="flex flex-col gap-base">
-            <span className="text-sm font-medium text-low px-base">
-              {t('common:workspaces.archived')}
-            </span>
-            {archivedWorkspaces.length === 0 ? (
-              <span className="text-sm text-low opacity-60 px-base">
-                {t('common:workspaces.noArchived')}
-              </span>
-            ) : (
-              archivedWorkspaces.map((workspace) => (
-                <WorkspaceSummary
-                  summary
-                  key={workspace.id}
-                  name={workspace.name}
-                  workspaceId={workspace.id}
-                  filesChanged={workspace.filesChanged}
-                  linesAdded={workspace.linesAdded}
-                  linesRemoved={workspace.linesRemoved}
-                  isActive={selectedWorkspaceId === workspace.id}
-                  isRunning={workspace.isRunning}
-                  isPinned={workspace.isPinned}
-                  hasPendingApproval={workspace.hasPendingApproval}
-                  hasRunningDevServer={workspace.hasRunningDevServer}
-                  hasUnseenActivity={workspace.hasUnseenActivity}
-                  latestProcessCompletedAt={workspace.latestProcessCompletedAt}
-                  latestProcessStatus={workspace.latestProcessStatus}
-                  prStatus={workspace.prStatus}
-                  onOpenWorkspaceActions={handleOpenWorkspaceActions}
-                  onClick={() => onSelectWorkspace(workspace.id)}
-                />
-              ))
+        {resolvedListState === 'loading' ? (
+          <LoadingState
+            className="h-full min-h-[220px]"
+            title={t('common:workspaces.loadingTitle', {
+              defaultValue: 'Loading workspaces',
+            })}
+          />
+        ) : resolvedListState === 'error' ? (
+          <ErrorState
+            compact
+            className="mx-base min-h-[220px]"
+            title={t('common:workspaces.errorTitle', {
+              defaultValue: 'Workspaces could not be loaded',
+            })}
+            description={t('common:workspaces.errorDescription', {
+              defaultValue: 'Check the connection and try again.',
+            })}
+            action={
+              onRetry ? (
+                <Button
+                  className="min-h-11"
+                  loading={isRetrying}
+                  loadingLabel={t('common:workspaces.retrying', {
+                    defaultValue: 'Retrying workspaces',
+                  })}
+                  onClick={onRetry}
+                >
+                  {t('common:buttons.retry')}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : resolvedListState === 'empty' ? (
+          <EmptyState
+            className="h-full min-h-[220px]"
+            title={t('common:workspaces.emptyTitle', {
+              defaultValue: 'No workspaces yet',
+            })}
+            description={t('common:workspaces.emptyDescription', {
+              defaultValue: 'Start a workspace to run an Agent task.',
+            })}
+            action={
+              onAddWorkspace ? (
+                <Button className="min-h-11" onClick={onAddWorkspace}>
+                  {t('common:workspaces.newWorkspace')}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <>
+            {resolvedListState === 'degraded' && (
+              <DegradedState
+                compact
+                className="mx-base mb-base"
+                title={t('common:workspaces.degradedTitle', {
+                  defaultValue: 'Workspaces may be out of date',
+                })}
+                description={t('common:workspaces.degradedDescription', {
+                  defaultValue:
+                    'The last loaded workspaces remain available while the connection recovers.',
+                })}
+                action={
+                  onRetry ? (
+                    <Button
+                      className="min-h-11"
+                      loading={isRetrying}
+                      loadingLabel={t('common:workspaces.retrying', {
+                        defaultValue: 'Retrying workspaces',
+                      })}
+                      onClick={onRetry}
+                    >
+                      {t('common:buttons.retry')}
+                    </Button>
+                  ) : undefined
+                }
+              />
             )}
-          </div>
-        ) : layoutMode === 'accordion' ? (
-          /* Accordion layout view */
-          <div className="flex flex-col gap-base">
-            {/* Needs Attention section */}
-            <CollapsibleSectionHeader
-              title={t('common:workspaces.needsAttention')}
-              persistKey={persistKeys.raisedHand}
-              defaultExpanded={true}
-            >
-              <div className="flex flex-col gap-base py-half">
+            {showArchive ? (
+              /* Archived workspaces view */
+              <div className="flex flex-col gap-base">
+                <span className="text-sm font-medium text-low px-base">
+                  {t('common:workspaces.archived')}
+                </span>
+                {archivedWorkspaces.length === 0 ? (
+                  <span className="text-sm text-low opacity-60 px-base">
+                    {t('common:workspaces.noArchived')}
+                  </span>
+                ) : (
+                  archivedWorkspaces.map((workspace) => (
+                    <WorkspaceSummary
+                      summary
+                      key={workspace.id}
+                      name={workspace.name}
+                      workspaceId={workspace.id}
+                      filesChanged={workspace.filesChanged}
+                      linesAdded={workspace.linesAdded}
+                      linesRemoved={workspace.linesRemoved}
+                      isActive={selectedWorkspaceId === workspace.id}
+                      isRunning={workspace.isRunning}
+                      isPinned={workspace.isPinned}
+                      hasPendingApproval={workspace.hasPendingApproval}
+                      hasRunningDevServer={workspace.hasRunningDevServer}
+                      hasUnseenActivity={workspace.hasUnseenActivity}
+                      latestProcessCompletedAt={
+                        workspace.latestProcessCompletedAt
+                      }
+                      latestProcessStatus={workspace.latestProcessStatus}
+                      prStatus={workspace.prStatus}
+                      onOpenWorkspaceActions={handleOpenWorkspaceActions}
+                      onClick={() => onSelectWorkspace(workspace.id)}
+                    />
+                  ))
+                )}
+              </div>
+            ) : layoutMode === 'accordion' ? (
+              /* Accordion layout view */
+              <div className="flex flex-col gap-base">
+                {/* Needs Attention section */}
+                <CollapsibleSectionHeader
+                  title={t('common:workspaces.needsAttention')}
+                  persistKey={persistKeys.raisedHand}
+                  defaultExpanded={true}
+                >
+                  <div className="flex flex-col gap-base py-half">
+                    {draftTitle && (
+                      <WorkspaceSummary
+                        name={draftTitle}
+                        isActive={isCreateMode}
+                        isDraft={true}
+                        onClick={onSelectCreate}
+                      />
+                    )}
+                    {raisedHandWorkspaces.length === 0 && !draftTitle ? (
+                      <span className="text-sm text-low opacity-60 pl-base">
+                        {t('common:workspaces.noWorkspaces')}
+                      </span>
+                    ) : (
+                      <WorkspaceList
+                        workspaces={raisedHandWorkspaces}
+                        selectedWorkspaceId={selectedWorkspaceId}
+                        onSelectWorkspace={onSelectWorkspace}
+                        onOpenWorkspaceActions={handleOpenWorkspaceActions}
+                      />
+                    )}
+                  </div>
+                </CollapsibleSectionHeader>
+
+                {/* Running section */}
+                <CollapsibleSectionHeader
+                  title={t('common:workspaces.running')}
+                  persistKey={persistKeys.running}
+                  defaultExpanded={true}
+                >
+                  <div className="flex flex-col gap-base py-half">
+                    {runningWorkspaces.length === 0 ? (
+                      <span className="text-sm text-low opacity-60 pl-base">
+                        {t('common:workspaces.noWorkspaces')}
+                      </span>
+                    ) : (
+                      <WorkspaceList
+                        workspaces={runningWorkspaces}
+                        selectedWorkspaceId={selectedWorkspaceId}
+                        onSelectWorkspace={onSelectWorkspace}
+                        onOpenWorkspaceActions={handleOpenWorkspaceActions}
+                      />
+                    )}
+                  </div>
+                </CollapsibleSectionHeader>
+
+                {/* Idle section */}
+                <CollapsibleSectionHeader
+                  title={t('common:workspaces.idle')}
+                  persistKey={persistKeys.notRunning}
+                  defaultExpanded={true}
+                >
+                  <div className="flex flex-col gap-base py-half">
+                    {idleWorkspaces.length === 0 ? (
+                      <span className="text-sm text-low opacity-60 pl-base">
+                        {t('common:workspaces.noWorkspaces')}
+                      </span>
+                    ) : (
+                      <WorkspaceList
+                        workspaces={idleWorkspaces}
+                        selectedWorkspaceId={selectedWorkspaceId}
+                        onSelectWorkspace={onSelectWorkspace}
+                        onOpenWorkspaceActions={handleOpenWorkspaceActions}
+                      />
+                    )}
+                  </div>
+                </CollapsibleSectionHeader>
+              </div>
+            ) : (
+              /* Active workspaces flat view */
+              <div className="flex flex-col gap-base">
+                <div className="flex items-center justify-between px-base">
+                  <span className="text-sm font-medium text-low">
+                    {t('common:workspaces.active')}
+                  </span>
+                  <span className="text-xs text-low">
+                    {totalWorkspacesCount}
+                  </span>
+                </div>
                 {draftTitle && (
                   <WorkspaceSummary
                     name={draftTitle}
@@ -376,104 +555,32 @@ export function WorkspacesSidebar({
                     onClick={onSelectCreate}
                   />
                 )}
-                {raisedHandWorkspaces.length === 0 && !draftTitle ? (
-                  <span className="text-sm text-low opacity-60 pl-base">
-                    {t('common:workspaces.noWorkspaces')}
-                  </span>
-                ) : (
-                  <WorkspaceList
-                    workspaces={raisedHandWorkspaces}
-                    selectedWorkspaceId={selectedWorkspaceId}
-                    onSelectWorkspace={onSelectWorkspace}
+                {workspaces.map((workspace) => (
+                  <WorkspaceSummary
+                    key={workspace.id}
+                    name={workspace.name}
+                    workspaceId={workspace.id}
+                    filesChanged={workspace.filesChanged}
+                    linesAdded={workspace.linesAdded}
+                    linesRemoved={workspace.linesRemoved}
+                    isActive={selectedWorkspaceId === workspace.id}
+                    isRunning={workspace.isRunning}
+                    isPinned={workspace.isPinned}
+                    hasPendingApproval={workspace.hasPendingApproval}
+                    hasRunningDevServer={workspace.hasRunningDevServer}
+                    hasUnseenActivity={workspace.hasUnseenActivity}
+                    latestProcessCompletedAt={
+                      workspace.latestProcessCompletedAt
+                    }
+                    latestProcessStatus={workspace.latestProcessStatus}
+                    prStatus={workspace.prStatus}
                     onOpenWorkspaceActions={handleOpenWorkspaceActions}
+                    onClick={() => onSelectWorkspace(workspace.id)}
                   />
-                )}
+                ))}
               </div>
-            </CollapsibleSectionHeader>
-
-            {/* Running section */}
-            <CollapsibleSectionHeader
-              title={t('common:workspaces.running')}
-              persistKey={persistKeys.running}
-              defaultExpanded={true}
-            >
-              <div className="flex flex-col gap-base py-half">
-                {runningWorkspaces.length === 0 ? (
-                  <span className="text-sm text-low opacity-60 pl-base">
-                    {t('common:workspaces.noWorkspaces')}
-                  </span>
-                ) : (
-                  <WorkspaceList
-                    workspaces={runningWorkspaces}
-                    selectedWorkspaceId={selectedWorkspaceId}
-                    onSelectWorkspace={onSelectWorkspace}
-                    onOpenWorkspaceActions={handleOpenWorkspaceActions}
-                  />
-                )}
-              </div>
-            </CollapsibleSectionHeader>
-
-            {/* Idle section */}
-            <CollapsibleSectionHeader
-              title={t('common:workspaces.idle')}
-              persistKey={persistKeys.notRunning}
-              defaultExpanded={true}
-            >
-              <div className="flex flex-col gap-base py-half">
-                {idleWorkspaces.length === 0 ? (
-                  <span className="text-sm text-low opacity-60 pl-base">
-                    {t('common:workspaces.noWorkspaces')}
-                  </span>
-                ) : (
-                  <WorkspaceList
-                    workspaces={idleWorkspaces}
-                    selectedWorkspaceId={selectedWorkspaceId}
-                    onSelectWorkspace={onSelectWorkspace}
-                    onOpenWorkspaceActions={handleOpenWorkspaceActions}
-                  />
-                )}
-              </div>
-            </CollapsibleSectionHeader>
-          </div>
-        ) : (
-          /* Active workspaces flat view */
-          <div className="flex flex-col gap-base">
-            <div className="flex items-center justify-between px-base">
-              <span className="text-sm font-medium text-low">
-                {t('common:workspaces.active')}
-              </span>
-              <span className="text-xs text-low">{totalWorkspacesCount}</span>
-            </div>
-            {draftTitle && (
-              <WorkspaceSummary
-                name={draftTitle}
-                isActive={isCreateMode}
-                isDraft={true}
-                onClick={onSelectCreate}
-              />
             )}
-            {workspaces.map((workspace) => (
-              <WorkspaceSummary
-                key={workspace.id}
-                name={workspace.name}
-                workspaceId={workspace.id}
-                filesChanged={workspace.filesChanged}
-                linesAdded={workspace.linesAdded}
-                linesRemoved={workspace.linesRemoved}
-                isActive={selectedWorkspaceId === workspace.id}
-                isRunning={workspace.isRunning}
-                isPinned={workspace.isPinned}
-                hasPendingApproval={workspace.hasPendingApproval}
-                hasRunningDevServer={workspace.hasRunningDevServer}
-                hasUnseenActivity={workspace.hasUnseenActivity}
-                latestProcessCompletedAt={workspace.latestProcessCompletedAt}
-                latestProcessStatus={workspace.latestProcessStatus}
-                prStatus={workspace.prStatus}
-                onOpenWorkspaceActions={handleOpenWorkspaceActions}
-                onClick={() => onSelectWorkspace(workspace.id)}
-              />
-            ))}
-          </div>
+          </>
         )}
       </div>
 

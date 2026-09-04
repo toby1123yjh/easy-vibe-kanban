@@ -52,7 +52,7 @@ import {
   SortDescendingIcon,
   XIcon,
 } from '@phosphor-icons/react';
-import { useRemoteCloudHostsAppBarModel } from '@/shared/hooks/useRemoteCloudHosts';
+import { useRemoteCloudHostsState } from '@/shared/hooks/useRemoteCloudHosts';
 
 export type WorkspaceLayoutMode = 'flat' | 'accordion';
 
@@ -259,14 +259,18 @@ export function WorkspacesSidebarContainer({
     workspaceId: selectedWorkspaceId,
     activeWorkspaces,
     archivedWorkspaces,
+    workspaceListState,
     isWorkspacesListLoading,
+    isWorkspacesListRetrying,
+    retryWorkspaces,
     isCreateMode,
     selectWorkspace,
     navigateToCreate,
   } = useWorkspaceContext();
 
   const isMobile = useIsMobile();
-  const { hosts: remoteCloudHosts } = useRemoteCloudHostsAppBarModel();
+  const { data: remoteCloudHostsState } = useRemoteCloudHostsState();
+  const remoteCloudHosts = remoteCloudHostsState?.hosts ?? [];
   const { hostId: routeHostId } = useParams({ strict: false });
   const setMobileActiveTab = useUiPreferencesStore((s) => s.setMobileActiveTab);
   const [searchQuery, setSearchQuery] = useState('');
@@ -681,6 +685,9 @@ export function WorkspacesSidebarContainer({
       totalWorkspacesCount={activeWorkspaces.length}
       archivedWorkspaces={paginatedArchivedWorkspaces}
       isLoading={isWorkspacesListLoading}
+      listState={workspaceListState}
+      isRetrying={isWorkspacesListRetrying}
+      onRetry={() => void retryWorkspaces()}
       selectedWorkspaceId={selectedWorkspaceId ?? null}
       onSelectWorkspace={handleSelectWorkspace}
       searchQuery={searchQuery}

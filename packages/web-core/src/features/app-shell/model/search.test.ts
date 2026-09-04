@@ -1,9 +1,22 @@
 import { expect, test } from '@playwright/test';
 import {
   buildSearchResults,
+  deriveSearchRouteModule,
   deriveSearchSourceState,
   groupSearchResults,
+  isSearchRouteAvailable,
 } from './search';
+import type { AppShellCapabilityAdapter } from './appShell';
+
+const MODULE_CAPABILITIES = {
+  dashboard: { availability: 'available', navigate: () => undefined },
+  projects: { availability: 'available', navigate: () => undefined },
+  workflows: {
+    availability: 'unavailable',
+    reason: 'Workflow service is unavailable.',
+  },
+  agents: { availability: 'available', navigate: () => undefined },
+} satisfies AppShellCapabilityAdapter['moduleCapabilities'];
 
 test.describe('Global Search projection', () => {
   test('normalizes static and canonical object destinations', () => {
@@ -74,5 +87,36 @@ test.describe('Global Search projection', () => {
       projectSourceState: 'partial',
     });
     expect(project.sourceState).toBe('partial');
+  });
+
+  test('maps result routes to shell capabilities and omits unavailable modules', () => {
+    expect(deriveSearchRouteModule('/projects/p-1')).toBe('projects');
+    expect(deriveSearchRouteModule('/workspaces/w-1')).toBe('projects');
+    expect(deriveSearchRouteModule('/workflows?template=t-1')).toBe(
+      'workflows'
+    );
+    expect(deriveSearchRouteModule('/settings?tab=general')).toBeNull();
+    expect(isSearchRouteAvailable('/workflows', MODULE_CAPABILITIES)).toBe(
+      false
+    );
+    expect(isSearchRouteAvailable('/agents', MODULE_CAPABILITIES)).toBe(true);
+
+    const results = buildSearchResults({
+      query: '',
+      projects: [],
+      sessions: [],
+      moduleCapabilities: MODULE_CAPABILITIES,
+    });
+    expect(results.some((result) => result.route === '/workflows')).toBe(false);
+    expect(results.some((result) => result.route === '/agents')).toBe(true);
+  });
+
+  test('maps scoped object routes before capability revalidation', () => {
+    expect(deriveSearchRouteModule('/workspaces/w-1?tab=chat')).toBe(
+      'projects'
+    );
+    expect(isSearchRouteAvailable('/workspaces/w-1', MODULE_CAPABILITIES)).toBe(
+      true
+    );
   });
 });

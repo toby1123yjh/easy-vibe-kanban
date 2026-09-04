@@ -144,7 +144,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               />
             )}
             <span className="min-w-0">{children}</span>
-            {loadingLabel && <span className="sr-only">{loadingLabel}</span>}
+            {loading && loadingLabel && (
+              <span className="sr-only">{loadingLabel}</span>
+            )}
           </>
         )}
       </Comp>

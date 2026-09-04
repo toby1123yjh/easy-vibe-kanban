@@ -33,7 +33,7 @@ flowchart LR
 
 ## 阶段状态与退出台账
 
-截至 2026-09-02，后续工作只按本表推进，不再因为后续状态加固反复重开已
+截至 2026-09-04，后续工作只按本表推进，不再因为后续状态加固反复重开已
 完成阶段：
 
 | 阶段 | 状态 | 关闭证据 / 唯一剩余出口 |
@@ -46,8 +46,10 @@ flowchart LR
 | 5 | 已完成 | `9963e043`，工作区、会话与 Agent Workbench |
 | 6 | 已完成 | `ec61dde0`、`9f81f182`、`09124efc`，Workflow 与 Arena |
 | 7 | 已完成 | `ffaeda25` 至 `292db64e`，Agent Center 与 Settings；后续状态加固不重开本阶段 |
-| 8 | 收口中 | 只剩 P8-S1、P8-R1、P8-A1、P8-P1 四个 gate |
-| 9 | 未开始 | Phase 8 四个 gate 全绿后直接进入旧实现删除与全量 convergence |
+| 8 | 已完成 | P8-S1、P8-R1、P8-A1、P8-P1 四个 gate 均有当前任务记录中的证据 |
+| 9 | 收口中 | 旧实现删除、规范同步和最终前端质量检查已完成；提交/推送与 GitHub Actions 发布验证待执行 |
+
+截至 2026-09-04，Phase 8 的四个 gate 已全部关闭，Phase 9 已完成代码与文档收敛审计。提交、推送和发布验证仍属于外部操作，不在本地检查中预先标记完成。
 
 Phase 0 的截图证据债不阻止已经通过的实现阶段保持关闭，但在最终 Definition
 of Done 前必须以脱敏 fixture 补齐。找不到现有验证记录的项目按“缺少证据”
@@ -649,18 +651,18 @@ refactor(ui): remove legacy frontend system
 
 ## 最终 Definition of Done
 
-- [ ] 页面矩阵没有“未迁移”项。
-- [ ] canonical Task、Session/Workflow/Arena/Node bindings、Workflow database revision 和显式 Arena candidates 已落库；每个 Task ID 唯一解析标题、执行方式、状态和打开目标，Issue 只列顶层 Task。
-- [ ] 当前测试数据库和全新数据库迁移到同一最终 schema，旧 Issue-shaped Task、`workspaces.task_id`、Task subtype UNION、名称推断和双读/双写路径全部删除。
-- [ ] Agent/Workflow/Arena 创建与失败回滚、Workflow 父子 Task、Arena 单 Task 多候选、expected-revision 冲突和 `(updated_at DESC, id)` 分页均有自动化覆盖。
-- [ ] 产品名称保持 `Vibe Kanban`，Dashboard、项目、Agent、Workflow、Arena 与工具管理共同体现“多智能体开发控制台”定位，工作页面不重复宣传性副标题。
-- [ ] Local、Remote、System、Dark、Light、桌面和移动端全部使用新系统；首次启动默认 System，三种模式的解析、持久化和系统变化行为正确。
-- [ ] 品牌橙只承担产品身份、唯一主操作和 selected/focus；所有运行状态使用独立语义色、文字或图标，品牌表面前景对比度和组合状态通过验证。
-- [ ] 所有 Agent 操作符合 canonical runtime contract。
-- [ ] 所有核心路径具有 Playwright 覆盖。
-- [ ] 所有页面模板具有视觉回归基线。
-- [ ] 键盘、焦点、对比度和减少动画通过。
-- [ ] Product Sidebar 始终保持身份、五项产品入口、按 `updated_at DESC` 排列的完整项目/会话列表和底部系统区；点击对象只更新 Page Canvas。
-- [ ] 旧 App Shell、旧 Token 和废弃组件删除。
-- [ ] `format`、`check`、`lint`、Rust 测试和生成类型检查通过。
-- [ ] GitHub Actions 构建发布版本，并从官方 npm registry 完成安装验证。
+- [x] 页面矩阵没有“未迁移”项。
+- [x] canonical Task、Session/Workflow/Arena/Node bindings、Workflow database revision 和显式 Arena candidates 已落库；每个 Task ID 唯一解析标题、执行方式、状态和打开目标，Issue 只列顶层 Task。
+- [x] 当前测试数据库和全新数据库迁移到同一最终 schema，旧 Issue-shaped Task、`workspaces.task_id`、Task subtype UNION、名称推断和双读/双写路径全部删除。
+- [x] Agent/Workflow/Arena 创建与失败回滚、Workflow 父子 Task、Arena 单 Task 多候选、expected-revision 冲突和 `(updated_at DESC, id)` 分页均有自动化覆盖。
+- [x] 产品名称保持 `Vibe Kanban`，Dashboard、项目、Agent、Workflow、Arena 与工具管理共同体现“多智能体开发控制台”定位，工作页面不重复宣传性副标题。
+- [x] Local、Remote、System、Dark、Light、桌面和移动端全部使用新系统；首次启动默认 System，三种模式的解析、持久化和系统变化行为正确。
+- [x] 品牌橙只承担产品身份、唯一主操作和 selected/focus；所有运行状态使用独立语义色、文字或图标，品牌表面前景对比度和组合状态通过验证。
+- [x] 所有 Agent 操作符合 canonical runtime contract。
+- [x] 所有核心路径具有 Playwright 覆盖。
+- [ ] 所有页面模板具有视觉回归基线（Phase 0 的历史基线截图仍缺失）。
+- [x] 键盘、焦点、对比度和减少动画通过。
+- [x] Product Sidebar 始终保持身份、五项产品入口、按 `updated_at DESC` 排列的完整项目/会话列表和底部系统区；点击对象只更新 Page Canvas。
+- [x] 旧 App Shell、旧 Token 和废弃组件删除。
+- [ ] `format`、`check`、`lint`、Rust 测试和生成类型检查通过（前端检查已通过；本机未安装 Cargo，Rust 检查未验证）。
+- [ ] GitHub Actions 构建发布版本，并从官方 npm registry 完成安装验证（待提交推送后执行）。

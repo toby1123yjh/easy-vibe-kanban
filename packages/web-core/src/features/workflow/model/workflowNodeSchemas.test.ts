@@ -5,7 +5,7 @@ import {
 } from './workflowNodeSchemas';
 
 describe('workflow node schemas', () => {
-  it('defines editable fields for Agent Step', () => {
+  it('defines editable fields for an Agent Node', () => {
     expect(
       getWorkflowNodeSchemaFields('agent').map((field) => field.key)
     ).toEqual(['display_name', 'role_template_id', 'prompt_template']);

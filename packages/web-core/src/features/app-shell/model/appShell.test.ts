@@ -2,8 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   SHELL_MODULE_ORDER,
   activateShellModuleCapability,
+  appShellDiscoveryQueryKey,
+  createAppShellDiscoveryScopeKey,
   deriveActiveShellModule,
   derivePageCanvasMode,
+  deriveSidebarSectionViewState,
   mergeStableCursorItems,
   type AppShellModuleCapability,
 } from './appShell';
@@ -83,5 +86,70 @@ test.describe('App Shell model', () => {
     expect(derivePageCanvasMode('/agents/codex')).toBe('contained');
     expect(derivePageCanvasMode('/projects/p-1')).toBe('full-bleed');
     expect(derivePageCanvasMode('/workspaces/w-1')).toBe('full-bleed');
+  });
+
+  test('scopes discovery caches by deployment, Host, and user identity', () => {
+    const localUserOne = createAppShellDiscoveryScopeKey({
+      deployment: 'local',
+      hostId: 'host-1',
+      userId: 'user-1',
+    });
+    const localUserTwo = createAppShellDiscoveryScopeKey({
+      deployment: 'local',
+      hostId: 'host-1',
+      userId: 'user-2',
+    });
+    const remoteUserOne = createAppShellDiscoveryScopeKey({
+      deployment: 'remote',
+      hostId: 'host-1',
+      userId: 'user-1',
+    });
+
+    expect(localUserOne).not.toBe(localUserTwo);
+    expect(localUserOne).not.toBe(remoteUserOne);
+    expect(appShellDiscoveryQueryKey(localUserOne, 'projects')).not.toEqual(
+      appShellDiscoveryQueryKey(localUserOne, 'sessions')
+    );
+    expect(appShellDiscoveryQueryKey(localUserOne, 'projects')).not.toEqual(
+      appShellDiscoveryQueryKey(localUserTwo, 'projects')
+    );
+  });
+
+  test('distinguishes first load, empty, initial error, and cached degradation', () => {
+    expect(
+      deriveSidebarSectionViewState({
+        itemCount: 0,
+        isLoading: true,
+        isError: false,
+      })
+    ).toBe('loading');
+    expect(
+      deriveSidebarSectionViewState({
+        itemCount: 0,
+        isLoading: false,
+        isError: false,
+      })
+    ).toBe('empty');
+    expect(
+      deriveSidebarSectionViewState({
+        itemCount: 0,
+        isLoading: false,
+        isError: true,
+      })
+    ).toBe('error');
+    expect(
+      deriveSidebarSectionViewState({
+        itemCount: 2,
+        isLoading: false,
+        isError: true,
+      })
+    ).toBe('degraded');
+    expect(
+      deriveSidebarSectionViewState({
+        itemCount: 2,
+        isLoading: false,
+        isError: false,
+      })
+    ).toBe('ready');
   });
 });

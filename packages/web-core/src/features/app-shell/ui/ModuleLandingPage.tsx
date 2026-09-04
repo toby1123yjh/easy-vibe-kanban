@@ -1,27 +1,29 @@
 import { Bot, FolderKanban, GitBranch, type LucideIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 type ModuleLandingKind = 'projects' | 'workflows' | 'agents';
 
 const MODULE_COPY: Record<
   ModuleLandingKind,
-  { title: string; description: string; icon: LucideIcon }
+  {
+    titleKey: `appShell.modules.${ModuleLandingKind}`;
+    descriptionKey: `appShell.moduleLanding.${ModuleLandingKind}Description`;
+    icon: LucideIcon;
+  }
 > = {
   projects: {
-    title: 'Projects',
-    description:
-      'Choose a project from the sidebar to open its existing Kanban view.',
+    titleKey: 'appShell.modules.projects',
+    descriptionKey: 'appShell.moduleLanding.projectsDescription',
     icon: FolderKanban,
   },
   workflows: {
-    title: 'Workflows',
-    description:
-      'Workflow authoring remains project-scoped. Open a project, then choose its workflow surface.',
+    titleKey: 'appShell.modules.workflows',
+    descriptionKey: 'appShell.moduleLanding.workflowsDescription',
     icon: GitBranch,
   },
   agents: {
-    title: 'Agents',
-    description:
-      'Agent availability comes from the connected host. Configuration pages will consume the same adapter capabilities.',
+    titleKey: 'appShell.modules.agents',
+    descriptionKey: 'appShell.moduleLanding.agentsDescription',
     icon: Bot,
   },
 };
@@ -29,12 +31,13 @@ const MODULE_COPY: Record<
 export function ModuleLandingPage({ kind }: { kind: ModuleLandingKind }) {
   const copy = MODULE_COPY[kind];
   const Icon = copy.icon;
+  const { t } = useTranslation('common');
   return (
     <section className="vk-module-landing">
       <Icon aria-hidden="true" size={24} />
-      <p>Product module</p>
-      <h1>{copy.title}</h1>
-      <span>{copy.description}</span>
+      <p>{t('appShell.moduleLanding.eyebrow')}</p>
+      <h1>{t(copy.titleKey)}</h1>
+      <span>{t(copy.descriptionKey)}</span>
     </section>
   );
 }

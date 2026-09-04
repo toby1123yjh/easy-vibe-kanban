@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FolderKanban,
   LoaderCircle,
@@ -8,59 +8,47 @@ import {
   Search,
   Settings,
 } from 'lucide-react';
-import type { ProjectCursor, ProjectListItem } from 'shared/types';
+import type { ProjectListItem } from 'shared/types';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineState,
+} from '@vibe/ui/components/StateSurface';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@vibe/ui/components/DropdownMenu';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { useAppShellProjects } from '@/shared/hooks/useAppShellProjects';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
-import { executionDataApi } from '@/shared/lib/executionDataApi';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
-import { mergeStableCursorItems } from '@/features/app-shell/model/appShell';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
+import { deriveProjectDirectoryState } from '../model/projectDirectoryState';
 import './project-surfaces.css';
 
-function formatUpdatedAt(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+function formatUpdatedAt(value: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
   }).format(new Date(value));
 }
 
 function ProjectCard({
   project,
+  locale,
   onOpen,
   onManage,
 }: {
   project: ProjectListItem;
+  locale: string;
   onOpen(): void;
   onManage(): void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !menuRef.current?.contains(event.target) &&
-        !triggerRef.current?.contains(event.target)
-      ) {
-        setMenuOpen(false);
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setMenuOpen(false);
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [menuOpen]);
+  const { t } = useTranslation('projects');
 
   return (
     <article className="vk-project-card">
@@ -68,77 +56,108 @@ function ProjectCard({
         type="button"
         className="vk-project-card__open"
         onClick={onOpen}
-        aria-label={`Open ${project.name}`}
+        aria-label={t('directory.openProject', {
+          name: project.name,
+          defaultValue: 'Open {{name}}',
+        })}
       >
         <span className="vk-project-card__cover" aria-hidden="true">
           <FolderKanban size={28} />
         </span>
         <span className="vk-project-card__copy">
-          <strong>{project.name}</strong>
-          <small>Updated {formatUpdatedAt(project.updated_at)}</small>
+          <strong title={project.name}>{project.name}</strong>
+          <small>
+            {t('directory.updated', {
+              date: formatUpdatedAt(project.updated_at, locale),
+              defaultValue: 'Updated {{date}}',
+            })}
+          </small>
         </span>
       </button>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="vk-project-card__menu-trigger"
-        aria-label={`More actions for ${project.name}`}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((open) => !open)}
-      >
-        <MoreHorizontal aria-hidden="true" size={17} />
-      </button>
-      {menuOpen ? (
-        <div ref={menuRef} className="vk-project-card__menu" role="menu">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <button
             type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenuOpen(false);
-              onManage();
-            }}
+            className="vk-project-card__menu-trigger"
+            aria-label={t('directory.moreActions', {
+              name: project.name,
+              defaultValue: 'More actions for {{name}}',
+            })}
           >
-            <Settings aria-hidden="true" size={15} />
-            Manage projects
+            <MoreHorizontal aria-hidden="true" size={17} />
           </button>
-        </div>
-      ) : null}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={onManage}>
+            <Settings aria-hidden="true" size={15} />
+            {t('directory.manageProjects', {
+              defaultValue: 'Manage projects',
+            })}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </article>
   );
 }
 
 export function ProjectDirectoryPage() {
+  const { t, i18n } = useTranslation('projects');
   const navigation = useAppNavigation();
   const { openSettings } = useSettingsNavigation();
+  const projectsState = useAppShellProjects();
   const { data: organizationData } = useUserOrganizations();
   const selectedOrganizationId = useOrganizationStore(
     (state) => state.selectedOrgId
   );
   const [query, setQuery] = useState('');
-  const projectsQuery = useInfiniteQuery({
-    queryKey: ['project-directory'],
-    queryFn: ({ pageParam }) =>
-      executionDataApi.listProjects({ cursor: pageParam, limit: 50 }),
-    initialPageParam: null as ProjectCursor | null,
-    getNextPageParam: (page) => page.next_cursor ?? undefined,
-    staleTime: 30_000,
-  });
-  const {
-    fetchNextPage,
-    hasNextPage,
-    isFetchNextPageError,
-    isFetchingNextPage,
-  } = projectsQuery;
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryLockRef = useRef(false);
+  const nextPageLockRef = useRef(false);
+  const scopeEpochRef = useRef(0);
+  const paginationSentinelRef = useRef<HTMLDivElement>(null);
+  const scopeKey = projectsState?.scopeKey ?? 'missing-app-shell-projects';
+  const projects = projectsState?.items ?? [];
 
-  const projects = useMemo(
-    () =>
-      (projectsQuery.data?.pages ?? []).reduce(
-        (items, page) => mergeStableCursorItems(items, page.projects),
-        [] as ProjectListItem[]
-      ),
-    [projectsQuery.data?.pages]
-  );
+  useEffect(() => {
+    scopeEpochRef.current += 1;
+    retryLockRef.current = false;
+    nextPageLockRef.current = false;
+    setIsRetrying(false);
+    setQuery('');
+  }, [scopeKey]);
+
+  const retry = useCallback(async () => {
+    if (!projectsState || retryLockRef.current) return;
+    retryLockRef.current = true;
+    const epoch = scopeEpochRef.current;
+    setIsRetrying(true);
+    try {
+      await projectsState.retry();
+    } finally {
+      if (scopeEpochRef.current === epoch) {
+        retryLockRef.current = false;
+        setIsRetrying(false);
+      }
+    }
+  }, [projectsState]);
+
+  const loadNextPage = useCallback(async () => {
+    if (
+      !projectsState?.hasNextPage ||
+      projectsState.isFetchingNextPage ||
+      nextPageLockRef.current
+    ) {
+      return;
+    }
+    nextPageLockRef.current = true;
+    const epoch = scopeEpochRef.current;
+    try {
+      await projectsState.loadNextPage();
+    } finally {
+      if (scopeEpochRef.current === epoch) nextPageLockRef.current = false;
+    }
+  }, [projectsState]);
+
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return normalized
@@ -148,23 +167,53 @@ export function ProjectDirectoryPage() {
       : projects;
   }, [projects, query]);
   const searchIsHydrating =
-    Boolean(query.trim()) && Boolean(hasNextPage) && isFetchingNextPage;
+    Boolean(query.trim()) &&
+    Boolean(projectsState?.hasNextPage) &&
+    Boolean(projectsState?.isFetchingNextPage);
 
   useEffect(() => {
     if (
       !query.trim() ||
-      !hasNextPage ||
-      isFetchingNextPage ||
-      isFetchNextPageError
+      !projectsState?.hasNextPage ||
+      projectsState.isFetchingNextPage ||
+      projectsState.isFetchNextPageError
     ) {
       return;
     }
-    void fetchNextPage();
+    void loadNextPage();
   }, [
-    fetchNextPage,
-    hasNextPage,
-    isFetchNextPageError,
-    isFetchingNextPage,
+    loadNextPage,
+    projectsState?.hasNextPage,
+    projectsState?.isFetchNextPageError,
+    projectsState?.isFetchingNextPage,
+    query,
+  ]);
+
+  useEffect(() => {
+    const sentinel = paginationSentinelRef.current;
+    if (
+      !sentinel ||
+      query.trim() ||
+      !projectsState?.hasNextPage ||
+      projectsState.isFetchNextPageError ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadNextPage();
+        }
+      },
+      { rootMargin: '240px 0px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    loadNextPage,
+    projectsState?.hasNextPage,
+    projectsState?.isFetchNextPageError,
     query,
   ]);
   const organizationId =
@@ -178,99 +227,232 @@ export function ProjectDirectoryPage() {
     if (!organizationId) return;
     const result = await CreateRemoteProjectDialog.show({ organizationId });
     if (result.action === 'created' && result.project) {
-      await projectsQuery.refetch();
+      await projectsState?.retry();
       navigation.goToProject(result.project.id);
     }
   };
+
+  const isRemoteOffline =
+    projectsState?.deployment === 'remote' && !projectsState.hostId;
+  const retryDegraded = projectsState?.isFetchNextPageError
+    ? loadNextPage
+    : retry;
+  const directoryState = deriveProjectDirectoryState({
+    hasSource: Boolean(projectsState),
+    isRemoteOffline,
+    isLoading: Boolean(projectsState?.isLoading),
+    isError: Boolean(projectsState?.isError),
+    isFetchNextPageError: Boolean(projectsState?.isFetchNextPageError),
+    itemCount: projects.length,
+    visibleItemCount: filteredProjects.length,
+    isSearchHydrating: searchIsHydrating,
+  });
 
   return (
     <section className="vk-project-directory" aria-labelledby="projects-title">
       <header className="vk-project-directory__header">
         <div>
-          <p>Workspace</p>
-          <h1 id="projects-title">Projects</h1>
+          <p>{t('directory.eyebrow', { defaultValue: 'Workspace' })}</p>
+          <h1 id="projects-title">
+            {t('directory.title', { defaultValue: 'Projects' })}
+          </h1>
         </div>
         <button
           type="button"
           className="vk-primary-action"
           onClick={() => void createProject()}
-          disabled={!organizationId}
-          title={organizationId ? undefined : 'No organization is available'}
+          disabled={!organizationId || isRemoteOffline}
+          title={
+            organizationId
+              ? undefined
+              : t('directory.noOrganization', {
+                  defaultValue: 'No organization is available',
+                })
+          }
         >
           <Plus aria-hidden="true" size={16} />
-          New project
+          <span>
+            {t('directory.newProject', { defaultValue: 'New project' })}
+          </span>
         </button>
       </header>
 
       <label className="vk-project-search">
         <Search aria-hidden="true" size={16} />
-        <span className="vk-visually-hidden">Search projects</span>
+        <span className="vk-visually-hidden">
+          {t('directory.searchLabel', { defaultValue: 'Search projects' })}
+        </span>
         <input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search projects"
+          placeholder={t('directory.searchPlaceholder', {
+            defaultValue: 'Search projects',
+          })}
         />
       </label>
 
-      {projectsQuery.isLoading ? (
-        <div className="vk-project-directory__state" role="status">
-          <LoaderCircle className="vk-spin" aria-hidden="true" size={18} />
-          Loading projects
-        </div>
-      ) : projectsQuery.isError && projects.length === 0 ? (
-        <div className="vk-project-directory__state" role="alert">
-          <span>Projects could not be loaded.</span>
-          <button type="button" onClick={() => void projectsQuery.refetch()}>
-            Retry
-          </button>
-        </div>
-      ) : filteredProjects.length === 0 && !searchIsHydrating ? (
-        <div className="vk-project-directory__state">
-          {query ? 'No projects match this search.' : 'No projects yet.'}
-        </div>
+      {directoryState === 'unavailable' ? (
+        <ErrorState
+          className="vk-project-directory__state"
+          title={t('directory.unavailableTitle', {
+            defaultValue: 'Projects are unavailable',
+          })}
+          description={t('directory.unavailableDescription', {
+            defaultValue:
+              'Project discovery is not connected to the application shell.',
+          })}
+        />
+      ) : directoryState === 'offline' ? (
+        <OfflineState
+          className="vk-project-directory__state"
+          title={t('directory.offlineTitle', {
+            defaultValue: 'Select an online host',
+          })}
+          description={t('directory.offlineDescription', {
+            defaultValue:
+              'Projects are stored on a host. Connect to a host to browse them.',
+          })}
+        />
+      ) : directoryState === 'loading' ? (
+        <LoadingState
+          className="vk-project-directory__state"
+          title={t('directory.loadingTitle', {
+            defaultValue: 'Loading projects',
+          })}
+        />
+      ) : directoryState === 'error' ? (
+        <ErrorState
+          className="vk-project-directory__state"
+          title={t('directory.errorTitle', {
+            defaultValue: 'Projects could not be loaded',
+          })}
+          description={t('directory.errorDescription', {
+            defaultValue:
+              'Check the connection and try the same request again.',
+          })}
+          action={
+            <button
+              type="button"
+              className="vk-state-action"
+              onClick={() => void retry()}
+              disabled={isRetrying}
+            >
+              {isRetrying
+                ? t('directory.retrying', { defaultValue: 'Retrying…' })
+                : t('directory.retry', { defaultValue: 'Retry' })}
+            </button>
+          }
+        />
+      ) : directoryState === 'empty' ? (
+        <EmptyState
+          className="vk-project-directory__state"
+          title={
+            query
+              ? t('directory.noMatchesTitle', {
+                  defaultValue: 'No matching projects',
+                })
+              : t('directory.emptyTitle', { defaultValue: 'No projects yet' })
+          }
+          description={
+            query
+              ? t('directory.noMatchesDescription', {
+                  defaultValue: 'Try a different project name.',
+                })
+              : t('directory.emptyDescription', {
+                  defaultValue:
+                    'Create a project to organise issues and tasks.',
+                })
+          }
+        />
       ) : (
         <>
-          <div className="vk-project-grid">
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                onOpen={() => navigation.goToProject(project.id)}
-                onManage={() => openSettings('organizations')}
-              />
-            ))}
-          </div>
+          {directoryState === 'degraded' ? (
+            <DegradedState
+              compact
+              className="vk-project-directory__degraded"
+              title={t('directory.degradedTitle', {
+                defaultValue: 'Projects may be out of date',
+              })}
+              description={t('directory.degradedDescription', {
+                defaultValue:
+                  'Loaded projects remain available while the failed request is retried.',
+              })}
+              action={
+                <button
+                  type="button"
+                  className="vk-state-action"
+                  onClick={() => void retryDegraded()}
+                  disabled={
+                    isRetrying || Boolean(projectsState?.isFetchingNextPage)
+                  }
+                >
+                  {isRetrying || projectsState?.isFetchingNextPage
+                    ? t('directory.retrying', { defaultValue: 'Retrying…' })
+                    : t('directory.retry', { defaultValue: 'Retry' })}
+                </button>
+              }
+            />
+          ) : null}
+          {filteredProjects.length === 0 && !searchIsHydrating ? (
+            <EmptyState
+              className="vk-project-directory__state"
+              title={t('directory.noMatchesTitle', {
+                defaultValue: 'No matching projects',
+              })}
+              description={t('directory.noMatchesDescription', {
+                defaultValue: 'Try a different project name.',
+              })}
+            />
+          ) : (
+            <div className="vk-project-grid">
+              {filteredProjects.map((project) => (
+                <ProjectCard
+                  key={`${scopeKey}:${project.id}`}
+                  project={project}
+                  locale={i18n.resolvedLanguage ?? i18n.language}
+                  onOpen={() => navigation.goToProject(project.id)}
+                  onManage={() => openSettings('organizations')}
+                />
+              ))}
+            </div>
+          )}
           {searchIsHydrating ? (
             <div className="vk-project-directory__progress" role="status">
               <LoaderCircle className="vk-spin" aria-hidden="true" size={16} />
-              Searching remaining projects…
+              {t('directory.searchingRemaining', {
+                defaultValue: 'Searching remaining projects…',
+              })}
             </div>
           ) : null}
         </>
       )}
 
-      {projectsQuery.isFetchNextPageError && projects.length > 0 ? (
-        <div className="vk-project-directory__page-error" role="alert">
-          <span>More projects could not be loaded.</span>
-          <button
-            type="button"
-            onClick={() => void projectsQuery.fetchNextPage()}
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-
-      {projectsQuery.hasNextPage && !query.trim() ? (
-        <button
-          type="button"
-          className="vk-project-directory__load-more"
-          onClick={() => void projectsQuery.fetchNextPage()}
-          disabled={projectsQuery.isFetchingNextPage}
+      {projectsState?.hasNextPage &&
+      !query.trim() &&
+      directoryState !== 'degraded' ? (
+        <div
+          ref={paginationSentinelRef}
+          className="vk-project-directory__sentinel"
+          role="status"
+          aria-live="polite"
+          aria-busy={projectsState.isFetchingNextPage}
         >
-          {projectsQuery.isFetchingNextPage ? 'Loading…' : 'Load more'}
-        </button>
+          {projectsState.isFetchingNextPage ? (
+            <>
+              <LoaderCircle className="vk-spin" aria-hidden="true" size={16} />
+              {t('directory.loadingMore', {
+                defaultValue: 'Loading more projects…',
+              })}
+            </>
+          ) : (
+            <span className="vk-visually-hidden">
+              {t('directory.moreAvailable', {
+                defaultValue: 'More projects load automatically on scroll.',
+              })}
+            </span>
+          )}
+        </div>
       ) : null}
     </section>
   );

@@ -280,15 +280,6 @@
     },
     "loadingEarlierMessages": "正在加载早期消息"
   },
-  "folderPicker": {
-    "legend": "点击文件夹名称进行导航 • 使用操作按钮进行选择",
-    "manualPathLabel": "手动输入路径:",
-    "go": "前往",
-    "searchLabel": "搜索当前目录:",
-    "selectCurrent": "选择当前",
-    "gitRepo": "git 仓库",
-    "selectPath": "选择路径"
-  },
   "branchSelector": {
     "placeholder": "选择分支",
     "searchPlaceholder": "搜索分支...",
@@ -299,14 +290,8 @@
     },
     "currentDisabled": "无法选择当前分支"
   },
-  "orgSwitcher": {
-    "organizations": "组织",
-    "orgSettings": "组织设置"
-  },
   "ok": "确定",
   "error": "错误",
-  "signIn": "登录",
-  "signOut": "退出登录",
   "oauth": {
     "title": "登录 Vibe Kanban",
     "description": "登录以加入组织并与团队共享任务",
@@ -342,6 +327,17 @@
     "active": "活跃",
     "archived": "已归档",
     "loading": "加载中...",
+    "loadingTitle": "正在加载工作区",
+    "openingTitle": "正在打开新工作区",
+    "errorTitle": "无法加载工作区",
+    "errorDescription": "请检查连接后重试。",
+    "degradedTitle": "工作区数据可能不是最新的",
+    "degradedDescription": "连接恢复期间，仍可使用上次加载的工作区。",
+    "emptyTitle": "还没有工作区",
+    "emptyDescription": "启动一个工作区来运行智能体任务。",
+    "retrying": "正在重新加载工作区",
+    "actionsFor": "{{name}} 的操作",
+    "toggleLayout": "切换工作区布局",
     "notFound": "未找到工作区",
     "selectToStart": "选择一个工作区开始",
     "draft": "草稿",
@@ -395,11 +391,11 @@
     "configureShort": "配置"
   },
   "attempts": {
-    "title": "\u4efb\u52a1\u6267\u884c",
-    "loading": "\u6b63\u5728\u52a0\u8f7d\u4efb\u52a1\u6267\u884c...",
-    "empty": "\u6682\u65e0\u4efb\u52a1\u6267\u884c\u3002",
-    "newWorkflow": "\u65b0\u5efa\u5de5\u4f5c\u6d41\u6267\u884c",
-    "newSingleAgent": "\u65b0\u5efa\u5355\u667a\u80fd\u4f53\u6267\u884c",
+    "title": "任务执行",
+    "loading": "正在加载任务执行...",
+    "empty": "暂无任务执行。",
+    "newWorkflow": "新建工作流执行",
+    "newSingleAgent": "新建单智能体执行",
     "templatePicker": {
       "title": "选择工作流模板",
       "blank": "空白工作流",
@@ -463,7 +459,7 @@
         "summary": "工作流出口"
       },
       "agent": {
-        "label": "智能体",
+        "label": "智能体节点",
         "summary": "角色：{{role}}"
       },
       "condition": {
@@ -591,7 +587,7 @@
       "runInputRequired": "请先填写运行输入，再启动工作流。",
       "draftMissing": "这个本地工作流草稿已不存在，请重新新建工作流执行。",
       "saveBeforeRun": "请先保存工作流执行，再启动运行。",
-      "saveBeforeSession": "请先保存工作流执行，再打开智能体会话。",
+      "saveBeforeSession": "请先保存工作流执行，再打开智能体节点会话。",
       "startFailed": "启动工作流运行失败。",
       "revisionConflict": "此工作流已在其他位置更新（当前版本 {{currentRevision}}）。再次保存前请重新加载；画布上的本地修改仍会保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
@@ -616,66 +612,66 @@
       "startRun": "开始运行"
     },
     "schedule": {
-      "button": "\u5b9a\u65f6\u4efb\u52a1",
-      "title": "\u8bbe\u7f6e\u5b9a\u65f6\u4efb\u52a1",
-      "description": "\u8ba9\u8fd9\u4e2a\u5de5\u4f5c\u6d41\u6309\u6bcf\u5929\u6216\u6bcf\u5468\u81ea\u52a8\u8fd0\u884c\u3002",
-      "summaryPrefix": "\u5b9a\u65f6\u4efb\u52a1\uff1a{{summary}}",
-      "summaryUnset": "\u672a\u8bbe\u7f6e",
-      "summaryPaused": "\u5df2\u6682\u505c",
-      "summaryDaily": "\u6bcf\u5929 {{time}}",
-      "summaryWeekly": "\u6bcf\u5468{{weekday}} {{time}}",
-      "summaryFailed": "\u4e0a\u6b21\u5931\u8d25",
-      "enabled": "\u5df2\u542f\u7528",
-      "paused": "\u5df2\u6682\u505c",
-      "frequency": "\u9891\u7387",
-      "daily": "\u6bcf\u5929",
-      "weekly": "\u6bcf\u5468",
-      "time": "\u65f6\u95f4",
-      "weekday": "\u661f\u671f",
-      "timezone": "\u65f6\u533a",
-      "contextIssue": "\u4e0a\u4e0b\u6587\u8bae\u9898",
-      "inputText": "\u8fd0\u884c\u8f93\u5165",
-      "inputPlaceholder": "\u63cf\u8ff0\u672c\u6b21\u8fd0\u884c\u8981\u505a\u4ec0\u4e48\u3002",
-      "save": "\u4fdd\u5b58",
-      "runNow": "\u7acb\u5373\u8fd0\u884c",
-      "delete": "\u5220\u9664",
-      "nextRun": "\u4e0b\u6b21\u8fd0\u884c",
-      "lastTriggered": "\u4e0a\u6b21\u89e6\u53d1",
-      "lastStatus": "\u4e0a\u6b21\u72b6\u6001",
-      "target": "\u76ee\u6807",
-      "noIssue": "\u6ca1\u6709\u53ef\u7528\u8bae\u9898",
-      "none": "\u65e0",
-      "saveBeforeSchedule": "\u8bf7\u5148\u4fdd\u5b58\u8fd9\u4e2a\u5de5\u4f5c\u6d41\uff0c\u518d\u6dfb\u52a0\u5b9a\u65f6\u4efb\u52a1\u3002",
-      "deleteTitle": "\u5220\u9664\u5b9a\u65f6\u4efb\u52a1\uff1f",
-      "deleteMessage": "\u8fd9\u4f1a\u79fb\u9664\u8fd9\u4e2a\u5de5\u4f5c\u6d41\u7684\u5b9a\u65f6\u8bbe\u7f6e\uff0c\u5df2\u6709\u8fd0\u884c\u8bb0\u5f55\u4f1a\u4fdd\u7559\u3002",
+      "button": "定时任务",
+      "title": "设置定时任务",
+      "description": "让这个工作流按每天或每周自动运行。",
+      "summaryPrefix": "定时任务：{{summary}}",
+      "summaryUnset": "未设置",
+      "summaryPaused": "已暂停",
+      "summaryDaily": "每天 {{time}}",
+      "summaryWeekly": "每周{{weekday}} {{time}}",
+      "summaryFailed": "上次失败",
+      "enabled": "已启用",
+      "paused": "已暂停",
+      "frequency": "频率",
+      "daily": "每天",
+      "weekly": "每周",
+      "time": "时间",
+      "weekday": "星期",
+      "timezone": "时区",
+      "contextIssue": "上下文议题",
+      "inputText": "运行输入",
+      "inputPlaceholder": "描述本次运行要做什么。",
+      "save": "保存",
+      "runNow": "立即运行",
+      "delete": "删除",
+      "nextRun": "下次运行",
+      "lastTriggered": "上次触发",
+      "lastStatus": "上次状态",
+      "target": "目标",
+      "noIssue": "没有可用议题",
+      "none": "无",
+      "saveBeforeSchedule": "请先保存这个工作流，再添加定时任务。",
+      "deleteTitle": "删除定时任务？",
+      "deleteMessage": "这会移除这个工作流的定时设置，已有运行记录会保留。",
       "status": {
-        "idle": "\u7a7a\u95f2",
-        "running": "\u8fd0\u884c\u4e2d",
-        "awaitingHuman": "\u7b49\u5f85\u4eba\u5de5\u5904\u7406",
-        "awaitingArena": "\u7b49\u5f85 Arena",
-        "succeeded": "\u5df2\u6210\u529f",
-        "failed": "\u5df2\u5931\u8d25",
-        "skipped": "\u5df2\u8df3\u8fc7",
-        "canceled": "\u5df2\u53d6\u6d88"
+        "idle": "空闲",
+        "running": "运行中",
+        "awaitingHuman": "等待人工处理",
+        "awaitingArena": "等待 Arena",
+        "succeeded": "已成功",
+        "failed": "已失败",
+        "skipped": "已跳过",
+        "canceled": "已取消"
       },
       "weekdays": {
-        "monday": "\u4e00",
-        "tuesday": "\u4e8c",
-        "wednesday": "\u4e09",
-        "thursday": "\u56db",
-        "friday": "\u4e94",
-        "saturday": "\u516d",
-        "sunday": "\u65e5"
+        "monday": "一",
+        "tuesday": "二",
+        "wednesday": "三",
+        "thursday": "四",
+        "friday": "五",
+        "saturday": "六",
+        "sunday": "日"
       },
       "errors": {
-        "issueRequired": "\u8bf7\u9009\u62e9\u4e0a\u4e0b\u6587\u8bae\u9898\u3002",
-        "timeRequired": "\u8bf7\u9009\u62e9\u6709\u6548\u65f6\u95f4\u3002",
-        "weekdayRequired": "\u8bf7\u9009\u62e9\u661f\u671f\u3002",
-        "inputRequired": "\u4fdd\u5b58\u5b9a\u65f6\u4efb\u52a1\u524d\u8bf7\u586b\u5199\u8fd0\u884c\u8f93\u5165\u3002",
-        "saveFailed": "\u4fdd\u5b58\u5b9a\u65f6\u4efb\u52a1\u5931\u8d25\u3002",
-        "runFailed": "\u8fd0\u884c\u5b9a\u65f6\u4efb\u52a1\u5931\u8d25\u3002",
-        "runSkipped": "\u4e0a\u4e00\u8f6e\u5b9a\u65f6\u8fd0\u884c\u4ecd\u5728\u8fdb\u884c\uff0c\u672c\u6b21\u5df2\u8df3\u8fc7\u3002",
-        "deleteFailed": "\u5220\u9664\u5b9a\u65f6\u4efb\u52a1\u5931\u8d25\u3002"
+        "issueRequired": "请选择上下文议题。",
+        "timeRequired": "请选择有效时间。",
+        "weekdayRequired": "请选择星期。",
+        "inputRequired": "保存定时任务前请填写运行输入。",
+        "saveFailed": "保存定时任务失败。",
+        "runFailed": "运行定时任务失败。",
+        "runSkipped": "上一轮定时运行仍在进行，本次已跳过。",
+        "deleteFailed": "删除定时任务失败。"
       }
     },
     "editor": {
@@ -686,13 +682,13 @@
       "workflowNamePlaceholder": "工作流名称",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系统模板（只读）",
-      "addStep": "添加步骤",
-      "addWorkflowStep": "添加工作流步骤",
-      "addAgentStep": "添加智能体",
+      "addStep": "添加节点",
+      "addWorkflowStep": "添加工作流节点",
+      "addAgentStep": "添加智能体节点",
       "nodePalette": "节点库",
-      "nodePaletteReadOnly": "复制此模板后即可添加或拖拽步骤。",
-      "searchSteps": "搜索步骤...",
-      "noStepTypesFound": "未找到步骤类型",
+      "nodePaletteReadOnly": "复制此模板后即可添加或拖拽节点。",
+      "searchSteps": "搜索节点...",
+      "noStepTypesFound": "未找到节点类型",
       "sections": {
         "execution": "执行",
         "control": "控制",
@@ -714,20 +710,20 @@
       "savedTemplateName": "{{name}} 模板",
       "templateSavedTitle": "模板已保存",
       "templateSavedMessage": "“{{name}}” 已可在新建工作流执行时选择。",
-      "deleteAgentStepTitle": "删除智能体",
-      "deleteAgentStepMessage": "这会从工作流中移除此步骤。现有会话历史不会复制到其他步骤。",
-      "agentStepActions": "智能体操作",
+      "deleteAgentStepTitle": "删除智能体节点",
+      "deleteAgentStepMessage": "这会从工作流中移除此节点。现有会话历史不会复制到其他节点。",
+      "agentStepActions": "智能体节点操作",
       "nodeActions": "节点操作",
       "openSession": "打开会话",
       "duplicate": "复制",
-      "runStep": "运行步骤",
+      "runStep": "运行节点",
       "edgeActions": "连线操作",
-      "insertAgentStep": "插入智能体",
+      "insertAgentStep": "插入节点",
       "reconnect": "重新连接",
       "reconnectSource": "重新连接源节点",
       "reconnectTarget": "重新连接目标节点",
       "deleteEdge": "删除连线",
-      "runWorkflowToExecuteStep": "运行工作流以执行此步骤。",
+      "runWorkflowToExecuteStep": "运行工作流以执行此节点。",
       "undo": "撤销",
       "redo": "重做",
       "undoShortcut": "撤销（Ctrl/Cmd + Z）",
@@ -743,9 +739,10 @@
       "deletedObjects_other": "已删除 {{count}} 项"
     },
     "canvas": {
+      "needsConfiguration": "需要配置",
       "openSession": "打开会话",
-      "runStep": "运行步骤",
-      "runStepUnavailable": "暂不支持单步运行。",
+      "runStep": "运行节点",
+      "runStepUnavailable": "暂不支持单节点运行。",
       "nodeFallback": "节点",
       "updatedForNextRunTitle": "配置已在最新运行后更新，会在下一次运行时生效。",
       "updatedForNextRun": "下次运行生效",
@@ -767,19 +764,19 @@
       }
     },
     "agentEdit": {
-      "title": "编辑智能体",
-      "description": "配置此步骤的会话提示词和执行器。",
+      "title": "编辑智能体节点",
+      "description": "配置此节点的会话提示词和执行器。",
       "close": "关闭编辑器",
-      "runningHint": "此步骤正在运行。提示词和智能体设置可在运行结束后编辑。",
-      "nextRunHint": "改动会在下一次工作流运行或下一次触发此步骤时生效。",
-      "stepTitle": "步骤标题",
-      "defaultTitle": "智能体",
+      "runningHint": "此节点正在运行。提示词和智能体设置可在运行结束后编辑。",
+      "nextRunHint": "改动会在下一次工作流运行或下一次触发此节点时生效。",
+      "stepTitle": "节点标题",
+      "defaultTitle": "智能体节点",
       "defaultPrompt": "默认提示词",
-      "promptPlaceholder": "描述这个智能体要做什么...",
+      "promptPlaceholder": "描述这个智能体节点要做什么...",
       "executor": "执行器",
       "selectExecutor": "选择执行器",
       "agent": "智能体",
-      "saveStep": "保存步骤"
+      "saveStep": "保存节点"
     },
     "router": {
       "toolbar": "路由器",
@@ -792,9 +789,12 @@
       "save": "保存路由器"
     },
     "inspector": {
+      "addBranch": "添加分支",
+      "branchLabel": "分支 {{index}}",
+      "removeBranch": "移除分支 {{index}}",
       "selectNode": "选择节点以查看详情",
       "selectEdge": "选择连线以查看详情",
-      "step": "步骤",
+      "step": "节点",
       "routerAgent": "路由智能体",
       "routerSharedNote": "这个工作流里的所有条件节点都会使用它。",
       "configureRouter": "配置",
@@ -821,8 +821,8 @@
       "deleteNodeDescription": "从草稿中移除此节点及其关联连线。"
     },
     "agentDraft": {
-      "defaultStepName": "智能体",
-      "promptPlaceholder": "描述这个工作流步骤...",
+      "defaultStepName": "智能体节点",
+      "promptPlaceholder": "描述这个工作流节点...",
       "selectExecutor": "选择执行器",
       "startRun": "开始运行",
       "starting": "正在启动..."
@@ -897,7 +897,7 @@
       "viewArenaResults": "查看候选结果"
     },
     "debug": {
-      "noDebugData": "此步骤没有调试数据。",
+      "noDebugData": "此节点没有调试数据。",
       "runInput": "运行输入",
       "noRunInput": "没有运行输入。",
       "promptTemplate": "提示词模板",
@@ -940,25 +940,25 @@
       "progress": "进度",
       "cancelRun": "取消运行",
       "cancelFailed": "取消工作流运行失败。",
-      "retryFailed": "重试工作流步骤失败。",
-      "approveFailed": "批准工作流步骤失败。",
-      "rejectFailed": "拒绝工作流步骤失败。",
-      "stepsSucceeded": "{{completed}} / {{total}} 个步骤已成功",
+      "retryFailed": "重试工作流节点失败。",
+      "approveFailed": "批准工作流节点失败。",
+      "rejectFailed": "拒绝工作流节点失败。",
+      "stepsSucceeded": "{{completed}} / {{total}} 个节点已成功",
       "runningCount": "{{count}} 个运行中",
       "waitingCount": "{{count}} 个等待中",
       "failedCount": "{{count}} 个失败",
       "skippedCount": "{{count}} 个已跳过",
-      "stepsTimeline": "步骤时间线",
-      "noStepsExecuted": "还没有执行步骤。",
+      "stepsTimeline": "节点时间线",
+      "noStepsExecuted": "还没有执行节点。",
       "session": "会话",
-      "retryStep": "重试步骤",
+      "retryStep": "重试节点",
       "codeChanges": "代码改动",
       "openWorkflowWorkspace": "打开工作流工作区",
       "inspectFiles": "查看文件",
       "noCodeChanges": "本次运行没有关联的代码改动。",
-      "selectedStep": "步骤：{{nodeId}}",
-      "selectStep": "选择一个步骤",
-      "noStepSelected": "未选择步骤。",
+      "selectedStep": "节点：{{nodeId}}",
+      "selectStep": "选择一个节点",
+      "noStepSelected": "未选择节点。",
       "input": "输入",
       "output": "输出",
       "noInput": "没有输入",
@@ -976,19 +976,21 @@
       "agentContribution": "智能体贡献",
       "totalTokens": "Token 总数",
       "estimatedCost": "预估成本",
-      "agentSteps": "智能体",
-      "controlSteps": "控制步骤",
+      "agentSteps": "智能体节点",
+      "controlSteps": "控制节点",
       "notStarted": "未开始",
       "notAvailable": "不适用"
     },
     "agentSessions": {
-      "title": "智能体会话",
-      "none": "这个智能体在本次运行中还没有创建会话。",
+      "title": "智能体节点会话",
+      "none": "这个智能体节点在本次运行中还没有创建会话。",
       "session": "会话 {{id}}",
       "run": "运行 {{id}}",
       "process": "进程 {{id}}",
       "open": "打开",
-      "noOutputYet": "还没有输出"
+      "noOutputYet": "还没有输出",
+      "agentRun": "AgentRun {{id}}",
+      "projection": "Projection: {{status}}"
     },
     "arenaWinner": {
       "title": "需要选择 Arena 结果",
@@ -1019,12 +1021,12 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "智能体会话",
+      "agentStepSession": "智能体节点会话",
       "conditionRouterSession": "条件路由会话",
       "nodeSession": "节点会话",
       "sessionNotStarted": "会话尚未开始",
-      "cockpit": "智能体控制台",
-      "runThisStep": "运行此步骤",
+      "cockpit": "节点控制台",
+      "runThisStep": "运行此节点",
       "editConfig": "编辑配置",
       "inspectFiles": "查看文件",
       "openWorkspace": "打开工作区",
@@ -1033,12 +1035,12 @@
       "runningNow": "正在运行",
       "startedDuration": "开始于 {{started}} / {{duration}}",
       "agentWorking": "智能体正在此会话中工作。",
-      "waitingForDecision": "此步骤正在等待决策，之后工作流才会继续。",
+      "waitingForDecision": "此节点正在等待决策，之后工作流才会继续。",
       "lastRunSucceeded": "上次运行成功",
       "finishedDuration": "完成于 {{finished}} / {{duration}}",
       "notStartedYet": "尚未开始",
       "readyForConversation": "会话已就绪，可手动对话或等待下一次工作流运行。",
-      "noSessionYet": "此步骤尚未创建会话。",
+      "noSessionYet": "此节点尚未创建会话。",
       "technicalDetails": "技术详情",
       "sessionId": "会话 ID",
       "processId": "进程 ID",
@@ -1047,7 +1049,17 @@
       "noAgentResponse": "尚未捕获到智能体响应。",
       "nodePrompt": "节点提示词",
       "noPrompt": "尚未捕获到提示词。",
-      "rawRouterOutput": "原始路由输出"
+      "rawRouterOutput": "原始路由输出",
+      "orchestrationNodeExecutionId": "Orchestration node execution ID",
+      "agentRunId": "AgentRun ID",
+      "projection": "Projection status",
+      "projectionUnavailable": "Canonical AgentRun projection is unavailable; actions are disabled.",
+      "runtimeConnection": "Runtime connection",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "nativeConfigLoaded": "Native executor configuration loaded.",
+      "nativeConfigUnavailable": "Native executor configuration is unavailable.",
+      "eventRecorded": "Canonical event recorded."
     }
   },
   "fileTree": {
@@ -1116,6 +1128,8 @@
     "sourceHint": "来自智能体自己的恢复历史",
     "loading": "正在加载会话...",
     "error": "会话加载失败",
+    "degraded": "最近的会话可能不是最新的",
+    "degradedHint": "重试读取原生历史期间，仍可使用上次加载的会话。",
     "empty": "没有最近会话",
     "more": "显示最近 30 天",
     "pending": "将恢复：{{title}} · {{time}}",
@@ -1153,10 +1167,6 @@
     "diffs": {
       "title": "差异和评论",
       "content": "重新设计的差异面板包含更改的文件树。直接在差异上评论以向代理提供反馈，当您的工作区链接到 PR 时还可以查看 GitHub 评论。"
-    },
-    "classicUi": {
-      "title": "返回经典界面",
-      "content": "点击导航栏左侧的退出图标可返回经典看板。要完全禁用新界面，请在设置中的「测试版功能」下更新「启用 Workspaces 测试版」选项。"
     }
   },
   "logs": {
@@ -1417,7 +1427,7 @@
     }
   },
   "modelSelector": {
-    "followCliConfig": "\u8ddf\u968f CLI \u914d\u7f6e",
+    "followCliConfig": "跟随 CLI 配置",
     "preset": "预设",
     "custom": "自定义",
     "permissions": "权限",
@@ -1453,17 +1463,119 @@
     "yes": "是",
     "no": "否"
   },
-  "appBar": {
-    "kanban": {
-      "tooltip": "登录以查看项目",
-      "title": "看板",
-      "description": "登录以使用看板管理您的编码代理。"
-    }
-  },
   "errors": {
     "generic": "发生了意外错误"
   },
   "personal": "个人",
+  "appShell": {
+    "skipToContent": "跳转到内容",
+    "modules": {
+      "dashboard": "仪表盘",
+      "search": "搜索",
+      "projects": "项目",
+      "workflows": "工作流",
+      "agents": "智能体"
+    },
+    "navigation": {
+      "primary": "主导航",
+      "mobile": "移动端主导航",
+      "sidebar": "产品侧边栏",
+      "rail": "产品导航栏"
+    },
+    "objects": {
+      "projects": "项目",
+      "sessions": "会话",
+      "noProjects": "暂无项目",
+      "noSessions": "暂无会话",
+      "retry": "重试",
+      "loading": "正在加载{{label}}...",
+      "loadingMore": "正在加载更多内容",
+      "moreAvailable": "还有更多内容",
+      "unavailable": "{{label}}不可用",
+      "unavailableDescription": "无法加载{{label}}数据源。",
+      "degraded": "{{label}}可能已过期",
+      "cachedAvailable": "已缓存的内容仍可用。",
+      "browse": "浏览",
+      "browseTitle": "浏览项目和会话",
+      "closeBrowse": "关闭项目和会话",
+      "agent": "智能体"
+    },
+    "system": {
+      "user": "用户",
+      "settings": "设置",
+      "version": "版本",
+      "openMenu": "打开产品菜单",
+      "updateAvailable": "更新 {{version}} 可用",
+      "updateReady": "更新 {{version}} 已就绪"
+    },
+    "search": {
+      "dialogLabel": "全局搜索",
+      "placeholder": "搜索功能、设置、智能体和对象",
+      "close": "关闭搜索",
+      "suggested": "建议前往",
+      "results": "搜索结果",
+      "shortcutHint": "上下键导航 · Enter 打开 · Esc 关闭",
+      "updating": "正在更新结果...",
+      "noMatches": "没有匹配的目标",
+      "sourcePartial": "{{label}}结果可能不完整",
+      "cachedResults": "仍可搜索缓存的结果。",
+      "sourceUnavailable": "{{label}}结果不可用",
+      "otherSourcesAvailable": "其他搜索源仍然可用。",
+      "groups": {
+        "agents": "智能体",
+        "configuration": "配置",
+        "tools": "工具",
+        "featuresAndObjects": "功能和对象"
+      },
+      "destinations": {
+        "appearance": "外观",
+        "agentTools": "智能体工具",
+        "agentToolTypes": "MCP、技能和命令"
+      },
+      "paths": {
+        "features": "功能 / {{name}}",
+        "agents": "智能体 / {{name}}",
+        "settings": "设置 / {{name}}",
+        "sessions": "会话 / {{name}}"
+      },
+      "kinds": {
+        "feature": "功能",
+        "setting": "设置",
+        "provider": "提供商",
+        "mcp": "MCP",
+        "skill": "技能",
+        "command": "命令",
+        "project": "项目",
+        "session": "会话",
+        "issue": "Issue",
+        "workflow": "工作流",
+        "run": "执行"
+      }
+    },
+    "moduleLanding": {
+      "eyebrow": "产品模块",
+      "projectsDescription": "从侧边栏选择项目，打开已有的看板视图。",
+      "workflowsDescription": "工作流编排归属于项目。请先打开项目，再进入对应的工作流界面。",
+      "agentsDescription": "智能体可用性来自当前连接的主机，配置页面使用相同的适配器能力。"
+    },
+    "dashboard": {
+      "eyebrow": "概览",
+      "title": "仪表盘",
+      "subtitle": "当前项目、会话和运行时可用性。",
+      "sections": {
+        "globalStatistics": "全局统计",
+        "attention": "需要关注",
+        "activeRuns": "运行中的任务",
+        "agentConfiguration": "智能体配置"
+      },
+      "unavailable": {
+        "globalStatistics": "项目、Issue 和智能体运行的规范总数尚未提供。侧边栏分页数据不会作为全局统计展示。",
+        "attention": "规范的关注项投影尚未提供。此区域保持独立，不会从日志文本推断告警。",
+        "activeRuns": "会话列表不包含运行时状态。规范运行时投影提供后，这里才会显示运行中的任务。",
+        "agentConfiguration": "连接、默认模型、API 地址和运行数量的规范摘要尚未提供。运行时 API 能力不会替代配置数据。"
+      }
+    }
+  },
   "agentCenter": {
     "eyebrow": "智能体运行时",
     "title": "智能体中心",
@@ -1743,7 +1855,11 @@
       "providerUnavailable": "该 Provider 尚未就绪。"
     },
     "tools": {
-      "titles": { "all": "智能体工具", "mcp": "MCP 服务器", "skills": "技能" },
+      "titles": {
+        "all": "智能体工具",
+        "mcp": "MCP 服务器",
+        "skills": "技能"
+      },
       "descriptions": {
         "all": "管理原生 MCP 服务器和技能。各 Provider 的文件始终是真实数据源。",
         "mcp": "管理原生 MCP 服务器。各 Provider 的文件始终是真实数据源。",
@@ -1766,7 +1882,10 @@
         "discover": "发现项目工具",
         "refreshRequired": "请刷新以加载该项目路径下的工具。"
       },
-      "kinds": { "mcp": "MCP 服务器", "skill": "技能" },
+      "kinds": {
+        "mcp": "MCP 服务器",
+        "skill": "技能"
+      },
       "states": {
         "loading": "正在加载智能体工具清单...",
         "unavailable": "工具清单不可用。",
@@ -1775,7 +1894,10 @@
         "updating": "正在更新 {{name}}"
       },
       "itemCount": "{{count}} 项",
-      "empty": { "mcp": "未发现 MCP 服务器。", "skills": "未发现技能。" },
+      "empty": {
+        "mcp": "未发现 MCP 服务器。",
+        "skills": "未发现技能。"
+      },
       "toolStates": {
         "not_installed": "未安装",
         "enabled": "已启用",
@@ -1783,13 +1905,18 @@
         "error": "错误",
         "unsupported": "不支持"
       },
-      "scopes": { "user": "用户级", "project": "项目级" },
+      "scopes": {
+        "user": "用户级",
+        "project": "项目级"
+      },
       "errors": {
         "noInstalledProvider": "未安装受支持的智能体 Provider。",
         "noCopyTarget": "没有其他已安装且受支持的智能体 Provider。",
         "operationFailed": "智能体工具操作失败。"
       },
-      "notices": { "pathCopied": "已复制原生路径：{{path}}" },
+      "notices": {
+        "pathCopied": "已复制原生路径：{{path}}"
+      },
       "remove": {
         "title": "移除 {{name}}？",
         "message": "这会移除原生安装，与停用该工具不同。"

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  color: var(--vk-text-normal);
+  background: var(--vk-surface-canvas);
+  font-family: var(--vk-font-sans);
+}
+
+.fixture-home-shell {
+  min-height: 100dvh;
+}
+
+.fixture-home-shell a[href="#fixture-project"] {
+  display: flex;
+  height: 61px;
+}
+
+/* The isolated fixture does not inherit Remote Web's Tailwind content root. */
+@media (max-width: 639px) {
+  button,
+  input {
+    min-height: 44px;
+  }
+}

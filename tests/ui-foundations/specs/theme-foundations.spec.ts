@@ -216,6 +216,22 @@ test('disabled asChild Button blocks child handlers and navigation', async ({
   await expect(page.getByTestId('button-capture-count')).toHaveText('0');
 });
 
+test('Button loadingLabel only contributes to the accessible name while loading', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const idle = page.getByTestId('idle-loading-label');
+  await expect(idle).toHaveAccessibleName('Save');
+  await expect(idle).not.toHaveAttribute('aria-busy', 'true');
+  await expect(idle.locator('.sr-only')).toHaveCount(0);
+
+  const active = page.getByTestId('active-loading-label');
+  await expect(active).toHaveAccessibleName('SaveSaving');
+  await expect(active).toHaveAttribute('aria-busy', 'true');
+  await expect(active.locator('.sr-only')).toHaveText('Saving');
+});
+
 test('invalid Input exposes its description association', async ({ page }) => {
   await page.goto('/');
 

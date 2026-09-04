@@ -1,9 +1,13 @@
-import { useCallback, useMemo } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { useHostId } from '@/shared/providers/HostIdProvider';
+import {
+  deriveWorkspaceListState,
+  type WorkspaceListState,
+} from '@/shared/lib/workspaceListState';
 import type {
   AgentRunStatus,
   WorkspaceWithStatus,
@@ -42,15 +46,20 @@ export type Workspace = SidebarWorkspace;
 export interface UseWorkspacesResult {
   workspaces: SidebarWorkspace[];
   archivedWorkspaces: SidebarWorkspace[];
+  state: WorkspaceListState;
   isLoading: boolean;
   isConnected: boolean;
-  error: string | null;
+  isRetrying: boolean;
+  error: unknown;
+  retry: () => Promise<void>;
 }
 
 // State shape from the WebSocket stream
 type WorkspacesState = {
   workspaces: Record<string, WorkspaceWithStatus>;
 };
+
+const EMPTY_WORKSPACE_SUMMARIES = new Map<string, WorkspaceSummary>();
 
 // Transform WorkspaceWithStatus to SidebarWorkspace, optionally merging summary data
 function toSidebarWorkspace(
@@ -96,96 +105,106 @@ async function fetchWorkspaceSummariesByArchived(
   archived: boolean,
   hostId: string | null
 ): Promise<Map<string, WorkspaceSummary>> {
-  try {
-    const basePath = hostId ? `/api/host/${hostId}` : '/api';
-    const response = await makeLocalApiRequest(
-      `${basePath}/workspaces/summaries`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archived }),
-      }
-    );
+  const response = await makeLocalApiRequest('/api/workspaces/summaries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived }),
+    hostScope: 'explicit',
+    hostId,
+  });
 
-    if (!response.ok) {
-      console.warn('Failed to fetch workspace summaries:', response.status);
-      return new Map();
-    }
-
-    const data: ApiResponse<WorkspaceSummaryResponse> = await response.json();
-    if (!data.success || !data.data?.summaries) {
-      return new Map();
-    }
-
-    const map = new Map<string, WorkspaceSummary>();
-    for (const summary of data.data.summaries) {
-      map.set(summary.workspace_id, summary);
-    }
-    return map;
-  } catch (err) {
-    console.warn('Error fetching workspace summaries:', err);
-    return new Map();
+  if (!response.ok) {
+    throw new Error(`Workspace summaries request failed (${response.status})`);
   }
+
+  const data: ApiResponse<WorkspaceSummaryResponse> = await response.json();
+  if (!data.success || !data.data?.summaries) {
+    throw new Error('Workspace summaries response was invalid');
+  }
+
+  const map = new Map<string, WorkspaceSummary>();
+  for (const summary of data.data.summaries) {
+    map.set(summary.workspace_id, summary);
+  }
+  return map;
 }
 
 export function useWorkspaces(): UseWorkspacesResult {
   const hostId = useHostId();
+  const retryLockRef = useRef(false);
+  const retryEpochRef = useRef(0);
+  const [isSummaryRetrying, setIsSummaryRetrying] = useState(false);
 
   // Two separate WebSocket connections: one for active, one for archived
   // No limit param - we fetch all and slice on frontend so backfill works when archiving
-  const apiBasePath = hostId ? `/api/host/${hostId}` : '/api';
-  const activeEndpoint = `${apiBasePath}/workspaces/streams/ws?archived=false`;
-  const archivedEndpoint = `${apiBasePath}/workspaces/streams/ws?archived=true`;
+  const activeEndpoint = '/api/workspaces/streams/ws?archived=false';
+  const archivedEndpoint = '/api/workspaces/streams/ws?archived=true';
 
   const initialData = useCallback(
     (): WorkspacesState => ({ workspaces: {} }),
     []
   );
 
+  const activeStream = useJsonPatchWsStream<WorkspacesState>(
+    activeEndpoint,
+    true,
+    initialData,
+    { transport: { hostScope: 'explicit', hostId } }
+  );
   const {
     data: activeData,
     isConnected: activeIsConnected,
     isInitialized: activeIsInitialized,
+    isRetrying: activeIsRetrying,
     error: activeError,
-  } = useJsonPatchWsStream<WorkspacesState>(activeEndpoint, true, initialData);
+    retry: retryActiveStream,
+  } = activeStream;
 
+  const archivedStream = useJsonPatchWsStream<WorkspacesState>(
+    archivedEndpoint,
+    true,
+    initialData,
+    { transport: { hostScope: 'explicit', hostId } }
+  );
   const {
     data: archivedData,
     isConnected: archivedIsConnected,
     isInitialized: archivedIsInitialized,
+    isRetrying: archivedIsRetrying,
     error: archivedError,
-  } = useJsonPatchWsStream<WorkspacesState>(
-    archivedEndpoint,
-    true,
-    initialData
-  );
+    retry: retryArchivedStream,
+  } = archivedStream;
 
   // Wait for both streams to be initialized before fetching summaries
   // Fetch summaries for active workspaces
-  const { data: activeSummaries = new Map<string, WorkspaceSummary>() } =
-    useQuery({
-      queryKey: workspaceSummaryKeys.byArchived(false, hostId),
-      queryFn: () => fetchWorkspaceSummariesByArchived(false, hostId),
-      enabled: activeIsInitialized,
-      staleTime: 1000,
-      refetchInterval: 15000,
-      refetchOnWindowFocus: false,
-      refetchOnMount: 'always',
-      placeholderData: keepPreviousData,
-    });
+  const {
+    data: activeSummaries = EMPTY_WORKSPACE_SUMMARIES,
+    error: activeSummaryError,
+    refetch: refetchActiveSummaries,
+  } = useQuery({
+    queryKey: workspaceSummaryKeys.byArchived(false, hostId),
+    queryFn: () => fetchWorkspaceSummariesByArchived(false, hostId),
+    enabled: activeIsInitialized,
+    staleTime: 1000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+  });
 
   // Fetch summaries for archived workspaces
-  const { data: archivedSummaries = new Map<string, WorkspaceSummary>() } =
-    useQuery({
-      queryKey: workspaceSummaryKeys.byArchived(true, hostId),
-      queryFn: () => fetchWorkspaceSummariesByArchived(true, hostId),
-      enabled: archivedIsInitialized,
-      staleTime: 1000,
-      refetchInterval: 15000,
-      refetchOnWindowFocus: false,
-      refetchOnMount: 'always',
-      placeholderData: keepPreviousData,
-    });
+  const {
+    data: archivedSummaries = EMPTY_WORKSPACE_SUMMARIES,
+    error: archivedSummaryError,
+    refetch: refetchArchivedSummaries,
+  } = useQuery({
+    queryKey: workspaceSummaryKeys.byArchived(true, hostId),
+    queryFn: () => fetchWorkspaceSummariesByArchived(true, hostId),
+    enabled: archivedIsInitialized,
+    staleTime: 1000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: 'always',
+  });
 
   const workspaces = useMemo(() => {
     if (!activeData?.workspaces) return [];
@@ -219,20 +238,63 @@ export function useWorkspaces(): UseWorkspacesResult {
       .map((ws) => toSidebarWorkspace(ws, archivedSummaries.get(ws.id)));
   }, [archivedData, archivedSummaries]);
 
-  // isLoading is true when we haven't received initial data from either stream
-  const isLoading = !activeIsInitialized || !archivedIsInitialized;
-
-  // Combined connection status
   const isConnected = activeIsConnected && archivedIsConnected;
+  const summaryError = activeSummaryError ?? archivedSummaryError;
+  const error = activeError ?? archivedError ?? summaryError;
+  const state = deriveWorkspaceListState({
+    activeInitialized: activeIsInitialized,
+    archivedInitialized: archivedIsInitialized,
+    activeConnected: activeIsConnected,
+    archivedConnected: archivedIsConnected,
+    activeError,
+    archivedError,
+    summaryError,
+    itemCount: workspaces.length + archivedWorkspaces.length,
+  });
 
-  // Combined error (show first error if any)
-  const error = activeError || archivedError;
+  useEffect(() => {
+    retryEpochRef.current += 1;
+    retryLockRef.current = false;
+    setIsSummaryRetrying(false);
+  }, [hostId]);
+
+  const retry = useCallback(async () => {
+    if (retryLockRef.current) return;
+    retryLockRef.current = true;
+    const epoch = retryEpochRef.current;
+    setIsSummaryRetrying(true);
+    retryActiveStream();
+    retryArchivedStream();
+    try {
+      await Promise.allSettled([
+        ...(activeIsInitialized ? [refetchActiveSummaries()] : []),
+        ...(archivedIsInitialized ? [refetchArchivedSummaries()] : []),
+      ]);
+    } finally {
+      if (retryEpochRef.current === epoch) {
+        retryLockRef.current = false;
+        setIsSummaryRetrying(false);
+      }
+    }
+  }, [
+    activeIsInitialized,
+    archivedIsInitialized,
+    refetchActiveSummaries,
+    refetchArchivedSummaries,
+    retryActiveStream,
+    retryArchivedStream,
+  ]);
+  const isRetrying =
+    isSummaryRetrying || activeIsRetrying || archivedIsRetrying;
 
   return {
     workspaces,
     archivedWorkspaces,
-    isLoading,
+    state,
+    isLoading: state === 'loading',
     isConnected,
+    isRetrying,
     error,
+    retry,
   };
 }

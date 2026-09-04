@@ -1,8 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { produce } from 'immer';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/shared/lib/jsonPatch';
-import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
+import {
+  openLocalApiWebSocket,
+  type LocalApiWebSocketOptions,
+} from '@/shared/lib/localApiTransport';
 
 type WsJsonPatchMsg = { JsonPatch: Operation[] };
 type WsReadyMsg = { Ready: true };
@@ -18,13 +21,17 @@ interface UseJsonPatchStreamOptions<T> {
    * Filter/deduplicate patches before applying them
    */
   deduplicatePatches?: (patches: Operation[]) => Operation[];
+  /** Bind the stream to an immutable Host instead of mutable route state. */
+  transport?: LocalApiWebSocketOptions;
 }
 
 interface UseJsonPatchStreamResult<T> {
   data: T | undefined;
   isConnected: boolean;
   isInitialized: boolean;
+  isRetrying: boolean;
   error: string | null;
+  retry: () => void;
 }
 
 /**
@@ -41,26 +48,51 @@ export const useJsonPatchWsStream = <T extends object>(
   const [isInitialized, setIsInitialized] = useState(false);
   const initializedForEndpointRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const dataRef = useRef<T | undefined>(undefined);
+  const activeStreamIdentityRef = useRef<string | undefined>(undefined);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptsRef = useRef<number>(0);
+  const explicitRetryRef = useRef(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const finishedRef = useRef<boolean>(false);
 
   const injectInitialEntry = options?.injectInitialEntry;
   const deduplicatePatches = options?.deduplicatePatches;
+  const transportHostScope = options?.transport?.hostScope;
+  const transportHostId = options?.transport?.hostId;
+  const transportRelayHostId = options?.transport?.relayHostId;
+  const streamIdentity = endpoint
+    ? JSON.stringify([
+        endpoint,
+        transportHostScope ?? 'current',
+        transportHostId ?? null,
+        transportRelayHostId ?? null,
+      ])
+    : undefined;
 
-  function scheduleReconnect() {
-    if (retryTimerRef.current) return; // already scheduled
-    // Exponential backoff with cap: 1s, 2s, 4s, 8s (max), then stay at 8s
-    const attempt = retryAttemptsRef.current;
-    const delay = Math.min(8000, 1000 * Math.pow(2, attempt));
-    retryTimerRef.current = window.setTimeout(() => {
+  const retry = useCallback(() => {
+    if (!enabled || !endpoint || explicitRetryRef.current) return;
+    explicitRetryRef.current = true;
+    setIsRetrying(true);
+    setError(null);
+    setIsConnected(false);
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
-      setRetryNonce((n) => n + 1);
-    }, delay);
-  }
+    }
+    if (wsRef.current) {
+      const ws = wsRef.current;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+      wsRef.current = null;
+    }
+    setRetryNonce((nonce) => nonce + 1);
+  }, [enabled, endpoint, streamIdentity]);
 
   useEffect(() => {
     if (!enabled || !endpoint) {
@@ -69,31 +101,60 @@ export const useJsonPatchWsStream = <T extends object>(
         wsRef.current.close();
         wsRef.current = null;
       }
-      if (retryTimerRef.current) {
+      if (retryTimerRef.current !== null) {
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
       retryAttemptsRef.current = 0;
+      explicitRetryRef.current = false;
       finishedRef.current = false;
+      activeStreamIdentityRef.current = undefined;
+      initializedForEndpointRef.current = undefined;
       setData(undefined);
       setIsConnected(false);
       setIsInitialized(false);
+      setIsRetrying(false);
       setError(null);
       dataRef.current = undefined;
       return;
     }
 
-    // Initialize data
-    if (!dataRef.current) {
+    const streamChanged = activeStreamIdentityRef.current !== streamIdentity;
+    if (streamChanged) {
+      activeStreamIdentityRef.current = streamIdentity;
+      initializedForEndpointRef.current = undefined;
+      retryAttemptsRef.current = 0;
+      explicitRetryRef.current = false;
+      setData(undefined);
+      setIsConnected(false);
+      setIsInitialized(false);
+      setIsRetrying(false);
+      setError(null);
       dataRef.current = initialData();
 
-      // Inject initial entry if provided
       if (injectInitialEntry) {
         injectInitialEntry(dataRef.current);
       }
+    } else if (!dataRef.current) {
+      dataRef.current = initialData();
     }
 
     let cancelled = false;
+
+    const scheduleReconnect = () => {
+      if (retryTimerRef.current !== null) return;
+      const attempt = retryAttemptsRef.current;
+      const delay = Math.min(8000, 1000 * Math.pow(2, attempt));
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        setRetryNonce((nonce) => nonce + 1);
+      }, delay);
+    };
+
+    const finishExplicitRetry = () => {
+      explicitRetryRef.current = false;
+      setIsRetrying(false);
+    };
 
     // Create WebSocket if it doesn't exist
     if (!wsRef.current) {
@@ -102,7 +163,11 @@ export const useJsonPatchWsStream = <T extends object>(
 
       void (async () => {
         try {
-          const ws = await openLocalApiWebSocket(endpoint);
+          const ws = await openLocalApiWebSocket(endpoint, {
+            hostScope: transportHostScope,
+            hostId: transportHostId,
+            relayHostId: transportRelayHostId,
+          });
 
           if (cancelled) {
             ws.close();
@@ -110,11 +175,10 @@ export const useJsonPatchWsStream = <T extends object>(
           }
 
           ws.onopen = () => {
-            setError(null);
             setIsConnected(true);
             // Reset backoff on successful connection
             retryAttemptsRef.current = 0;
-            if (retryTimerRef.current) {
+            if (retryTimerRef.current !== null) {
               window.clearTimeout(retryTimerRef.current);
               retryTimerRef.current = null;
             }
@@ -145,9 +209,11 @@ export const useJsonPatchWsStream = <T extends object>(
 
               // Handle Ready messages (initial data has been sent)
               if ('Ready' in msg) {
-                initializedForEndpointRef.current = endpoint;
+                initializedForEndpointRef.current = streamIdentity;
+                setData(dataRef.current);
                 setIsInitialized(true);
                 setError(null);
+                finishExplicitRetry();
               }
 
               // Handle finished messages ({finished: true})
@@ -161,6 +227,7 @@ export const useJsonPatchWsStream = <T extends object>(
             } catch (err) {
               console.error('Failed to process WebSocket message:', err);
               setError('Failed to process stream update');
+              finishExplicitRetry();
             }
           };
 
@@ -185,10 +252,8 @@ export const useJsonPatchWsStream = <T extends object>(
 
             // Otherwise, reconnect on unexpected/error closures
             retryAttemptsRef.current += 1;
-            // Only show error if we haven't received any data yet
-            if (!dataRef.current && retryAttemptsRef.current > 6) {
-              setError('Connection failed');
-            }
+            setError('Connection failed');
+            finishExplicitRetry();
             scheduleReconnect();
           };
 
@@ -200,6 +265,8 @@ export const useJsonPatchWsStream = <T extends object>(
 
           console.error('Failed to open WebSocket stream:', error);
           retryAttemptsRef.current += 1;
+          setError('Connection failed');
+          finishExplicitRetry();
           scheduleReconnect();
         }
       })();
@@ -220,14 +287,11 @@ export const useJsonPatchWsStream = <T extends object>(
         ws.close();
         wsRef.current = null;
       }
-      if (retryTimerRef.current) {
+      if (retryTimerRef.current !== null) {
         window.clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
       finishedRef.current = false;
-      dataRef.current = undefined;
-      setData(undefined);
-      setIsInitialized(false);
     };
   }, [
     endpoint,
@@ -236,15 +300,23 @@ export const useJsonPatchWsStream = <T extends object>(
     injectInitialEntry,
     deduplicatePatches,
     retryNonce,
+    streamIdentity,
+    transportHostId,
+    transportHostScope,
+    transportRelayHostId,
   ]);
 
   const isInitializedForCurrentEndpoint =
-    isInitialized && initializedForEndpointRef.current === endpoint;
+    isInitialized && initializedForEndpointRef.current === streamIdentity;
+  const dataForCurrentEndpoint =
+    activeStreamIdentityRef.current === streamIdentity ? data : undefined;
 
   return {
-    data,
+    data: dataForCurrentEndpoint,
     isConnected,
     isInitialized: isInitializedForCurrentEndpoint,
+    isRetrying,
     error,
+    retry,
   };
 };

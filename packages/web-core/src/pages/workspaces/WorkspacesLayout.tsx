@@ -49,6 +49,7 @@ import {
   AgentWorkbenchInspector,
   deriveAgentWorkbenchHeader,
 } from '@/features/agent-workbench';
+import { deriveWorkspaceDetailState } from '@/shared/lib/workspaceDetailState';
 
 const WORKSPACES_GUIDE_ID = 'workspaces-guide';
 
@@ -58,6 +59,9 @@ export function WorkspacesLayout() {
     workspaceId,
     workspace: selectedWorkspace,
     isLoading,
+    isWorkspaceLoading,
+    workspaceError,
+    retryWorkspace,
     isCreateMode,
     selectedSession,
     selectedSessionId,
@@ -70,6 +74,30 @@ export function WorkspacesLayout() {
   } = useWorkspaceContext();
 
   const { t } = useTranslation('common');
+  const workspaceRetryLockRef = useRef(false);
+  const workspaceRetryEpochRef = useRef(0);
+  const [isRetryingWorkspace, setIsRetryingWorkspace] = useState(false);
+
+  useEffect(() => {
+    workspaceRetryEpochRef.current += 1;
+    workspaceRetryLockRef.current = false;
+    setIsRetryingWorkspace(false);
+  }, [workspaceId]);
+
+  const handleRetryWorkspace = useCallback(async () => {
+    if (workspaceRetryLockRef.current) return;
+    workspaceRetryLockRef.current = true;
+    const epoch = workspaceRetryEpochRef.current;
+    setIsRetryingWorkspace(true);
+    try {
+      await retryWorkspace();
+    } finally {
+      if (workspaceRetryEpochRef.current === epoch) {
+        workspaceRetryLockRef.current = false;
+        setIsRetryingWorkspace(false);
+      }
+    }
+  }, [retryWorkspace]);
   const recentSessions = useAppShellRecentSessions();
   const canonicalSession = useMemo(
     () => findAppShellRecentSession(recentSessions, selectedSessionId),
@@ -238,6 +266,14 @@ export function WorkspacesLayout() {
                     repos={repos}
                     onSelectSession={selectSession}
                     isLoading={isLoading}
+                    workspaceState={deriveWorkspaceDetailState({
+                      hasWorkspaceId: Boolean(workspaceId),
+                      isLoading: isWorkspaceLoading,
+                      hasWorkspace: Boolean(selectedWorkspace),
+                      error: workspaceError,
+                    })}
+                    isRetryingWorkspace={isRetryingWorkspace}
+                    onRetryWorkspace={handleRetryWorkspace}
                     isSessionsLoading={isSessionsLoading}
                     isNewSessionMode={isNewSessionMode}
                     onStartNewSession={startNewSession}

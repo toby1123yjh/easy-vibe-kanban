@@ -103,11 +103,10 @@ test.describe('Export selection state projection', () => {
   });
 
   test('keeps project choices owner-scoped across refreshes', () => {
-    const organizationOne = reconcileExportProjectSelection(
-      null,
-      'org-1',
-      ['project-1', 'project-2']
-    );
+    const organizationOne = reconcileExportProjectSelection(null, 'org-1', [
+      'project-1',
+      'project-2',
+    ]);
     expect(organizationOne).toEqual({
       organizationId: 'org-1',
       projectIds: ['project-1', 'project-2'],

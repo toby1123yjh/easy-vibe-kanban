@@ -17,7 +17,13 @@ import {
 import { Input } from "@vibe/ui/components/Input";
 import { Label } from "@vibe/ui/components/Label";
 import { Button } from "@vibe/ui/components/Button";
-import { ErrorState, LoadingState } from "@vibe/ui/components/StateSurface";
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@vibe/ui/components/StateSurface";
+import { deriveAuthMethodDiscoveryState } from "@/features/onboarding/model/authMethodDiscoveryState";
 
 export default function LoginPage() {
   const { next } = useSearch({ from: "/account" });
@@ -29,7 +35,6 @@ export default function LoginPage() {
     data: authMethods,
     error: authMethodsError,
     isLoading: isAuthMethodsLoading,
-    isError: isAuthMethodsError,
     isFetching: isAuthMethodsFetching,
     refetch: refetchAuthMethods,
   } = useQuery({
@@ -41,6 +46,15 @@ export default function LoginPage() {
   const hasLocalAuth = authMethods?.local_auth_enabled ?? false;
   const oauthProviders = authMethods?.oauth_providers ?? [];
   const hasOAuthProviders = oauthProviders.length > 0;
+  const authMethodState = deriveAuthMethodDiscoveryState({
+    isLoading: isAuthMethodsLoading,
+    hasData: Boolean(authMethods),
+    hasError: Boolean(authMethodsError),
+    hasLocalAuth,
+    oauthProviderCount: oauthProviders.length,
+  });
+  const canUseAuthMethods =
+    authMethodState === "ready" || authMethodState === "degraded";
 
   const handleLogin = async (provider: OAuthProvider) => {
     setPending(provider);
@@ -92,6 +106,9 @@ export default function LoginPage() {
             <div className="flex justify-center">
               <BrandLogo className="h-8 w-auto" />
             </div>
+            <h1 className="text-2xl font-semibold text-high">
+              Sign in to Vibe Kanban
+            </h1>
             <p className="text-sm text-low">Sign in to continue</p>
           </header>
 
@@ -99,7 +116,7 @@ export default function LoginPage() {
             <ErrorState compact title="Sign-in failed" description={error} />
           )}
 
-          {isAuthMethodsLoading && (
+          {authMethodState === "loading" && (
             <LoadingState
               compact
               title="Loading sign-in methods"
@@ -107,7 +124,7 @@ export default function LoginPage() {
             />
           )}
 
-          {isAuthMethodsError && (
+          {authMethodState === "error" && (
             <ErrorState
               compact
               title="Sign-in methods unavailable"
@@ -118,6 +135,7 @@ export default function LoginPage() {
               }
               action={
                 <Button
+                  className="min-h-11 sm:min-h-8"
                   size="sm"
                   variant="secondary"
                   loading={isAuthMethodsFetching}
@@ -130,8 +148,36 @@ export default function LoginPage() {
             />
           )}
 
+          {authMethodState === "degraded" && (
+            <DegradedState
+              compact
+              title="Sign-in methods may be out of date"
+              description="The last loaded sign-in methods remain available while discovery is retried."
+              action={
+                <Button
+                  className="min-h-11 sm:min-h-8"
+                  size="sm"
+                  variant="secondary"
+                  loading={isAuthMethodsFetching}
+                  loadingLabel="Retrying sign-in method discovery"
+                  onClick={() => void refetchAuthMethods()}
+                >
+                  Try again
+                </Button>
+              }
+            />
+          )}
+
+          {authMethodState === "empty" && (
+            <EmptyState
+              compact
+              title="No sign-in methods configured"
+              description="Ask the server administrator to enable a sign-in method."
+            />
+          )}
+
           <section className="space-y-3">
-            {!isAuthMethodsError && hasLocalAuth && (
+            {canUseAuthMethods && hasLocalAuth && (
               <div className="space-y-3 rounded-sm border border-border bg-primary p-base">
                 <div className="space-y-2">
                   <Label htmlFor="self-host-email">Email</Label>
@@ -157,7 +203,7 @@ export default function LoginPage() {
                 </div>
                 <button
                   type="button"
-                  className="w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-h-11 w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand transition-colors hover:bg-brand-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8"
                   onClick={() => void handleLocalLogin()}
                   disabled={pending !== null || !email.trim() || !password}
                 >
@@ -166,7 +212,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            {!isAuthMethodsError && hasLocalAuth && hasOAuthProviders && (
+            {canUseAuthMethods && hasLocalAuth && hasOAuthProviders && (
               <div className="flex items-center gap-3 text-xs uppercase tracking-[0.12em] text-low">
                 <div className="h-px flex-1 bg-border" />
                 <span>or continue with</span>
@@ -175,7 +221,7 @@ export default function LoginPage() {
             )}
 
             <div className="flex flex-col items-center gap-2">
-              {!isAuthMethodsError &&
+              {canUseAuthMethods &&
                 hasOAuthProviders &&
                 oauthProviders.includes("github") && (
                   <OAuthButton
@@ -186,7 +232,7 @@ export default function LoginPage() {
                     loading={pending === "github"}
                   />
                 )}
-              {!isAuthMethodsError &&
+              {canUseAuthMethods &&
                 hasOAuthProviders &&
                 oauthProviders.includes("google") && (
                   <OAuthButton
@@ -233,7 +279,7 @@ function OAuthButton({
   return (
     <button
       type="button"
-      className="flex h-10 min-w-[280px] items-center justify-center rounded-[4px] border border-[#dadce0] bg-[#f2f2f2] px-3 text-[14px] font-medium text-[#1f1f1f] transition-colors hover:bg-[#e8eaed] active:bg-[#e2e3e5] disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex min-h-11 min-w-[280px] items-center justify-center rounded-[4px] border border-[#dadce0] bg-[#f2f2f2] px-3 text-[14px] font-medium text-[#1f1f1f] transition-colors hover:bg-[#e8eaed] active:bg-[#e2e3e5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8"
       style={{ fontFamily: "'Roboto', Arial, sans-serif" }}
       onClick={onClick}
       disabled={disabled || loading}

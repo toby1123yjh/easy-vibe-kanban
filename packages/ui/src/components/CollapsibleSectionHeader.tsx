@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import type { Icon } from '@phosphor-icons/react';
 import { CaretDownIcon } from '@phosphor-icons/react';
@@ -71,24 +71,6 @@ export function CollapsibleSectionHeader({
     }
   }, [persistKey, expanded]);
 
-  const handleActionClick = (
-    e: MouseEvent<HTMLSpanElement>,
-    onClick: () => void
-  ) => {
-    e.stopPropagation();
-    onClick();
-  };
-
-  const handleActionKeyDown = (
-    e: KeyboardEvent<HTMLSpanElement>,
-    onClick: () => void
-  ) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    e.stopPropagation();
-    onClick();
-  };
-
   const isExpanded = collapsible ? expanded : true;
 
   const headerContent = (
@@ -100,21 +82,22 @@ export function CollapsibleSectionHeader({
           const ActionIcon = action.icon;
           const actionLabel = action.label ?? action.title;
           return (
-            <span
+            <button
               key={index}
-              role="button"
-              tabIndex={0}
               aria-label={actionLabel}
               title={action.title ?? action.label}
-              onClick={(e) => handleActionClick(e, action.onClick)}
-              onKeyDown={(e) => handleActionKeyDown(e, action.onClick)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                action.onClick();
+              }}
               className={cn(
-                'cursor-pointer hover:text-normal',
+                'flex min-h-11 min-w-11 items-center justify-center rounded-sm cursor-pointer hover:text-normal focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2',
                 action.isActive ? 'text-brand' : 'text-low'
               )}
             >
               <ActionIcon className="size-icon-xs" weight="bold" />
-            </span>
+            </button>
           );
         })}
         {collapsible && (

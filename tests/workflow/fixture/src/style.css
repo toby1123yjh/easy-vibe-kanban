@@ -7,10 +7,11 @@ body,
 
 main {
   display: grid;
-  grid-template-columns: 1fr 320px;
-  grid-template-rows: auto 520px 260px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto minmax(360px, 520px) 260px;
   gap: 12px;
   min-height: 100%;
+  min-width: 0;
   padding: 12px;
   box-sizing: border-box;
   font-family:
@@ -28,7 +29,9 @@ aside {
 }
 
 [data-testid='workflow-canvas'] {
-  min-width: 920px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 [data-testid='edge-inspector'] {
@@ -90,4 +93,35 @@ aside {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(360px, 1fr) auto auto auto;
+    min-height: 100dvh;
+    padding: 8px;
+  }
+
+  [data-testid='workflow-canvas'] {
+    min-height: 360px;
+  }
+
+  [data-testid='node-inspector'],
+  [data-testid='edge-inspector'],
+  [data-testid='workflow-node-session-panel'] {
+    min-width: 0;
+    max-width: 100%;
+    overflow: auto;
+  }
+
+  [data-testid='graph-json'] {
+    max-height: 220px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  main {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
 }

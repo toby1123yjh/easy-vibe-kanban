@@ -231,7 +231,12 @@ export function ArenaWorkspaceColumn({
 
         <div className="flex flex-wrap gap-[var(--vk-space-2)]">
           {sessionHref ? (
-            <Button asChild size="xs" variant="outline">
+            <Button
+              asChild
+              size="xs"
+              variant="outline"
+              className="min-h-11 sm:min-h-8"
+            >
               <a href={sessionHref}>
                 <MessageSquare aria-hidden="true" className="size-3.5" />
                 {t('arena.comparison.openSession')}
@@ -239,7 +244,12 @@ export function ArenaWorkspaceColumn({
             </Button>
           ) : null}
           {detailHref ? (
-            <Button asChild size="xs" variant="ghost">
+            <Button
+              asChild
+              size="xs"
+              variant="ghost"
+              className="min-h-11 sm:min-h-8"
+            >
               <a href={detailHref}>
                 <ExternalLink aria-hidden="true" className="size-3.5" />
                 {t('arena.comparison.openDiff')}

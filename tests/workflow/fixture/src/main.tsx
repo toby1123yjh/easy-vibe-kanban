@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from '@tanstack/react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import '../../../../packages/web-core/src/i18n/config';
 import './style.css';
@@ -21,6 +30,54 @@ import { IssueWorkflowEntryCard } from '../../../../packages/web-core/src/featur
 import { WorkflowNodeInspector } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector';
 import { IssueTaskAttemptsSection } from '../../../../packages/ui/src/components/IssueTaskAttemptsSection';
 import type { ValidationIssue } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel';
+import {
+  UserSystemContext,
+  type UserSystemContextType,
+} from '../../../../packages/web-core/src/shared/hooks/useUserSystem';
+
+// The workflow fixture renders the production node inspector, including the
+// executor/model controls. Keep the harness self-contained by providing the
+// smallest runtime context those controls require; no real machine or config
+// API is needed for the authoring interactions under test.
+const fixtureUserSystem: UserSystemContextType = {
+  system: {
+    appVersion: null,
+    previewProxyPort: null,
+    config: null,
+    environment: null,
+    profiles: null,
+    capabilities: null,
+    machineId: 'workflow-fixture',
+    loginStatus: null,
+    remoteAuthDegraded: null,
+  },
+  appVersion: null,
+  previewProxyPort: null,
+  config: null,
+  environment: null,
+  profiles: null,
+  capabilities: null,
+  machineId: 'workflow-fixture',
+  loginStatus: null,
+  remoteAuthDegraded: null,
+  updateConfig: () => undefined,
+  updateAndSaveConfig: async () => true,
+  saveConfig: async () => true,
+  setEnvironment: () => undefined,
+  setProfiles: () => undefined,
+  setCapabilities: () => undefined,
+  reloadSystem: async () => undefined,
+  loading: false,
+};
+
+const fixtureQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const initialGraph: WorkflowGraph = {
   version: WORKFLOW_GRAPH_VERSION,
@@ -109,7 +166,7 @@ const canvasValidationIssues: ValidationIssue[] = [
   },
 ];
 
-interface AgentStepContextMenuState {
+interface AgentNodeContextMenuState {
   nodeId: string;
   x: number;
   y: number;
@@ -160,33 +217,22 @@ function WorkflowCanvasHarness() {
   });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [sessionPanelNodeId, setSessionPanelNodeId] = useState<string | null>(
-    null
-  );
   const [contextMenu, setContextMenu] =
-    useState<AgentStepContextMenuState | null>(null);
-  const [editNodeId, setEditNodeId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [editPrompt, setEditPrompt] = useState('');
+    useState<AgentNodeContextMenuState | null>(null);
 
   const selectedNode = useMemo(
     () => graph.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [graph, selectedNodeId]
   );
+  const configurableNode =
+    selectedNode?.type === 'start' || selectedNode?.type === 'end'
+      ? null
+      : selectedNode;
   const selectedEdge = useMemo(
     () => graph.edges.find((edge) => edge.id === selectedEdgeId) ?? null,
     [graph, selectedEdgeId]
   );
-  const sessionPanelNode = useMemo(
-    () => graph.nodes.find((node) => node.id === sessionPanelNodeId) ?? null,
-    [graph, sessionPanelNodeId]
-  );
-  const editNode = useMemo(
-    () => graph.nodes.find((node) => node.id === editNodeId) ?? null,
-    [graph, editNodeId]
-  );
-
-  const addAgentStep = (position?: WorkflowNodePosition) => {
+  const addAgentNode = (position?: WorkflowNodePosition) => {
     setGraph((current) => {
       const selectedNode = current.nodes.find(
         (node) => node.id === selectedNodeId
@@ -201,10 +247,6 @@ function WorkflowCanvasHarness() {
       });
       setSelectedNodeId(node.id);
       setSelectedEdgeId(null);
-      setSessionPanelNodeId(null);
-      setEditNodeId(node.id);
-      setEditTitle(String(node.data.display_name ?? ''));
-      setEditPrompt(String(node.data.prompt_template ?? ''));
 
       return {
         ...current,
@@ -218,7 +260,7 @@ function WorkflowCanvasHarness() {
     kind: WorkflowNodeKind,
     position: WorkflowNodePosition
   ) => {
-    if (kind === 'agent') addAgentStep(position);
+    if (kind === 'agent') addAgentNode(position);
   };
 
   const handleEdgeChange = (
@@ -257,36 +299,75 @@ function WorkflowCanvasHarness() {
     }));
   };
 
-  const openEditDialog = (nodeId: string) => {
-    const node = graph.nodes.find((candidate) => candidate.id === nodeId);
-    if (!node) return;
-    setEditNodeId(nodeId);
-    setEditTitle(String(node.data.display_name ?? ''));
-    setEditPrompt(String(node.data.prompt_template ?? ''));
-    setContextMenu(null);
+  const handleConnectNodes = (connection: {
+    source: string;
+    sourceHandle: string;
+    target: string;
+  }) => {
+    setGraph((current) => {
+      const edge: WorkflowEdge = {
+        id: `${connection.source}-${connection.target}`,
+        source: connection.source,
+        source_handle: connection.sourceHandle,
+        target: connection.target,
+        target_handle: 'input',
+        type: 'default',
+      };
+      return syncConditionBranches(
+        normalizeConditionEdgeTypes({
+          ...current,
+          edges: [...current.edges, edge],
+        }),
+        current
+      );
+    });
   };
 
-  const saveEditDialog = () => {
-    if (!editNodeId) return;
+  const handleReconnectEdge = (connection: {
+    edgeId: string;
+    source: string;
+    sourceHandle: string;
+    target: string;
+  }) => {
+    setGraph((current) =>
+      syncConditionBranches(
+        normalizeConditionEdgeTypes({
+          ...current,
+          edges: current.edges.map((edge) =>
+            edge.id === connection.edgeId
+              ? {
+                  ...edge,
+                  source: connection.source,
+                  source_handle: connection.sourceHandle,
+                  target: connection.target,
+                  target_handle: 'input',
+                }
+              : edge
+          ),
+        }),
+        current
+      )
+    );
+  };
+
+  const handleNodesMove = (positions: Record<string, WorkflowNodePosition>) => {
     setGraph((current) => ({
       ...current,
       nodes: current.nodes.map((node) =>
-        node.id === editNodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                display_name: editTitle,
-                prompt_template: editPrompt,
-              },
-            }
-          : node
+        positions[node.id] ? { ...node, position: positions[node.id] } : node
       ),
     }));
-    setEditNodeId(null);
   };
 
-  const duplicateAgentStep = (nodeId: string) => {
+  const openEditDialog = (nodeId: string) => {
+    const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setContextMenu(null);
+  };
+
+  const duplicateAgentNode = (nodeId: string) => {
     setGraph((current) => {
       const node = current.nodes.find((candidate) => candidate.id === nodeId);
       if (!node || node.type !== 'agent') return current;
@@ -295,7 +376,7 @@ function WorkflowCanvasHarness() {
       const duplicate = createWorkflowNode('agent', {
         data: {
           ...duplicateData,
-          display_name: `${node.data.display_name ?? 'Agent Step'} copy`,
+          display_name: `${node.data.display_name ?? 'Agent Node'} copy`,
         },
         position: avoidOverlap(current, {
           x: (node.position?.x ?? 360) + 80,
@@ -307,7 +388,7 @@ function WorkflowCanvasHarness() {
     setContextMenu(null);
   };
 
-  const deleteAgentStep = (nodeId: string) => {
+  const deleteAgentNode = (nodeId: string) => {
     setGraph((current) => ({
       ...current,
       nodes: current.nodes.filter((node) => node.id !== nodeId),
@@ -321,8 +402,8 @@ function WorkflowCanvasHarness() {
   return (
     <main>
       <aside>
-        <button type="button" onClick={() => addAgentStep()}>
-          Add Agent Step
+        <button type="button" onClick={() => addAgentNode()}>
+          Add Agent Node
         </button>
         <button
           data-testid="select-condition-edge"
@@ -335,7 +416,6 @@ function WorkflowCanvasHarness() {
           onClick={() => {
             setSelectedNodeId('condition');
             setSelectedEdgeId(null);
-            setSessionPanelNodeId(null);
           }}
         >
           Select condition node
@@ -354,17 +434,6 @@ function WorkflowCanvasHarness() {
               setSelectedEdgeId(selection.edgeId);
               setContextMenu(null);
             }}
-            onNodeOpen={(nodeId) => {
-              const node = graph.nodes.find(
-                (candidate) => candidate.id === nodeId
-              );
-              if (!node || node.type === 'start' || node.type === 'end') {
-                return;
-              }
-              setSelectedNodeId(nodeId);
-              setSelectedEdgeId(null);
-              setSessionPanelNodeId(nodeId);
-            }}
             onNodeContextMenu={(event) => {
               const node = graph.nodes.find(
                 (candidate) => candidate.id === event.nodeId
@@ -372,14 +441,16 @@ function WorkflowCanvasHarness() {
               setContextMenu(node?.type === 'agent' ? event : null);
             }}
             onNodeEdit={openEditDialog}
-            onNodeDuplicate={duplicateAgentStep}
-            onNodeDelete={deleteAgentStep}
+            onNodeDelete={deleteAgentNode}
+            onNodesMove={handleNodesMove}
+            onConnectNodes={handleConnectNodes}
+            onReconnectEdge={handleReconnectEdge}
           />
         </ReactFlowProvider>
       </section>
       <section data-testid="node-inspector">
         <WorkflowNodeInspector
-          node={selectedNode}
+          node={configurableNode}
           graph={graph}
           onChange={handleNodeChange}
         />
@@ -392,20 +463,10 @@ function WorkflowCanvasHarness() {
         />
       </section>
 
-      {sessionPanelNode ? (
-        <section data-testid="workflow-node-session-panel">
-          <h2>{sessionPanelNode.data.display_name}</h2>
-          <p data-testid="workflow-node-session-id">
-            {String(sessionPanelNode.data.session_id ?? 'draft-session')}
-          </p>
-          <textarea aria-label="Message" defaultValue="" />
-        </section>
-      ) : null}
-
       {contextMenu ? (
         <div
           role="menu"
-          data-testid="agent-step-context-menu"
+          data-testid="agent-node-context-menu"
           style={{
             position: 'fixed',
             left: contextMenu.x,
@@ -416,16 +477,6 @@ function WorkflowCanvasHarness() {
           <button
             role="menuitem"
             type="button"
-            onClick={() => {
-              setSessionPanelNodeId(contextMenu.nodeId);
-              setContextMenu(null);
-            }}
-          >
-            Open Session
-          </button>
-          <button
-            role="menuitem"
-            type="button"
             onClick={() => openEditDialog(contextMenu.nodeId)}
           >
             Edit
@@ -433,7 +484,7 @@ function WorkflowCanvasHarness() {
           <button
             role="menuitem"
             type="button"
-            onClick={() => duplicateAgentStep(contextMenu.nodeId)}
+            onClick={() => duplicateAgentNode(contextMenu.nodeId)}
           >
             Duplicate
           </button>
@@ -443,36 +494,11 @@ function WorkflowCanvasHarness() {
           <button
             role="menuitem"
             type="button"
-            onClick={() => deleteAgentStep(contextMenu.nodeId)}
+            onClick={() => deleteAgentNode(contextMenu.nodeId)}
           >
             Delete
           </button>
         </div>
-      ) : null}
-
-      {editNode ? (
-        <section data-testid="agent-step-edit-dialog" role="dialog">
-          <h2>Edit Agent Step</h2>
-          <label>
-            Step title
-            <input
-              aria-label="Step title"
-              value={editTitle}
-              onChange={(event) => setEditTitle(event.target.value)}
-            />
-          </label>
-          <label>
-            Default prompt
-            <textarea
-              aria-label="Default prompt"
-              value={editPrompt}
-              onChange={(event) => setEditPrompt(event.target.value)}
-            />
-          </label>
-          <button type="button" onClick={saveEditDialog}>
-            Save step
-          </button>
-        </section>
       ) : null}
 
       <pre data-testid="graph-json">{JSON.stringify(graph, null, 2)}</pre>
@@ -535,12 +561,30 @@ function TaskAttemptsHarness() {
 
 const mode = new URLSearchParams(window.location.search).get('mode');
 
+const routerRootRoute = createRootRoute({
+  component: () => <Outlet />,
+});
+const routerIndexRoute = createRoute({
+  getParentRoute: () => routerRootRoute,
+  path: '/',
+  component: () =>
+    mode === 'entry' ? (
+      <WorkflowEntryHarness />
+    ) : mode === 'task-attempts' ? (
+      <TaskAttemptsHarness />
+    ) : (
+      <WorkflowCanvasHarness />
+    ),
+});
+const router = createRouter({
+  routeTree: routerRootRoute.addChildren([routerIndexRoute]),
+  history: createMemoryHistory({ initialEntries: ['/'] }),
+});
+
 createRoot(document.getElementById('root')!).render(
-  mode === 'entry' ? (
-    <WorkflowEntryHarness />
-  ) : mode === 'task-attempts' ? (
-    <TaskAttemptsHarness />
-  ) : (
-    <WorkflowCanvasHarness />
-  )
+  <QueryClientProvider client={fixtureQueryClient}>
+    <UserSystemContext.Provider value={fixtureUserSystem}>
+      <RouterProvider router={router} />
+    </UserSystemContext.Provider>
+  </QueryClientProvider>
 );

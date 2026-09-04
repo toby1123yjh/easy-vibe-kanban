@@ -23,13 +23,18 @@ import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { useVisualViewportHeightVar } from '@/shared/hooks/useVisualViewportHeightVar';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { AppShellRecentSessionsProvider } from '@/shared/hooks/useAppShellRecentSessions';
+import { AppShellProjectsProvider } from '@/shared/hooks/useAppShellProjects';
 import {
+  appShellDiscoveryQueryKey,
   deriveActiveShellModule,
   derivePageCanvasMode,
   mergeStableCursorItems,
   type AppShellCapabilityAdapter,
 } from '../model/appShell';
-import { deriveSearchSourceState } from '../model/search';
+import {
+  deriveSearchSourceState,
+  isSearchRouteAvailable,
+} from '../model/search';
 import { GlobalSearchPalette } from '../ui/GlobalSearchPalette';
 import { PageCanvas } from '../ui/PageCanvas';
 import { ProductSidebar } from '../ui/ProductSidebar';
@@ -77,18 +82,28 @@ export function AppShellContainer({
   }, [isMobile, mobileFontScale]);
 
   const projectsQuery = useInfiniteQuery({
-    queryKey: ['app-shell', 'projects'],
-    queryFn: ({ pageParam }) =>
-      executionDataApi.listProjects({ cursor: pageParam, limit: 50 }),
+    queryKey: appShellDiscoveryQueryKey(adapter.discoveryScopeKey, 'projects'),
+    queryFn: ({ pageParam, signal }) =>
+      executionDataApi.listProjects({
+        cursor: pageParam,
+        limit: 50,
+        hostId: adapter.discoveryHostId,
+        signal,
+      }),
     initialPageParam: null as ProjectCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     staleTime: 30_000,
   });
 
   const sessionsQuery = useInfiniteQuery({
-    queryKey: ['app-shell', 'sessions'],
-    queryFn: ({ pageParam }) =>
-      executionDataApi.listRecentSessions({ cursor: pageParam, limit: 50 }),
+    queryKey: appShellDiscoveryQueryKey(adapter.discoveryScopeKey, 'sessions'),
+    queryFn: ({ pageParam, signal }) =>
+      executionDataApi.listRecentSessions({
+        cursor: pageParam,
+        limit: 50,
+        hostId: adapter.discoveryHostId,
+        signal,
+      }),
     initialPageParam: null as SessionCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     staleTime: 15_000,
@@ -162,15 +177,40 @@ export function AppShellContainer({
     return () => cancelAnimationFrame(frame);
   }, [location.href]);
 
-  const projectState = {
-    items: projects,
-    isLoading: projectsQuery.isLoading,
-    isError: projectsQuery.isError,
-    hasNextPage: projectsQuery.hasNextPage,
-    isFetchingNextPage: projectsQuery.isFetchingNextPage,
-    retry: () => void projectsQuery.refetch(),
-    loadNextPage: () => void projectsQuery.fetchNextPage(),
-  };
+  const projectState = useMemo(
+    () => ({
+      scopeKey: adapter.discoveryScopeKey,
+      deployment: adapter.deployment,
+      hostId: adapter.discoveryHostId,
+      items: projects,
+      isLoading: projectsQuery.isLoading,
+      isError: projectsQuery.isError,
+      isFetching: projectsQuery.isFetching,
+      isFetchNextPageError: projectsQuery.isFetchNextPageError,
+      hasNextPage: projectsQuery.hasNextPage,
+      isFetchingNextPage: projectsQuery.isFetchingNextPage,
+      retry: async () => {
+        await projectsQuery.refetch();
+      },
+      loadNextPage: async () => {
+        await projectsQuery.fetchNextPage();
+      },
+    }),
+    [
+      adapter.deployment,
+      adapter.discoveryHostId,
+      adapter.discoveryScopeKey,
+      projects,
+      projectsQuery.fetchNextPage,
+      projectsQuery.hasNextPage,
+      projectsQuery.isError,
+      projectsQuery.isFetchNextPageError,
+      projectsQuery.isFetching,
+      projectsQuery.isFetchingNextPage,
+      projectsQuery.isLoading,
+      projectsQuery.refetch,
+    ]
+  );
   const sessionState = {
     items: sessions,
     isLoading: sessionsQuery.isLoading,
@@ -184,7 +224,6 @@ export function AppShellContainer({
     () => [
       {
         id: 'projects' as const,
-        label: 'Project',
         state: deriveSearchSourceState(projectsQuery.isError, projects.length),
         retry: (): void => {
           void refetchProjects();
@@ -192,7 +231,6 @@ export function AppShellContainer({
       },
       {
         id: 'sessions' as const,
-        label: 'Session',
         state: deriveSearchSourceState(sessionsQuery.isError, sessions.length),
         retry: (): void => {
           void refetchSessions();
@@ -208,52 +246,66 @@ export function AppShellContainer({
       sessionsQuery.isError,
     ]
   );
+  const navigateFromSearch = useCallback(
+    (route: string) => {
+      if (!isSearchRouteAvailable(route, adapter.moduleCapabilities))
+        return false;
+      adapter.navigateToRoute(route);
+      return true;
+    },
+    [adapter]
+  );
 
   return (
-    <AppShellRecentSessionsProvider sessions={sessions}>
-      <div
-        className="vk-app-shell"
-        style={isMobile ? { height: 'var(--app-vh, 100dvh)' } : undefined}
-        data-deployment={adapter.deployment}
-      >
-        <a className="vk-skip-link" href="#main-content">
-          {t('appShell.skipToContent', { defaultValue: 'Skip to content' })}
-        </a>
-        <div className="vk-app-shell__layout" data-search-open={searchOpen}>
-          <ProductSidebar
-            adapter={adapter}
-            activeModule={deriveActiveShellModule(location.pathname)}
-            activeProjectId={activeProjectId}
-            activeWorkspaceId={activeWorkspaceId}
-            projects={projectState}
-            sessions={sessionState}
-            objectDrawerOpen={objectDrawerOpen}
-            onObjectDrawerOpenChange={setObjectDrawerOpen}
-            onSearch={openSearch}
-            onProject={(projectId) => appNavigation.goToProject(projectId)}
-            onSession={(workspaceId) =>
-              appNavigation.goToWorkspace(workspaceId)
-            }
-          />
-          <div className="vk-page-stack">
-            {banner}
-            <PageCanvas
-              ref={mainContentRef}
-              mode={derivePageCanvasMode(location.pathname)}
-            >
-              {children}
-            </PageCanvas>
+    <AppShellProjectsProvider value={projectState}>
+      <AppShellRecentSessionsProvider sessions={sessions}>
+        <div
+          className="vk-app-shell"
+          style={isMobile ? { height: 'var(--app-vh, 100dvh)' } : undefined}
+          data-deployment={adapter.deployment}
+        >
+          <a className="vk-skip-link" href="#main-content">
+            {t('appShell.skipToContent', { defaultValue: 'Skip to content' })}
+          </a>
+          <div className="vk-app-shell__layout" data-search-open={searchOpen}>
+            <ProductSidebar
+              adapter={adapter}
+              activeModule={deriveActiveShellModule(location.pathname)}
+              activeProjectId={activeProjectId}
+              activeWorkspaceId={activeWorkspaceId}
+              projects={projectState}
+              sessions={sessionState}
+              objectDrawerOpen={objectDrawerOpen}
+              onObjectDrawerOpenChange={setObjectDrawerOpen}
+              onSearch={openSearch}
+              onProject={(projectId) => appNavigation.goToProject(projectId)}
+              onSession={(workspaceId) =>
+                appNavigation.goToWorkspace(workspaceId)
+              }
+            />
+            <div className="vk-page-stack">
+              {banner}
+              <PageCanvas
+                ref={mainContentRef}
+                mode={derivePageCanvasMode(location.pathname)}
+              >
+                {children}
+              </PageCanvas>
+            </div>
           </div>
+          <GlobalSearchPalette
+            key={adapter.discoveryScopeKey}
+            open={searchOpen}
+            scopeKey={adapter.discoveryScopeKey}
+            projects={projects}
+            sessions={sessions}
+            sources={searchSources}
+            moduleCapabilities={adapter.moduleCapabilities}
+            onClose={closeSearch}
+            onNavigate={navigateFromSearch}
+          />
         </div>
-        <GlobalSearchPalette
-          open={searchOpen}
-          projects={projects}
-          sessions={sessions}
-          sources={searchSources}
-          onClose={closeSearch}
-          onNavigate={adapter.navigateToRoute}
-        />
-      </div>
-    </AppShellRecentSessionsProvider>
+      </AppShellRecentSessionsProvider>
+    </AppShellProjectsProvider>
   );
 }

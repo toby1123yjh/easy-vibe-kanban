@@ -78,7 +78,7 @@ export function WorkflowNodePalette({
         {readOnly ? (
           <div className="mt-1 text-[10px] leading-4 text-low">
             {t('workflow.editor.nodePaletteReadOnly', {
-              defaultValue: 'Copy this template to add or drag steps.',
+              defaultValue: 'Copy this template to add or drag Nodes.',
             })}
           </div>
         ) : null}
@@ -87,7 +87,7 @@ export function WorkflowNodePalette({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t('workflow.editor.searchSteps', {
-            defaultValue: 'Search steps...',
+            defaultValue: 'Search Nodes...',
           })}
         />
       </div>
@@ -134,7 +134,7 @@ export function WorkflowNodePalette({
         {filteredGroups.length === 0 ? (
           <div className="py-8 text-center text-xs text-low">
             {t('workflow.editor.noStepTypesFound', {
-              defaultValue: 'No step types found',
+              defaultValue: 'No Node types found',
             })}
           </div>
         ) : null}

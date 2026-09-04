@@ -242,7 +242,7 @@ export function VSCodeWorkspacePage() {
 
   return (
     <AppWithStyleOverride setTheme={setTheme}>
-      <div className="h-screen flex flex-col bg-primary">
+      <div className="h-[100dvh] min-h-0 flex flex-col bg-primary">
         <WebviewContextMenu />
 
         <main
@@ -271,6 +271,7 @@ export function VSCodeWorkspacePage() {
                     description="The embedded workspace failed before its conversation became available."
                     action={
                       <Button
+                        className="min-h-11 sm:min-h-8"
                         variant="outline"
                         loading={isRetrying}
                         loadingLabel="Retrying workspace"
@@ -295,6 +296,7 @@ export function VSCodeWorkspacePage() {
                         description="The available conversation remains visible while workspace data refreshes."
                         action={
                           <Button
+                            className="min-h-11 sm:min-h-8"
                             variant="outline"
                             loading={isRetrying}
                             loadingLabel="Retrying workspace"
@@ -335,7 +337,7 @@ export function VSCodeWorkspacePage() {
                         <button
                           type="button"
                           onClick={() => handleScrollToBottom('auto')}
-                          className="absolute bottom-2 right-4 z-10 pointer-events-auto flex items-center justify-center size-8 rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all"
+                          className="absolute bottom-2 right-4 z-10 pointer-events-auto flex size-11 items-center justify-center rounded-full bg-secondary/80 backdrop-blur-sm border border-secondary text-low hover:text-normal hover:bg-secondary shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:size-8"
                           aria-label="Scroll to bottom"
                           title="Scroll to bottom"
                         >

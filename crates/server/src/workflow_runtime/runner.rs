@@ -2322,7 +2322,9 @@ where
                     session_id,
                     workspace_id,
                     prompt,
-                    selected_skills: agent_node_selected_skills(node),
+                    // Workflow Skills are resolved from Agent Center/session capabilities,
+                    // not persisted on Node authoring data.
+                    selected_skills: None,
                     executor_config: node.data.executor_config.clone(),
                 })
                 .await
@@ -2755,14 +2757,6 @@ fn render_agent_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> Str
     } else {
         node_prompt
     }
-}
-
-fn agent_node_selected_skills(node: &WorkflowNode) -> Option<Vec<SelectedSkill>> {
-    node.data
-        .selected_skills
-        .as_ref()
-        .filter(|skills| !skills.is_empty())
-        .cloned()
 }
 
 fn render_arena_prompt(node: &WorkflowNode, context: &NodeHandlerContext) -> String {
@@ -4453,27 +4447,6 @@ mod tests {
         );
         assert!(!prompt.contains("# Workflow Agent Envelope"));
         assert!(!prompt.contains("## Direct Upstream Handoff"));
-    }
-
-    #[test]
-    fn agent_node_selected_skills_preserves_non_empty_skills_only() {
-        let mut node = workflow_node(
-            "agent-implement",
-            WorkflowNodeKind::Agent,
-            "Implement the requested change.",
-        );
-
-        assert_eq!(agent_node_selected_skills(&node), None);
-
-        node.data.selected_skills = Some(Vec::new());
-        assert_eq!(agent_node_selected_skills(&node), None);
-
-        node.data.selected_skills = Some(vec![SelectedSkill {
-            name: "trellis-before-dev".to_string(),
-            path: "C:/skills/trellis-before-dev/SKILL.md".into(),
-        }]);
-
-        assert_eq!(agent_node_selected_skills(&node), node.data.selected_skills);
     }
 
     #[test]

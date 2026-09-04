@@ -50,6 +50,7 @@ export function ArenaActionsBar({
               type="button"
               size="xs"
               variant="ghost"
+              className="min-h-11 sm:min-h-8"
               loading={retryPending}
               loadingLabel={t('arena.actions.retrying')}
               disabled={winnerSelectionPending}
@@ -63,6 +64,7 @@ export function ArenaActionsBar({
             <Button
               type="button"
               size="xs"
+              className="min-h-11 sm:min-h-8"
               disabled={winnerSelectionPending || retryPending}
               onClick={handleSelectWinner}
             >

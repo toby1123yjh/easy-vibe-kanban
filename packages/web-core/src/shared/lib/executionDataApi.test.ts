@@ -90,4 +90,24 @@ describe('execution data API', () => {
       '/api/execution-data/capabilities'
     );
   });
+
+  it('binds discovery requests to an explicit host and abort signal', async () => {
+    const signal = new AbortController().signal;
+
+    await executionDataApi.listProjects({
+      hostId: 'host-a',
+      signal,
+      limit: 5,
+    });
+
+    expect(makeLocalApiRequest).toHaveBeenCalledWith(
+      '/api/projects?limit=5',
+      expect.objectContaining({
+        hostScope: 'explicit',
+        hostId: 'host-a',
+        relayHostId: 'host-a',
+        signal,
+      })
+    );
+  });
 });

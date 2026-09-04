@@ -1,6 +1,6 @@
 ---
-title: '前端重构全页面覆盖矩阵'
-description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、弹窗与状态页面的重构范围。'
+title: "前端重构全页面覆盖矩阵"
+description: "列出 Vibe Kanban Local Web、Remote Web、核心业务页面、弹窗与状态页面的重构范围。"
 ---
 
 ## “所有页面”的定义
@@ -182,19 +182,19 @@ description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、�
 
 ## 智能体中心与工具
 
-| 当前页面 / 入口          | 目标页面                   | 模板                 | 状态与要求                                      |
-| ------------------------ | -------------------------- | -------------------- | ----------------------------------------------- |
-| Agents Settings          | Provider 清单与详情        | Settings             | Ready、未安装、未登录、版本不兼容、Degraded     |
-| Agents Navigation        | Agent Page Tabs 与页内分类 | Settings             | Provider、模型、MCP、Skills、Commands、原生配置 |
-| Model Selector           | Provider 模型与推理选择    | Settings / Workbench | 默认值、最近值、显式 override                   |
-| MCP Settings             | MCP 目录与管理             | Settings             | 发现、添加、编辑、删除、启停、错误              |
-| Agent Tools Settings     | 工具总览                   | Settings             | Provider、项目、会话作用域                      |
-| Skills                   | Skills 目录                | Settings             | 本机扫描、启停、搜索、来源、冲突                |
-| Commands                 | Commands 目录              | Settings             | Provider 原生 CommandAdapter、启停、编辑        |
+| 当前页面 / 入口          | 目标页面                   | 模板                 | 状态与要求                                                     |
+| ------------------------ | -------------------------- | -------------------- | -------------------------------------------------------------- |
+| Agents Settings          | Provider 清单与详情        | Settings             | Ready、未安装、未登录、版本不兼容、Degraded                    |
+| Agents Navigation        | Agent Page Tabs 与页内分类 | Settings             | Provider、模型、MCP、Skills、Commands、原生配置                |
+| Model Selector           | Provider 模型与推理选择    | Settings / Workbench | 默认值、最近值、显式 override                                  |
+| MCP Settings             | MCP 目录与管理             | Settings             | 发现、添加、编辑、删除、启停、错误                             |
+| Agent Tools Settings     | 工具总览                   | Settings             | Provider、项目、会话作用域                                     |
+| Skills                   | Skills 目录                | Settings             | 本机扫描、启停、搜索、来源、冲突                               |
+| Commands                 | Commands 目录              | Settings             | Provider 原生 CommandAdapter、启停、编辑                       |
 | Native Config            | 原生配置安全视图           | Settings             | 文件标识、结构化字段、Diff、无效配置；不展示路径、原文或未知值 |
-| Configuration Profiles   | 配置档案                   | Settings             | 保存、复制、删除、跨 Provider 预览              |
-| Tool Copy                | 跨 Provider 复制流程       | Settings             | 支持项、不支持项、目标 Diff、应用结果           |
-| Garage / Capability View | Provider 能力详情          | Settings             | capability matrix、不可用原因、刷新             |
+| Configuration Profiles   | 配置档案                   | Settings             | 保存、复制、删除、跨 Provider 预览                             |
+| Tool Copy                | 跨 Provider 复制流程       | Settings             | 支持项、不支持项、目标 Diff、应用结果                          |
+| Garage / Capability View | Provider 能力详情          | Settings             | capability matrix、不可用原因、刷新                            |
 
 ## 通用设置
 
@@ -236,30 +236,30 @@ description: '列出 Vibe Kanban Local Web、Remote Web、核心业务页面、�
 - `N/A`：该状态对这个页面族没有业务意义；不能用同组其他页面已覆盖或
   暂时找不到证据来替代 `N/A` 理由。
 
-| 页面 / 表面族 | 实现 | Loading | Empty | Error | Offline | Permission | Degraded | 响应式 | 键盘 / a11y | 证据或剩余 gate |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
-| App Shell / Sidebar | ✓ | △ | △ | △ | ✓ | N/A | △ | △ | ✓ | App Shell Chromium；P8-S1、P8-R1 |
-| Dashboard | ✓ | △ | △ | △ | △ | N/A | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
-| Global Search Palette | ✓ | △ | ✓ | △ | N/A | N/A | △ | △ | ✓ | Shell/Search 覆盖；P8-S1、P8-R1 |
-| 项目目录 | ✓ | △ | △ | △ | △ | N/A | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
-| 项目看板 / Issue 浮动框 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | ✓ | Kanban Playwright 8/8；P8-S1、P8-R1 |
-| 工作区列表 | ✓ | △ | △ | △ | △ | △ | △ | △ | △ | P8-S1、P8-R1、P8-A1 |
-| Agent 工作台 / 原生接管 | ✓ | ✓ | ✓ | ✓ | △ | △ | △ | △ | ✓ | 原生接管状态与 390/reduced-motion 覆盖；P8-S1、P8-R1 |
-| Workflow 列表 / 编辑 / 运行 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Workflow route-state 覆盖；P8-S1、P8-R1、P8-A1 |
-| Arena | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Arena zero-result Empty 与 route-state 覆盖；P8-S1、P8-R1、P8-A1 |
-| 智能体中心 | ✓ | ✓ | ✓ | ✓ | ✓ | △ | ✓ | △ | △ | Settings model Playwright；P8-S1、P8-R1、P8-A1 |
-| 设置 / Host / 更新 | ✓ | ✓ | ✓ | ✓ | ✓ | △ | ✓ | △ | ✓ | Settings 20/20、App Shell 5/5；P8-S1、P8-R1、P8-A1 |
-| Onboarding | ✓ | ✓ | △ | ✓ | N/A | N/A | N/A | △ | △ | StateSurface 迁移；P8-S1、P8-R1、P8-A1 |
-| Remote 登录 / 账户 / 邀请 | ✓ | ✓ | N/A | ✓ | △ | △ | △ | △ | △ | Remote auth milestone；P8-S1、P8-R1、P8-A1 |
-| Remote Home / 组织项目 | ✓ | ✓ | ✓ | ✓ | △ | △ | ✓ | △ | △ | Remote Home milestone；P8-S1、P8-R1、P8-A1 |
-| Notifications | ✓ | ✓ | ✓ | ✓ | N/A | ✓ | ✓ | 缺 | 缺 | Utility state 10/10；P8-R1、P8-A1 |
-| Export | ✓ | ✓ | ✓ | ✓ | N/A | ✓ | ✓ | 缺 | 缺 | Utility state 10/10；P8-R1、P8-A1 |
-| VS Code | ✓ | ✓ | ✓ | ✓ | N/A | N/A | ✓ | 缺 | 缺 | Utility state 10/10；Host Offline 由外层路由负责；P8-R1、P8-A1 |
-| Crash Screen | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | 缺 | 缺 | 真实 CrashScreen browser 11/11；P8-R1、P8-A1 |
-| 404 | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | △ | △ | 404 StateSurface 迁移；P8-R1、P8-A1 |
-| Project Sunset | ✓ | N/A | N/A | N/A | N/A | △ | ✓ | △ | △ | Sunset Degraded 迁移；P8-S1、P8-R1、P8-A1 |
-| Release Notes | ✓ | ✓ | ✓ | ✓ | △ | N/A | N/A | △ | ✓ | Release Notes milestone；P8-S1、P8-R1 |
-| 共享 Dialog / Confirmation | ✓ | N/A | N/A | ✓ | N/A | N/A | N/A | ✓ | ✓ | UI foundations browser suite |
+| 页面 / 表面族               | 实现 | Loading | Empty | Error | Offline | Permission | Degraded | 响应式 | 键盘 / a11y | 证据或剩余 gate                                                                                                                                                                    |
+| --------------------------- | :--: | :-----: | :---: | :---: | :-----: | :--------: | :------: | :----: | :---------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App Shell / Sidebar         |  ✓   |    ✓    |   ✓   |   ✓   |    ✓    |    N/A     |    ✓     |   ✓    |      ✓      | App Shell model 18/18、Chromium 9/9；响应式 15/15（重复 3 次）                                                                                                                     |
+| Dashboard                   |  ✓   |   N/A   |  N/A  |  N/A  |   N/A   |    N/A     |   N/A    |   ✓    |      ✓      | 当前无 canonical 统计/运行/配置投影，4 个区块明确 unavailable 且不伪造状态；App Shell responsive 4/4；locale/a11y 21/21（7 locales × 3 repeats）；P8-A1 |
+| Global Search Palette       |  ✓   |   N/A   |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | 本地同步检索无独立 Loading；App Shell Chromium 9/9、responsive/keyboard 4/4；P8-R1                                                                                                 |
+| 项目目录                    |  ✓   |    ✓    |   ✓   |   ✓   |    ✓    |    N/A     |    ✓     |   ✓    |      ✓      | Page-state model 4/4；响应式浏览器证据 8/8（375/768/1024/1440）；搜索焦点与项目卡键盘路径；P8-R1、P8-A1                                                                            |
+| 项目看板 / Issue 浮动框     |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |     ✓      |    ✓     |   ✓    |      ✓      | Kanban 8/8、page-state model 4/4、响应式 15/15（重复 3 次）；Host Offline 由外层路由负责                                                                                           |
+| 工作区列表                  |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Workspace list model 3/3；响应式浏览器证据 8/8（375/768/1024/1440）；搜索、键盘选择、44px 触控目标；Host Offline 由外层路由负责；P8-R1、P8-A1                                      |
+| Agent 工作台 / 原生接管     |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Workspace detail model 5/5、原生接管状态、响应式 15/15（重复 3 次）；Host Offline 由外层路由负责                                                                                   |
+| Workflow 列表 / 编辑 / 运行 |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Workflow route-state、Canvas 22/22、响应式/键盘 6/6；Host Offline 由外层路由负责                                                                                                   |
+| Arena                       |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Arena route-state；响应式/键盘 9/9，覆盖 375/768/1024/1440、2–3 等权列、候选数/容器宽度降级、焦点返回与 44px 触控目标；Host Offline 由外层路由负责；P8-R1、P8-A1                   |
+| 智能体中心                  |  ✓   |    ✓    |   ✓   |   ✓   |    ✓    |    N/A     |    ✓     |   ✓    |      ✓      | Agent Center browser evidence 24/24（375/768/1024/1440，重复 3 次）；Provider/Tab 键盘激活、44px 触控目标、窄屏 Provider 横向滚动与 reduced-motion；无独立用户权限层；P8-R1、P8-A1 |
+| 设置 / Host / 更新          |  ✓   |    ✓    |   ✓   |   ✓   |    ✓    |    N/A     |    ✓     |   ✓    |      ✓      | Settings 20/20、App Shell 5/5、Page Surfaces 15/15（Settings 7/7）；本地设置无独立用户权限层                                                                                       |
+| Onboarding                  |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Auth-method model 4/4；Onboarding Playwright 13/13；locale/a11y 21/21（7 locales × 3 repeats），覆盖比较表键盘顺序、长文案和 44px 目标；缓存发现失败保留方法 |
+| Remote 登录 / 账户 / 邀请   |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Remote auth milestone、auth-method model 4/4；Remote Pages 11/11；locale/a11y 21/21（7 locales × 3 repeats），覆盖 degraded live announcement、键盘焦点与长文案 |
+| Remote Home / 组织项目      |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Remote Home milestone；Remote Pages 11/11；locale/a11y 21/21（7 locales × 3 repeats），覆盖组织项目键盘入口、长文案、61px 触控目标与账户边界过滤 |
+| Notifications               |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |     ✓      |    ✓     |   ✓    |      ✓      | Utility state 10/10；UI Foundation responsive/keyboard 5/5，375/768/1024/1440；P8-R1、P8-A1                                                                                        |
+| Export                      |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |     ✓      |    ✓     |   ✓    |      ✓      | Utility state 10/10；UI foundations 12/12（重复 3 次）覆盖键盘、触摸目标和 375/768/1024/1440 响应式；P8-R1                                                                         |
+| VS Code                     |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | Utility state 10/10；VS Code workspace Playwright 5/5，覆盖 375/768/1024/1440、Error/Loading/Empty、键盘 Retry 与 44px 目标；Host Offline 由外层路由负责                           |
+| Crash Screen                |  ✓   |   N/A   |  N/A  |   ✓   |   N/A   |    N/A     |   N/A    |   ✓    |      ✓      | 真实 CrashScreen browser 11/11；四档 viewport、键盘恢复和详情展开；P8-R1、P8-A1                                                                                                    |
+| 404                         |  ✓   |   N/A   |   ✓   |  N/A  |   N/A   |    N/A     |   N/A    |   ✓    |      ✓      | 不存在的路由使用 canonical Empty StateSurface；UI Foundation responsive/keyboard 4/4；P8-R1、P8-A1                                                                                 |
+| Project Sunset              |  ✓   |   N/A   |  N/A  |  N/A  |   N/A   |    N/A     |    ✓     |   ✓    |      ✓      | 静态 export-only Degraded 页面；四档 viewport、键盘恢复和 Export 导航；P8-R1、P8-A1                                                                                                |
+| Release Notes               |  ✓   |    ✓    |   ✓   |   ✓   |   N/A   |    N/A     |   N/A    |   ✓    |      ✓      | Release Notes milestone；UI Foundation responsive/keyboard 5/5，375/768/1024/1440；无缓存可用内容时网络失败归 Error；P8-R1、P8-A1                                                  |
+| 共享 Dialog / Confirmation  |  ✓   |   N/A   |  N/A  |   ✓   |   N/A   |    N/A     |   N/A    |   ✓    |      ✓      | UI foundations browser suite                                                                                                                                                       |
 
 `P8-P1` 是全局性能 gate，适用于 Dashboard 初始 bundle、Workflow、Arena、
 editor、terminal，以及大列表和长会话，不在每一行重复标记。只有表中全部

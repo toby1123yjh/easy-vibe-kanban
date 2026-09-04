@@ -19,8 +19,8 @@ import { useAuth } from "@/shared/hooks/auth/useAuth";
 import { useIsMobile } from "@/shared/hooks/useIsMobile";
 import {
   resolveRelayNavigationHostId,
-  useRelayAppBarHosts,
-} from "@remote/shared/hooks/useRelayAppBarHosts";
+  useRelayHosts,
+} from "@remote/shared/hooks/useRelayHosts";
 
 type OrganizationWithProjects = {
   organization: OrganizationWithRole;
@@ -55,7 +55,7 @@ export default function HomePage() {
   } = useUserOrganizations();
   const organizations = orgsResponse?.organizations ?? [];
   const { isSignedIn } = useAuth();
-  const { hosts } = useRelayAppBarHosts(isSignedIn);
+  const { hosts } = useRelayHosts(isSignedIn);
   const isMobile = useIsMobile();
   const preferredHostId = useMemo(
     () => resolveRelayNavigationHostId(hosts),
@@ -107,7 +107,7 @@ export default function HomePage() {
     return (
       <LoadingState
         className="h-full"
-        title="Loading organizations"
+        title={<h1>Loading organizations</h1>}
         description="Checking the organizations available to your account."
       />
     );
@@ -117,7 +117,7 @@ export default function HomePage() {
     return (
       <ErrorState
         className="h-full"
-        title="Unable to load organizations"
+        title={<h1>Unable to load organizations</h1>}
         description={
           orgsError instanceof Error
             ? orgsError.message
@@ -159,7 +159,7 @@ export default function HomePage() {
                 <p className="text-sm text-low">No hosts linked yet</p>
                 <button
                   type="button"
-                  className="mt-base rounded-sm border border-border bg-primary px-base py-half text-sm font-medium text-normal hover:border-brand/60 hover:text-high"
+                  className="mt-base min-h-11 rounded-sm border border-border bg-primary px-base py-half text-sm font-medium text-normal hover:border-brand/60 hover:text-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:min-h-8"
                   onClick={() => {
                     openRelaySettings();
                   }}
@@ -179,7 +179,7 @@ export default function HomePage() {
                       key={host.id}
                       type="button"
                       disabled={!isClickable}
-                      className={`flex w-full items-center gap-base rounded-sm border border-border bg-primary px-base py-base text-left transition-colors ${
+                      className={`flex min-h-11 w-full items-center gap-base rounded-sm border border-border bg-primary px-base py-base text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:min-h-8 ${
                         isClickable
                           ? "hover:border-high/20 hover:bg-panel"
                           : "opacity-50"
@@ -215,7 +215,7 @@ export default function HomePage() {
                 })}
                 <button
                   type="button"
-                  className="flex w-full items-center justify-center rounded-sm border border-dashed border-border px-base py-half text-sm text-low hover:border-brand/60 hover:text-normal"
+                  className="flex min-h-11 w-full items-center justify-center rounded-sm border border-dashed border-border px-base py-half text-sm text-low hover:border-brand/60 hover:text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:min-h-8"
                   onClick={() => {
                     openRelaySettings();
                   }}
@@ -435,7 +435,7 @@ function ProjectCard({
     return (
       <button
         type="button"
-        className="group flex h-[61px] w-full flex-col justify-center rounded-sm border border-border bg-primary px-base py-base text-left hover:border-brand/60 hover:bg-panel"
+        className="group flex h-[61px] w-full flex-col justify-center rounded-sm border border-border bg-primary px-base py-base text-left hover:border-brand/60 hover:bg-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         onClick={onRequireHost}
       >
         <p className="text-sm font-medium text-high">{project.name}</p>

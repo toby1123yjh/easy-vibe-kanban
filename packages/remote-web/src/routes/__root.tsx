@@ -36,8 +36,8 @@ import {
 } from "@remote/app/navigation/AppNavigation";
 import {
   resolveRelayNavigationHostId,
-  useRelayAppBarHosts,
-} from "@remote/shared/hooks/useRelayAppBarHosts";
+  useRelayHosts,
+} from "@remote/shared/hooks/useRelayHosts";
 import { setActiveRelayHostId } from "@remote/shared/lib/relay/activeHostContext";
 import {
   isProjectDestination,
@@ -112,7 +112,7 @@ function RootLayout() {
   const location = useLocation();
   const { hostId } = useParams({ strict: false });
   const routeHostId = hostId ?? null;
-  const { hosts: relayHosts } = useRelayAppBarHosts(isSignedIn);
+  const { hosts: relayHosts } = useRelayHosts(isSignedIn);
   const navigationHostId = useMemo(
     () => resolveRelayNavigationHostId(relayHosts, { routeHostId }),
     [relayHosts, routeHostId],
@@ -143,7 +143,7 @@ function RootLayout() {
     <SequenceTrackerProvider>
       <SequenceIndicator />
       <GlobalKeyboardShortcuts />
-      <RemoteAppShell>
+      <RemoteAppShell navigationHostId={navigationHostId}>
         <Outlet />
       </RemoteAppShell>
     </SequenceTrackerProvider>

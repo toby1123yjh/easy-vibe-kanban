@@ -280,15 +280,6 @@
     },
     "loadingEarlierMessages": "正在載入先前的訊息"
   },
-  "folderPicker": {
-    "legend": "點擊資料夾名稱進行導覽 • 使用操作按鈕進行選擇",
-    "manualPathLabel": "手動輸入路徑:",
-    "go": "前往",
-    "searchLabel": "搜尋目前目錄:",
-    "selectCurrent": "選取目前",
-    "gitRepo": "Git 儲存庫",
-    "selectPath": "選取路徑"
-  },
   "branchSelector": {
     "placeholder": "選擇分支",
     "searchPlaceholder": "搜尋分支...",
@@ -299,14 +290,8 @@
     },
     "currentDisabled": "無法選擇目前分支"
   },
-  "orgSwitcher": {
-    "organizations": "組織",
-    "orgSettings": "組織設定"
-  },
   "ok": "確定",
   "error": "錯誤",
-  "signIn": "登入",
-  "signOut": "登出",
   "oauth": {
     "title": "登入 Vibe Kanban",
     "description": "登入以加入組織並與團隊共享任務",
@@ -342,6 +327,17 @@
     "active": "活躍",
     "archived": "已封存",
     "loading": "載入中...",
+    "loadingTitle": "正在載入工作區",
+    "openingTitle": "正在開啟新工作區",
+    "errorTitle": "無法載入工作區",
+    "errorDescription": "請檢查連線後再試一次。",
+    "degradedTitle": "工作區資料可能不是最新的",
+    "degradedDescription": "連線恢復期間，仍可使用上次載入的工作區。",
+    "emptyTitle": "尚無工作區",
+    "emptyDescription": "啟動工作區以執行智能體任務。",
+    "retrying": "正在重新載入工作區",
+    "actionsFor": "{{name}} 的操作",
+    "toggleLayout": "切換工作區版面配置",
     "notFound": "找不到工作區",
     "selectToStart": "選擇一個工作區開始",
     "draft": "草稿",
@@ -452,7 +448,7 @@
         "summary": "工作流出口"
       },
       "agent": {
-        "label": "智慧體",
+        "label": "智慧體節點",
         "summary": "角色：{{role}}"
       },
       "condition": {
@@ -580,7 +576,7 @@
       "runInputRequired": "請先填寫執行輸入，再啟動工作流。",
       "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流執行。",
       "saveBeforeRun": "請先儲存工作流執行，再開始執行。",
-      "saveBeforeSession": "請先儲存工作流執行，再開啟智慧體會話。",
+      "saveBeforeSession": "請先儲存工作流執行，再開啟智慧體節點會話。",
       "startFailed": "啟動工作流執行失敗。",
       "revisionConflict": "此工作流已在其他位置更新（目前版本 {{currentRevision}}）。再次儲存前請重新載入；畫布上的本機修改仍會保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
@@ -612,13 +608,13 @@
       "workflowNamePlaceholder": "工作流名稱",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系統範本（唯讀）",
-      "addStep": "新增步驟",
-      "addWorkflowStep": "新增工作流步驟",
-      "addAgentStep": "新增智慧體",
+      "addStep": "新增節點",
+      "addWorkflowStep": "新增工作流節點",
+      "addAgentStep": "新增智慧體節點",
       "nodePalette": "節點庫",
-      "nodePaletteReadOnly": "複製此範本後即可新增或拖曳步驟。",
-      "searchSteps": "搜尋步驟...",
-      "noStepTypesFound": "找不到步驟類型",
+      "nodePaletteReadOnly": "複製此範本後即可新增或拖曳節點。",
+      "searchSteps": "搜尋節點...",
+      "noStepTypesFound": "找不到節點類型",
       "sections": {
         "execution": "執行",
         "control": "控制",
@@ -636,20 +632,20 @@
       "copyToProject": "複製到專案",
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
-      "deleteAgentStepTitle": "刪除智慧體",
-      "deleteAgentStepMessage": "這會從工作流中移除此步驟。既有會話歷史不會複製到其他步驟。",
-      "agentStepActions": "智慧體操作",
+      "deleteAgentStepTitle": "刪除智慧體節點",
+      "deleteAgentStepMessage": "這會從工作流中移除此節點。既有會話歷史不會複製到其他節點。",
+      "agentStepActions": "智慧體節點操作",
       "nodeActions": "節點操作",
       "openSession": "開啟會話",
       "duplicate": "複製",
-      "runStep": "執行步驟",
+      "runStep": "執行節點",
       "edgeActions": "連線操作",
-      "insertAgentStep": "插入智慧體",
+      "insertAgentStep": "插入節點",
       "reconnect": "重新連接",
       "reconnectSource": "重新連接來源節點",
       "reconnectTarget": "重新連接目標節點",
       "deleteEdge": "刪除連線",
-      "runWorkflowToExecuteStep": "執行工作流以執行此步驟。",
+      "runWorkflowToExecuteStep": "執行工作流以執行此節點。",
       "undo": "復原",
       "redo": "重做",
       "undoShortcut": "復原（Ctrl/Cmd + Z）",
@@ -662,12 +658,17 @@
       "multiSelectionActions": "所選節點操作",
       "nodesSelected": "已選擇 {{count}} 個節點",
       "deletedObjects": "已刪除 {{count}} 項",
-      "deletedObjects_other": "已刪除 {{count}} 項"
+      "deletedObjects_other": "已刪除 {{count}} 項",
+      "saveAsTemplate": "Save as template",
+      "savedTemplateName": "{{name}} template",
+      "templateSavedTitle": "Template saved",
+      "templateSavedMessage": "\"{{name}}\" is now available when creating workflow attempts."
     },
     "canvas": {
+      "needsConfiguration": "需要設定",
       "openSession": "開啟會話",
-      "runStep": "執行步驟",
-      "runStepUnavailable": "暫不支援單步執行。",
+      "runStep": "執行節點",
+      "runStepUnavailable": "暫不支援單節點執行。",
       "nodeFallback": "節點",
       "updatedForNextRunTitle": "設定已在最新執行後更新，會在下一次執行時生效。",
       "updatedForNextRun": "下次執行生效",
@@ -689,19 +690,19 @@
       }
     },
     "agentEdit": {
-      "title": "編輯智慧體",
-      "description": "設定此步驟的會話提示詞與執行器。",
+      "title": "編輯智慧體節點",
+      "description": "設定此節點的會話提示詞與執行器。",
       "close": "關閉編輯器",
-      "runningHint": "此步驟正在執行。提示詞與智慧體設定可在執行結束後編輯。",
-      "nextRunHint": "改動會在下一次工作流執行或下一次觸發此步驟時生效。",
-      "stepTitle": "步驟標題",
-      "defaultTitle": "智慧體",
+      "runningHint": "此節點正在執行。提示詞與智慧體設定可在執行結束後編輯。",
+      "nextRunHint": "改動會在下一次工作流執行或下一次觸發此節點時生效。",
+      "stepTitle": "節點標題",
+      "defaultTitle": "智慧體節點",
       "defaultPrompt": "預設提示詞",
-      "promptPlaceholder": "描述這個智慧體要做什麼...",
+      "promptPlaceholder": "描述這個智慧體節點要做什麼...",
       "executor": "執行器",
       "selectExecutor": "選擇執行器",
       "agent": "智慧體",
-      "saveStep": "儲存步驟"
+      "saveStep": "儲存節點"
     },
     "router": {
       "toolbar": "路由器",
@@ -714,9 +715,12 @@
       "save": "儲存路由器"
     },
     "inspector": {
+      "addBranch": "新增分支",
+      "branchLabel": "分支 {{index}}",
+      "removeBranch": "移除分支 {{index}}",
       "selectNode": "選擇節點以查看詳情",
       "selectEdge": "選擇連線以查看詳情",
-      "step": "步驟",
+      "step": "節點",
       "routerAgent": "路由智能體",
       "routerSharedNote": "這個工作流裡的所有條件節點都會使用它。",
       "configureRouter": "配置",
@@ -743,8 +747,8 @@
       "deleteNodeDescription": "從草稿中移除此節點及其關聯連線。"
     },
     "agentDraft": {
-      "defaultStepName": "智慧體",
-      "promptPlaceholder": "描述這個工作流步驟...",
+      "defaultStepName": "智慧體節點",
+      "promptPlaceholder": "描述這個工作流節點...",
       "selectExecutor": "選擇執行器",
       "startRun": "開始執行",
       "starting": "正在啟動..."
@@ -819,7 +823,7 @@
       "viewArenaResults": "檢視候選結果"
     },
     "debug": {
-      "noDebugData": "此步驟沒有除錯資料。",
+      "noDebugData": "此節點沒有除錯資料。",
       "runInput": "執行輸入",
       "noRunInput": "沒有執行輸入。",
       "promptTemplate": "提示詞範本",
@@ -862,25 +866,25 @@
       "progress": "進度",
       "cancelRun": "取消執行",
       "cancelFailed": "取消工作流執行失敗。",
-      "retryFailed": "重試工作流步驟失敗。",
-      "approveFailed": "核准工作流步驟失敗。",
-      "rejectFailed": "拒絕工作流步驟失敗。",
-      "stepsSucceeded": "{{completed}} / {{total}} 個步驟已成功",
+      "retryFailed": "重試工作流節點失敗。",
+      "approveFailed": "核准工作流節點失敗。",
+      "rejectFailed": "拒絕工作流節點失敗。",
+      "stepsSucceeded": "{{completed}} / {{total}} 個節點已成功",
       "runningCount": "{{count}} 個執行中",
       "waitingCount": "{{count}} 個等待中",
       "failedCount": "{{count}} 個失敗",
       "skippedCount": "{{count}} 個已跳過",
-      "stepsTimeline": "步驟時間軸",
-      "noStepsExecuted": "還沒有執行步驟。",
+      "stepsTimeline": "節點時間軸",
+      "noStepsExecuted": "還沒有執行節點。",
       "session": "會話",
-      "retryStep": "重試步驟",
+      "retryStep": "重試節點",
       "codeChanges": "程式碼改動",
       "openWorkflowWorkspace": "開啟工作流工作區",
       "inspectFiles": "檢視檔案",
       "noCodeChanges": "本次執行沒有關聯的程式碼改動。",
-      "selectedStep": "步驟：{{nodeId}}",
-      "selectStep": "選擇一個步驟",
-      "noStepSelected": "未選擇步驟。",
+      "selectedStep": "節點：{{nodeId}}",
+      "selectStep": "選擇一個節點",
+      "noStepSelected": "未選擇節點。",
       "input": "輸入",
       "output": "輸出",
       "noInput": "沒有輸入",
@@ -898,19 +902,21 @@
       "agentContribution": "智慧體貢獻",
       "totalTokens": "Token 總數",
       "estimatedCost": "預估成本",
-      "agentSteps": "智慧體",
-      "controlSteps": "控制步驟",
+      "agentSteps": "智慧體節點",
+      "controlSteps": "控制節點",
       "notStarted": "未開始",
       "notAvailable": "不適用"
     },
     "agentSessions": {
-      "title": "智慧體會話",
-      "none": "這個智慧體在本次執行中還沒有建立會話。",
+      "title": "智慧體節點會話",
+      "none": "這個智慧體節點在本次執行中還沒有建立會話。",
       "session": "會話 {{id}}",
       "run": "執行 {{id}}",
       "process": "處理程序 {{id}}",
       "open": "開啟",
-      "noOutputYet": "還沒有輸出"
+      "noOutputYet": "還沒有輸出",
+      "agentRun": "AgentRun {{id}}",
+      "projection": "Projection: {{status}}"
     },
     "arenaWinner": {
       "title": "需要選擇 Arena 結果",
@@ -941,12 +947,12 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "智慧體會話",
+      "agentStepSession": "智慧體節點會話",
       "conditionRouterSession": "條件路由會話",
       "nodeSession": "節點會話",
       "sessionNotStarted": "會話尚未開始",
-      "cockpit": "智慧體控制台",
-      "runThisStep": "執行此步驟",
+      "cockpit": "節點控制台",
+      "runThisStep": "執行此節點",
       "editConfig": "編輯設定",
       "inspectFiles": "檢視檔案",
       "openWorkspace": "開啟工作區",
@@ -955,12 +961,12 @@
       "runningNow": "正在執行",
       "startedDuration": "開始於 {{started}} / {{duration}}",
       "agentWorking": "智慧體正在此會話中工作。",
-      "waitingForDecision": "此步驟正在等待決策，之後工作流才會繼續。",
+      "waitingForDecision": "此節點正在等待決策，之後工作流才會繼續。",
       "lastRunSucceeded": "上次執行成功",
       "finishedDuration": "完成於 {{finished}} / {{duration}}",
       "notStartedYet": "尚未開始",
       "readyForConversation": "會話已就緒，可手動對話或等待下一次工作流執行。",
-      "noSessionYet": "此步驟尚未建立會話。",
+      "noSessionYet": "此節點尚未建立會話。",
       "technicalDetails": "技術詳情",
       "sessionId": "會話 ID",
       "processId": "處理程序 ID",
@@ -969,7 +975,80 @@
       "noAgentResponse": "尚未擷取到智慧體回應。",
       "nodePrompt": "節點提示詞",
       "noPrompt": "尚未擷取到提示詞。",
-      "rawRouterOutput": "原始路由輸出"
+      "rawRouterOutput": "原始路由輸出",
+      "orchestrationNodeExecutionId": "Orchestration node execution ID",
+      "agentRunId": "AgentRun ID",
+      "projection": "Projection status",
+      "projectionUnavailable": "Canonical AgentRun projection is unavailable; actions are disabled.",
+      "runtimeConnection": "Runtime connection",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "nativeConfigLoaded": "Native executor configuration loaded.",
+      "nativeConfigUnavailable": "Native executor configuration is unavailable.",
+      "eventRecorded": "Canonical event recorded."
+    },
+    "schedule": {
+      "button": "Scheduled task",
+      "title": "Set scheduled task",
+      "description": "Run this workflow automatically on a daily or weekly schedule.",
+      "summaryPrefix": "Scheduled task: {{summary}}",
+      "summaryUnset": "Not set",
+      "summaryPaused": "Paused",
+      "summaryDaily": "Daily {{time}}",
+      "summaryWeekly": "Every {{weekday}} {{time}}",
+      "summaryFailed": "Last run failed",
+      "enabled": "Enabled",
+      "paused": "Paused",
+      "frequency": "Frequency",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "time": "Time",
+      "weekday": "Weekday",
+      "timezone": "Timezone",
+      "contextIssue": "Context issue",
+      "inputText": "Run input",
+      "inputPlaceholder": "Describe what this run should do.",
+      "save": "Save",
+      "runNow": "Run now",
+      "delete": "Delete",
+      "nextRun": "Next run",
+      "lastTriggered": "Last triggered",
+      "lastStatus": "Last status",
+      "target": "Target",
+      "noIssue": "No issues available",
+      "none": "None",
+      "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
+      "deleteTitle": "Delete scheduled task?",
+      "deleteMessage": "This removes the schedule for this workflow. Existing workflow runs are kept.",
+      "status": {
+        "idle": "Idle",
+        "running": "Running",
+        "awaitingHuman": "Waiting for human",
+        "awaitingArena": "Waiting for arena",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "canceled": "Canceled"
+      },
+      "weekdays": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
+      },
+      "errors": {
+        "issueRequired": "Choose a context issue.",
+        "timeRequired": "Choose a valid time.",
+        "weekdayRequired": "Choose a weekday.",
+        "inputRequired": "Add run input before saving the scheduled task.",
+        "saveFailed": "Failed to save scheduled task.",
+        "runFailed": "Failed to run scheduled task.",
+        "runSkipped": "This run was skipped because the previous scheduled run is still active.",
+        "deleteFailed": "Failed to delete scheduled task."
+      }
     }
   },
   "fileTree": {
@@ -1063,10 +1142,6 @@
     "diffs": {
       "title": "差異和評論",
       "content": "重新設計的差異面板包含變更的檔案樹。直接在差異上評論以向代理提供回饋，當您的工作區連結到 PR 時還可以檢視 GitHub 評論。"
-    },
-    "classicUi": {
-      "title": "返回經典介面",
-      "content": "點擊導覽列左側的退出圖示可返回經典看板。要完全停用新介面，請在設定中的「測試版功能」下更新「啟用 Workspaces 測試版」選項。"
     }
   },
   "logs": {
@@ -1327,7 +1402,7 @@
     }
   },
   "modelSelector": {
-    "followCliConfig": "\u8ddf\u96a8 CLI \u8a2d\u5b9a",
+    "followCliConfig": "跟隨 CLI 設定",
     "preset": "預設配置",
     "custom": "自訂",
     "permissions": "權限",
@@ -1363,17 +1438,119 @@
     "yes": "是",
     "no": "否"
   },
-  "appBar": {
-    "kanban": {
-      "tooltip": "登入以查看專案",
-      "title": "看板",
-      "description": "登入以使用看板管理您的編碼代理。"
-    }
-  },
   "errors": {
     "generic": "發生了意外錯誤"
   },
   "personal": "個人",
+  "appShell": {
+    "skipToContent": "跳至內容",
+    "modules": {
+      "dashboard": "儀表板",
+      "search": "搜尋",
+      "projects": "專案",
+      "workflows": "工作流程",
+      "agents": "智慧體"
+    },
+    "navigation": {
+      "primary": "主導覽",
+      "mobile": "行動版主導覽",
+      "sidebar": "產品側邊欄",
+      "rail": "產品導覽列"
+    },
+    "objects": {
+      "projects": "專案",
+      "sessions": "工作階段",
+      "noProjects": "沒有專案",
+      "noSessions": "沒有工作階段",
+      "retry": "重試",
+      "loading": "正在載入{{label}}...",
+      "loadingMore": "正在載入更多項目",
+      "moreAvailable": "還有更多項目可用",
+      "unavailable": "{{label}} 無法使用",
+      "unavailableDescription": "無法載入 {{label}} 來源。",
+      "degraded": "{{label}} 可能已過時",
+      "cachedAvailable": "快取的項目仍可使用。",
+      "browse": "瀏覽",
+      "browseTitle": "瀏覽專案與工作階段",
+      "closeBrowse": "關閉專案與工作階段",
+      "agent": "智慧體"
+    },
+    "system": {
+      "user": "使用者",
+      "settings": "設定",
+      "version": "版本",
+      "openMenu": "開啟產品選單",
+      "updateAvailable": "更新 {{version}} 可用",
+      "updateReady": "更新 {{version}} 已就緒"
+    },
+    "search": {
+      "dialogLabel": "全域搜尋",
+      "placeholder": "搜尋功能、設定、智慧體與物件",
+      "close": "關閉搜尋",
+      "suggested": "建議前往",
+      "results": "搜尋結果",
+      "shortcutHint": "上下鍵導覽 · Enter 開啟 · Esc 關閉",
+      "updating": "正在更新結果...",
+      "noMatches": "沒有相符的目標",
+      "sourcePartial": "{{label}}結果可能不完整",
+      "cachedResults": "仍可搜尋快取的結果。",
+      "sourceUnavailable": "{{label}}結果無法使用",
+      "otherSourcesAvailable": "其他搜尋來源仍可使用。",
+      "groups": {
+        "agents": "智慧體",
+        "configuration": "設定",
+        "tools": "工具",
+        "featuresAndObjects": "功能與物件"
+      },
+      "destinations": {
+        "appearance": "外觀",
+        "agentTools": "智慧體工具",
+        "agentToolTypes": "MCP、技能與命令"
+      },
+      "paths": {
+        "features": "功能 / {{name}}",
+        "agents": "智慧體 / {{name}}",
+        "settings": "設定 / {{name}}",
+        "sessions": "工作階段 / {{name}}"
+      },
+      "kinds": {
+        "feature": "功能",
+        "setting": "設定",
+        "provider": "提供者",
+        "mcp": "MCP",
+        "skill": "技能",
+        "command": "命令",
+        "project": "專案",
+        "session": "工作階段",
+        "issue": "Issue",
+        "workflow": "工作流程",
+        "run": "執行"
+      }
+    },
+    "moduleLanding": {
+      "eyebrow": "產品模組",
+      "projectsDescription": "從側邊欄選取專案，開啟現有的看板檢視。",
+      "workflowsDescription": "工作流程編排歸屬於專案。請先開啟專案，再進入對應的工作流程介面。",
+      "agentsDescription": "智慧體可用性來自目前連線的主機，設定頁面使用相同的適配器能力。"
+    },
+    "dashboard": {
+      "eyebrow": "概覽",
+      "title": "儀表板",
+      "subtitle": "目前的專案、工作階段與執行階段可用性。",
+      "sections": {
+        "globalStatistics": "全域統計",
+        "attention": "需要注意",
+        "activeRuns": "使用中的執行",
+        "agentConfiguration": "智慧體設定"
+      },
+      "unavailable": {
+        "globalStatistics": "專案、Issue 與智慧體執行的規範總數尚未提供。側邊欄分頁資料不會作為全域統計顯示。",
+        "attention": "規範的注意事項投影尚未提供。此區域保持獨立，不會從記錄文字推斷警示。",
+        "activeRuns": "工作階段清單不包含執行階段狀態。規範執行階段投影提供後，這裡才會顯示使用中的執行。",
+        "agentConfiguration": "連線、預設模型、API 位址和執行數量的規範摘要尚未提供。執行階段 API 能力不會取代設定資料。"
+      }
+    }
+  },
   "agentCenter": {
     "eyebrow": "智能體執行階段",
     "title": "智能體中心",
@@ -1653,7 +1830,11 @@
       "providerUnavailable": "此 Provider 尚未就緒。"
     },
     "tools": {
-      "titles": { "all": "智能體工具", "mcp": "MCP 伺服器", "skills": "技能" },
+      "titles": {
+        "all": "智能體工具",
+        "mcp": "MCP 伺服器",
+        "skills": "技能"
+      },
       "descriptions": {
         "all": "管理原生 MCP 伺服器和技能。各 Provider 檔案始終是真實資料來源。",
         "mcp": "管理原生 MCP 伺服器。各 Provider 檔案始終是真實資料來源。",
@@ -1676,7 +1857,10 @@
         "discover": "探索專案工具",
         "refreshRequired": "請重新整理以載入此專案路徑下的工具。"
       },
-      "kinds": { "mcp": "MCP 伺服器", "skill": "技能" },
+      "kinds": {
+        "mcp": "MCP 伺服器",
+        "skill": "技能"
+      },
       "states": {
         "loading": "正在載入智能體工具清單...",
         "unavailable": "工具清單無法使用。",
@@ -1685,7 +1869,10 @@
         "updating": "正在更新 {{name}}"
       },
       "itemCount": "{{count}} 項",
-      "empty": { "mcp": "未探索到 MCP 伺服器。", "skills": "未探索到技能。" },
+      "empty": {
+        "mcp": "未探索到 MCP 伺服器。",
+        "skills": "未探索到技能。"
+      },
       "toolStates": {
         "not_installed": "未安裝",
         "enabled": "已啟用",
@@ -1693,13 +1880,18 @@
         "error": "錯誤",
         "unsupported": "不支援"
       },
-      "scopes": { "user": "使用者層級", "project": "專案層級" },
+      "scopes": {
+        "user": "使用者層級",
+        "project": "專案層級"
+      },
       "errors": {
         "noInstalledProvider": "未安裝支援的智能體 Provider。",
         "noCopyTarget": "沒有其他已安裝且支援的智能體 Provider。",
         "operationFailed": "智能體工具操作失敗。"
       },
-      "notices": { "pathCopied": "已複製原生路徑：{{path}}" },
+      "notices": {
+        "pathCopied": "已複製原生路徑：{{path}}"
+      },
       "remove": {
         "title": "移除 {{name}}？",
         "message": "這會移除原生安裝，與停用此工具不同。"
@@ -1752,5 +1944,30 @@
     "submitting": "正在提交回答...",
     "answeredCount": "已回答{{count}}個問題",
     "answeredCount_other": "已回答{{count}}個問題"
+  },
+  "projectWorkspaceDefault": {
+    "label": "Project default working location",
+    "loading": "Loading project working location",
+    "loadFailed": "Unable to load",
+    "loadFailedDescription": "The saved working location could not be resolved. Open project settings to review it.",
+    "empty": "Not configured",
+    "description": "This working location will prefill new executions. Git locations also include a base branch. You still confirm the actual workspace before an agent starts.",
+    "emptyDescription": "No hidden fallback will be used. Choose a working directory when starting an execution, or configure a project default.",
+    "configure": "Configure project working location",
+    "configureShort": "Configure"
+  },
+  "agentSessionResume": {
+    "open": "Recent agent sessions",
+    "recentLabel": "Last 3 days",
+    "extendedLabel": "Last 30 days",
+    "sourceHint": "Loaded from the agent's native resume history",
+    "loading": "Loading sessions...",
+    "error": "Failed to load sessions",
+    "degraded": "Recent sessions may be out of date",
+    "degradedHint": "The last loaded sessions remain available while native history is retried.",
+    "empty": "No recent sessions",
+    "more": "Show last 30 days",
+    "pending": "Will resume: {{title}} · {{time}}",
+    "clear": "Clear resume session"
   }
 }

@@ -394,13 +394,17 @@
         "jsonLabel": "エージェント設定（JSON）",
         "jsonPlaceholder": "プロファイルを読み込み中...",
         "jsonLoading": "読み込み中...",
-        "pathLabel": "設定ファイルの場所："
+        "pathLabel": "設定ファイルの場所：",
+        "isHidden": "Hidden",
+        "showInPickers": "Show in pickers",
+        "hideFromPickers": "Hide from pickers"
       },
       "errors": {
         "deleteFailed": "設定の削除に失敗しました。もう一度お試しください。",
         "saveFailed": "エージェント設定の保存に失敗しました。もう一度お試しください。",
         "saveConfigFailed": "設定の保存に失敗しました。もう一度お試しください。",
-        "schemaNotFound": "実行タイプ {{executor}} のスキーマが見つかりません"
+        "schemaNotFound": "実行タイプ {{executor}} のスキーマが見つかりません",
+        "visibilitySaveFailed": "Failed to update agent visibility. Please try again."
       },
       "tree": {
         "search": "設定を検索...",
@@ -586,6 +590,11 @@
         "unsavedChanges": "未保存の変更があります",
         "discard": "破棄",
         "confirmSwitch": "未保存の変更があります。本当にリポジトリを切り替えますか？変更は失われます。"
+      },
+      "projectWorkspace": {
+        "title": "Agent working directory",
+        "description": "Configure the subdirectory where agents run after entering the code directory above. Choose the project's base branch in the workspace.",
+        "unavailable": "The local repository referenced by this workspace is unavailable. Choose the working folder again."
       }
     },
     "relay": {
@@ -657,7 +666,8 @@
           "noBranches": "No branches found for this repository",
           "fetchError": "Could not load repositories",
           "saveError": "Failed to save the default working location",
-          "current": "current"
+          "current": "current",
+          "pickerDescription": "Choose a local directory for this project on {{host}}. Git repositories require a base branch; ordinary directories are saved as direct working folders."
         }
       },
       "loginRequired": {

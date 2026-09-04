@@ -15,6 +15,7 @@ import { useNotificationMembers } from '@/shared/hooks/useNotificationMembers';
 import type { GroupedNotification } from '@/shared/lib/notifications';
 import {
   getGroupedNotificationSegments,
+  getGroupedNotificationAccessibleText,
   type MessageSegment,
 } from '@/shared/lib/notificationMessage';
 import { formatRelativeTime } from '@/shared/lib/date';
@@ -103,8 +104,9 @@ export function NotificationsPage() {
   const [updatingScopeEpoch, setUpdatingScopeEpoch] = useState<number | null>(
     null
   );
-  const [failedUpdate, setFailedUpdate] =
-    useState<FailedSeenUpdate | null>(null);
+  const [failedUpdate, setFailedUpdate] = useState<FailedSeenUpdate | null>(
+    null
+  );
   const updateLockRef = useRef<number | null>(null);
   const isUpdating = updatingScopeEpoch === scopeEpoch;
   const actionError = failedUpdate?.scopeEpoch === scopeEpoch;
@@ -213,7 +215,11 @@ export function NotificationsPage() {
         title="Sign in to view notifications"
         description="Notifications are tied to your cloud account."
         action={
-          <Button variant="outline" onClick={() => void OAuthDialog.show({})}>
+          <Button
+            className="min-h-11 sm:min-h-8"
+            variant="outline"
+            onClick={() => void OAuthDialog.show({})}
+          >
             Sign in
           </Button>
         }
@@ -237,7 +243,11 @@ export function NotificationsPage() {
         title="Notifications could not be loaded"
         description="The notification sync failed before any notifications were available."
         action={
-          <Button variant="outline" onClick={handleRetryRead}>
+          <Button
+            className="min-h-11 sm:min-h-8"
+            variant="outline"
+            onClick={handleRetryRead}
+          >
             Retry
           </Button>
         }
@@ -264,7 +274,7 @@ export function NotificationsPage() {
             type="button"
             disabled={Boolean(error) || isUpdating}
             onClick={handleMarkAllSeen}
-            className="flex items-center gap-1 px-base py-half text-sm text-low hover:text-normal transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-11 items-center gap-1 px-base py-half text-sm text-low hover:text-normal transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8"
           >
             <ChecksIcon size={16} />
             Mark all as read
@@ -279,7 +289,11 @@ export function NotificationsPage() {
             title="Notifications may be out of date"
             description="The last available notifications remain visible while sync recovers."
             action={
-              <Button variant="outline" onClick={handleRetryRead}>
+              <Button
+                className="min-h-11 sm:min-h-8"
+                variant="outline"
+                onClick={handleRetryRead}
+              >
                 Retry
               </Button>
             }
@@ -293,6 +307,7 @@ export function NotificationsPage() {
             description="The notification list is unchanged on the server."
             action={
               <Button
+                className="min-h-11 sm:min-h-8"
                 variant="outline"
                 loading={isUpdating}
                 loadingLabel="Retrying notification changes"
@@ -305,72 +320,72 @@ export function NotificationsPage() {
         )}
 
         <div className="divide-y divide-border">
-          {groupedNotifications.map((group) => (
-            <div
-              key={group.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => handleClick(group)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleClick(group);
-                }
-              }}
-              className={cn(
-                'w-full flex items-center gap-base px-double py-base text-left transition-colors cursor-pointer outline-none',
-                'hover:bg-secondary',
-                'focus-visible:bg-secondary',
-                'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand',
-                !group.seen && 'bg-brand/5'
-              )}
-            >
-              <span
+          {groupedNotifications.map((group) => {
+            const summary = getGroupedNotificationAccessibleText(
+              group,
+              membersByUserId
+            );
+            return (
+              <div
+                key={group.id}
                 className={cn(
-                  'shrink-0 w-2 h-2 rounded-full',
-                  !group.seen && 'bg-brand'
+                  'w-full flex items-center gap-base px-double py-base text-left transition-colors',
+                  'hover:bg-secondary',
+                  !group.seen && 'bg-brand/5'
                 )}
-              />
-              <div className="flex-1 min-w-0">
-                <p
+              >
+                <span
                   className={cn(
-                    'text-base truncate',
-                    group.seen ? 'text-normal' : 'text-high'
+                    'shrink-0 w-2 h-2 rounded-full',
+                    !group.seen && 'bg-brand'
                   )}
-                >
-                  <NotificationMessage
-                    segments={getGroupedNotificationSegments(group)}
-                    membersByUserId={membersByUserId}
-                  />
-                </p>
-                <p className="text-sm text-low mt-0.5">
-                  {formatRelativeTime(group.latest.created_at)}
-                </p>
-              </div>
-              {!group.seen && (
+                />
                 <button
                   type="button"
-                  disabled={Boolean(error) || isUpdating}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    markGroupSeen(group);
-                  }}
-                  onKeyDown={(e) => e.stopPropagation()}
-                  className={cn(
-                    'shrink-0 inline-flex items-center gap-half rounded-sm px-half py-half text-sm text-low transition-colors cursor-pointer',
-                    'hover:bg-secondary hover:text-normal',
-                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
-                    'disabled:cursor-not-allowed disabled:opacity-50'
-                  )}
-                  aria-label="Mark notification as read"
-                  title="Mark as read"
+                  onClick={() => handleClick(group)}
+                  className="min-w-0 flex-1 text-left outline-none focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-brand"
+                  aria-label={`Open notification: ${summary}`}
                 >
-                  <CheckIcon size={14} weight="bold" />
-                  <span className="hidden sm:inline">Mark as read</span>
+                  <p
+                    className={cn(
+                      'text-base truncate',
+                      group.seen ? 'text-normal' : 'text-high'
+                    )}
+                  >
+                    <NotificationMessage
+                      segments={getGroupedNotificationSegments(group)}
+                      membersByUserId={membersByUserId}
+                    />
+                  </p>
+                  <p className="text-sm text-low mt-0.5">
+                    {formatRelativeTime(group.latest.created_at)}
+                  </p>
                 </button>
-              )}
-            </div>
-          ))}
+                {!group.seen && (
+                  <button
+                    type="button"
+                    disabled={Boolean(error) || isUpdating}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      markGroupSeen(group);
+                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className={cn(
+                      'shrink-0 inline-flex min-h-11 items-center gap-half rounded-sm px-half py-half text-sm text-low transition-colors cursor-pointer sm:min-h-8',
+                      'hover:bg-secondary hover:text-normal',
+                      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+                      'disabled:cursor-not-allowed disabled:opacity-50'
+                    )}
+                    aria-label={`Mark notification as read: ${summary}`}
+                    title="Mark as read"
+                  >
+                    <CheckIcon size={14} weight="bold" />
+                    <span className="hidden sm:inline">Mark as read</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -148,15 +148,17 @@ export function ExportDownload({
           <div className="space-y-base">
             <button
               onClick={handleManualDownload}
-              className="w-full flex items-center justify-center gap-half rounded-sm bg-brand px-base py-half text-sm font-medium text-white hover:bg-brand/90 transition-colors"
+              type="button"
+              className="min-h-11 w-full flex items-center justify-center gap-half rounded-sm bg-brand px-base py-half text-sm font-medium text-white hover:bg-brand/90 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand sm:min-h-8"
             >
               <DownloadSimpleIcon className="size-icon-sm" />
               Download {filename}
             </button>
 
             <button
+              type="button"
               onClick={onExportMore}
-              className="w-full rounded-sm border border-border bg-secondary px-base py-half text-sm font-medium text-normal hover:bg-primary transition-colors"
+              className="min-h-11 w-full rounded-sm border border-border bg-secondary px-base py-half text-sm font-medium text-normal hover:bg-primary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand sm:min-h-8"
             >
               Export more projects
             </button>

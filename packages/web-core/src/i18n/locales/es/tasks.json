@@ -244,7 +244,6 @@
   },
   "processes": {
     "noLogsAvailable": "No hay registros disponibles",
-    "agent": "Agent:",
     "backToList": "Back to list",
     "completed": "Completed: {{date}}",
     "deleted": "Deleted",
@@ -339,8 +338,6 @@
       "andLaterProcesses_one": "y {{count}} proceso posterior",
       "andLaterProcesses_other": "y {{count}} procesos posteriores",
       "fromHistory": "del historial.",
-      "codingAgentRuns_one": "{{count}} ejecución de agente de codificación",
-      "codingAgentRuns_other": "{{count}} ejecuciones de agente de codificación",
       "scriptProcesses_one": "{{count}} proceso de script",
       "scriptProcesses_other": "{{count}} procesos de script",
       "setupCleanupBreakdown": "({{setup}} configuración, {{cleanup}} limpieza)",

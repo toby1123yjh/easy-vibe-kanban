@@ -1,0 +1,126 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  color: var(--vk-text-normal);
+  background: var(--vk-surface-canvas);
+  font-family: var(--vk-font-sans);
+}
+
+.fixture-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+  padding: 24px;
+  gap: 16px;
+}
+
+.fixture-nav {
+  display: flex;
+  gap: 8px;
+}
+
+.fixture-nav button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
+  color: var(--vk-text-normal);
+  background: var(--vk-surface-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fixture-nav button[aria-pressed="true"] {
+  border-color: var(--vk-brand);
+  color: var(--vk-brand);
+}
+
+.fixture-page {
+  width: min(100%, 1100px);
+  min-width: 0;
+  margin: 0 auto;
+  padding: 8px;
+}
+
+.fixture-workspaces {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 520px;
+  padding: 0;
+}
+
+.fixture-workspaces > .w-full {
+  min-height: 0;
+}
+
+/* The fixture intentionally bypasses Tailwind generation; keep the production
+ * touch-target contract explicit so browser evidence exercises the same rule. */
+.fixture-workspaces .group > button {
+  min-height: 44px;
+}
+
+.fixture-workspaces .group > div > div > button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.fixture-workspaces output {
+  position: fixed;
+  left: -9999px;
+}
+
+.fixture-settings {
+  padding: 0 24px 24px;
+}
+
+.fixture-settings-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fixture-settings-controls button {
+  min-height: 44px;
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
+  padding: 0 12px;
+  color: var(--vk-text-normal);
+  background: var(--vk-surface-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fixture-settings-controls button:focus-visible {
+  outline: 2px solid var(--vk-brand);
+  outline-offset: 2px;
+}
+
+/* Settings actions use the production min-h-11 utility. This fixture skips
+ * the app Tailwind build, so keep the same 44px evidence contract explicit. */
+.fixture-settings button.min-h-11 {
+  min-height: 44px;
+}
+
+@media (max-width: 600px) {
+  .fixture-shell {
+    padding: 12px;
+  }
+
+  .fixture-page {
+    padding: 0;
+  }
+
+  .fixture-settings {
+    padding: 0;
+  }
+}

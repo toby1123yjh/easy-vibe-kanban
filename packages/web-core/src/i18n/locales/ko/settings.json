@@ -394,13 +394,17 @@
         "jsonLabel": "에이전트 구성 (JSON)",
         "jsonPlaceholder": "프로필 로딩 중...",
         "jsonLoading": "로딩 중...",
-        "pathLabel": "구성 파일 위치:"
+        "pathLabel": "구성 파일 위치:",
+        "isHidden": "Hidden",
+        "showInPickers": "Show in pickers",
+        "hideFromPickers": "Hide from pickers"
       },
       "errors": {
         "deleteFailed": "구성을 삭제하지 못했습니다. 다시 시도해 주세요.",
         "saveFailed": "에이전트 구성을 저장하지 못했습니다. 다시 시도해 주세요.",
         "saveConfigFailed": "구성을 저장하지 못했습니다. 다시 시도해 주세요.",
-        "schemaNotFound": "실행자 유형 {{executor}}에 대한 스키마를 찾을 수 없습니다"
+        "schemaNotFound": "실행자 유형 {{executor}}에 대한 스키마를 찾을 수 없습니다",
+        "visibilitySaveFailed": "Failed to update agent visibility. Please try again."
       },
       "tree": {
         "search": "구성 검색...",
@@ -586,6 +590,11 @@
         "unsavedChanges": "저장되지 않은 변경사항이 있습니다",
         "discard": "취소",
         "confirmSwitch": "저장되지 않은 변경사항이 있습니다. 정말 저장소를 전환하시겠습니까? 변경사항이 손실됩니다."
+      },
+      "projectWorkspace": {
+        "title": "Agent working directory",
+        "description": "Configure the subdirectory where agents run after entering the code directory above. Choose the project's base branch in the workspace.",
+        "unavailable": "The local repository referenced by this workspace is unavailable. Choose the working folder again."
       }
     },
     "relay": {
@@ -657,7 +666,8 @@
           "noBranches": "No branches found for this repository",
           "fetchError": "Could not load repositories",
           "saveError": "Failed to save the default working location",
-          "current": "current"
+          "current": "current",
+          "pickerDescription": "Choose a local directory for this project on {{host}}. Git repositories require a base branch; ordinary directories are saved as direct working folders."
         }
       },
       "loginRequired": {

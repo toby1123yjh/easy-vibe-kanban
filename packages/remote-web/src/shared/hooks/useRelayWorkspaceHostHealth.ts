@@ -26,9 +26,10 @@ export function useRelayWorkspaceHostHealth(
     retry: false,
     staleTime: 5_000,
     refetchInterval: 15_000,
-    queryFn: async (): Promise<true> => {
+    queryFn: async ({ signal }): Promise<true> => {
       const response = await makeLocalApiRequest("/api/info", {
         cache: "no-store",
+        signal,
       });
 
       if (!response.ok) {

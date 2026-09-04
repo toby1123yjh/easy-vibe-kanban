@@ -13,13 +13,18 @@ import { useTheme } from '@/shared/hooks/useTheme';
 import { OAuthSignInButton } from '@vibe/ui/components/OAuthButtons';
 import { Button } from '@vibe/ui/components/Button';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
-import { StateSurface } from '@vibe/ui/components/StateSurface';
+import {
+  DegradedState,
+  EmptyState,
+  StateSurface,
+} from '@vibe/ui/components/StateSurface';
 import { oauthApi, type AuthMethodsResponse } from '@/shared/lib/api';
 import { getFirstProjectDestination } from '@/shared/lib/firstProjectDestination';
 import { isLocalRemoteApiEnabled } from '@/shared/lib/remoteApi';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { isTauriApp } from '@/shared/lib/platform';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { deriveAuthMethodDiscoveryState } from '../model/authMethodDiscoveryState';
 
 type OnboardingDestination =
   | { kind: 'workspaces-create' }
@@ -94,7 +99,7 @@ export function OnboardingSignInPage() {
   const {
     data: authMethods,
     error: authMethodsError,
-    isError: isAuthMethodsError,
+    isLoading: isLoadingAuthMethods,
     isFetching: isFetchingAuthMethods,
     refetch: refetchAuthMethods,
   } = useQuery({
@@ -106,6 +111,15 @@ export function OnboardingSignInPage() {
   const hasLocalAuth = authMethods?.local_auth_enabled ?? false;
   const oauthProviders = authMethods?.oauth_providers ?? [];
   const hasOAuthProviders = oauthProviders.length > 0;
+  const authMethodState = deriveAuthMethodDiscoveryState({
+    isLoading: isLoadingAuthMethods,
+    hasData: Boolean(authMethods),
+    hasError: Boolean(authMethodsError),
+    hasLocalAuth,
+    oauthProviderCount: oauthProviders.length,
+  });
+  const canUseAuthMethods =
+    authMethodState === 'ready' || authMethodState === 'degraded';
 
   const trackRemoteOnboardingEvent = useCallback(
     (eventName: string, properties: Record<string, unknown> = {}) => {
@@ -257,7 +271,7 @@ export function OnboardingSignInPage() {
 
   if (loading || !config) {
     return (
-      <div className="flex h-screen items-center justify-center bg-primary p-base">
+      <main className="flex min-h-[100dvh] items-center justify-center overflow-auto bg-primary p-base">
         <StateSurface
           state="loading"
           title={t(
@@ -269,7 +283,7 @@ export function OnboardingSignInPage() {
             'Preparing sign-in options.'
           )}
         />
-      </div>
+      </main>
     );
   }
 
@@ -281,7 +295,7 @@ export function OnboardingSignInPage() {
   }
 
   return (
-    <div className="h-screen overflow-auto bg-primary">
+    <main className="min-h-[100dvh] overflow-auto bg-primary">
       {isTauriApp() && (
         <div
           data-tauri-drag-region
@@ -298,6 +312,9 @@ export function OnboardingSignInPage() {
                 className="h-8 w-auto logo"
               />
             </div>
+            <h1 className="text-lg font-semibold text-high">
+              {t('oauth.title', 'Sign in to Vibe Kanban')}
+            </h1>
             {!isLoggedIn && (
               <p className="text-sm text-low">
                 {t('onboardingSignIn.subtitle')}
@@ -305,7 +322,18 @@ export function OnboardingSignInPage() {
             )}
           </header>
 
-          {isAuthMethodsError && !isLoggedIn && (
+          {authMethodState === 'loading' && !isLoggedIn && (
+            <StateSurface
+              compact
+              state="loading"
+              title={t(
+                'onboarding.signIn.states.loadingMethods',
+                'Loading sign-in methods'
+              )}
+            />
+          )}
+
+          {authMethodState === 'error' && !isLoggedIn && (
             <StateSurface
               compact
               state="error"
@@ -333,6 +361,46 @@ export function OnboardingSignInPage() {
             />
           )}
 
+          {authMethodState === 'degraded' && !isLoggedIn && (
+            <DegradedState
+              compact
+              title={t(
+                'onboarding.signIn.states.methodsStale',
+                'Sign-in methods may be out of date'
+              )}
+              description={t(
+                'onboarding.signIn.states.methodsStaleDescription',
+                'The last loaded sign-in methods remain available while discovery is retried.'
+              )}
+              action={
+                <Button
+                  className="min-h-11"
+                  size="lg"
+                  variant="secondary"
+                  onClick={() => void refetchAuthMethods()}
+                  disabled={saving || pendingProvider !== null}
+                  loading={isFetchingAuthMethods}
+                >
+                  {t('buttons.retry', 'Retry')}
+                </Button>
+              }
+            />
+          )}
+
+          {authMethodState === 'empty' && !isLoggedIn && (
+            <EmptyState
+              compact
+              title={t(
+                'onboarding.signIn.states.noMethods',
+                'No sign-in methods configured'
+              )}
+              description={t(
+                'onboarding.signIn.states.noMethodsDescription',
+                'You can continue locally without signing in.'
+              )}
+            />
+          )}
+
           {isLoggedIn ? (
             <section className="space-y-base">
               <p className="text-sm text-normal text-center">
@@ -356,19 +424,21 @@ export function OnboardingSignInPage() {
           ) : (
             <>
               <section className="flex flex-col items-center gap-2">
-                {!isAuthMethodsError && hasLocalAuth ? (
+                {canUseAuthMethods && hasLocalAuth ? (
                   <PrimaryButton
                     value={isAuthDialogOpen ? 'Opening sign in...' : 'Sign in'}
+                    className="min-h-11 sm:min-h-cta"
                     onClick={() => void handleDialogSignIn()}
                     disabled={
                       saving || pendingProvider !== null || isAuthDialogOpen
                     }
                   />
-                ) : !isAuthMethodsError ? (
+                ) : canUseAuthMethods ? (
                   <>
                     {hasOAuthProviders && oauthProviders.includes('github') && (
                       <OAuthSignInButton
                         provider="github"
+                        className="min-h-11"
                         onClick={() => void handleProviderSignIn('github')}
                         disabled={saving || pendingProvider !== null}
                         loading={pendingProvider === 'github'}
@@ -378,6 +448,7 @@ export function OnboardingSignInPage() {
                     {hasOAuthProviders && oauthProviders.includes('google') && (
                       <OAuthSignInButton
                         provider="google"
+                        className="min-h-11"
                         onClick={() => void handleProviderSignIn('google')}
                         disabled={saving || pendingProvider !== null}
                         loading={pendingProvider === 'google'}
@@ -391,7 +462,7 @@ export function OnboardingSignInPage() {
               <div className="flex justify-center">
                 <button
                   type="button"
-                  className="min-h-cta px-base text-sm text-low underline underline-offset-2 hover:text-normal"
+                  className="min-h-11 px-base text-sm text-low underline underline-offset-2 hover:text-normal sm:min-h-cta"
                   onClick={() => {
                     if (!showComparison) {
                       trackRemoteOnboardingEvent(
@@ -496,6 +567,7 @@ export function OnboardingSignInPage() {
                       : 'I understand, continue without signing in'
                   }
                   variant="tertiary"
+                  className="min-h-11 sm:min-h-cta"
                   onClick={() =>
                     void finishOnboarding({ method: 'skip_sign_in' })
                   }
@@ -506,6 +578,6 @@ export function OnboardingSignInPage() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }

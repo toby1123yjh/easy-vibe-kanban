@@ -103,7 +103,7 @@ export function WorkspaceSummary({
       <button
         onClick={onClick}
         className={cn(
-          'flex w-full cursor-pointer flex-col text-left px-base py-half transition-all duration-150',
+          'flex min-h-11 w-full cursor-pointer flex-col text-left px-base py-half transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2',
           isActive
             ? 'text-normal'
             : 'text-low sm:opacity-60 sm:hover:opacity-100 sm:hover:text-normal'
@@ -226,7 +226,8 @@ export function WorkspaceSummary({
             <button
               onClick={handleOpenCommandBar}
               onPointerDown={(e) => e.stopPropagation()}
-              className="p-1.5 rounded-sm text-low hover:text-normal hover:bg-tertiary"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-sm text-low hover:text-normal hover:bg-tertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+              aria-label={t('workspaces.actionsFor', { name })}
               title={t('workspaces.more')}
             >
               <DotsThreeIcon className="size-5" weight="bold" />

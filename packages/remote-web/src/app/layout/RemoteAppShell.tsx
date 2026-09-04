@@ -1,7 +1,10 @@
 import { useMemo, type ReactNode } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { AppShellContainer } from "@/features/app-shell/containers/AppShellContainer";
-import type { AppShellCapabilityAdapter } from "@/features/app-shell/model/appShell";
+import {
+  createAppShellDiscoveryScopeKey,
+  type AppShellCapabilityAdapter,
+} from "@/features/app-shell/model/appShell";
 import { useAppNavigation } from "@/shared/hooks/useAppNavigation";
 import { useUserSystem } from "@/shared/hooks/useUserSystem";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
@@ -10,14 +13,18 @@ import { CloudShutdownExportBanner } from "@/shared/components/CloudShutdownExpo
 
 interface RemoteAppShellProps {
   children: ReactNode;
+  navigationHostId: string | null;
 }
 
-export function RemoteAppShell({ children }: RemoteAppShellProps) {
+export function RemoteAppShell({
+  children,
+  navigationHostId,
+}: RemoteAppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const appNavigation = useAppNavigation();
   const { appVersion, environment } = useUserSystem();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId } = useAuth();
   const { openSettings } = useSettingsNavigation();
   const showCloudShutdownBanner =
     location.pathname === "/export" ||
@@ -26,6 +33,12 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
   const adapter = useMemo<AppShellCapabilityAdapter>(
     () => ({
       deployment: "remote",
+      discoveryHostId: navigationHostId,
+      discoveryScopeKey: createAppShellDiscoveryScopeKey({
+        deployment: "remote",
+        hostId: navigationHostId,
+        userId,
+      }),
       environmentLabel: environment
         ? `Remote host · ${environment.os_type}`
         : "Remote host",
@@ -79,7 +92,15 @@ export function RemoteAppShell({ children }: RemoteAppShellProps) {
       openSettings: () => openSettings(),
       openUser: () => void navigate({ to: "/account" }),
     }),
-    [appNavigation, appVersion, environment, navigate, openSettings],
+    [
+      appNavigation,
+      appVersion,
+      environment,
+      navigate,
+      navigationHostId,
+      openSettings,
+      userId,
+    ],
   );
 
   return (

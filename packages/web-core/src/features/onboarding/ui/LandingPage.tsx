@@ -327,13 +327,13 @@ export function LandingPage() {
 
   if (loading || !config || !initialized) {
     return (
-      <div className="flex h-screen items-center justify-center bg-primary p-base">
+      <main className="flex min-h-[100dvh] items-center justify-center overflow-auto bg-primary p-base">
         <StateSurface
           state="loading"
           title="Loading onboarding"
           description="Preparing your local environment."
         />
-      </div>
+      </main>
     );
   }
 
@@ -342,7 +342,7 @@ export function LandingPage() {
   }
 
   return (
-    <div className="h-screen bg-primary flex items-center justify-center p-double">
+    <main className="flex min-h-[100dvh] items-center justify-center overflow-auto bg-primary p-double">
       {isTauriApp() && (
         <div
           data-tauri-drag-region
@@ -361,11 +361,15 @@ export function LandingPage() {
                   value={link.label}
                   variant="tertiary"
                   actionIcon={link.icon}
+                  className="min-h-11 sm:min-h-cta"
                   onClick={() => openExternalLink(link.href)}
                 />
               ))}
             </div>
           </div>
+          <h1 className="text-lg font-semibold text-high">
+            Set up Vibe Kanban
+          </h1>
           <div className="rounded-sm border border-brand bg-brand/20 p-base">
             <div className="flex items-start gap-base">
               <WarningIcon
@@ -564,7 +568,7 @@ export function LandingPage() {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-border p-double pt-base flex items-center justify-between gap-base">
+        <div className="flex shrink-0 flex-col items-stretch justify-between gap-base border-t border-border p-double pt-base sm:flex-row sm:items-center">
           <p className="text-xs text-low">
             By continuing you agree to the{' '}
             <a
@@ -588,11 +592,12 @@ export function LandingPage() {
           </p>
           <PrimaryButton
             value={saving ? 'Saving...' : 'Continue'}
+            className="min-h-11 sm:min-h-cta"
             onClick={handleContinue}
             disabled={!canContinue}
           />
         </div>
       </div>
-    </div>
+    </main>
   );
 }

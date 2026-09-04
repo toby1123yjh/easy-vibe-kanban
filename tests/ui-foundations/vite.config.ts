@@ -27,6 +27,11 @@ export default defineConfig({
   plugins: [themeBootstrapPlugin()],
   resolve: {
     alias: {
+      '@': `${repoRoot}/packages/web-core/src`,
+      '@vibe/ui': `${repoRoot}/packages/ui/src`,
+      shared: `${repoRoot}/shared`,
+      '@tanstack/react-query': `${repoRoot}/packages/web-core/node_modules/@tanstack/react-query`,
+      '@tanstack/react-router': `${repoRoot}/packages/web-core/node_modules/@tanstack/react-router`,
       react: `${repoRoot}/packages/ui/node_modules/react`,
       'react-dom': `${repoRoot}/packages/ui/node_modules/react-dom`,
       'lucide-react': `${repoRoot}/packages/ui/node_modules/lucide-react`,

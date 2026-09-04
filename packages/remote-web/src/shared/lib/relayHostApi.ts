@@ -3,7 +3,7 @@ import {
   resolveRemoteHostContext,
   tryRefreshRelayHostSigningSession,
 } from "@remote/shared/lib/relay/context";
-import { getActiveRelayHostId } from "@remote/shared/lib/relay/activeHostContext";
+import { resolveRelayRequestHostId } from "@remote/shared/lib/relay/activeHostContext";
 import {
   isAuthFailureStatus,
   sendRelayHostRequest,
@@ -31,6 +31,7 @@ import type {
   LocalApiRequestOptions,
   LocalApiWebSocketOptions,
 } from "@/shared/lib/localApiTransport";
+import { toFetchRequestInit } from "@/shared/lib/localApiTransport";
 
 const EMPTY_BYTES = new Uint8Array();
 
@@ -41,23 +42,22 @@ export async function requestLocalApiViaRelay(
   requestInit: LocalApiRequestOptions = {},
 ): Promise<Response> {
   const pathAndQuery = toPathAndQuery(pathOrUrl);
-  const {
-    relayHostId,
-    hostId: _hostId,
-    hostScope: _hostScope,
-    ...relayRequestInit
-  } = requestInit;
+  const { relayHostId, hostId, hostScope } = requestInit;
+  const relayRequestInit = toFetchRequestInit(requestInit);
 
   if (!shouldRelayApiPath(pathAndQuery)) {
     return fetch(pathOrUrl, relayRequestInit);
   }
 
-  const hostId = requireRelayHostContext(
-    relayHostId ?? resolveRelayHostIdForCurrentPage() ?? getActiveRelayHostId(),
+  const resolvedHostId = requireRelayHostContext(
+    resolveRelayRequestHostId(
+      { relayHostId, hostId, hostScope },
+      resolveRelayHostIdForCurrentPage(),
+    ),
     "request",
   );
 
-  return requestRelayHostApi(hostId, pathAndQuery, relayRequestInit);
+  return requestRelayHostApi(resolvedHostId, pathAndQuery, relayRequestInit);
 }
 
 export async function openLocalApiWebSocketViaRelay(
@@ -71,9 +71,7 @@ export async function openLocalApiWebSocketViaRelay(
   }
 
   const hostId = requireRelayHostContext(
-    options.relayHostId ??
-      resolveRelayHostIdForCurrentPage() ??
-      getActiveRelayHostId(),
+    resolveRelayRequestHostId(options, resolveRelayHostIdForCurrentPage()),
     "WebSocket",
   );
 

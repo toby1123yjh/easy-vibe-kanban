@@ -7,10 +7,14 @@ body {
 }
 
 main {
+  box-sizing: border-box;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   max-width: 640px;
   padding: 24px;
+  min-width: 0;
+  width: 100%;
 }
 
 dl,
@@ -21,11 +25,14 @@ nav {
 
 dl > div {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 160px minmax(0, 1fr);
+  min-width: 0;
 }
 
 dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 nav {
@@ -33,12 +40,14 @@ nav {
 }
 
 textarea {
+  box-sizing: border-box;
   display: block;
   min-height: 80px;
+  max-width: 100%;
   width: 100%;
 }
 
-[data-testid='scroll-region'] {
+[data-testid="scroll-region"] {
   height: 120px;
   overflow: auto;
 }
@@ -48,8 +57,75 @@ textarea {
 }
 
 #component-root {
+  box-sizing: border-box;
   display: grid;
   gap: 24px;
+  min-width: 0;
+  width: 100%;
+}
+
+#component-root > section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The fixture intentionally bypasses the app Tailwind build. Keep the
+   responsive touch-target contract visible when exercising the shared Export
+   view in isolation. Production classes provide the same 44px target. */
+@media (max-width: 639px) {
+  section[aria-labelledby="export-contract-title"] button {
+    min-height: 44px;
+  }
+}
+
+section[aria-labelledby="project-sunset-contract-title"] button,
+section[aria-labelledby="project-sunset-contract-title"] a {
+  min-height: 44px;
+}
+
+section[aria-labelledby="not-found-contract-title"] button,
+section[aria-labelledby="release-notes-contract-title"] button {
+  min-height: 44px;
+}
+
+.fixture-not-found {
+  box-sizing: border-box;
+  min-height: 280px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid CanvasText;
+}
+
+.fixture-not-found > div {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+section[aria-labelledby="crash-screen-contract-title"]
+  [data-testid="crash-screen-harness"]
+  > div {
+  box-sizing: border-box;
+  min-height: 360px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+section[aria-labelledby="crash-screen-contract-title"] [role="alert"] {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+section[aria-labelledby="crash-screen-contract-title"] button {
+  min-height: 44px;
+  max-width: 100%;
 }
 
 .fixture-actions {
@@ -64,23 +140,33 @@ textarea {
   overflow: auto;
 }
 
-[data-testid='split-layout'] {
+[data-testid="split-layout"] {
+  box-sizing: border-box;
   display: flex;
   height: 240px;
   width: 720px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
-[data-testid='split-layout'] > :first-child {
+[data-testid="split-layout"] > :first-child {
   flex: 1 1 auto;
 }
 
-[data-testid='split-layout'] [role='separator'] {
+[data-testid="split-layout"] [role="separator"] {
   flex: 0 0 12px;
   touch-action: none;
 }
 
-[data-testid='split-layout'] [data-pane='secondary'] {
+[data-testid="split-layout"] [data-pane="secondary"] {
   flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  [data-testid="split-layout"] {
+    width: 100%;
+  }
 }
 
 @keyframes fixture-motion {
@@ -96,4 +182,192 @@ textarea {
 .fixture-motion-probe {
   animation: fixture-motion 1s linear infinite;
   transition: transform 1s linear;
+}
+
+.fixture-sunset {
+  box-sizing: border-box;
+  min-height: 360px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid CanvasText;
+}
+
+/* ProjectSunsetPage is exercised in an isolated Vite fixture without the
+   production Tailwind build. Mirror only the layout constraints that keep
+   its StateSurface usable at narrow widths. */
+.fixture-sunset > div {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+
+.fixture-sunset > div > div {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+}
+
+.fixture-sunset > div > div > div {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fixture-sunset > div > div > div > div {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fixture-release-notes-content {
+  box-sizing: border-box;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 10;
+  display: flex;
+  width: min(720px, calc(100% - 32px));
+  height: min(720px, calc(100dvh - 32px));
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - 32px);
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  border: 1px solid CanvasText;
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+}
+
+.fixture-release-notes-content > button[aria-label="Close"] {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.fixture-release-notes-header,
+.fixture-release-notes-footer {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 16px;
+}
+
+.fixture-release-notes-header {
+  border-bottom: 1px solid CanvasText;
+}
+
+.fixture-release-notes-body {
+  box-sizing: border-box;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.fixture-release-notes-body article + article {
+  margin-top: 24px;
+}
+
+.fixture-release-notes-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.fixture-release-notes-meta h3,
+.fixture-release-notes-meta span {
+  overflow-wrap: anywhere;
+}
+
+.fixture-release-notes-meta h3 {
+  margin: 0;
+}
+
+.fixture-release-notes-meta span {
+  color: GrayText;
+  font-size: 0.8rem;
+}
+
+.fixture-release-notes-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid CanvasText;
+}
+
+.fixture-release-notes-footer button {
+  min-height: 44px;
+}
+
+@media (max-width: 639px) {
+  .fixture-release-notes-content {
+    width: calc(100% - 16px);
+    max-width: calc(100% - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+
+  .fixture-release-notes-footer {
+    justify-content: stretch;
+  }
+
+  .fixture-release-notes-footer button {
+    flex: 1 1 160px;
+  }
+}
+
+@media (max-width: 639px) {
+  .fixture-sunset > div > div > div > div {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* NotificationsPage is mounted without the production Tailwind build. Keep
+   its real collection and mutation flow inside a bounded, touch-friendly box. */
+.fixture-notifications {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid CanvasText;
+}
+
+.fixture-notifications > div,
+.fixture-notifications > div > div,
+.fixture-notifications > div > div > div {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.fixture-notifications > div > div {
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.fixture-notifications > div > div > div {
+  overflow-wrap: anywhere;
+}
+
+.fixture-notifications button {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 44px;
+}
+
+.fixture-notifications p {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }

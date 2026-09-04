@@ -1,5 +1,11 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  RouterContextProvider,
+  createRootRoute,
+  createRouter,
+} from '../../../../packages/web-core/node_modules/@tanstack/react-router';
 import {
   FloatingPanel,
   FloatingPanelBody,
@@ -11,6 +17,31 @@ import { Button } from '../../../../packages/ui/src/components/Button';
 import { Input } from '../../../../packages/ui/src/components/Input';
 import { SplitLayout } from '../../../../packages/ui/src/components/SplitLayout';
 import { CrashScreen } from '../../../../packages/ui/src/components/CrashScreen';
+import { StateSurface } from '../../../../packages/ui/src/components/StateSurface';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../../../packages/ui/src/components/Dialog';
+import { ExportChooseProjects } from '../../../../packages/web-core/src/features/export/ui/ExportChooseProjects';
+import { ProjectSunsetPage } from '../../../../packages/web-core/src/pages/kanban/ProjectSunsetPage';
+import { NotificationsPage } from '../../../../packages/web-core/src/pages/workspaces/NotificationsPage';
+import {
+  AuthContext,
+  type AuthContextValue,
+} from '../../../../packages/web-core/src/shared/hooks/auth/useAuth';
+import { configureAuthRuntime } from '../../../../packages/web-core/src/shared/lib/auth/runtime';
+import { setLocalRemoteApiEnabled } from '../../../../packages/web-core/src/shared/lib/remoteApi';
+import { SimpleMarkdown } from '../../../../packages/web-core/src/shared/components/SimpleMarkdown';
+import {
+  AppNavigationProvider,
+  type AppNavigation,
+} from '../../../../packages/web-core/src/shared/hooks/useAppNavigation';
 import {
   createBrowserThemeController,
   type ThemeMode,
@@ -32,6 +63,34 @@ if (!createdController) {
 }
 
 const controller = createdController;
+
+// Keep browser evidence on the production NotificationsPage boundaries while
+// using local fallback requests that the Playwright suite can mock.
+configureAuthRuntime({
+  getToken: async () => 'ui-foundation-fixture-token',
+  triggerRefresh: async () => 'ui-foundation-fixture-token',
+  registerShape: () => () => undefined,
+  getCurrentUser: async () => ({ user_id: 'fixture-user' }),
+});
+setLocalRemoteApiEnabled(true);
+
+const fixtureAuth: AuthContextValue = {
+  isSignedIn: true,
+  isLoaded: true,
+  userId: 'fixture-user',
+};
+
+const notificationsRootRoute = createRootRoute({ component: () => null });
+const notificationsRouter = createRouter({
+  routeTree: notificationsRootRoute,
+});
+const notificationsQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+    },
+  },
+});
 
 function getRequiredElement(testId: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(
@@ -196,6 +255,21 @@ function InteractionContractHarness() {
           Disabled slotted action
         </a>
       </Button>
+      <Button
+        type="button"
+        data-testid="idle-loading-label"
+        loadingLabel="Saving"
+      >
+        Save
+      </Button>
+      <Button
+        type="button"
+        data-testid="active-loading-label"
+        loading
+        loadingLabel="Saving"
+      >
+        Save
+      </Button>
       <output data-testid="child-capture-count">{childCaptureCount}</output>
       <output data-testid="child-click-count">{childClickCount}</output>
       <output data-testid="button-capture-count">{buttonCaptureCount}</output>
@@ -233,6 +307,186 @@ function CrashScreenHarness() {
   );
 }
 
+function ExportHarness() {
+  const [selectedOrgId, setSelectedOrgId] = React.useState('org-1');
+  const [submitted, setSubmitted] = React.useState<string[]>([]);
+
+  return (
+    <section aria-labelledby="export-contract-title">
+      <h2 id="export-contract-title">Export contract</h2>
+      <ExportChooseProjects
+        organizations={[
+          { id: 'org-1', name: 'Primary organization' },
+          { id: 'org-2', name: 'Secondary organization' },
+        ]}
+        orgsLoading={false}
+        orgsError={null}
+        onRetryOrganizations={() => undefined}
+        projects={[
+          { id: 'project-1', name: 'Long project name for narrow screens' },
+          { id: 'project-2', name: 'Second project' },
+        ]}
+        projectsLoading={false}
+        projectsError={null}
+        onRetryProjects={() => undefined}
+        selectedOrgId={selectedOrgId}
+        onOrgChange={setSelectedOrgId}
+        onContinue={(_orgId, projectIds) => setSubmitted(projectIds)}
+      />
+      <output data-testid="export-submitted">
+        {submitted.length > 0 ? submitted.join(',') : 'none'}
+      </output>
+    </section>
+  );
+}
+
+function ProjectSunsetHarness() {
+  const [destination, setDestination] = React.useState('none');
+  const navigation = React.useMemo<AppNavigation>(
+    () =>
+      ({
+        resolveFromPath: () => null,
+        goToRoot: () => undefined,
+        goToOnboarding: () => undefined,
+        goToOnboardingSignIn: () => undefined,
+        goToWorkspaces: () => undefined,
+        goToWorkspacesCreate: () => undefined,
+        goToWorkspace: () => undefined,
+        goToWorkspaceVsCode: () => undefined,
+        goToExport: () => setDestination('export'),
+        goToProject: () => undefined,
+        goToProjectWorkflows: () => undefined,
+        goToProjectWorkflowEdit: () => undefined,
+        goToProjectWorkflowRun: () => undefined,
+        goToProjectIssue: () => undefined,
+        goToProjectIssueWorkspace: () => undefined,
+        goToProjectIssueWorkspaceCreate: () => undefined,
+        goToProjectWorkspaceCreate: () => undefined,
+      }) as AppNavigation,
+    []
+  );
+
+  return (
+    <section aria-labelledby="project-sunset-contract-title">
+      <h2 id="project-sunset-contract-title">Project sunset contract</h2>
+      <div className="fixture-sunset">
+        <AppNavigationProvider value={navigation}>
+          <ProjectSunsetPage projectName="Long project name for narrow screens" />
+        </AppNavigationProvider>
+      </div>
+      <output data-testid="sunset-destination">{destination}</output>
+    </section>
+  );
+}
+
+function NotificationsHarness() {
+  return (
+    <section aria-labelledby="notifications-contract-title">
+      <h2 id="notifications-contract-title">Notifications contract</h2>
+      <div className="fixture-notifications">
+        <QueryClientProvider client={notificationsQueryClient}>
+          <RouterContextProvider router={notificationsRouter}>
+            <AuthContext.Provider value={fixtureAuth}>
+              <NotificationsPage />
+            </AuthContext.Provider>
+          </RouterContextProvider>
+        </QueryClientProvider>
+      </div>
+    </section>
+  );
+}
+
+function NotFoundHarness() {
+  const [destination, setDestination] = React.useState('none');
+
+  return (
+    <section aria-labelledby="not-found-contract-title">
+      <h2 id="not-found-contract-title">404 page contract</h2>
+      <div className="fixture-not-found">
+        <StateSurface
+          state="empty"
+          title={<h1>Page not found</h1>}
+          description="The page you requested does not exist or is no longer available."
+          action={
+            <Button
+              className="min-h-11"
+              size="lg"
+              variant="secondary"
+              onClick={() => setDestination('home')}
+            >
+              Back to home
+            </Button>
+          }
+        />
+      </div>
+      <output data-testid="not-found-destination">{destination}</output>
+    </section>
+  );
+}
+
+const releaseNotesBody = `## Highlights
+
+* Improved workflow navigation and keyboard recovery.
+* Long content remains readable on narrow screens.
+${Array.from(
+  { length: 48 },
+  (_, index) => `* Follow-up detail ${index + 1}: keyboard and touch behavior.`
+).join('\n')}
+
+Read the [full release](https://github.com/BloopAI/vibe-kanban/releases).`;
+
+function ReleaseNotesHarness() {
+  const [open, setOpen] = React.useState(false);
+
+  return (
+    <section aria-labelledby="release-notes-contract-title">
+      <h2 id="release-notes-contract-title">Release notes contract</h2>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <button type="button" data-testid="release-notes-trigger">
+            Open release notes
+          </button>
+        </DialogTrigger>
+        <DialogContent
+          className="fixture-release-notes-content"
+          aria-describedby="fixture-release-notes-description"
+        >
+          <DialogHeader className="fixture-release-notes-header">
+            <DialogTitle>What&apos;s New</DialogTitle>
+            <DialogDescription id="fixture-release-notes-description">
+              Release notes for recent Vibe Kanban versions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="fixture-release-notes-body">
+            <article>
+              <div className="fixture-release-notes-meta">
+                <h3>0.1.44</h3>
+                <span>Sep 3, 2026</span>
+              </div>
+              <SimpleMarkdown content={releaseNotesBody} />
+            </article>
+            <article>
+              <div className="fixture-release-notes-meta">
+                <h3>0.1.43</h3>
+                <span>Aug 28, 2026</span>
+              </div>
+              <SimpleMarkdown content="* Stability updates for local agent sessions." />
+            </article>
+          </div>
+          <DialogFooter className="fixture-release-notes-footer">
+            <DialogClose asChild>
+              <button type="button" data-testid="release-notes-close">
+                Close
+              </button>
+            </DialogClose>
+            <button type="button">Open on GitHub</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
 const componentRoot = document.getElementById('component-root');
 if (!componentRoot) {
   throw new Error('Component contract root is missing');
@@ -244,5 +498,10 @@ createRoot(componentRoot).render(
     <SplitLayoutHarness />
     <InteractionContractHarness />
     <CrashScreenHarness />
+    <ExportHarness />
+    <ProjectSunsetHarness />
+    <NotificationsHarness />
+    <NotFoundHarness />
+    <ReleaseNotesHarness />
   </React.StrictMode>
 );

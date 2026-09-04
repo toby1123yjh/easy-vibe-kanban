@@ -32,7 +32,7 @@ interface ActionVisibilityOptions {
 
 /**
  * Hook that builds the visibility context from stores/context.
- * Used by both NavbarContainer and CommandBarDialog to evaluate
+ * Used by command surfaces to evaluate
  * action visibility and state conditions.
  */
 export function useActionVisibilityContext(

@@ -2,15 +2,6 @@
   "editorNames": {
     "custom": "Personalizado"
   },
-  "folderPicker": {
-    "legend": "Haz clic en los nombres de carpetas para navegar • Usa los botones de acción para seleccionar",
-    "manualPathLabel": "Ingresar ruta manualmente:",
-    "go": "Ir",
-    "searchLabel": "Buscar en el directorio actual:",
-    "selectCurrent": "Seleccionar actual",
-    "gitRepo": "repositorio git",
-    "selectPath": "Seleccionar ruta"
-  },
   "branchSelector": {
     "badges": {
       "current": "actual",
@@ -62,7 +53,8 @@
     "subagent": {
       "defaultType": "Subagente"
     },
-    "loadingEarlierMessages": "Cargando mensajes anteriores"
+    "loadingEarlierMessages": "Cargando mensajes anteriores",
+    "processed": "Processed"
   },
   "language": {
     "browserDefault": "Predeterminado del navegador"
@@ -298,14 +290,8 @@
   "states": {
     "loading": "Cargando..."
   },
-  "orgSwitcher": {
-    "organizations": "Organizaciones",
-    "orgSettings": "Configuración de la organización"
-  },
   "ok": "OK",
   "error": "Error",
-  "signIn": "Iniciar sesión",
-  "signOut": "Cerrar sesión",
   "oauth": {
     "title": "Iniciar sesión en Vibe Kanban",
     "description": "Inicia sesión para unirte a organizaciones y compartir tareas con tu equipo",
@@ -341,6 +327,17 @@
     "active": "Activo",
     "archived": "Archivado",
     "loading": "Cargando...",
+    "loadingTitle": "Cargando espacios de trabajo",
+    "openingTitle": "Abriendo un nuevo espacio de trabajo",
+    "errorTitle": "No se pudieron cargar los espacios de trabajo",
+    "errorDescription": "Comprueba la conexión e inténtalo de nuevo.",
+    "degradedTitle": "Los espacios de trabajo pueden estar desactualizados",
+    "degradedDescription": "Los últimos espacios cargados siguen disponibles mientras se recupera la conexión.",
+    "emptyTitle": "Todavía no hay espacios de trabajo",
+    "emptyDescription": "Inicia un espacio de trabajo para ejecutar una tarea de Agent.",
+    "retrying": "Reintentando los espacios de trabajo",
+    "actionsFor": "Acciones para {{name}}",
+    "toggleLayout": "Cambiar el diseño de los espacios de trabajo",
     "notFound": "Espacio de trabajo no encontrado",
     "selectToStart": "Selecciona un espacio de trabajo para comenzar",
     "draft": "Borrador",
@@ -413,6 +410,11 @@
       "archived": "Archived",
       "completed": "Completed",
       "active": "Active"
+    },
+    "templatePicker": {
+      "title": "Choose a workflow template",
+      "blank": "Blank workflow",
+      "blankDescription": "Start from an empty canvas."
     }
   },
   "fileTree": {
@@ -506,10 +508,6 @@
     "diffs": {
       "title": "Diferencias y comentarios",
       "content": "El panel de diferencias rediseñado incluye un árbol de archivos con tus cambios. Comenta directamente en las diferencias para dar retroalimentación al agente, y ve los comentarios de GitHub cuando tu espacio de trabajo está vinculado a un PR."
-    },
-    "classicUi": {
-      "title": "Volver a la interfaz clásica",
-      "content": "Haz clic en el icono de salida en el lado izquierdo de la barra de navegación para volver al tablero kanban clásico. Para desactivar la nueva interfaz por completo, actualiza la opción \"Habilitar Beta de Workspaces\" en \"Funciones Beta\" en la configuración."
     }
   },
   "logs": {
@@ -806,17 +804,119 @@
     "yes": "Yes",
     "no": "No"
   },
-  "appBar": {
-    "kanban": {
-      "tooltip": "Inicia sesión para ver proyectos",
-      "title": "Tableros Kanban",
-      "description": "Inicia sesión para organizar tus agentes de codificación con tableros kanban."
-    }
-  },
   "errors": {
     "generic": "An unexpected error occurred"
   },
   "personal": "Personal",
+  "appShell": {
+    "skipToContent": "Saltar al contenido",
+    "modules": {
+      "dashboard": "Panel",
+      "search": "Buscar",
+      "projects": "Proyectos",
+      "workflows": "Flujos de trabajo",
+      "agents": "Agentes"
+    },
+    "navigation": {
+      "primary": "Principal",
+      "mobile": "Navegación móvil principal",
+      "sidebar": "Barra lateral del producto",
+      "rail": "Carril de navegación del producto"
+    },
+    "objects": {
+      "projects": "Proyectos",
+      "sessions": "Sesiones",
+      "noProjects": "No hay proyectos",
+      "noSessions": "No hay sesiones",
+      "retry": "Reintentar",
+      "loading": "Cargando {{label}}...",
+      "loadingMore": "Cargando más elementos",
+      "moreAvailable": "Hay más elementos disponibles",
+      "unavailable": "{{label}} no disponible",
+      "unavailableDescription": "No se pudo cargar el origen de {{label}}.",
+      "degraded": "{{label}} podría estar desactualizado",
+      "cachedAvailable": "Los elementos en caché siguen disponibles.",
+      "browse": "Explorar",
+      "browseTitle": "Explorar proyectos y sesiones",
+      "closeBrowse": "Cerrar proyectos y sesiones",
+      "agent": "Agente"
+    },
+    "system": {
+      "user": "Usuario",
+      "settings": "Configuración",
+      "version": "Versión",
+      "openMenu": "Abrir menú del producto",
+      "updateAvailable": "Actualización {{version}} disponible",
+      "updateReady": "Actualización {{version}} lista"
+    },
+    "search": {
+      "dialogLabel": "Búsqueda global",
+      "placeholder": "Buscar funciones, ajustes, agentes y objetos",
+      "close": "Cerrar búsqueda",
+      "suggested": "Destinos sugeridos",
+      "results": "Resultados de búsqueda",
+      "shortcutHint": "Arriba/Abajo navegar · Enter abrir · Esc cerrar",
+      "updating": "Actualizando resultados...",
+      "noMatches": "No hay destinos coincidentes",
+      "sourcePartial": "Los resultados de {{label}} pueden estar incompletos",
+      "cachedResults": "Los resultados en caché siguen disponibles para buscar.",
+      "sourceUnavailable": "Resultados de {{label}} no disponibles",
+      "otherSourcesAvailable": "Las demás fuentes de búsqueda siguen disponibles.",
+      "groups": {
+        "agents": "Agentes",
+        "configuration": "Configuración",
+        "tools": "Herramientas",
+        "featuresAndObjects": "Funciones y objetos"
+      },
+      "destinations": {
+        "appearance": "Apariencia",
+        "agentTools": "Herramientas de agentes",
+        "agentToolTypes": "MCP, habilidades y comandos"
+      },
+      "paths": {
+        "features": "Funciones / {{name}}",
+        "agents": "Agentes / {{name}}",
+        "settings": "Configuración / {{name}}",
+        "sessions": "Sesiones / {{name}}"
+      },
+      "kinds": {
+        "feature": "Función",
+        "setting": "Ajuste",
+        "provider": "Proveedor",
+        "mcp": "MCP",
+        "skill": "Habilidad",
+        "command": "Comando",
+        "project": "Proyecto",
+        "session": "Sesión",
+        "issue": "Incidencia",
+        "workflow": "Flujo de trabajo",
+        "run": "Ejecución"
+      }
+    },
+    "moduleLanding": {
+      "eyebrow": "Módulo del producto",
+      "projectsDescription": "Elige un proyecto de la barra lateral para abrir su vista Kanban.",
+      "workflowsDescription": "La creación de flujos de trabajo pertenece a cada proyecto. Abre un proyecto y selecciona su área de flujos.",
+      "agentsDescription": "La disponibilidad de agentes procede del host conectado. Las páginas de configuración usan las mismas capacidades del adaptador."
+    },
+    "dashboard": {
+      "eyebrow": "Resumen",
+      "title": "Panel",
+      "subtitle": "Proyectos, sesiones y disponibilidad del tiempo de ejecución actuales.",
+      "sections": {
+        "globalStatistics": "Estadísticas globales",
+        "attention": "Atención",
+        "activeRuns": "Ejecuciones activas",
+        "agentConfiguration": "Configuración del agente"
+      },
+      "unavailable": {
+        "globalStatistics": "Los totales canónicos de proyectos, incidencias y ejecuciones de agentes aún no están disponibles. Las filas paginadas de la barra lateral no se muestran como estadísticas globales.",
+        "attention": "Aún no hay una proyección canónica de atención. Esta sección es independiente y no infiere alertas del texto de los registros.",
+        "activeRuns": "La lista de sesiones no expone el estado de ejecución. Las ejecuciones activas aparecerán cuando la proyección canónica esté disponible.",
+        "agentConfiguration": "Aún no se exponen los resúmenes canónicos de conexión, modelo predeterminado, punto final de API y ejecuciones activas. Las capacidades de la API no sustituyen los datos de configuración."
+      }
+    }
+  },
   "agentCenter": {
     "eyebrow": "Runtime de Agent",
     "title": "Centro de Agents",
@@ -1123,7 +1223,10 @@
         "discover": "Detectar herramientas del proyecto",
         "refreshRequired": "Actualiza para cargar las herramientas de esta ruta."
       },
-      "kinds": { "mcp": "Servidores MCP", "skill": "Skills" },
+      "kinds": {
+        "mcp": "Servidores MCP",
+        "skill": "Skills"
+      },
       "states": {
         "loading": "Cargando inventario de herramientas...",
         "unavailable": "Inventario no disponible.",
@@ -1143,13 +1246,18 @@
         "error": "Error",
         "unsupported": "No compatible"
       },
-      "scopes": { "user": "Usuario", "project": "Proyecto" },
+      "scopes": {
+        "user": "Usuario",
+        "project": "Proyecto"
+      },
       "errors": {
         "noInstalledProvider": "No hay ningún Provider de Agent compatible instalado.",
         "noCopyTarget": "No hay otro Provider de Agent compatible instalado.",
         "operationFailed": "La operación de herramientas del Agent falló."
       },
-      "notices": { "pathCopied": "Ruta nativa copiada: {{path}}" },
+      "notices": {
+        "pathCopied": "Ruta nativa copiada: {{path}}"
+      },
       "remove": {
         "title": "¿Eliminar {{name}}?",
         "message": "Esto elimina la instalación nativa; no es lo mismo que desactivar la herramienta."
@@ -1222,7 +1330,7 @@
       "noteTitle": "Note",
       "noteContent": "Record this stage's goals, constraints, or notes.",
       "newStageTitle": "New stage",
-      "newStageDescription": "Group related Agent Steps in one stage."
+      "newStageDescription": "Group related Nodes in one stage."
     },
     "nodes": {
       "start": {
@@ -1234,7 +1342,7 @@
         "summary": "Exit point"
       },
       "agent": {
-        "label": "Agent Step",
+        "label": "Agent Node",
         "summary": "Role: {{role}}"
       },
       "condition": {
@@ -1394,13 +1502,13 @@
       "workflowNamePlaceholder": "Workflow name",
       "descriptionPlaceholder": "Description",
       "systemTemplateReadOnly": "System template (read-only)",
-      "addStep": "Add Step",
-      "addWorkflowStep": "Add workflow step",
-      "addAgentStep": "Add Agent Step",
+      "addStep": "Add Node",
+      "addWorkflowStep": "Add workflow Node",
+      "addAgentStep": "Add Agent Node",
       "nodePalette": "Node library",
-      "nodePaletteReadOnly": "Copy this template to add or drag steps.",
-      "searchSteps": "Search steps...",
-      "noStepTypesFound": "No step types found",
+      "nodePaletteReadOnly": "Copy this template to add or drag Nodes.",
+      "searchSteps": "Search Nodes...",
+      "noStepTypesFound": "No Node types found",
       "sections": {
         "execution": "Execution",
         "control": "Control",
@@ -1418,20 +1526,20 @@
       "copyToProject": "Copy to project",
       "copyName": "{{name}} (Copy)",
       "copySuffix": "copy",
-      "deleteAgentStepTitle": "Delete Agent Step",
-      "deleteAgentStepMessage": "This removes the step from the workflow. The existing session history is not copied into another step.",
-      "agentStepActions": "Agent step actions",
+      "deleteAgentStepTitle": "Delete Agent Node",
+      "deleteAgentStepMessage": "This removes the Node from the workflow. The existing session history is not copied into another Node.",
+      "agentStepActions": "Agent Node actions",
       "nodeActions": "Node actions",
       "openSession": "Open session",
       "duplicate": "Duplicate",
-      "runStep": "Run step",
+      "runStep": "Run Node",
       "edgeActions": "Edge actions",
-      "insertAgentStep": "Insert Agent Step",
+      "insertAgentStep": "Insert Node",
       "reconnect": "Reconnect",
       "reconnectSource": "Reconnect source",
       "reconnectTarget": "Reconnect target",
       "deleteEdge": "Delete edge",
-      "runWorkflowToExecuteStep": "Run the workflow to execute this step.",
+      "runWorkflowToExecuteStep": "Run the workflow to execute this Node.",
       "undo": "Deshacer",
       "redo": "Rehacer",
       "undoShortcut": "Deshacer (Ctrl/Cmd + Z)",
@@ -1444,11 +1552,16 @@
       "multiSelectionActions": "Acciones de los nodos seleccionados",
       "nodesSelected": "{{count}} nodos seleccionados",
       "deletedObjects": "{{count}} elemento eliminado",
-      "deletedObjects_other": "{{count}} elementos eliminados"
+      "deletedObjects_other": "{{count}} elementos eliminados",
+      "saveAsTemplate": "Save as template",
+      "savedTemplateName": "{{name}} template",
+      "templateSavedTitle": "Template saved",
+      "templateSavedMessage": "\"{{name}}\" is now available when creating workflow attempts."
     },
     "canvas": {
+      "needsConfiguration": "Needs configuration",
       "openSession": "Open session",
-      "runStep": "Run step",
+      "runStep": "Run Node",
       "runStepUnavailable": "Single-step run is not available yet.",
       "nodeFallback": "Node",
       "updatedForNextRunTitle": "Configuration was updated after the latest run and applies to the next run.",
@@ -1471,19 +1584,19 @@
       }
     },
     "agentEdit": {
-      "title": "Edit Agent Step",
-      "description": "Configure the session prompt and executor for this step.",
+      "title": "Edit Agent Node",
+      "description": "Configure the session prompt and executor for this Node.",
       "close": "Close editor",
-      "runningHint": "This step is currently running. Prompt and agent settings can be edited after it finishes.",
-      "nextRunHint": "Changes apply to the next workflow run or the next trigger of this step.",
-      "stepTitle": "Step title",
-      "defaultTitle": "Agent Step",
+      "runningHint": "This Node is currently running. Prompt and agent settings can be edited after it finishes.",
+      "nextRunHint": "Changes apply to the next workflow run or the next trigger of this Node.",
+      "stepTitle": "Node title",
+      "defaultTitle": "Agent Node",
       "defaultPrompt": "Default prompt",
-      "promptPlaceholder": "Describe what this agent step should do...",
+      "promptPlaceholder": "Describe what this Agent Node should do...",
       "executor": "Executor",
       "selectExecutor": "Select executor",
       "agent": "Agent",
-      "saveStep": "Save step"
+      "saveStep": "Save Node"
     },
     "router": {
       "toolbar": "Router",
@@ -1496,9 +1609,12 @@
       "save": "Save router"
     },
     "inspector": {
+      "addBranch": "Add branch",
+      "branchLabel": "Branch {{index}}",
+      "removeBranch": "Remove branch {{index}}",
       "selectNode": "Select a node to inspect",
       "selectEdge": "Select an edge to inspect",
-      "step": "Step",
+      "step": "Node",
       "routerAgent": "Router agent",
       "routerSharedNote": "Used by all Condition nodes in this workflow.",
       "configureRouter": "Configure",
@@ -1525,8 +1641,8 @@
       "deleteNodeDescription": "Elimina este nodo y sus conexiones del borrador."
     },
     "agentDraft": {
-      "defaultStepName": "Agent step",
-      "promptPlaceholder": "Describe this workflow step...",
+      "defaultStepName": "Agent Node",
+      "promptPlaceholder": "Describe this workflow Node...",
       "selectExecutor": "Select executor",
       "startRun": "Start run",
       "starting": "Starting..."
@@ -1601,7 +1717,7 @@
       "viewArenaResults": "Ver resultados de candidatos"
     },
     "debug": {
-      "noDebugData": "No debug data for this step.",
+      "noDebugData": "No debug data for this Node.",
       "runInput": "Run input",
       "noRunInput": "No run input.",
       "promptTemplate": "Prompt template",
@@ -1644,25 +1760,25 @@
       "progress": "Progress",
       "cancelRun": "Cancel run",
       "cancelFailed": "Failed to cancel workflow run.",
-      "retryFailed": "Failed to retry workflow step.",
-      "approveFailed": "Failed to approve workflow step.",
-      "rejectFailed": "Failed to reject workflow step.",
-      "stepsSucceeded": "{{completed}} / {{total}} steps succeeded",
+      "retryFailed": "Failed to retry workflow Node.",
+      "approveFailed": "Failed to approve workflow Node.",
+      "rejectFailed": "Failed to reject workflow Node.",
+      "stepsSucceeded": "{{completed}} / {{total}} Nodes succeeded",
       "runningCount": "{{count}} running",
       "waitingCount": "{{count}} waiting",
       "failedCount": "{{count}} failed",
       "skippedCount": "{{count}} skipped",
-      "stepsTimeline": "Steps timeline",
-      "noStepsExecuted": "No steps executed yet.",
+      "stepsTimeline": "Nodes timeline",
+      "noStepsExecuted": "No Nodes executed yet.",
       "session": "Session",
-      "retryStep": "Retry step",
+      "retryStep": "Retry Node",
       "codeChanges": "Code changes",
       "openWorkflowWorkspace": "Open workflow workspace",
       "inspectFiles": "Inspect files",
       "noCodeChanges": "No code changes associated with this run.",
-      "selectedStep": "Step: {{nodeId}}",
-      "selectStep": "Select a step",
-      "noStepSelected": "No step selected.",
+      "selectedStep": "Node: {{nodeId}}",
+      "selectStep": "Select a Node",
+      "noStepSelected": "No Node selected.",
       "input": "Input",
       "output": "Output",
       "noInput": "No input",
@@ -1680,19 +1796,21 @@
       "agentContribution": "Agent contribution",
       "totalTokens": "Total tokens",
       "estimatedCost": "Estimated cost",
-      "agentSteps": "Agent steps",
-      "controlSteps": "Control steps",
+      "agentSteps": "Agent Nodes",
+      "controlSteps": "Control Nodes",
       "notStarted": "Not started",
       "notAvailable": "N/A"
     },
     "agentSessions": {
       "title": "Agent sessions",
-      "none": "This Agent Step has not created a Session in this run yet.",
+      "none": "This Agent Node has not created a Session in this run yet.",
       "session": "Session {{id}}",
       "run": "Run {{id}}",
       "process": "Process {{id}}",
       "open": "Open",
-      "noOutputYet": "No output yet"
+      "noOutputYet": "No output yet",
+      "agentRun": "AgentRun {{id}}",
+      "projection": "Projection: {{status}}"
     },
     "arenaWinner": {
       "title": "Arena selection required",
@@ -1723,26 +1841,26 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "Agent Step Session",
+      "agentStepSession": "Agent Node Session",
       "conditionRouterSession": "Condition Router Session",
       "nodeSession": "Node Session",
       "sessionNotStarted": "Session not started",
-      "cockpit": "Agent Step Cockpit",
-      "runThisStep": "Run this step",
+      "cockpit": "Node Cockpit",
+      "runThisStep": "Run this Node",
       "editConfig": "Edit config",
       "inspectFiles": "Inspect files",
       "openWorkspace": "Open workspace",
       "lastRunFailed": "Last run failed",
-      "failedWithoutMessage": "The agent step failed without a captured error message.",
+      "failedWithoutMessage": "The Agent Node failed without a captured error message.",
       "runningNow": "Running now",
       "startedDuration": "Started {{started}} / {{duration}}",
       "agentWorking": "The agent is currently working in this session.",
-      "waitingForDecision": "This step is waiting for a decision before the workflow continues.",
+      "waitingForDecision": "This Node is waiting for a decision before the workflow continues.",
       "lastRunSucceeded": "Last run succeeded",
       "finishedDuration": "Finished {{finished}} / {{duration}}",
       "notStartedYet": "Not started yet",
       "readyForConversation": "The session is ready for manual conversation or the next workflow run.",
-      "noSessionYet": "This step does not have a session yet.",
+      "noSessionYet": "This Node does not have a session yet.",
       "technicalDetails": "Technical details",
       "sessionId": "Session ID",
       "processId": "Process ID",
@@ -1751,7 +1869,105 @@
       "noAgentResponse": "No agent response has been captured yet.",
       "nodePrompt": "Node prompt",
       "noPrompt": "No prompt has been captured yet.",
-      "rawRouterOutput": "Raw router output"
+      "rawRouterOutput": "Raw router output",
+      "orchestrationNodeExecutionId": "Orchestration node execution ID",
+      "agentRunId": "AgentRun ID",
+      "projection": "Projection status",
+      "projectionUnavailable": "Canonical AgentRun projection is unavailable; actions are disabled.",
+      "runtimeConnection": "Runtime connection",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "nativeConfigLoaded": "Native executor configuration loaded.",
+      "nativeConfigUnavailable": "Native executor configuration is unavailable.",
+      "eventRecorded": "Canonical event recorded."
+    },
+    "schedule": {
+      "button": "Scheduled task",
+      "title": "Set scheduled task",
+      "description": "Run this workflow automatically on a daily or weekly schedule.",
+      "summaryPrefix": "Scheduled task: {{summary}}",
+      "summaryUnset": "Not set",
+      "summaryPaused": "Paused",
+      "summaryDaily": "Daily {{time}}",
+      "summaryWeekly": "Every {{weekday}} {{time}}",
+      "summaryFailed": "Last run failed",
+      "enabled": "Enabled",
+      "paused": "Paused",
+      "frequency": "Frequency",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "time": "Time",
+      "weekday": "Weekday",
+      "timezone": "Timezone",
+      "contextIssue": "Context issue",
+      "inputText": "Run input",
+      "inputPlaceholder": "Describe what this run should do.",
+      "save": "Save",
+      "runNow": "Run now",
+      "delete": "Delete",
+      "nextRun": "Next run",
+      "lastTriggered": "Last triggered",
+      "lastStatus": "Last status",
+      "target": "Target",
+      "noIssue": "No issues available",
+      "none": "None",
+      "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
+      "deleteTitle": "Delete scheduled task?",
+      "deleteMessage": "This removes the schedule for this workflow. Existing workflow runs are kept.",
+      "status": {
+        "idle": "Idle",
+        "running": "Running",
+        "awaitingHuman": "Waiting for human",
+        "awaitingArena": "Waiting for arena",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "canceled": "Canceled"
+      },
+      "weekdays": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
+      },
+      "errors": {
+        "issueRequired": "Choose a context issue.",
+        "timeRequired": "Choose a valid time.",
+        "weekdayRequired": "Choose a weekday.",
+        "inputRequired": "Add run input before saving the scheduled task.",
+        "saveFailed": "Failed to save scheduled task.",
+        "runFailed": "Failed to run scheduled task.",
+        "runSkipped": "This run was skipped because the previous scheduled run is still active.",
+        "deleteFailed": "Failed to delete scheduled task."
+      }
     }
+  },
+  "projectWorkspaceDefault": {
+    "label": "Project default working location",
+    "loading": "Loading project working location",
+    "loadFailed": "Unable to load",
+    "loadFailedDescription": "The saved working location could not be resolved. Open project settings to review it.",
+    "empty": "Not configured",
+    "description": "This working location will prefill new executions. Git locations also include a base branch. You still confirm the actual workspace before an agent starts.",
+    "emptyDescription": "No hidden fallback will be used. Choose a working directory when starting an execution, or configure a project default.",
+    "configure": "Configure project working location",
+    "configureShort": "Configure"
+  },
+  "agentSessionResume": {
+    "open": "Recent agent sessions",
+    "recentLabel": "Last 3 days",
+    "extendedLabel": "Last 30 days",
+    "sourceHint": "Loaded from the agent's native resume history",
+    "loading": "Loading sessions...",
+    "error": "Failed to load sessions",
+    "degraded": "Recent sessions may be out of date",
+    "degradedHint": "The last loaded sessions remain available while native history is retried.",
+    "empty": "No recent sessions",
+    "more": "Show last 30 days",
+    "pending": "Will resume: {{title}} · {{time}}",
+    "clear": "Clear resume session"
   }
 }

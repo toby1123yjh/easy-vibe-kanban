@@ -31,7 +31,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const {
     workspaces: activeWorkspaces,
     archivedWorkspaces,
+    state: workspaceListState,
     isLoading: isLoadingList,
+    isRetrying: isWorkspacesListRetrying,
+    error: workspaceListError,
+    retry: retryWorkspaces,
   } = useWorkspaces();
 
   const {
@@ -213,7 +217,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       workspace,
       activeWorkspaces,
       archivedWorkspaces,
+      workspaceListState,
       isWorkspacesListLoading: isLoadingList,
+      isWorkspacesListRetrying,
+      workspaceListError,
+      retryWorkspaces,
       isLoading,
       isWorkspaceLoading: isLoadingWorkspace,
       workspaceError,
@@ -241,7 +249,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       workspace,
       activeWorkspaces,
       archivedWorkspaces,
+      workspaceListState,
       isLoadingList,
+      isWorkspacesListRetrying,
+      workspaceListError,
+      retryWorkspaces,
       isLoading,
       isLoadingWorkspace,
       workspaceError,

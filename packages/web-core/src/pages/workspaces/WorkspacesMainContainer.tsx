@@ -24,6 +24,7 @@ import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryU
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
 import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
+import type { WorkspaceDetailState } from '@/shared/lib/workspaceDetailState';
 
 /**
  * Isolated component that reads diffStats from WorkspaceContext.
@@ -137,6 +138,9 @@ interface WorkspacesMainContainerProps {
   repos: RepoWithTargetBranch[];
   onSelectSession: (sessionId: string) => void;
   isLoading: boolean;
+  workspaceState?: WorkspaceDetailState;
+  isRetryingWorkspace?: boolean;
+  onRetryWorkspace?: () => Promise<void>;
   isSessionsLoading?: boolean;
   isNewSessionMode: boolean;
   onStartNewSession: () => void;
@@ -154,6 +158,9 @@ export const WorkspacesMainContainer = forwardRef<
     repos,
     onSelectSession,
     isLoading,
+    workspaceState = 'ready',
+    isRetryingWorkspace = false,
+    onRetryWorkspace,
     isNewSessionMode,
     onStartNewSession,
   },
@@ -300,6 +307,9 @@ export const WorkspacesMainContainer = forwardRef<
               workspaceWithSession ? { id: workspaceWithSession.id } : undefined
             }
             isLoading={isLoading}
+            workspaceState={workspaceState}
+            isRetryingWorkspace={isRetryingWorkspace}
+            onRetryWorkspace={onRetryWorkspace}
             containerRef={containerRef}
             conversationContent={conversationContent}
             chatBoxContent={chatBoxContent}

@@ -244,7 +244,6 @@
   },
   "processes": {
     "noLogsAvailable": "ログがありません",
-    "agent": "Agent:",
     "backToList": "Back to list",
     "completed": "Completed: {{date}}",
     "deleted": "Deleted",
@@ -339,8 +338,6 @@
       "andLaterProcesses_one": "および後続の{{count}}件のプロセス",
       "andLaterProcesses_other": "および後続の{{count}}件のプロセス",
       "fromHistory": "を履歴から削除します。",
-      "codingAgentRuns_one": "{{count}}件のコーディングエージェント実行",
-      "codingAgentRuns_other": "{{count}}件のコーディングエージェント実行",
       "scriptProcesses_one": "{{count}}件のスクリプトプロセス",
       "scriptProcesses_other": "{{count}}件のスクリプトプロセス",
       "setupCleanupBreakdown": "(セットアップ{{setup}}件、クリーンアップ{{cleanup}}件)",

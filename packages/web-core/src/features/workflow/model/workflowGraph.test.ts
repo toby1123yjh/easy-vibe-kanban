@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_GRAPH_VERSION,
-  WORKFLOW_PORT_HANDLE_IDS,
   DEFAULT_SOURCE_HANDLE,
   DEFAULT_TARGET_HANDLE,
   createWorkflowCanvasStageGroup,
@@ -358,8 +357,8 @@ describe('workflow graph model', () => {
       expect(position?.y).toBeGreaterThanOrEqual(70);
     }
     expect(tidy.edges[0]).toMatchObject({
-      source_handle: WORKFLOW_PORT_HANDLE_IDS.right,
-      target_handle: WORKFLOW_PORT_HANDLE_IDS.left,
+      source_handle: DEFAULT_SOURCE_HANDLE,
+      target_handle: DEFAULT_TARGET_HANDLE,
     });
   });
 
@@ -447,31 +446,11 @@ describe('workflow graph model', () => {
         edge.target_handle,
       ])
     ).toEqual([
-      [
-        'start-branch',
-        WORKFLOW_PORT_HANDLE_IDS.right,
-        WORKFLOW_PORT_HANDLE_IDS.left,
-      ],
-      [
-        'branch-arena',
-        WORKFLOW_PORT_HANDLE_IDS.right,
-        WORKFLOW_PORT_HANDLE_IDS.left,
-      ],
-      [
-        'branch-approval',
-        WORKFLOW_PORT_HANDLE_IDS.right,
-        WORKFLOW_PORT_HANDLE_IDS.left,
-      ],
-      [
-        'arena-end',
-        WORKFLOW_PORT_HANDLE_IDS.right,
-        WORKFLOW_PORT_HANDLE_IDS.left,
-      ],
-      [
-        'approval-end',
-        WORKFLOW_PORT_HANDLE_IDS.right,
-        WORKFLOW_PORT_HANDLE_IDS.left,
-      ],
+      ['start-branch', DEFAULT_SOURCE_HANDLE, DEFAULT_TARGET_HANDLE],
+      ['branch-arena', 'branch:branch-arena', DEFAULT_TARGET_HANDLE],
+      ['branch-approval', 'branch:branch-approval', DEFAULT_TARGET_HANDLE],
+      ['arena-end', DEFAULT_SOURCE_HANDLE, DEFAULT_TARGET_HANDLE],
+      ['approval-end', DEFAULT_SOURCE_HANDLE, DEFAULT_TARGET_HANDLE],
     ]);
   });
 
@@ -666,8 +645,8 @@ describe('workflow graph model', () => {
       ],
     });
 
-    expect(graph.edges[0].source_handle).toBe(WORKFLOW_PORT_HANDLE_IDS.bottom);
-    expect(graph.edges[0].target_handle).toBe(WORKFLOW_PORT_HANDLE_IDS.top);
+    expect(graph.edges[0].source_handle).toBe(DEFAULT_SOURCE_HANDLE);
+    expect(graph.edges[0].target_handle).toBe(DEFAULT_TARGET_HANDLE);
   });
 
   it('does not overwrite existing v2 handles', () => {

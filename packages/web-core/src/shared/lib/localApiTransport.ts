@@ -25,6 +25,16 @@ export interface LocalApiTransport {
   ) => Promise<WebSocket> | WebSocket;
 }
 
+export function toFetchRequestInit(
+  options: LocalApiRequestOptions
+): RequestInit {
+  const requestInit = { ...options };
+  delete requestInit.hostScope;
+  delete requestInit.hostId;
+  delete requestInit.relayHostId;
+  return requestInit;
+}
+
 const LOCAL_ONLY_API_PREFIXES = [
   '/api/open-remote-editor/',
   '/api/relay-auth/server/',
@@ -90,16 +100,11 @@ function resolveScopedPath(
 
 const defaultTransport: LocalApiTransport = {
   request: (pathOrUrl, init = {}) => {
-    const {
-      hostScope: _hostScope,
-      hostId: _hostId,
-      relayHostId: _relayHostId,
-      ...requestInit
-    } = init;
-    return fetch(pathOrUrl, requestInit);
+    const scopedPath = resolveScopedPath(pathOrUrl, init);
+    return fetch(scopedPath, toFetchRequestInit(init));
   },
-  openWebSocket: (pathOrUrl, _options = {}) =>
-    new WebSocket(toAbsoluteWsUrl(pathOrUrl)),
+  openWebSocket: (pathOrUrl, options = {}) =>
+    new WebSocket(toAbsoluteWsUrl(resolveScopedPath(pathOrUrl, options))),
 };
 
 let transport: LocalApiTransport = defaultTransport;
@@ -112,15 +117,23 @@ export async function makeLocalApiRequest(
   pathOrUrl: string,
   init: LocalApiRequestOptions = {}
 ): Promise<Response> {
-  return transport.request(resolveScopedPath(pathOrUrl, init), init);
+  // Explicit Host identity is interpreted by each installed transport. This
+  // keeps Remote relay requests unscoped while the local default transport
+  // still turns the identity into /api/host/{id}.
+  const resolvedPath =
+    init.hostScope === 'explicit'
+      ? pathOrUrl
+      : resolveScopedPath(pathOrUrl, init);
+  return transport.request(resolvedPath, init);
 }
 
 export async function openLocalApiWebSocket(
   pathOrUrl: string,
   options: LocalApiWebSocketOptions = {}
 ): Promise<WebSocket> {
-  return transport.openWebSocket(
-    resolveScopedPath(pathOrUrl, options),
-    options
-  );
+  const resolvedPath =
+    options.hostScope === 'explicit'
+      ? pathOrUrl
+      : resolveScopedPath(pathOrUrl, options);
+  return transport.openWebSocket(resolvedPath, options);
 }

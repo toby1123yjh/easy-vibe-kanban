@@ -9,6 +9,10 @@ import type {
   TaskSummaryPage,
 } from 'shared/types';
 import { handleApiResponse } from './api';
+import {
+  createDiscoveryRequestOptions,
+  type DiscoveryRequestOptions,
+} from './executionDataDiscovery';
 import { makeLocalApiRequest } from './localApiTransport';
 
 interface CursorPageOptions<TCursor> {
@@ -16,9 +20,12 @@ interface CursorPageOptions<TCursor> {
   limit?: number;
 }
 
-export type ProjectPageOptions = CursorPageOptions<ProjectCursor>;
+export type ProjectPageOptions = CursorPageOptions<ProjectCursor> &
+  DiscoveryRequestOptions;
 
-export interface SessionPageOptions extends CursorPageOptions<SessionCursor> {
+export interface SessionPageOptions
+  extends CursorPageOptions<SessionCursor>,
+    DiscoveryRequestOptions {
   projectId?: string;
 }
 
@@ -48,11 +55,16 @@ function withQuery(path: string, params: URLSearchParams): string {
   return query ? `${path}?${query}` : path;
 }
 
-async function get<T>(path: string): Promise<T> {
-  // Keep the default `current` Host scope. Local routes can proxy to a
-  // selected Host, while Remote's installed transport relays the same path
-  // and fails closed when it has no Host context.
-  return handleApiResponse<T>(await makeLocalApiRequest(path));
+async function get<T>(
+  path: string,
+  options?: DiscoveryRequestOptions
+): Promise<T> {
+  // Discovery callers bind Host identity explicitly. Other API methods retain
+  // the default `current` Host behavior until their owners migrate.
+  const requestOptions = options
+    ? createDiscoveryRequestOptions(options)
+    : undefined;
+  return handleApiResponse<T>(await makeLocalApiRequest(path, requestOptions));
 }
 
 export const executionDataApi = {
@@ -64,7 +76,7 @@ export const executionDataApi = {
     const params = new URLSearchParams();
     appendCursor(params, options.cursor);
     appendLimit(params, options.limit);
-    return get(withQuery('/api/projects', params));
+    return get(withQuery('/api/projects', params), options);
   },
 
   listRecentSessions(options: SessionPageOptions = {}): Promise<SessionPage> {
@@ -72,7 +84,7 @@ export const executionDataApi = {
     if (options.projectId) params.set('project_id', options.projectId);
     appendCursor(params, options.cursor);
     appendLimit(params, options.limit);
-    return get(withQuery('/api/sessions/recent', params));
+    return get(withQuery('/api/sessions/recent', params), options);
   },
 
   listTasks(options: TaskPageOptions): Promise<TaskSummaryPage> {

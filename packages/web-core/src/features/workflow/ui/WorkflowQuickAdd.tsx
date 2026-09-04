@@ -69,7 +69,7 @@ export function WorkflowQuickAdd({
     <div
       role="dialog"
       aria-label={t('workflow.editor.addWorkflowStep', {
-        defaultValue: 'Add workflow step',
+        defaultValue: 'Add workflow Node',
       })}
       className="workflow-popover-surface w-[320px] rounded-xl border p-3 transition-opacity"
       style={{
@@ -89,7 +89,7 @@ export function WorkflowQuickAdd({
           if (event.key === 'Escape') onClose();
         }}
         placeholder={t('workflow.editor.searchSteps', {
-          defaultValue: 'Search steps...',
+          defaultValue: 'Search Nodes...',
         })}
       />
       <div role="listbox" className="mt-3 max-h-72 space-y-3 overflow-auto">
@@ -125,7 +125,7 @@ export function WorkflowQuickAdd({
         {filteredGroups.length === 0 ? (
           <div className="py-4 text-center text-xs text-low">
             {t('workflow.editor.noStepTypesFound', {
-              defaultValue: 'No step types found',
+              defaultValue: 'No Node types found',
             })}
           </div>
         ) : null}

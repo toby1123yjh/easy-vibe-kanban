@@ -31,6 +31,9 @@ export interface AppShellUpdateNotice {
 
 export interface AppShellCapabilityAdapter {
   deployment: 'local' | 'remote';
+  /** Host identity used for discovery requests; null means the local app host. */
+  discoveryHostId: string | null;
+  discoveryScopeKey: string;
   environmentLabel: string;
   versionLabel?: string | null;
   updateNotice?: AppShellUpdateNotice | null;
@@ -41,6 +44,47 @@ export interface AppShellCapabilityAdapter {
   navigateToRoute(route: string): void;
   openSettings(): void;
   openUser?(): void;
+}
+
+export type AppShellDiscoverySource = 'projects' | 'sessions';
+
+export function createAppShellDiscoveryScopeKey(options: {
+  deployment: AppShellCapabilityAdapter['deployment'];
+  hostId: string | null;
+  userId: string | null;
+}): string {
+  return JSON.stringify([
+    options.deployment,
+    options.hostId ?? 'no-host',
+    options.userId ?? 'anonymous',
+  ]);
+}
+
+export function appShellDiscoveryQueryKey(
+  scopeKey: string,
+  source: AppShellDiscoverySource
+) {
+  return ['app-shell', 'discovery', scopeKey, source] as const;
+}
+
+export type SidebarSectionViewState =
+  | 'loading'
+  | 'empty'
+  | 'error'
+  | 'degraded'
+  | 'ready';
+
+export function deriveSidebarSectionViewState(options: {
+  itemCount: number;
+  isLoading: boolean;
+  isError: boolean;
+}): SidebarSectionViewState {
+  if (options.itemCount > 0) {
+    return options.isError ? 'degraded' : 'ready';
+  }
+  if (options.isLoading) return 'loading';
+  if (options.isError) return 'error';
+  return 'empty';
 }
 
 export function activateShellModuleCapability(

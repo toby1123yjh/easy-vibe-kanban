@@ -42,8 +42,7 @@
   line-height: var(--vk-line-height-lg);
 }
 
-.vk-primary-action,
-.vk-project-directory__load-more {
+.vk-primary-action {
   display: inline-flex;
   min-height: var(--vk-button-height);
   align-items: center;
@@ -60,13 +59,11 @@
   cursor: pointer;
 }
 
-.vk-primary-action:hover,
-.vk-project-directory__load-more:hover {
+.vk-primary-action:hover {
   background: var(--vk-button-primary-surface-hover);
 }
 
-.vk-primary-action:disabled,
-.vk-project-directory__load-more:disabled {
+.vk-primary-action:disabled {
   color: var(--vk-button-disabled-text);
   background: var(--vk-button-disabled-surface);
   cursor: not-allowed;
@@ -177,42 +174,6 @@
   color: var(--vk-text-high);
 }
 
-.vk-project-card__menu {
-  position: absolute;
-  top: 48px;
-  right: var(--vk-space-3);
-  z-index: var(--vk-z-popover);
-  min-width: 150px;
-  padding: var(--vk-space-1);
-  border: 1px solid var(--vk-border-subtle);
-  border-radius: var(--vk-radius-md);
-  background: var(--vk-surface-elevated);
-  box-shadow: var(--vk-shadow-popover);
-}
-
-.vk-project-card__menu > button {
-  display: flex;
-  width: 100%;
-  min-height: 32px;
-  align-items: center;
-  gap: var(--vk-space-2);
-  padding: 0 var(--vk-space-2);
-  border: 0;
-  border-radius: var(--vk-radius-sm);
-  color: var(--vk-text-normal);
-  background: transparent;
-  font: inherit;
-  font-size: var(--vk-font-size-2xs);
-  cursor: pointer;
-}
-
-.vk-project-card__menu > button:hover,
-.vk-project-card__menu > button:focus-visible {
-  outline: 0;
-  color: var(--vk-text-high);
-  background: var(--vk-surface-hover);
-}
-
 .vk-project-card__cover {
   display: grid;
   min-height: 116px;
@@ -241,17 +202,10 @@
 }
 
 .vk-project-directory__state {
-  display: flex;
   min-height: 180px;
-  align-items: center;
-  justify-content: center;
-  gap: var(--vk-space-2);
-  padding: var(--vk-space-6);
   border: 1px dashed var(--vk-border-subtle);
   border-radius: var(--vk-radius-lg);
-  color: var(--vk-empty-state-text);
   background: var(--vk-surface-primary);
-  font-size: var(--vk-font-size-xs);
 }
 
 .vk-project-surface-state {
@@ -278,25 +232,8 @@
   cursor: pointer;
 }
 
-.vk-project-directory__state[role='alert'] {
-  color: var(--vk-error-state-text);
-  background: var(--vk-error-state-surface);
-}
-
-.vk-project-directory__state button {
-  border: 0;
-  color: var(--vk-button-link-text);
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.vk-project-directory__load-more {
-  justify-self: center;
-}
-
 .vk-project-directory__progress,
-.vk-project-directory__page-error {
+.vk-project-directory__sentinel {
   display: flex;
   min-height: 36px;
   align-items: center;
@@ -306,16 +243,26 @@
   font-size: var(--vk-font-size-2xs);
 }
 
-.vk-project-directory__page-error {
-  color: var(--vk-error-state-text);
+.vk-project-directory__degraded {
+  align-items: flex-start;
+  border: 1px solid var(--vk-status-waiting-border);
+  text-align: left;
 }
 
-.vk-project-directory__page-error button {
+.vk-state-action {
+  min-height: 44px;
+  padding: 0 var(--vk-space-3);
   border: 0;
   color: var(--vk-button-link-text);
   background: transparent;
   font: inherit;
+  font-size: var(--vk-font-size-xs);
   cursor: pointer;
+}
+
+.vk-state-action:disabled {
+  color: var(--vk-text-disabled);
+  cursor: not-allowed;
 }
 
 .vk-project-kanban {
@@ -545,7 +492,7 @@
 .vk-kanban-column button:focus-visible,
 .vk-kanban-task-preview:focus-visible,
 .vk-kanban-more-tasks:focus-visible,
-.vk-project-directory__load-more:focus-visible,
+.vk-state-action:focus-visible,
 .vk-project-surface-state button:focus-visible,
 .vk-issue-panel__header button:focus-visible,
 .vk-issue-task-row:focus-visible,
@@ -1145,6 +1092,10 @@
 @media (hover: none), (pointer: coarse) {
   .vk-project-card__menu-trigger {
     opacity: 1;
+    width: 44px;
+    height: 44px;
+    top: var(--vk-space-2);
+    right: var(--vk-space-2);
   }
 
   .vk-kanban-issue-card {
@@ -1162,6 +1113,13 @@
   .vk-kanban-issue-card__menu {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .vk-kanban-column__header button,
+  .vk-kanban-issue-card__menu,
+  .vk-issue-panel__header button {
+    width: 44px;
+    height: 44px;
   }
 }
 

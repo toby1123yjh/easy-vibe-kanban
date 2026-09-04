@@ -6,6 +6,7 @@ import type {
   Workspace as ApiWorkspace,
 } from 'shared/types';
 import type { SidebarWorkspace } from '@/shared/hooks/useWorkspaces';
+import type { WorkspaceListState } from '@/shared/lib/workspaceListState';
 import { DiffSide } from '@/shared/types/diff';
 
 export interface NormalizedGitHubComment {
@@ -33,7 +34,11 @@ export interface WorkspaceContextValue {
   activeWorkspaces: SidebarWorkspace[];
   /** Archived workspaces for sidebar display */
   archivedWorkspaces: SidebarWorkspace[];
+  workspaceListState: WorkspaceListState;
   isWorkspacesListLoading: boolean;
+  isWorkspacesListRetrying: boolean;
+  workspaceListError: unknown;
+  retryWorkspaces: () => Promise<void>;
   isLoading: boolean;
   isWorkspaceLoading: boolean;
   workspaceError: unknown;

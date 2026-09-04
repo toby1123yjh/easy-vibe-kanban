@@ -1,0 +1,33 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--vk-surface-canvas, #f8fafc);
+  color: var(--vk-text-normal, #1f2937);
+  font-family: system-ui, sans-serif;
+}
+
+.fixture-shell {
+  width: min(1120px, calc(100vw - 32px));
+  min-width: 0;
+  margin: 24px auto;
+}
+
+@media (max-width: 760px) {
+  .fixture-shell {
+    width: calc(100vw - 16px);
+    margin: 12px auto;
+  }
+}

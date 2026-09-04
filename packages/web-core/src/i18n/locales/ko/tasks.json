@@ -244,7 +244,6 @@
   },
   "processes": {
     "noLogsAvailable": "로그가 없습니다",
-    "agent": "Agent:",
     "backToList": "Back to list",
     "completed": "Completed: {{date}}",
     "deleted": "Deleted",
@@ -339,8 +338,6 @@
       "andLaterProcesses_one": "및 이후 {{count}}개 프로세스",
       "andLaterProcesses_other": "및 이후 {{count}}개 프로세스",
       "fromHistory": "를 히스토리에서 삭제합니다.",
-      "codingAgentRuns_one": "{{count}}개 코딩 에이전트 실행",
-      "codingAgentRuns_other": "{{count}}개 코딩 에이전트 실행",
       "scriptProcesses_one": "{{count}}개 스크립트 프로세스",
       "scriptProcesses_other": "{{count}}개 스크립트 프로세스",
       "setupCleanupBreakdown": "(설정 {{setup}}개, 정리 {{cleanup}}개)",

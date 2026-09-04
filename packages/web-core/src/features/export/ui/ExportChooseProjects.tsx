@@ -152,11 +152,17 @@ export function ExportChooseProjects({
 
       {organizations.length > 1 && (
         <div className="space-y-half">
-          <label className="text-sm font-medium text-high">Organization</label>
+          <label
+            htmlFor="export-organization"
+            className="text-sm font-medium text-high"
+          >
+            Organization
+          </label>
           <select
+            id="export-organization"
             value={selectedOrgId ?? ''}
             onChange={(e) => onOrgChange(e.target.value)}
-            className="w-full rounded-sm border border-border bg-primary px-base py-half text-sm text-high"
+            className="min-h-11 w-full rounded-sm border border-border bg-primary px-base py-half text-sm text-high focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand sm:min-h-8"
           >
             {organizations.map((org) => (
               <option key={org.id} value={org.id}>
@@ -213,8 +219,9 @@ export function ExportChooseProjects({
               {selectedProjectIds.size} of {projects.length} selected
             </span>
             <button
+              type="button"
               onClick={handleSelectAll}
-              className="text-sm text-brand hover:text-brand/80"
+              className="min-h-11 px-half text-sm text-brand hover:text-brand/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand sm:min-h-8"
             >
               {selectedProjectIds.size === projects.length
                 ? 'Deselect all'
@@ -227,8 +234,9 @@ export function ExportChooseProjects({
               return (
                 <button
                   key={project.id}
+                  type="button"
                   onClick={() => handleToggleProject(project.id)}
-                  className="w-full flex items-center gap-base px-base py-half text-sm text-left hover:bg-primary transition-colors"
+                  className="min-h-11 w-full flex items-center gap-base px-base py-half text-sm text-left hover:bg-primary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand sm:min-h-8"
                 >
                   {isSelected ? (
                     <CheckCircleIcon
@@ -248,7 +256,7 @@ export function ExportChooseProjects({
         </div>
       )}
 
-      <label className="flex items-start gap-base cursor-pointer">
+      <label className="flex min-h-11 items-start gap-base cursor-pointer">
         <input
           type="checkbox"
           checked={includeAttachments}
@@ -270,7 +278,7 @@ export function ExportChooseProjects({
         type="button"
         onClick={handleContinue}
         disabled={selectionState !== 'ready' || selectedProjectIds.size === 0}
-        className="w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-white hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="min-h-11 w-full rounded-sm bg-brand px-base py-half text-sm font-medium text-white hover:bg-brand/90 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand disabled:opacity-50 disabled:cursor-not-allowed sm:min-h-8"
       >
         Export
       </button>

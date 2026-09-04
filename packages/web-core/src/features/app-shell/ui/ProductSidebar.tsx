@@ -26,30 +26,48 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import type { ProjectListItem, SessionListItem } from 'shared/types';
+import {
+  DegradedState,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@vibe/ui/components/StateSurface';
 import type {
   AppShellCapabilityAdapter,
   AppShellUpdateNotice,
   ShellModule,
 } from '../model/appShell';
-import { activateShellModuleCapability } from '../model/appShell';
+import {
+  activateShellModuleCapability,
+  deriveSidebarSectionViewState,
+} from '../model/appShell';
 
 const MODULES: readonly {
   id: ShellModule;
-  label: string;
+  labelKey: `appShell.modules.${ShellModule}`;
   icon: LucideIcon;
 }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: Gauge },
-  { id: 'search', label: 'Search', icon: Search },
-  { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'workflows', label: 'Workflows', icon: GitBranch },
-  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'dashboard', labelKey: 'appShell.modules.dashboard', icon: Gauge },
+  { id: 'search', labelKey: 'appShell.modules.search', icon: Search },
+  { id: 'projects', labelKey: 'appShell.modules.projects', icon: FolderKanban },
+  {
+    id: 'workflows',
+    labelKey: 'appShell.modules.workflows',
+    icon: GitBranch,
+  },
+  { id: 'agents', labelKey: 'appShell.modules.agents', icon: Bot },
 ];
 
-function getUpdateNoticeLabel(updateNotice: AppShellUpdateNotice) {
+function getUpdateNoticeLabel(
+  updateNotice: AppShellUpdateNotice,
+  t: TFunction<'common'>
+) {
   return updateNotice.phase === 'restart-ready'
-    ? `Update ${updateNotice.version} ready`
-    : `Update ${updateNotice.version} available`;
+    ? t('appShell.system.updateReady', { version: updateNotice.version })
+    : t('appShell.system.updateAvailable', { version: updateNotice.version });
 }
 
 export interface SidebarSectionState<T> {
@@ -78,34 +96,73 @@ interface ProductSidebarProps {
 
 function SectionState({
   state,
+  label,
   emptyLabel,
 }: {
   state: SidebarSectionState<unknown>;
+  label: string;
   emptyLabel: string;
 }) {
-  if (state.isLoading) {
-    return (
-      <p className="vk-sidebar-state" role="status">
-        <LoaderCircle className="vk-spin" aria-hidden="true" size={14} />
-        Loading…
-      </p>
-    );
+  const { t } = useTranslation('common');
+  const viewState = deriveSidebarSectionViewState({
+    itemCount: state.items.length,
+    isLoading: state.isLoading,
+    isError: state.isError,
+  });
+  const retryAction = (
+    <button type="button" className="vk-state-retry" onClick={state.retry}>
+      {t('appShell.objects.retry')}
+    </button>
+  );
+
+  switch (viewState) {
+    case 'loading':
+      return (
+        <LoadingState
+          compact
+          className="vk-sidebar-state-surface"
+          title={t('appShell.objects.loading', {
+            label: label.toLocaleLowerCase(),
+          })}
+        />
+      );
+    case 'empty':
+      return (
+        <EmptyState
+          compact
+          className="vk-sidebar-state-surface"
+          title={emptyLabel}
+        />
+      );
+    case 'error':
+      return (
+        <ErrorState
+          compact
+          className="vk-sidebar-state-surface"
+          title={t('appShell.objects.unavailable', { label })}
+          description={t('appShell.objects.unavailableDescription', { label })}
+          action={retryAction}
+        />
+      );
+    case 'degraded':
+      return (
+        <DegradedState
+          compact
+          className="vk-sidebar-state-surface"
+          title={t('appShell.objects.degraded', { label })}
+          description={t('appShell.objects.cachedAvailable')}
+          action={retryAction}
+          role="status"
+          aria-live="polite"
+        />
+      );
+    case 'ready':
+      return null;
   }
-  if (state.isError) {
-    return (
-      <button type="button" className="vk-sidebar-state" onClick={state.retry}>
-        <RefreshCw aria-hidden="true" size={14} />
-        Retry
-      </button>
-    );
-  }
-  if (state.items.length === 0) {
-    return <p className="vk-sidebar-state">{emptyLabel}</p>;
-  }
-  return null;
 }
 
 function AutoPageSentinel({ state }: { state: SidebarSectionState<unknown> }) {
+  const { t } = useTranslation('common');
   const triggerRef = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, loadNextPage } = state;
 
@@ -131,13 +188,15 @@ function AutoPageSentinel({ state }: { state: SidebarSectionState<unknown> }) {
       className="vk-sidebar-load-more"
       role="status"
       aria-label={
-        isFetchingNextPage ? 'Loading more items' : 'More items available'
+        isFetchingNextPage
+          ? t('appShell.objects.loadingMore')
+          : t('appShell.objects.moreAvailable')
       }
     >
       {isFetchingNextPage && (
         <>
           <LoaderCircle className="vk-spin" aria-hidden="true" size={13} />
-          Loading…
+          {t('appShell.objects.loadingMore')}
         </>
       )}
     </div>
@@ -228,10 +287,15 @@ function PrimaryNavigation({
   onOpenObjects?(): void;
 }) {
   const reasonIdPrefix = useId();
+  const { t } = useTranslation('common');
 
   return (
-    <nav className="vk-primary-nav" aria-label="Primary">
-      {MODULES.map(({ id, label, icon: Icon }) => {
+    <nav
+      className="vk-primary-nav"
+      aria-label={t('appShell.navigation.primary')}
+    >
+      {MODULES.map(({ id, labelKey, icon: Icon }) => {
+        const label = t(labelKey);
         const capability =
           id === 'search' ? null : adapter.moduleCapabilities[id];
         const unavailableReason =
@@ -288,8 +352,8 @@ function PrimaryNavigation({
         <button
           type="button"
           className="vk-primary-nav__item"
-          aria-label="Browse projects and sessions"
-          title="Browse projects and sessions"
+          aria-label={t('appShell.objects.browseTitle')}
+          title={t('appShell.objects.browseTitle')}
           onClick={onOpenObjects}
         >
           <Menu aria-hidden="true" size={18} />
@@ -316,15 +380,20 @@ function ObjectLists({
   | 'onSession'
 >) {
   const labelPrefix = useId();
+  const { t } = useTranslation('common');
   const projectsLabelId = `${labelPrefix}-projects-label`;
   const sessionsLabelId = `${labelPrefix}-sessions-label`;
   return (
     <div className="vk-object-lists" data-testid="shell-object-scroll">
       <section aria-labelledby={projectsLabelId}>
         <h2 id={projectsLabelId} className="vk-sidebar-section-label">
-          Projects
+          {t('appShell.objects.projects')}
         </h2>
-        <SectionState state={projects} emptyLabel="No projects" />
+        <SectionState
+          state={projects}
+          label={t('appShell.objects.projects')}
+          emptyLabel={t('appShell.objects.noProjects')}
+        />
         <VolumeAwareList
           items={projects.items}
           estimateSize={34}
@@ -349,9 +418,13 @@ function ObjectLists({
 
       <section aria-labelledby={sessionsLabelId}>
         <h2 id={sessionsLabelId} className="vk-sidebar-section-label">
-          Sessions
+          {t('appShell.objects.sessions')}
         </h2>
-        <SectionState state={sessions} emptyLabel="No sessions" />
+        <SectionState
+          state={sessions}
+          label={t('appShell.objects.sessions')}
+          emptyLabel={t('appShell.objects.noSessions')}
+        />
         <VolumeAwareList
           items={sessions.items}
           estimateSize={48}
@@ -363,14 +436,14 @@ function ObjectLists({
               aria-current={
                 session.workspace_id === activeWorkspaceId ? 'page' : undefined
               }
-              aria-label={`${session.title}, ${session.executor ?? 'Agent'}`}
-              title={`${session.title} — ${session.executor ?? 'Agent'}`}
+              aria-label={`${session.title}, ${session.executor ?? t('appShell.objects.agent')}`}
+              title={`${session.title} — ${session.executor ?? t('appShell.objects.agent')}`}
               onClick={() => onSession(session.workspace_id)}
             >
               <MessageSquareText aria-hidden="true" size={15} />
               <span>
                 {session.title}
-                <small>{session.executor ?? 'Agent'}</small>
+                <small>{session.executor ?? t('appShell.objects.agent')}</small>
               </span>
               <ChevronRight aria-hidden="true" size={14} />
             </button>
@@ -395,6 +468,7 @@ function ObjectDrawer(props: ProductSidebarProps) {
   const restoreTargetRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef(true);
   const titleId = useId();
+  const { t } = useTranslation('common');
   const onObjectDrawerOpenChange = props.onObjectDrawerOpenChange;
 
   const dismiss = useCallback(
@@ -480,11 +554,11 @@ function ObjectDrawer(props: ProductSidebarProps) {
         aria-labelledby={titleId}
       >
         <div className="vk-object-drawer__header">
-          <strong id={titleId}>Browse projects and sessions</strong>
+          <strong id={titleId}>{t('appShell.objects.browseTitle')}</strong>
           <button
             type="button"
             data-drawer-initial-focus
-            aria-label="Close projects and sessions"
+            aria-label={t('appShell.objects.closeBrowse')}
             onClick={() => dismiss(true)}
           >
             <X aria-hidden="true" size={18} />
@@ -514,6 +588,7 @@ function MobileHeader({
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
+  const { t } = useTranslation('common');
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -546,7 +621,7 @@ function MobileHeader({
   };
   const updateNotice = adapter.updateNotice;
   const updateNoticeLabel = updateNotice
-    ? getUpdateNoticeLabel(updateNotice)
+    ? getUpdateNoticeLabel(updateNotice, t)
     : null;
 
   return (
@@ -561,12 +636,12 @@ function MobileHeader({
       <div className="vk-mobile-header__actions">
         <button type="button" onClick={onBrowse}>
           <Menu aria-hidden="true" size={18} />
-          <span>Browse</span>
+          <span>{t('appShell.objects.browse')}</span>
         </button>
         <button
           ref={triggerRef}
           type="button"
-          aria-label="Open product menu"
+          aria-label={t('appShell.system.openMenu')}
           aria-expanded={menuOpen}
           aria-controls={menuId}
           onClick={() => setMenuOpen((open) => !open)}
@@ -588,7 +663,7 @@ function MobileHeader({
               onClick={() => invoke(adapter.openUser!)}
             >
               <CircleUserRound aria-hidden="true" size={17} />
-              {adapter.userLabel ?? 'User'}
+              {adapter.userLabel ?? t('appShell.system.user')}
             </button>
           )}
           {updateNotice && (
@@ -607,10 +682,12 @@ function MobileHeader({
             onClick={() => invoke(adapter.openSettings)}
           >
             <Settings aria-hidden="true" size={17} />
-            Settings
+            {t('appShell.system.settings')}
           </button>
           {adapter.versionLabel && (
-            <small role="none">Version {adapter.versionLabel}</small>
+            <small role="none">
+              {t('appShell.system.version')} {adapter.versionLabel}
+            </small>
           )}
         </div>
       )}
@@ -631,9 +708,10 @@ function Identity({ adapter }: { adapter: AppShellCapabilityAdapter }) {
 }
 
 function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
+  const { t } = useTranslation('common');
   const updateNotice = adapter.updateNotice;
   const updateNoticeLabel = updateNotice
-    ? getUpdateNoticeLabel(updateNotice)
+    ? getUpdateNoticeLabel(updateNotice, t)
     : null;
 
   return (
@@ -641,12 +719,12 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
       {adapter.openUser && (
         <button type="button" onClick={adapter.openUser}>
           <CircleUserRound aria-hidden="true" size={17} />
-          <span>{adapter.userLabel ?? 'User'}</span>
+          <span>{adapter.userLabel ?? t('appShell.system.user')}</span>
         </button>
       )}
       <button type="button" onClick={adapter.openSettings}>
         <Settings aria-hidden="true" size={17} />
-        <span>Settings</span>
+        <span>{t('appShell.system.settings')}</span>
       </button>
       {updateNotice && (
         <button
@@ -666,9 +744,10 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
 
 export function ProductSidebar(props: ProductSidebarProps) {
   const mobileReasonIdPrefix = useId();
+  const { t } = useTranslation('common');
   const updateNotice = props.adapter.updateNotice;
   const updateNoticeLabel = updateNotice
-    ? getUpdateNoticeLabel(updateNotice)
+    ? getUpdateNoticeLabel(updateNotice, t)
     : '';
 
   return (
@@ -685,7 +764,10 @@ export function ProductSidebar(props: ProductSidebarProps) {
         adapter={props.adapter}
         onBrowse={() => props.onObjectDrawerOpenChange(true)}
       />
-      <aside className="vk-product-sidebar" aria-label="Product sidebar">
+      <aside
+        className="vk-product-sidebar"
+        aria-label={t('appShell.navigation.sidebar')}
+      >
         <Identity adapter={props.adapter} />
         <PrimaryNavigation
           adapter={props.adapter}
@@ -696,7 +778,10 @@ export function ProductSidebar(props: ProductSidebarProps) {
         <SystemZone adapter={props.adapter} />
       </aside>
 
-      <aside className="vk-product-rail" aria-label="Product navigation rail">
+      <aside
+        className="vk-product-rail"
+        aria-label={t('appShell.navigation.rail')}
+      >
         <span className="vk-shell-identity__mark">VK</span>
         <PrimaryNavigation
           adapter={props.adapter}
@@ -721,8 +806,8 @@ export function ProductSidebar(props: ProductSidebarProps) {
           <button
             type="button"
             className="vk-product-rail__settings"
-            aria-label="Settings"
-            title="Settings"
+            aria-label={t('appShell.system.settings')}
+            title={t('appShell.system.settings')}
             onClick={props.adapter.openSettings}
           >
             <Settings aria-hidden="true" size={18} />
@@ -732,8 +817,12 @@ export function ProductSidebar(props: ProductSidebarProps) {
 
       {props.objectDrawerOpen && <ObjectDrawer {...props} />}
 
-      <nav className="vk-bottom-nav" aria-label="Primary mobile navigation">
-        {MODULES.map(({ id, label, icon: Icon }) => {
+      <nav
+        className="vk-bottom-nav"
+        aria-label={t('appShell.navigation.mobile')}
+      >
+        {MODULES.map(({ id, labelKey, icon: Icon }) => {
+          const label = t(labelKey);
           const active = id !== 'search' && id === props.activeModule;
           const capability =
             id === 'search' ? null : props.adapter.moduleCapabilities[id];

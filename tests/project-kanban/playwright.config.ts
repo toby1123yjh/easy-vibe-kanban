@@ -1,20 +1,20 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices } from '@playwright/test';
 
 const port = 4178;
 const repoRoot = process.cwd();
 
 export default defineConfig({
-  testDir: "./specs",
+  testDir: './specs',
   outputDir: `${repoRoot}/test-results/project-kanban`,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: "list",
+  reporter: 'list',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    screenshot: "only-on-failure",
-    trace: "on-first-retry",
+    screenshot: 'only-on-failure',
+    trace: 'on-first-retry',
   },
   webServer: {
     command: `pnpm exec vite --host 127.0.0.1 --port ${port} --strictPort --config tests/project-kanban/vite.config.ts`,
@@ -24,10 +24,10 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      name: 'chromium',
       use: {
-        ...devices["Desktop Chrome"],
-        ...(process.env.CI ? {} : { channel: "chrome" }),
+        ...devices['Desktop Chrome'],
+        ...(process.env.CI ? {} : { channel: 'chrome' }),
       },
     },
   ],

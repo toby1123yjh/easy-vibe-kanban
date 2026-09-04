@@ -107,7 +107,9 @@ export default defineConfig({
     themeBootstrapPlugin(),
     tanstackRouter({
       target: 'react',
-      autoCodeSplitting: false,
+      // Keep the shell and route entry points separate so heavy Workflow,
+      // Arena, editor, and terminal modules are fetched only when opened.
+      autoCodeSplitting: true,
     }),
     react({
       babel: {

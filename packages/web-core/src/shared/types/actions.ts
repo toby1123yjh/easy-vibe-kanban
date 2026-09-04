@@ -223,9 +223,6 @@ export type ActionDefinition =
   | GitActionDefinition
   | IssueActionDefinition;
 
-// Divider markers
-export const NavbarDivider = { type: 'divider' } as const;
-export type NavbarItem = ActionDefinition | typeof NavbarDivider;
 export const ContextBarDivider = { type: 'divider' } as const;
 export type ContextBarItem = ActionDefinition | typeof ContextBarDivider;
 

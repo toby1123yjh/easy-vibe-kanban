@@ -17,6 +17,7 @@ import {
   AGENT_WORKBENCH_INSPECTOR_TABS,
   type AgentWorkbenchInspectorTab,
 } from '../model';
+import { useAgentWorkbenchInspectorVisibility } from './AgentWorkbenchInspectorVisibility';
 
 function modeToTab(
   mode: RightMainPanelMode | null
@@ -68,6 +69,7 @@ export function AgentWorkbenchInspector({
 }: AgentWorkbenchInspectorProps) {
   const { t } = useTranslation('common');
   const tabsId = useId();
+  const inspectorVisible = useAgentWorkbenchInspectorVisibility();
   const storageKey = `vk-agent-workbench-inspector-tab:${workspace?.id ?? 'none'}`;
   const [activeTab, setActiveTab] = useState<AgentWorkbenchInspectorTab>(
     modeToTab(rightMainPanelMode) ?? 'changes'
@@ -211,22 +213,14 @@ export function AgentWorkbenchInspector({
         ))}
       </div>
       <div className="relative min-h-0 flex-1">
-        {AGENT_WORKBENCH_INSPECTOR_TABS.map((tab) => (
-          <div
-            key={tab}
-            id={`${tabsId}-panel-${tab}`}
-            role="tabpanel"
-            aria-labelledby={`${tabsId}-tab-${tab}`}
-            aria-hidden={activeTab !== tab}
-            hidden={activeTab !== tab}
-            className={cn(
-              'absolute inset-0 min-h-0 overflow-hidden',
-              activeTab !== tab && 'invisible pointer-events-none'
-            )}
-          >
-            {panels[tab]}
-          </div>
-        ))}
+        <div
+          id={`${tabsId}-panel-${activeTab}`}
+          role="tabpanel"
+          aria-labelledby={`${tabsId}-tab-${activeTab}`}
+          className="absolute inset-0 min-h-0 overflow-hidden"
+        >
+          {inspectorVisible ? panels[activeTab] : null}
+        </div>
       </div>
     </div>
   );

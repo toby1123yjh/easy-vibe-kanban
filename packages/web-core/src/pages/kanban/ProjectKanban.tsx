@@ -24,6 +24,7 @@ import {
   closeKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
+import { deriveProjectBoardAccessState } from '@/features/projects/model/projectBoardAccessState';
 
 /**
  * Component that registers project mutations with ActionsContext.
@@ -264,7 +265,7 @@ function useFindProjectById(projectId: string | undefined) {
  * Note: issue creation is composer-store state on top of /projects/:projectId.
  *
  * Note: This component is rendered inside SharedAppLayout which provides
- * NavbarContainer, AppBar, and SyncErrorProvider.
+ * the shared App Shell and SyncErrorProvider.
  */
 export function ProjectKanban() {
   const { projectId, hostId, hasInvalidWorkspaceCreateDraftId } =
@@ -304,9 +305,16 @@ export function ProjectKanban() {
   const { organizationId, isLoading, error, retry } = useFindProjectById(
     projectId ?? undefined
   );
+  const accessState = deriveProjectBoardAccessState({
+    authLoaded,
+    isLoading,
+    isSignedIn,
+    hasResolutionError: Boolean(error),
+    hasProjectIdentity: Boolean(projectId && organizationId),
+  });
 
   // Show loading while auth state is being determined
-  if (!authLoaded || isLoading) {
+  if (accessState === 'loading') {
     return (
       <LoadingState
         className="h-full w-full bg-[var(--vk-surface-canvas)]"
@@ -316,7 +324,7 @@ export function ProjectKanban() {
   }
 
   // If not signed in, prompt user to log in
-  if (!isSignedIn) {
+  if (accessState === 'permission') {
     return (
       <div className="flex items-center justify-center h-full w-full p-base">
         <LoginRequiredPrompt
@@ -329,7 +337,7 @@ export function ProjectKanban() {
     );
   }
 
-  if (error && (!projectId || !organizationId)) {
+  if (accessState === 'error' && error) {
     return (
       <ErrorState
         className="h-full w-full bg-[var(--vk-surface-canvas)]"
@@ -344,7 +352,7 @@ export function ProjectKanban() {
     );
   }
 
-  if (!projectId || !organizationId) {
+  if (accessState === 'empty' || !projectId || !organizationId) {
     return (
       <EmptyState
         className="h-full w-full bg-[var(--vk-surface-canvas)]"

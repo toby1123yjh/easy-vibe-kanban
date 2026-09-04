@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_WORKBENCH_INSPECTOR_PREFERENCES,
   normalizeAgentWorkbenchInspectorPreferences,
 } from '../model';
+import { AgentWorkbenchInspectorVisibilityProvider } from './AgentWorkbenchInspectorVisibility';
 import './agent-workbench.css';
 
 const WIDTH_STORAGE_KEY = 'vk-agent-workbench-inspector-width';
@@ -156,7 +157,7 @@ export function AgentWorkbenchContainer({
             <button
               ref={openButtonRef}
               type="button"
-              className="inline-flex min-h-9 items-center gap-2 rounded px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               onClick={() => onInspectorVisibleChange(true)}
             >
               <SidebarSimpleIcon aria-hidden size={16} />
@@ -198,12 +199,16 @@ export function AgentWorkbenchContainer({
           aria-label={t('agentWorkbench.inspector.close', {
             defaultValue: 'Close Inspector',
           })}
-          className="absolute right-2 top-2 z-20 inline-flex size-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="absolute right-2 top-2 z-20 inline-flex size-[44px] items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           onClick={() => onInspectorVisibleChange(false)}
         >
           <XIcon aria-hidden size={16} />
         </button>
-        <div className="h-full min-h-0">{inspector}</div>
+        <div className="h-full min-h-0">
+          <AgentWorkbenchInspectorVisibilityProvider visible={inspectorVisible}>
+            {inspector}
+          </AgentWorkbenchInspectorVisibilityProvider>
+        </div>
       </div>
     </div>
   );

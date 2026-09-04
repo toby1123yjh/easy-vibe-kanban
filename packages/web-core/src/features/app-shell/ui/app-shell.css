@@ -135,6 +135,63 @@
   background: transparent;
 }
 
+.vk-sidebar-state-surface {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+  gap: var(--vk-space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--vk-space-3) var(--vk-space-2);
+  border-radius: var(--vk-radius-sm);
+  font-size: var(--vk-font-size-2xs);
+  text-align: left;
+}
+
+.vk-sidebar-state-surface > span {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.vk-sidebar-state-surface > span svg {
+  width: 14px;
+  height: 14px;
+}
+
+.vk-sidebar-state-surface > div {
+  min-width: 0;
+}
+
+.vk-sidebar-state-surface > div:last-child:not(:nth-child(2)) {
+  justify-self: end;
+}
+
+.vk-sidebar-state-surface [class*='max-w-prose'] > div:first-child {
+  color: var(--vk-text-high);
+  font-weight: var(--vk-font-weight-medium);
+}
+
+.vk-sidebar-state-surface [class*='max-w-prose'] > div + div {
+  margin-top: var(--vk-space-1);
+  color: var(--vk-text-low);
+}
+
+.vk-state-retry {
+  min-height: 32px;
+  padding: var(--vk-space-1) var(--vk-space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--vk-radius-sm);
+  cursor: pointer;
+  color: var(--vk-brand);
+  background: transparent;
+  font: inherit;
+  font-weight: var(--vk-font-weight-medium);
+}
+
 .vk-primary-nav__item {
   position: relative;
   display: flex;
@@ -467,22 +524,47 @@ button:focus-visible > .vk-module-unavailable-reason {
   font-size: var(--vk-font-size-2xs);
 }
 
-.vk-search-source-states > div {
-  display: flex;
+.vk-search-source-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--vk-space-3);
+  justify-content: stretch;
+  gap: var(--vk-space-2);
+  width: 100%;
   padding: var(--vk-space-2) var(--vk-space-3);
   border-radius: var(--vk-radius-sm);
-  background: var(--vk-surface-secondary);
+  text-align: left;
 }
 
-.vk-search-source-states button {
-  border: 0;
-  cursor: pointer;
-  color: var(--vk-brand);
-  background: transparent;
+.vk-search-source-state > span {
+  display: flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.vk-search-source-state > span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.vk-search-source-state > div {
+  min-width: 0;
+}
+
+.vk-search-source-state > div:last-child:not(:nth-child(2)) {
+  justify-self: end;
+}
+
+.vk-search-source-state [class*='max-w-prose'] > div:first-child {
+  color: var(--vk-text-high);
   font-weight: var(--vk-font-weight-medium);
+}
+
+.vk-search-source-state [class*='max-w-prose'] > div + div {
+  margin-top: var(--vk-space-1);
+  color: var(--vk-text-low);
 }
 
 .vk-search-result-group > h2 {

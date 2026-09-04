@@ -40,25 +40,7 @@ async function waitForWorkflowNodeVisible(page: Page, nodeId: string) {
 
 async function clickWorkflowNode(page: Page, nodeId: string) {
   const node = await waitForWorkflowNodeVisible(page, nodeId);
-  await node.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    const eventInit = {
-      bubbles: true,
-      cancelable: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
-    };
-    element.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-    element.dispatchEvent(new MouseEvent('mousedown', eventInit));
-    element.dispatchEvent(new PointerEvent('pointerup', eventInit));
-    element.dispatchEvent(new MouseEvent('mouseup', eventInit));
-    element.dispatchEvent(new MouseEvent('click', eventInit));
-  });
-}
-
-async function doubleClickWorkflowNode(page: Page, nodeId: string) {
-  const node = await waitForWorkflowNodeVisible(page, nodeId);
-  await node.dblclick({ force: true });
+  await node.click({ force: true });
 }
 
 async function dragHandleToHandle({
@@ -132,14 +114,16 @@ test('shows the default workflow attempt skeleton without overlapping nodes', as
   expect(positions[2]!.x - positions[1]!.x).toBeGreaterThan(200);
 });
 
-test('adds an unconnected agent step from the toolbar', async ({ page }) => {
+test('adds an unconnected agent node from the toolbar', async ({ page }) => {
   await page.goto('/');
 
   const before = await readGraph(page);
   await clickWorkflowNode(page, 'condition');
-  await page.getByRole('button', { name: 'Add Agent Step' }).click();
+  await page.getByRole('button', { name: 'Add Agent Node' }).click();
 
-  await expect(page.getByTestId('agent-step-edit-dialog')).toBeVisible();
+  await expect(page.getByTestId('node-inspector')).toContainText(
+    'Display name'
+  );
   await expect
     .poll(async () => {
       const graph = await readGraph(page);
@@ -199,18 +183,16 @@ test('moves an existing workflow node by dragging it on the canvas', async ({
   expect(pageErrors).toEqual([]);
 });
 
-test('connects workflow nodes from non-default handle directions', async ({
-  page,
-}) => {
+test('connects workflow nodes through semantic handles', async ({ page }) => {
   await page.goto('/');
 
   const before = await readGraph(page);
   await dragHandleToHandle({
     page,
     sourceNodeId: 'yes',
-    sourceSelector: '.react-flow__handle-bottom',
+    sourceSelector: '.react-flow__handle[data-handleid="default"]',
     targetNodeId: 'no',
-    targetSelector: '.react-flow__handle-top',
+    targetSelector: '.react-flow__handle[data-handleid="input"]',
   });
 
   await expect
@@ -224,9 +206,9 @@ test('connects workflow nodes from non-default handle directions', async ({
   const edge = graph.edges.find((candidate) => candidate.id === 'yes-no');
   expect(edge).toMatchObject({
     source: 'yes',
-    source_handle: 'port-bottom',
+    source_handle: 'default',
     target: 'no',
-    target_handle: 'port-top',
+    target_handle: 'input',
   });
 });
 
@@ -238,11 +220,11 @@ test('loads legacy workflow graphs and assigns default handles', async ({
   await expect
     .poll(async () => {
       const graph = await readGraph(page);
-      return graph.edges[0];
+      return graph.edges.find((edge) => edge.id === 'condition-yes');
     })
     .toMatchObject({
-      source_handle: 'port-right',
-      target_handle: 'port-left',
+      source_handle: 'branch:branch-condition-yes',
+      target_handle: 'input',
     });
 });
 
@@ -252,7 +234,9 @@ test('uses a stable preview path while stretching a new connection', async ({
   await page.goto('/');
 
   const yesNode = await waitForWorkflowNodeVisible(page, 'yes');
-  const sourceHandle = yesNode.locator('.react-flow__handle-right');
+  const sourceHandle = yesNode.locator(
+    '.react-flow__handle[data-handleid="default"]'
+  );
   const sourceBox = await sourceHandle.boundingBox();
   expect(sourceBox).toBeTruthy();
 
@@ -276,6 +260,7 @@ test('reconnects an existing workflow edge by dragging an endpoint', async ({
   page,
 }) => {
   await page.goto('/');
+  await page.getByTestId('workflow-edge-condition-yes').click();
   await waitForWorkflowNodeVisible(page, 'condition');
   await waitForWorkflowNodeVisible(page, 'no');
 
@@ -283,7 +268,7 @@ test('reconnects an existing workflow edge by dragging an endpoint', async ({
     .getByTestId('rf__edge-condition-yes')
     .locator('.react-flow__edgeupdater-target');
   const noTargetHandle = workflowNodeLocator(page, 'no').locator(
-    '.react-flow__handle-left'
+    '.react-flow__handle[data-handleid="input"]'
   );
 
   const updaterBox = await edgeTargetUpdater.boundingBox();
@@ -314,57 +299,50 @@ test('reconnects an existing workflow edge by dragging an endpoint', async ({
   expect(graph.edges.find((edge) => edge.id === 'condition-yes')).toMatchObject(
     {
       source: 'condition',
-      source_handle: 'port-right',
+      source_handle: 'branch:branch-condition-yes',
       target: 'no',
-      target_handle: 'port-left',
+      target_handle: 'input',
     }
   );
 });
 
-test('opens a draft agent session panel on double-click and ignores start/end', async ({
+test('opens Node configuration for selected Nodes and does not create a session panel', async ({
   page,
 }) => {
   await page.goto('/');
 
-  await doubleClickWorkflowNode(page, 'start');
+  await clickWorkflowNode(page, 'start');
+  await expect(page.getByTestId('node-inspector')).toContainText(
+    'Select a node to inspect'
+  );
   await expect(page.getByTestId('workflow-node-session-panel')).toHaveCount(0);
 
-  await doubleClickWorkflowNode(page, 'end');
+  await clickWorkflowNode(page, 'end');
+  await expect(page.getByTestId('node-inspector')).toContainText(
+    'Select a node to inspect'
+  );
   await expect(page.getByTestId('workflow-node-session-panel')).toHaveCount(0);
 
-  await doubleClickWorkflowNode(page, 'yes');
-  await expect(page.getByTestId('workflow-node-session-panel')).toBeVisible();
-  await expect(page.getByTestId('workflow-node-session-panel')).toContainText(
-    'Yes path'
+  await clickWorkflowNode(page, 'yes');
+  await expect(page.getByTestId('node-inspector')).toContainText(
+    'Display name'
   );
-  await expect(page.getByTestId('workflow-node-session-id')).toContainText(
-    'session-yes'
-  );
-  await expect(page.getByLabel('Message')).toBeVisible();
+  await expect(page.getByTestId('workflow-node-session-panel')).toHaveCount(0);
 });
 
-test('opens agent node toolbar and edits title and default prompt', async ({
+test('opens agent node context menu and edits through Node inspector', async ({
   page,
 }) => {
   await page.goto('/');
 
   await clickWorkflowNode(page, 'yes');
   const yesNode = await waitForWorkflowNodeVisible(page, 'yes');
-  await expect(
-    yesNode.getByRole('button', { name: 'Open session' })
-  ).toBeVisible();
-  await expect(
-    yesNode.getByRole('button', {
-      name: 'Single-step run is not available yet.',
-    })
-  ).toBeDisabled();
-
-  await yesNode.getByRole('button', { name: 'Edit' }).click();
-  const dialog = page.getByTestId('agent-step-edit-dialog');
-  await expect(dialog).toBeVisible();
-  await dialog.getByLabel('Step title').fill('Review code');
-  await dialog.getByLabel('Default prompt').fill('Review implementation');
-  await dialog.getByRole('button', { name: 'Save step' }).click();
+  await yesNode.click({ button: 'right' });
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Edit' }).click();
+  const inspector = page.getByTestId('node-inspector');
+  await expect(inspector).toBeVisible();
+  await inspector.getByLabel('Display name').fill('Review code');
+  await inspector.getByLabel('Prompt template').fill('Review implementation');
 
   await expect
     .poll(async () => {
@@ -383,9 +361,12 @@ test('duplicates agent configuration without copying session identity', async ({
   await page.goto('/');
 
   const before = await readGraph(page);
-  await clickWorkflowNode(page, 'yes');
   const yesNode = await waitForWorkflowNodeVisible(page, 'yes');
-  await yesNode.getByRole('button', { name: 'Duplicate' }).click();
+  await yesNode.click({ button: 'right' });
+  await page
+    .getByRole('menu')
+    .getByRole('menuitem', { name: 'Duplicate' })
+    .click();
 
   await expect
     .poll(async () => {
@@ -412,18 +393,12 @@ test('renders polished workflow chrome and quiet idle edges', async ({
 
   const conditionNode = page.getByTestId('workflow-node-condition');
   await expect(conditionNode).toBeVisible();
-  await expect(page.getByTestId('workflow-node-kind-condition')).toHaveText(
+  await expect(page.getByTestId('workflow-node-kind-condition')).toContainText(
     'Condition'
   );
-  await expect(page.getByTestId('workflow-node-summary-condition')).toHaveText(
-    '2 branches'
-  );
-  await expect(conditionNode.locator('.react-flow__handle')).toHaveCount(4);
-  await expect(page.getByTestId('workflow-node-session-yes')).toHaveText(
-    'Session ready'
-  );
-  await expect(page.getByTestId('workflow-node-session-no')).toHaveText(
-    'Draft session'
+  await expect(conditionNode.locator('.react-flow__handle')).toHaveCount(3);
+  await expect(page.getByTestId('workflow-node-agent-yes')).toContainText(
+    'Default agent'
   );
 
   await expect(page.locator('.react-flow__minimap')).toHaveCount(0);
@@ -440,7 +415,7 @@ test('does not expose old edge midpoint insert or quick add search paths', async
   ).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+K');
   await expect(
-    page.getByRole('dialog', { name: 'Add workflow step' })
+    page.getByRole('dialog', { name: 'Add workflow Node' })
   ).toHaveCount(0);
 });
 

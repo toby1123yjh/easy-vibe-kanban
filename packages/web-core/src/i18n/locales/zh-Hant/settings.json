@@ -590,6 +590,11 @@
         "unsavedChanges": "您有未儲存的變更",
         "discard": "放棄",
         "confirmSwitch": "您有未儲存的變更。確定要切換儲存庫嗎？您的變更將會遺失。"
+      },
+      "projectWorkspace": {
+        "title": "Agent working directory",
+        "description": "Configure the subdirectory where agents run after entering the code directory above. Choose the project's base branch in the workspace.",
+        "unavailable": "The local repository referenced by this workspace is unavailable. Choose the working folder again."
       }
     },
     "relay": {
