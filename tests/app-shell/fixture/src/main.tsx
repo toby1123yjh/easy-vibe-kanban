@@ -31,7 +31,7 @@ const PROJECTS: ProjectListItem[] = Array.from(
 
 const SESSIONS: SessionListItem[] = Array.from({ length: 16 }, (_, index) => ({
   id: `session-${index + 1}`,
-  workspace_id: `workspace-${index + 1}`,
+  workspace_id: index < 3 ? 'workspace-shared' : `workspace-${index + 1}`,
   task_id: `task-${index + 1}`,
   project_id: `project-${(index % 4) + 1}`,
   issue_id: `issue-${index + 1}`,
@@ -59,12 +59,10 @@ function AppShellHarness() {
       new URLSearchParams(window.location.search).get('view') === 'dashboard'
   );
   const [route, setRoute] = React.useState('/dashboard');
-  const [activeProjectId, setActiveProjectId] = React.useState<string | null>(
+  const activeProjectId = route.match(/^\/projects\/([^/?#]+)/)?.[1] ?? null;
+  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(
     null
   );
-  const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<
-    string | null
-  >(null);
   const [objectDrawerOpen, setObjectDrawerOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [canvasMode, setCanvasMode] = React.useState<
@@ -264,20 +262,22 @@ function AppShellHarness() {
           adapter={adapter}
           activeModule={deriveActiveShellModule(route.split('?')[0])}
           activeProjectId={activeProjectId}
-          activeWorkspaceId={activeWorkspaceId}
+          activeSessionId={activeSessionId}
           projects={projectState}
           sessions={sessionState}
           objectDrawerOpen={objectDrawerOpen}
           onObjectDrawerOpenChange={setObjectDrawerOpen}
           onSearch={openSearch}
           onProject={(projectId) => {
-            setActiveProjectId(projectId);
             navigate(`/projects/${projectId}`);
           }}
-          onSession={(workspaceId) => {
-            setActiveWorkspaceId(workspaceId);
-            navigate(`/workspaces/${workspaceId}`);
+          onSession={(session) => {
+            setActiveSessionId(session.id);
+            navigate(
+              `/workspaces/${session.workspace_id}?session_id=${session.id}`
+            );
           }}
+          onDeleteSession={() => undefined}
         />
         <div className="vk-page-stack">
           <PageCanvas ref={pageCanvasRef} mode={canvasMode}>

@@ -70,7 +70,25 @@ export function RemoteAppShell({
         }
         const workspaceMatch = route.match(/^\/workspaces\/([^/?]+)/);
         if (workspaceMatch) {
-          appNavigation.goToWorkspace(decodeURIComponent(workspaceMatch[1]));
+          const target = new URL(route, window.location.origin);
+          const workspaceId = decodeURIComponent(workspaceMatch[1]);
+          const sessionId = target.searchParams.get("session_id");
+          if (sessionId) {
+            if (navigationHostId) {
+              void navigate({
+                to: "/hosts/$hostId/workspaces/$workspaceId",
+                params: { hostId: navigationHostId, workspaceId },
+                search: { session_id: sessionId },
+              });
+            } else {
+              // The fallback navigation has no host route to bind. Let the
+              // existing app navigation surface its host-availability state
+              // instead of constructing an invalid empty host parameter.
+              appNavigation.goToWorkspace(workspaceId);
+            }
+          } else {
+            appNavigation.goToWorkspace(workspaceId);
+          }
           return;
         }
         if (route.startsWith("/settings")) {

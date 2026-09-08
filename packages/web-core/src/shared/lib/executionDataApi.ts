@@ -29,7 +29,9 @@ export interface SessionPageOptions
   projectId?: string;
 }
 
-export interface TaskPageOptions extends CursorPageOptions<TaskCursor> {
+export interface TaskPageOptions
+  extends CursorPageOptions<TaskCursor>,
+    DiscoveryRequestOptions {
   projectId: string;
   issueId?: string;
 }
@@ -93,7 +95,23 @@ export const executionDataApi = {
     if (options.issueId) params.set('issue_id', options.issueId);
     appendCursor(params, options.cursor);
     appendLimit(params, options.limit);
-    return get(withQuery('/api/tasks', params));
+    return get(withQuery('/api/tasks', params), options);
+  },
+
+  async deleteTask(
+    taskId: string,
+    sessionId: string,
+    hostId: string | null,
+    stopRunning = false
+  ): Promise<void> {
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (stopRunning) params.set('stop_running', 'true');
+    await handleApiResponse<void>(
+      await makeLocalApiRequest(
+        withQuery(`/api/tasks/${encodeURIComponent(taskId)}`, params),
+        { ...createDiscoveryRequestOptions({ hostId }), method: 'DELETE' }
+      )
+    );
   },
 
   getTask(taskId: string): Promise<TaskSummary> {

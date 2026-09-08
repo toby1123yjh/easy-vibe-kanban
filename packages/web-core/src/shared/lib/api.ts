@@ -81,6 +81,7 @@ import {
   AbortConflictsRequest,
   ContinueRebaseRequest,
   Session,
+  TaskSummary,
   Workspace,
   StartReviewRequest,
   ReviewError,
@@ -274,9 +275,11 @@ export const handleApiResponse = async <T, E = T>(
 ): Promise<T> => {
   if (!response.ok) {
     let errorMessage = `Request failed with status ${response.status}`;
+    let errorDetails: E | undefined;
 
     try {
       const errorData = await response.json();
+      errorDetails = errorData.error_data;
       if (errorData.message) {
         errorMessage = errorData.message;
       }
@@ -292,7 +295,12 @@ export const handleApiResponse = async <T, E = T>(
       endpoint: response.url,
       timestamp: new Date().toISOString(),
     });
-    throw new ApiError<E>(errorMessage, response.status, response);
+    throw new ApiError<E>(
+      errorMessage,
+      response.status,
+      response,
+      errorDetails
+    );
   }
 
   if (response.status === 204) {
@@ -340,6 +348,17 @@ export const handleApiResponse = async <T, E = T>(
 
 // Sessions API
 export const sessionsApi = {
+  getTask: async (
+    sessionId: string,
+    hostId: string | null
+  ): Promise<TaskSummary | null> => {
+    const response = await makeHostAwareRequest(
+      `/api/sessions/${encodeURIComponent(sessionId)}/task`,
+      hostId
+    );
+    return handleApiResponse<TaskSummary | null>(response);
+  },
+
   getByWorkspace: async (workspaceId: string): Promise<Session[]> => {
     const response = await makeRequest(
       `/api/sessions?workspace_id=${workspaceId}`
@@ -452,6 +471,19 @@ export const sessionsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<Session>(response);
+  },
+
+  delete: async (
+    sessionId: string,
+    hostId?: string | null,
+    stopRunning = false
+  ): Promise<void> => {
+    const response = await makeHostAwareRequest(
+      `/api/sessions/${sessionId}${stopRunning ? '?stop_running=true' : ''}`,
+      hostId,
+      { method: 'DELETE' }
+    );
+    await handleApiResponse<void>(response);
   },
 };
 

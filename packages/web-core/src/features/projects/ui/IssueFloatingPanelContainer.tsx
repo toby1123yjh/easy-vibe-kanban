@@ -22,8 +22,9 @@ import {
   buildWorkspaceCreatePrompt,
 } from '@/shared/lib/workspaceCreateState';
 import { IssueFloatingPanel } from './IssueFloatingPanel';
+import type { TaskDeletionActions } from './TaskDeleteButton';
 
-interface IssueFloatingPanelContainerProps {
+interface IssueFloatingPanelContainerProps extends TaskDeletionActions {
   issue: Issue;
   tasks: TaskSummary[];
   onClose(): void;
@@ -39,6 +40,8 @@ export function IssueFloatingPanelContainer({
   tasks,
   onClose,
   onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
   getTaskUnavailableReason,
   agentUnavailableReason,
   workflowUnavailableReason,
@@ -255,6 +258,8 @@ export function IssueFloatingPanelContainer({
       comments={<IssueCommentsSectionContainer issueId={issue.id} />}
       onClose={onClose}
       onOpenTask={onOpenTask}
+      onDeleteTask={onDeleteTask}
+      deletingSessionId={deletingSessionId}
       getTaskUnavailableReason={getTaskUnavailableReason}
       onCreateAgent={() => void createAgentExecution()}
       onCreateWorkflow={() => void createWorkflowExecution()}

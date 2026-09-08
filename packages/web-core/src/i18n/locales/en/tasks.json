@@ -1,4 +1,22 @@
 {
+  "sessionDeletion": {
+    "stopDescription": "The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.",
+    "stopAndDelete": "Stop and delete",
+    "stopping": "Stopping and deleting…",
+    "stopFailed": "The agent has not stopped yet. Your task and session were kept; retry when ready.",
+    "taskTitle": "Delete Task and session?",
+    "sessionTitle": "Delete session?",
+    "taskDescription": "Delete \"{{name}}\" and its bound session history from Vibe Kanban? The Issue, Project, Workspace, other Tasks and sessions, working files, and the agent's native history are preserved. This cannot be undone.",
+    "sessionDescription": "Delete session \"{{name}}\" and its history from Vibe Kanban? The Workspace, other sessions, working files, and the agent's native history are preserved. This cannot be undone.",
+    "resolving": "Checking the current Task and session binding…",
+    "deleteTask": "Delete Task and session",
+    "deleteSession": "Delete session",
+    "action": "Delete {{name}}",
+    "deleting": "Deleting…",
+    "failed": "Unable to delete. Please try again.",
+    "scopeChanged": "The current Host or selection has changed. Cancel and reopen deletion from the intended row.",
+    "bindingChanged": "This Task is no longer bound to the selected session. Refresh the list and try again."
+  },
   "dropzone": {
     "dropImagesHere": "Drop images here",
     "supportedFormats": "PNG, JPG, GIF, WebP, SVG supported"
@@ -165,7 +183,12 @@
       "renameTitle": "Rename Session",
       "renameDescription": "Enter a new name for this session.",
       "renamePlaceholder": "Enter session name",
-      "renaming": "Renaming..."
+      "renaming": "Renaming...",
+      "delete": "Delete session",
+      "deleteTitle": "Delete session?",
+      "deleteDescription": "This removes the session history from Vibe Kanban. Your workspace files and the agent's native history are not affected.",
+      "deleteFailed": "Unable to delete session",
+      "deleteFailedDescription": "The session could not be deleted."
     },
     "reviewComments": {
       "count_one": "{{count}} review comment will be included",

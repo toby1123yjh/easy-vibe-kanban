@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -7,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { useLocation } from '@tanstack/react-router';
+import { useLocation, useSearch } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import type {
   ProjectCursor,
@@ -18,17 +19,20 @@ import type {
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
+import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
 import { getProjectDestination } from '@/shared/lib/routes/appNavigation';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { useVisualViewportHeightVar } from '@/shared/hooks/useVisualViewportHeightVar';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { AppShellRecentSessionsProvider } from '@/shared/hooks/useAppShellRecentSessions';
 import { AppShellProjectsProvider } from '@/shared/hooks/useAppShellProjects';
+import { WorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import {
   appShellDiscoveryQueryKey,
   deriveActiveShellModule,
   derivePageCanvasMode,
   mergeStableCursorItems,
+  sessionRoute,
   type AppShellCapabilityAdapter,
 } from '../model/appShell';
 import {
@@ -53,6 +57,10 @@ export function AppShellContainer({
 }: AppShellContainerProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
+  const routeSearch = useSearch({ strict: false }) as {
+    session_id?: string;
+  };
+  const workspaceContext = useContext(WorkspaceContext);
   const appNavigation = useAppNavigation();
   const currentDestination = useCurrentAppDestination();
   const isMobile = useIsMobile();
@@ -82,6 +90,7 @@ export function AppShellContainer({
   }, [isMobile, mobileFontScale]);
 
   const projectsQuery = useInfiniteQuery({
+    meta: { hostId: adapter.discoveryHostId },
     queryKey: appShellDiscoveryQueryKey(adapter.discoveryScopeKey, 'projects'),
     queryFn: ({ pageParam, signal }) =>
       executionDataApi.listProjects({
@@ -96,6 +105,7 @@ export function AppShellContainer({
   });
 
   const sessionsQuery = useInfiniteQuery({
+    meta: { hostId: adapter.discoveryHostId },
     queryKey: appShellDiscoveryQueryKey(adapter.discoveryScopeKey, 'sessions'),
     queryFn: ({ pageParam, signal }) =>
       executionDataApi.listRecentSessions({
@@ -134,6 +144,17 @@ export function AppShellContainer({
     currentDestination && 'workspaceId' in currentDestination
       ? currentDestination.workspaceId
       : null;
+  const routeSessionId =
+    typeof routeSearch.session_id === 'string' &&
+    routeSearch.session_id.length > 0
+      ? routeSearch.session_id
+      : null;
+  const activeSessionId =
+    workspaceContext?.workspaceId === activeWorkspaceId
+      ? workspaceContext.isNewSessionMode
+        ? null
+        : (workspaceContext.selectedSessionId ?? routeSessionId)
+      : routeSessionId;
   const openSearch = useCallback(() => {
     searchTriggerRef.current =
       document.activeElement instanceof HTMLElement
@@ -256,6 +277,28 @@ export function AppShellContainer({
     [adapter]
   );
 
+  const { deleteSession, pendingSessionId: deletingSessionId } =
+    useDeleteTaskSession({
+      hostId: adapter.discoveryHostId,
+      discoveryScopeKey: adapter.discoveryScopeKey,
+      scopeKey: JSON.stringify([
+        adapter.discoveryScopeKey,
+        location.href,
+        activeSessionId,
+      ]),
+      onDeleted: (target) => {
+        if (activeSessionId !== target.sessionId) return;
+        const nextSession = sessions.find(
+          (item) => item.id !== target.sessionId
+        );
+        adapter.navigateToRoute(
+          nextSession
+            ? sessionRoute(nextSession)
+            : `/workspaces/${encodeURIComponent(target.workspaceId)}`
+        );
+      },
+    });
+
   return (
     <AppShellProjectsProvider value={projectState}>
       <AppShellRecentSessionsProvider sessions={sessions}>
@@ -272,16 +315,24 @@ export function AppShellContainer({
               adapter={adapter}
               activeModule={deriveActiveShellModule(location.pathname)}
               activeProjectId={activeProjectId}
-              activeWorkspaceId={activeWorkspaceId}
+              activeSessionId={activeSessionId}
               projects={projectState}
               sessions={sessionState}
               objectDrawerOpen={objectDrawerOpen}
               onObjectDrawerOpenChange={setObjectDrawerOpen}
               onSearch={openSearch}
               onProject={(projectId) => appNavigation.goToProject(projectId)}
-              onSession={(workspaceId) =>
-                appNavigation.goToWorkspace(workspaceId)
+              onSession={(session) =>
+                adapter.navigateToRoute(sessionRoute(session))
               }
+              onDeleteSession={(session) =>
+                void deleteSession({
+                  sessionId: session.id,
+                  workspaceId: session.workspace_id,
+                  title: session.title,
+                })
+              }
+              deletingSessionId={deletingSessionId}
             />
             <div className="vk-page-stack">
               {banner}

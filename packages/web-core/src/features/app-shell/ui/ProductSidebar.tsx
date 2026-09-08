@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Trash2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -84,14 +86,16 @@ interface ProductSidebarProps {
   adapter: AppShellCapabilityAdapter;
   activeModule: ShellModule | null;
   activeProjectId: string | null;
-  activeWorkspaceId: string | null;
+  activeSessionId: string | null;
   projects: SidebarSectionState<ProjectListItem>;
   sessions: SidebarSectionState<SessionListItem>;
   objectDrawerOpen: boolean;
   onObjectDrawerOpenChange(open: boolean): void;
   onSearch(): void;
   onProject(projectId: string): void;
-  onSession(workspaceId: string): void;
+  onSession(session: SessionListItem): void;
+  onDeleteSession?(session: SessionListItem): void;
+  deletingSessionId?: string | null;
 }
 
 function SectionState({
@@ -247,7 +251,13 @@ function VolumeAwareList<T extends { id: string }>({
   });
 
   if (items.length <= 50) {
-    return <>{items.map((item) => renderItem(item))}</>;
+    return (
+      <>
+        {items.map((item) => (
+          <Fragment key={item.id}>{renderItem(item)}</Fragment>
+        ))}
+      </>
+    );
   }
 
   return (
@@ -367,17 +377,21 @@ function ObjectLists({
   projects,
   sessions,
   activeProjectId,
-  activeWorkspaceId,
+  activeSessionId,
   onProject,
   onSession,
+  onDeleteSession,
+  deletingSessionId,
 }: Pick<
   ProductSidebarProps,
   | 'projects'
   | 'sessions'
   | 'activeProjectId'
-  | 'activeWorkspaceId'
+  | 'activeSessionId'
   | 'onProject'
   | 'onSession'
+  | 'onDeleteSession'
+  | 'deletingSessionId'
 >) {
   const labelPrefix = useId();
   const { t } = useTranslation('common');
@@ -429,24 +443,58 @@ function ObjectLists({
           items={sessions.items}
           estimateSize={48}
           renderItem={(session) => (
-            <button
-              type="button"
-              className="vk-object-link"
-              data-active={session.workspace_id === activeWorkspaceId}
-              aria-current={
-                session.workspace_id === activeWorkspaceId ? 'page' : undefined
-              }
+            <div
+              className="vk-object-link vk-object-link--session"
+              data-active={session.id === activeSessionId}
+              aria-current={session.id === activeSessionId ? 'page' : undefined}
               aria-label={`${session.title}, ${session.executor ?? t('appShell.objects.agent')}`}
               title={`${session.title} — ${session.executor ?? t('appShell.objects.agent')}`}
-              onClick={() => onSession(session.workspace_id)}
             >
-              <MessageSquareText aria-hidden="true" size={15} />
-              <span>
-                {session.title}
-                <small>{session.executor ?? t('appShell.objects.agent')}</small>
-              </span>
-              <ChevronRight aria-hidden="true" size={14} />
-            </button>
+              <button
+                type="button"
+                className="vk-object-link__main"
+                aria-label={`${session.title}, ${session.executor ?? t('appShell.objects.agent')}`}
+                aria-current={
+                  session.id === activeSessionId ? 'page' : undefined
+                }
+                title={`${session.title} ? ${session.executor ?? t('appShell.objects.agent')}`}
+                onClick={() => onSession(session)}
+              >
+                <MessageSquareText aria-hidden="true" size={15} />
+                <span>
+                  {session.title}
+                  <small>
+                    {session.executor ?? t('appShell.objects.agent')}
+                  </small>
+                </span>
+              </button>
+              {onDeleteSession && (
+                <button
+                  type="button"
+                  className="vk-object-link__action"
+                  aria-label={t('tasks:sessionDeletion.action', {
+                    name: session.title,
+                    defaultValue: 'Delete {{name}}',
+                  })}
+                  title={t('tasks:sessionDeletion.action', {
+                    name: session.title,
+                    defaultValue: 'Delete {{name}}',
+                  })}
+                  disabled={deletingSessionId === session.id}
+                  onClick={() => onDeleteSession(session)}
+                >
+                  {deletingSessionId === session.id ? (
+                    <LoaderCircle
+                      className="vk-spin"
+                      aria-hidden="true"
+                      size={14}
+                    />
+                  ) : (
+                    <Trash2 aria-hidden="true" size={14} />
+                  )}
+                </button>
+              )}
+            </div>
           )}
         />
         <AutoPageSentinel state={sessions} />
@@ -570,9 +618,9 @@ function ObjectDrawer(props: ProductSidebarProps) {
             dismiss(false);
             props.onProject(projectId);
           }}
-          onSession={(workspaceId) => {
+          onSession={(session) => {
             dismiss(false);
-            props.onSession(workspaceId);
+            props.onSession(session);
           }}
         />
       </aside>

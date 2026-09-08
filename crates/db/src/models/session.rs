@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{FromRow, QueryBuilder, Sqlite, SqliteConnection, SqlitePool};
 use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -23,6 +23,39 @@ pub enum SessionError {
     WorkspaceNotFound,
     #[error("Executor mismatch: session uses {expected} but request specified {actual}")]
     ExecutorMismatch { expected: String, actual: String },
+    #[error(
+        "Session is bound to Agent Task {task_id}; delete the task before deleting this session"
+    )]
+    AgentTaskBound { task_id: Uuid },
+    #[error("Session has an active agent run; stop it before deleting this session")]
+    ActiveAgentRun,
+    #[error("Session has a running execution process; stop it before deleting this session")]
+    ActiveExecutionProcess,
+    #[error(
+        "Session has a live or unreachable agent process; stop it before deleting this session"
+    )]
+    ActiveAgentProcess,
+    #[error(
+        "Session is owned or referenced by a Workflow or Arena and cannot be deleted independently"
+    )]
+    DeletionDependency,
+}
+
+impl SessionError {
+    pub(crate) fn from_deletion_error(error: sqlx::Error) -> Self {
+        // SQLite implements ON DELETE RESTRICT with an internal trigger, so
+        // it reports SQLITE_CONSTRAINT_TRIGGER (1811), not FOREIGNKEY (787).
+        // Do not classify unrelated user-trigger failures as FK dependencies.
+        if matches!(&error, sqlx::Error::Database(error) if
+            error.is_foreign_key_violation()
+            || (error.code().as_deref() == Some("1811")
+                && error.message() == "FOREIGN KEY constraint failed"))
+        {
+            Self::DeletionDependency
+        } else {
+            Self::Database(error)
+        }
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -301,6 +334,160 @@ impl Session {
         )
         .execute(pool)
         .await?;
+        Ok(())
+    }
+
+    /// Delete an ordinary session and its session-owned runtime records.
+    ///
+    /// Agent-task sessions are deliberately protected: deleting one would
+    /// leave the canonical task without its required session binding. Runtime
+    /// and process checks are repeated in this transaction so a route-level
+    /// preflight cannot race a session start between validation and deletion.
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, SessionError> {
+        let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let deleted = Self::delete_in_transaction(&mut transaction, id).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(SessionError::from_deletion_error)?;
+        Ok(deleted)
+    }
+
+    /// Shared guarded deletion for standalone Sessions and exact Agent Task
+    /// deletion. The caller must hold a write transaction and remove the Task
+    /// in that same transaction before calling this method.
+    pub(crate) async fn delete_in_transaction(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<u64, SessionError> {
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?)")
+                .bind(id)
+                .fetch_one(&mut *connection)
+                .await?;
+        if !exists {
+            return Err(SessionError::NotFound);
+        }
+
+        let task_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT task_id FROM agent_task_bindings WHERE session_id = ? LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *connection)
+        .await?;
+        if let Some(task_id) = task_id {
+            return Err(SessionError::AgentTaskBound { task_id });
+        }
+
+        let has_active_agent_run = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM agent_runs run
+                WHERE run.session_id = ?
+                  AND (run.status NOT IN (
+                      'succeeded', 'failed', 'cancelled', 'crashed', 'audit_failed'
+                  ) OR EXISTS (
+                      SELECT 1 FROM agent_run_attempts attempt
+                      WHERE attempt.agent_run_id = run.id
+                        AND attempt.status NOT IN (
+                            'succeeded', 'failed', 'cancelled', 'crashed', 'audit_failed'
+                        )
+                  ))
+            )
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if has_active_agent_run {
+            return Err(SessionError::ActiveAgentRun);
+        }
+
+        // A terminal run can still have an unreachable/live provider process.
+        // Keep its registry and audit identities until process exit is observed.
+        let has_live_agent_process = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM agent_runs run
+                JOIN agent_run_attempts attempt ON attempt.agent_run_id = run.id
+                JOIN agent_process_registry registry ON registry.run_attempt_id = attempt.id
+                WHERE run.session_id = ?
+                  AND (
+                      registry.registry_status IN ('spawned', 'running', 'unreachable')
+                      OR (registry.registry_status = 'reserved' AND registry.host_pid IS NOT NULL)
+                  )
+            )
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if has_live_agent_process {
+            return Err(SessionError::ActiveAgentProcess);
+        }
+
+        let has_running_process = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM execution_processes WHERE session_id = ? AND status = 'running')",
+        )
+        .bind(id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if has_running_process {
+            return Err(SessionError::ActiveExecutionProcess);
+        }
+
+        Self::validate_deletion_dependencies(connection, id).await?;
+
+        // Scratch records use a generic UUID key rather than a foreign key to
+        // sessions, so remove session-scoped drafts explicitly.
+        sqlx::query("DELETE FROM scratch WHERE id = ?")
+            .bind(id)
+            .execute(&mut *connection)
+            .await?;
+
+        let result = sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(id)
+            .execute(&mut *connection)
+            .await
+            .map_err(SessionError::from_deletion_error)?;
+        Ok(result.rows_affected())
+    }
+
+    /// Ownership must be checked before requesting any process stop, too.
+    pub async fn validate_deletion_dependencies(
+        connection: &mut SqliteConnection,
+        id: Uuid,
+    ) -> Result<(), SessionError> {
+        // Some orchestration references SET NULL or CASCADE on deletion rather
+        // than restricting it. Reject them explicitly to preserve their owner.
+        let has_dependencies = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM node_executions node
+                WHERE node.session_id = ?1
+                   OR node.agent_run_id IN (SELECT id FROM agent_runs WHERE session_id = ?1)
+                   OR node.execution_process_id IN (
+                       SELECT id FROM execution_processes WHERE session_id = ?1
+                   )
+            ) OR EXISTS(
+                SELECT 1 FROM orchestration_agent_run_links link
+                JOIN agent_runs run ON run.id = link.agent_run_id
+                WHERE run.session_id = ?1
+            ) OR EXISTS(
+                SELECT 1 FROM arena_candidates candidate
+                JOIN sessions session ON session.workspace_id = candidate.workspace_id
+                WHERE session.id = ?1
+            )
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if has_dependencies {
+            return Err(SessionError::DeletionDependency);
+        }
+
         Ok(())
     }
 

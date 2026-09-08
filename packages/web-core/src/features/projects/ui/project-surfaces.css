@@ -634,6 +634,63 @@
   cursor: pointer;
 }
 
+.vk-task-action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--vk-space-1);
+  min-width: 0;
+}
+
+.vk-task-action-row > .vk-kanban-task-preview,
+.vk-task-action-row > .vk-issue-task-row {
+  flex: 1;
+}
+
+.vk-task-delete-action {
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--vk-radius-sm);
+  color: var(--vk-text-low);
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.vk-task-action-row:hover .vk-task-delete-action,
+.vk-task-action-row:focus-within .vk-task-delete-action,
+.vk-task-delete-action:disabled {
+  opacity: 1;
+}
+
+.vk-task-delete-action:hover {
+  color: var(--vk-status-error);
+  background: var(--vk-surface-hover);
+}
+
+.vk-task-delete-action:focus-visible {
+  outline: 2px solid var(--vk-focus-ring);
+  outline-offset: 2px;
+}
+
+.vk-task-delete-action:disabled {
+  cursor: wait;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .vk-task-delete-action {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+    opacity: 1;
+  }
+}
+
 .vk-kanban-task-preview span {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -72,7 +72,27 @@ export function SharedAppLayout() {
         }
         const workspaceMatch = route.match(/^\/workspaces\/([^/?]+)/);
         if (workspaceMatch) {
-          appNavigation.goToWorkspace(decodeURIComponent(workspaceMatch[1]));
+          const target = new URL(route, window.location.origin);
+          const workspaceId = decodeURIComponent(workspaceMatch[1]);
+          const sessionId = target.searchParams.get('session_id');
+          if (sessionId) {
+            const params = { workspaceId };
+            if (hostId) {
+              void navigate({
+                to: '/hosts/$hostId/workspaces/$workspaceId',
+                params: { hostId, ...params },
+                search: { session_id: sessionId },
+              });
+            } else {
+              void navigate({
+                to: '/workspaces/$workspaceId',
+                params,
+                search: { session_id: sessionId },
+              });
+            }
+          } else {
+            appNavigation.goToWorkspace(workspaceId);
+          }
           return;
         }
         if (route.startsWith('/settings')) {

@@ -10,6 +10,8 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
+import { getHostRequestScopeQueryKey } from '@/shared/lib/hostRequestScope';
+import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
 import { bulkUpdateIssues } from '@/shared/lib/remoteApi';
 import {
   buildKanbanIssueComposerKey,
@@ -65,12 +67,18 @@ export function ProjectKanbanContainer({
   const issueComposer = useKanbanIssueComposer(composerKey);
 
   const tasksQuery = useInfiniteQuery({
-    queryKey: ['project-tasks', projectId],
-    queryFn: ({ pageParam }) =>
+    queryKey: [
+      'project-tasks',
+      projectId,
+      getHostRequestScopeQueryKey(routeState.hostId),
+    ],
+    queryFn: ({ pageParam, signal }) =>
       executionDataApi.listTasks({
         projectId,
         cursor: pageParam,
         limit: 100,
+        hostId: routeState.hostId,
+        signal,
       }),
     initialPageParam: null as TaskCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
@@ -86,6 +94,10 @@ export function ProjectKanbanContainer({
     isPending: isTaskSourcePending,
     refetch: refetchTasks,
   } = tasksQuery;
+
+  useEffect(() => {
+    requestedTaskCursorRef.current = null;
+  }, [projectId, routeState.hostId]);
 
   useEffect(() => {
     const nextCursor = taskPages?.pages.at(-1)?.next_cursor;
@@ -315,6 +327,24 @@ export function ProjectKanbanContainer({
     [executeAction, projectId]
   );
 
+  const { deleteSession, pendingSessionId: deletingSessionId } =
+    useDeleteTaskSession({
+      hostId: routeState.hostId,
+      scopeKey: JSON.stringify([routeState, projectId, search.session_id]),
+    });
+  const deleteTask = useCallback(
+    (task: TaskSummary) => {
+      if (task.open_target.kind !== 'agent') return;
+      void deleteSession({
+        taskId: task.id,
+        sessionId: task.open_target.session_id,
+        workspaceId: task.open_target.workspace_id,
+        title: task.title,
+      });
+    },
+    [deleteSession]
+  );
+
   const panel =
     showCanonicalIssuePanel && selectedIssue ? (
       <aside className="vk-issue-floating-panel" aria-label="Issue details">
@@ -324,6 +354,8 @@ export function ProjectKanbanContainer({
           tasks={tasksByIssue.get(selectedIssue.id) ?? []}
           onClose={closePanel}
           onOpenTask={openTask}
+          onDeleteTask={deleteTask}
+          deletingSessionId={deletingSessionId}
           getTaskUnavailableReason={getTaskUnavailableReason}
           agentUnavailableReason={
             appNavigation.agentExecutionUnavailableReason ?? null
@@ -364,6 +396,8 @@ export function ProjectKanbanContainer({
       }
       onOpenIssue={openIssue}
       onOpenTask={openTask}
+      onDeleteTask={deleteTask}
+      deletingSessionId={deletingSessionId}
       onDeleteIssue={deleteIssue}
       getTaskUnavailableReason={getTaskUnavailableReason}
       onMove={moveIssues}

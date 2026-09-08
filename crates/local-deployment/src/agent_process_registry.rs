@@ -205,6 +205,14 @@ impl AgentProcessRegistry {
             .find(|entry| entry.runtime_id == runtime_id))
     }
 
+    /// Observe one persisted OS process without mutating the registry.
+    ///
+    /// The process-host observer uses this for the host PID, which is stored
+    /// in the database rather than in the provider-process registry file.
+    pub(crate) async fn observe_pid(&self, pid: u32) -> io::Result<RegisteredProcessPresence> {
+        observe_process_pid(pid).await
+    }
+
     /// Observe all persisted processes after a service restart. This operation
     /// intentionally has no cleanup side effects. Callers may attach a live
     /// process to a watcher, observe an exited process, or leave an
@@ -632,11 +640,39 @@ async fn observe_os_process(
     .map_err(|error| io::Error::other(format!("process observation task failed: {error}")))?
 }
 
+#[cfg(unix)]
+async fn observe_process_pid(pid: u32) -> io::Result<RegisteredProcessPresence> {
+    use nix::{errno::Errno, sys::signal, unistd::Pid};
+
+    let pid = i32::try_from(pid)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pid is too large"))?;
+    tokio::task::spawn_blocking(move || match signal::kill(Pid::from_raw(pid), None) {
+        Ok(()) => Ok(RegisteredProcessPresence::Alive),
+        Err(Errno::ESRCH) => Ok(RegisteredProcessPresence::Exited),
+        Err(Errno::EPERM) => Ok(RegisteredProcessPresence::Unreachable),
+        Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+    })
+    .await
+    .map_err(|error| io::Error::other(format!("process observation task failed: {error}")))?
+}
+
 #[cfg(windows)]
 async fn observe_os_process(
     process: &RegisteredAgentProcess,
 ) -> io::Result<RegisteredProcessPresence> {
     observe_windows_pid(process.pid).await
+}
+
+#[cfg(windows)]
+async fn observe_process_pid(pid: u32) -> io::Result<RegisteredProcessPresence> {
+    observe_windows_pid(pid).await
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn observe_process_pid(_pid: u32) -> io::Result<RegisteredProcessPresence> {
+    Err(io::Error::other(
+        "registered process observation is unsupported on this platform",
+    ))
 }
 
 #[cfg(windows)]

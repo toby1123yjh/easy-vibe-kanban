@@ -55,7 +55,9 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    agent_process_registry::{AgentProcessRegistry, RegisteredAgentProcess},
+    agent_process_registry::{
+        AgentProcessRegistry, RegisteredAgentProcess, RegisteredProcessPresence,
+    },
     process_host::{
         HostBootstrap, HostCommand, HostEventPayload, HostExecutionEnv, HostLaunchRequest,
         HostReady, send_host_command,
@@ -68,15 +70,7 @@ const TERMINAL_EVENT_CHANNEL_CAPACITY: usize = 256;
 const CANCEL_HOST_REPLAY_DEADLINE: Duration = Duration::from_secs(5);
 const CANCEL_HOST_REPLAY_INTERVAL: Duration = Duration::from_millis(250);
 const CANCELLING_OBSERVER_FAILURE_THRESHOLD: usize = 3;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CancellationCleanupPreparation {
-    OwnedProcessRegistered,
-    ProcessAlreadyExited,
-    ProcessAbsenceUnconfirmed,
-}
-
-type PersistedCancellationProcess = (String, Option<i64>, Option<i64>, Option<String>);
+const PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD: usize = 3;
 
 type ExitSignalFuture = Pin<
     Box<
@@ -292,20 +286,31 @@ impl LocalAgentRunPort {
                     tracing::error!(run_attempt_id = %run_attempt_id, %mark_error, "failed to preserve unreachable process host");
                 }
                 tracing::warn!(run_attempt_id = %run_attempt_id, %error, "process host unavailable during startup reconciliation");
-                if self
-                    .query(agent_run_id)
-                    .await
-                    .is_ok_and(|snapshot| snapshot.state.status == AgentRunStatus::Cancelling)
-                    && let Ok((request, attempt)) = self.load_request(agent_run_id).await
-                {
-                    let _ = self
-                        .reconcile_cancel_after_host_failure(
-                            &request,
-                            &attempt,
-                            &error.to_string(),
-                            None,
-                        )
-                        .await;
+                if let Ok((request, attempt)) = self.load_request(agent_run_id).await {
+                    if self
+                        .query(agent_run_id)
+                        .await
+                        .is_ok_and(|snapshot| snapshot.state.status == AgentRunStatus::Cancelling)
+                    {
+                        let _ = self
+                            .reconcile_cancel_after_host_failure(
+                                &request,
+                                &attempt,
+                                &error.to_string(),
+                                None,
+                            )
+                            .await;
+                    } else {
+                        // Attach may fail because the host is still starting or
+                        // because the persisted endpoint is temporarily
+                        // unreachable. Keep observing the durable attachment so
+                        // a later host response can replay events and a dead host
+                        // can converge to a terminal AgentRun status.
+                        let port = self.clone();
+                        tokio::spawn(async move {
+                            port.observe_process_host(request, attempt).await;
+                        });
+                    }
                 }
             }
         }
@@ -1333,19 +1338,23 @@ impl LocalAgentRunPort {
     ) {
         let mut consecutive_failures = 0usize;
         loop {
-            let attachment: Option<(String, String, i64, String)> = sqlx::query_as(
-                r#"
-                SELECT host_endpoint, host_token, last_host_event_sequence, registry_status
+            let attachment: Option<(String, String, i64, String, Option<i64>, Option<i64>)> =
+                sqlx::query_as(
+                    r#"
+                SELECT host_endpoint, host_token, last_host_event_sequence, registry_status,
+                       host_pid, pid
                 FROM agent_process_registry
                 WHERE run_attempt_id = ? AND host_endpoint IS NOT NULL AND host_token IS NOT NULL
                 "#,
-            )
-            .bind(attempt.run_attempt_id)
-            .fetch_optional(&self.db.pool)
-            .await
-            .ok()
-            .flatten();
-            let Some((endpoint, token, cursor, registry_status)) = attachment else {
+                )
+                .bind(attempt.run_attempt_id)
+                .fetch_optional(&self.db.pool)
+                .await
+                .ok()
+                .flatten();
+            let Some((endpoint, token, cursor, registry_status, host_pid, provider_pid)) =
+                attachment
+            else {
                 return;
             };
             if registry_status == "exited" {
@@ -1387,6 +1396,36 @@ impl LocalAgentRunPort {
                         tracing::error!(run_attempt_id = %attempt.run_attempt_id, %mark_error, "failed to persist unreachable process host");
                     }
                     tracing::debug!(run_attempt_id = %attempt.run_attempt_id, %error, "process host is temporarily unreachable");
+                    let host_presence = match host_pid.and_then(|pid| u32::try_from(pid).ok()) {
+                        Some(pid) => match self.process_registry.observe_pid(pid).await {
+                            Ok(presence) => Some(presence),
+                            Err(observation_error) => {
+                                tracing::debug!(
+                                    run_attempt_id = %attempt.run_attempt_id,
+                                    pid,
+                                    %observation_error,
+                                    "could not observe unavailable process host"
+                                );
+                                None
+                            }
+                        },
+                        // A host PID is written before its launch command is
+                        // sent. A missing PID after repeated attach failures
+                        // therefore describes a stale reservation, not a
+                        // healthy host that should spin forever.
+                        None => Some(RegisteredProcessPresence::Exited),
+                    };
+                    if should_reconcile_lost_process_host(consecutive_failures, host_presence) {
+                        self.reconcile_lost_process_host(
+                            &request,
+                            &attempt,
+                            &registry_status,
+                            provider_pid,
+                            &error.to_string(),
+                        )
+                        .await;
+                        return;
+                    }
                     if consecutive_failures >= CANCELLING_OBSERVER_FAILURE_THRESHOLD
                         && self
                             .query(request.agent_run_id)
@@ -1409,6 +1448,282 @@ impl LocalAgentRunPort {
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+    }
+
+    async fn reconcile_lost_process_host(
+        &self,
+        request: &AgentRunRequestEnvelope,
+        attempt: &RunAttemptRequest,
+        registry_status: &str,
+        provider_pid: Option<i64>,
+        host_error: &str,
+    ) {
+        let reconciliation_lock = self
+            .cancellation_reconciliation_lock(attempt.run_attempt_id)
+            .await;
+        let reconciliation_guard = reconciliation_lock.lock().await;
+
+        let Ok(snapshot) = self.query(request.agent_run_id).await else {
+            return;
+        };
+        if snapshot.state.status.is_terminal() {
+            let _ = self
+                .reconcile_terminal_process(attempt.run_attempt_id)
+                .await;
+            return;
+        }
+        if snapshot.state.status == AgentRunStatus::Cancelling {
+            // Cancellation has stronger precedence than an observer crash.
+            // Release the shared lock before entering its reconciliation path.
+            drop(reconciliation_guard);
+            let _ = self
+                .reconcile_cancel_after_host_failure(request, attempt, host_error, None)
+                .await;
+            return;
+        }
+
+        let runtime_absent = self
+            .observe_attempt_processes_absent(attempt.run_attempt_id)
+            .await
+            .unwrap_or(false);
+
+        if runtime_absent {
+            if let Err(error) = self
+                .process_registry
+                .remove_runtime(attempt.run_attempt_id)
+                .await
+            {
+                tracing::warn!(run_attempt_id = %attempt.run_attempt_id, %error, "failed to remove exited process projection");
+                return;
+            }
+            if let Err(error) = AgentRunRecord::mark_process_exited(
+                &self.db.pool,
+                attempt.run_attempt_id,
+                None,
+                Utc::now(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    run_attempt_id = %attempt.run_attempt_id,
+                    %error,
+                    "failed to mark provider process exited after process-host exit"
+                );
+            }
+        } else if provider_pid.is_none()
+            && registry_status == "reserved"
+            && let Err(error) = AgentRunRecord::clear_process_host_reservation(
+                &self.db.pool,
+                attempt.run_attempt_id,
+            )
+            .await
+        {
+            tracing::warn!(
+                run_attempt_id = %attempt.run_attempt_id,
+                %error,
+                "failed to clear stale process-host reservation"
+            );
+        }
+
+        let audit_failed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_audit_streams WHERE run_attempt_id = ? AND integrity_status = 'audit_failed')",
+        )
+        .bind(attempt.run_attempt_id)
+        .fetch_one(&self.db.pool)
+        .await
+        .unwrap_or(false);
+        let status = if audit_failed {
+            AgentRunStatus::AuditFailed
+        } else {
+            AgentRunStatus::Crashed
+        };
+        let error_kind = if audit_failed {
+            AgentRuntimeErrorKind::Unknown
+        } else {
+            AgentRuntimeErrorKind::ProcessCrashed
+        };
+        self.terminalize_failure(
+            request,
+            attempt,
+            status,
+            AgentRuntimeError::new(
+                error_kind,
+                format!("process host exited while observing the agent: {host_error}"),
+            )
+            .with_provider(Some(request.provider_id.as_str())),
+        )
+        .await;
+    }
+
+    /// Observe only: terminal outcome and process lifetime are independent.
+    /// A reused, live or unobservable PID must never authorize deletion or kill.
+    pub async fn reconcile_terminal_process(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<bool, AgentRunPortError> {
+        let row: Option<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
+            "SELECT registry.registry_status, registry.host_pid, registry.pid FROM agent_process_registry registry JOIN agent_run_attempts attempt ON attempt.id = registry.run_attempt_id WHERE attempt.id = ? AND attempt.status IN ('succeeded','failed','cancelled','crashed','audit_failed')",
+        ).bind(attempt_id).fetch_optional(&self.db.pool).await.map_err(port_database)?;
+        let Some((status, host_pid, provider_pid)) = row else {
+            return Ok(false);
+        };
+        if status == "exited" {
+            self.process_registry
+                .remove_runtime(attempt_id)
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+            return Ok(true);
+        }
+        // Missing provider PID is only expected before the provider was spawned.
+        if provider_pid.is_none() && status != "reserved" {
+            return Ok(false);
+        }
+        for pid in [host_pid, provider_pid].into_iter().flatten() {
+            let Ok(pid) = u32::try_from(pid) else {
+                return Ok(false);
+            };
+            if pid == 0
+                || !matches!(
+                    self.process_registry.observe_pid(pid).await,
+                    Ok(RegisteredProcessPresence::Exited)
+                )
+            {
+                return Ok(false);
+            }
+        }
+        if status == "reserved" {
+            AgentRunRecord::clear_process_host_reservation(&self.db.pool, attempt_id)
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        } else {
+            AgentRunRecord::mark_process_exited(&self.db.pool, attempt_id, None, Utc::now())
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        }
+        self.process_registry
+            .remove_runtime(attempt_id)
+            .await
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        Ok(true)
+    }
+
+    async fn observe_attempt_processes_absent(
+        &self,
+        attempt_id: Uuid,
+    ) -> Result<bool, AgentRunPortError> {
+        let row: Option<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
+            "SELECT registry_status, host_pid, pid FROM agent_process_registry WHERE run_attempt_id = ?",
+        ).bind(attempt_id).fetch_optional(&self.db.pool).await.map_err(port_database)?;
+        let Some((status, host_pid, provider_pid)) = row else {
+            return Ok(false);
+        };
+        if status == "exited" {
+            return Ok(true);
+        }
+        if provider_pid.is_none() {
+            return Ok(false);
+        }
+        for pid in [host_pid, provider_pid].into_iter().flatten() {
+            let Ok(pid) = u32::try_from(pid) else {
+                return Ok(false);
+            };
+            if pid == 0
+                || !matches!(
+                    self.process_registry.observe_pid(pid).await,
+                    Ok(RegisteredProcessPresence::Exited)
+                )
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Terminal processes cannot go through the lifecycle Cancel transition.
+    /// Only an authenticated host may stop them; never kill a recorded PID.
+    pub async fn stop_terminal_process_for_deletion(
+        &self,
+        agent_run_id: Uuid,
+        attempt_id: Uuid,
+    ) -> Result<(), AgentRunPortError> {
+        if self.reconcile_terminal_process(attempt_id).await? {
+            return Ok(());
+        }
+        let (request, attempt) = self.load_request(agent_run_id).await?;
+        if attempt.run_attempt_id != attempt_id {
+            return Err(AgentRunPortError::Rejected(
+                "Cannot safely stop an older process attachment".to_string(),
+            ));
+        }
+        let (endpoint, token) = self.load_host_attachment(&attempt).await?.ok_or_else(|| {
+            AgentRunPortError::Unavailable(
+                "Process exit cannot be verified; session was retained".to_string(),
+            )
+        })?;
+        let attached =
+            send_host_command(&endpoint, &token, HostCommand::Attach { after_sequence: 0 })
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        let terminal_sequence = attached.events.iter().find_map(|event| {
+            matches!(&event.payload, HostEventPayload::Terminal { .. }).then_some(event.sequence)
+        });
+        if let Some(sequence) = terminal_sequence {
+            send_host_command(
+                &endpoint,
+                &token,
+                HostCommand::AckTerminal {
+                    through_sequence: sequence,
+                },
+            )
+            .await
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        } else {
+            let bytes = encode_control(
+                self.provider(&request.provider_id)?,
+                &attempt.capability_snapshot,
+                DirectControl::Cancel,
+            )
+            .map_err(|error| AgentRunPortError::Rejected(error.to_string()))?;
+            let response = send_host_command(
+                &endpoint,
+                &token,
+                HostCommand::Control {
+                    bytes,
+                    control: Some(DirectControl::Cancel),
+                    cancel: true,
+                    after_sequence: self.load_host_cursor(&attempt).await?,
+                },
+            )
+            .await
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+            if let Some(error) = response.error {
+                return Err(AgentRunPortError::Unavailable(error));
+            }
+            if let Some(sequence) = response.events.iter().find_map(|event| {
+                matches!(&event.payload, HostEventPayload::Terminal { .. })
+                    .then_some(event.sequence)
+            }) {
+                send_host_command(
+                    &endpoint,
+                    &token,
+                    HostCommand::AckTerminal {
+                        through_sequence: sequence,
+                    },
+                )
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+            }
+        }
+        // Do not replay terminal lifecycle events over the already final result.
+        for _ in 0..20 {
+            if self.reconcile_terminal_process(attempt_id).await? {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        Err(AgentRunPortError::Unavailable(
+            "Process has not exited; session was retained. Retry deletion.".to_string(),
+        ))
     }
 
     async fn apply_host_events(
@@ -2564,71 +2879,6 @@ impl LocalAgentRunPort {
         }
     }
 
-    async fn prepare_cancellation_cleanup(
-        &self,
-        request: &AgentRunRequestEnvelope,
-        attempt: &RunAttemptRequest,
-    ) -> Result<CancellationCleanupPreparation, AgentRunPortError> {
-        let persisted: Option<PersistedCancellationProcess> = sqlx::query_as(
-            r#"
-                SELECT registry_status, pid, process_group_id, executable
-                FROM agent_process_registry
-                WHERE run_attempt_id = ?
-                "#,
-        )
-        .bind(attempt.run_attempt_id)
-        .fetch_optional(&self.db.pool)
-        .await
-        .map_err(port_database)?;
-        let Some((status, pid, process_group_id, executable)) = persisted else {
-            return Ok(CancellationCleanupPreparation::ProcessAbsenceUnconfirmed);
-        };
-        if status == "exited" {
-            let _ = self
-                .process_registry
-                .remove_runtime(attempt.run_attempt_id)
-                .await;
-            return Ok(CancellationCleanupPreparation::ProcessAlreadyExited);
-        }
-        if self
-            .process_registry
-            .query_runtime(attempt.run_attempt_id)
-            .await
-            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?
-            .is_some()
-        {
-            return Ok(CancellationCleanupPreparation::OwnedProcessRegistered);
-        }
-        let Some(pid) = pid else {
-            return Ok(CancellationCleanupPreparation::ProcessAbsenceUnconfirmed);
-        };
-        let pid = u32::try_from(pid).map_err(|error| {
-            AgentRunPortError::Unavailable(format!("persisted provider pid is invalid: {error}"))
-        })?;
-        let process_group_id =
-            process_group_id
-                .map(u32::try_from)
-                .transpose()
-                .map_err(|error| {
-                    AgentRunPortError::Unavailable(format!(
-                        "persisted provider process group is invalid: {error}"
-                    ))
-                })?;
-        self.process_registry
-            .register(RegisteredAgentProcess::new(
-                attempt.run_attempt_id,
-                Some(request.session_id),
-                Some(request.workspace.workspace_id),
-                Some(request.provider_id.clone()),
-                pid,
-                process_group_id,
-                executable,
-            ))
-            .await
-            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
-        Ok(CancellationCleanupPreparation::OwnedProcessRegistered)
-    }
-
     async fn reconcile_cancel_after_host_failure(
         &self,
         request: &AgentRunRequestEnvelope,
@@ -2655,53 +2905,13 @@ impl LocalAgentRunPort {
             tracing::warn!(run_attempt_id = %attempt.run_attempt_id, %error, "failed to mark process host unreachable during cancellation fallback");
         }
 
-        let preparation = match self.prepare_cancellation_cleanup(request, attempt).await {
-            Ok(preparation) => preparation,
-            Err(error) => {
-                let message = format!(
-                    "process host cancellation failed ({host_error}); cleanup preparation failed: {error}"
-                );
-                self.terminalize_failure(
-                    request,
-                    attempt,
-                    AgentRunStatus::Crashed,
-                    AgentRuntimeError::new(AgentRuntimeErrorKind::ProcessCrashed, message.clone())
-                        .with_provider(Some(request.provider_id.clone())),
-                )
-                .await;
-                return Err(AgentRunPortError::Unavailable(message));
-            }
-        };
-        let cleanup = if preparation == CancellationCleanupPreparation::OwnedProcessRegistered {
-            match self
-                .process_registry
-                .cleanup_runtime(attempt.run_attempt_id)
-                .await
-            {
-                Ok(report) => Some(report),
-                Err(error) => {
-                    let message = format!(
-                        "process host cancellation failed ({host_error}); registry cleanup failed: {error}"
-                    );
-                    self.terminalize_failure(
-                        request,
-                        attempt,
-                        AgentRunStatus::Crashed,
-                        AgentRuntimeError::new(
-                            AgentRuntimeErrorKind::ProcessCrashed,
-                            message.clone(),
-                        )
-                        .with_provider(Some(request.provider_id.clone())),
-                    )
-                    .await;
-                    return Err(AgentRunPortError::Unavailable(message));
-                }
-            }
-        } else {
-            None
-        };
-        let runtime_absent = preparation == CancellationCleanupPreparation::ProcessAlreadyExited
-            || cleanup.is_some_and(|report| report.confirms_runtime_absent());
+        // A persisted PID is not process identity: it may have been reused.
+        // Only the authenticated host may terminate its owned child. Transport
+        // failure falls back to observation, never taskkill/SIGTERM by old PID.
+        let runtime_absent = self
+            .observe_attempt_processes_absent(attempt.run_attempt_id)
+            .await
+            .unwrap_or(false);
         if !runtime_absent {
             if let Some(events) = initial_events {
                 self.apply_host_events(request, attempt, events).await?;
@@ -2710,7 +2920,7 @@ impl LocalAgentRunPort {
                 return cancellation_terminal_result(status);
             }
             let message = format!(
-                "process host cancellation failed ({host_error}); owned process cleanup did not confirm exit ({preparation:?}, report={cleanup:?})"
+                "process host cancellation failed ({host_error}); process exit cannot be verified safely"
             );
             self.terminalize_failure(
                 request,
@@ -2723,6 +2933,10 @@ impl LocalAgentRunPort {
             return Err(AgentRunPortError::Unavailable(message));
         }
 
+        self.process_registry
+            .remove_runtime(attempt.run_attempt_id)
+            .await
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
         if let Err(error) = AgentRunRecord::mark_process_exited(
             &self.db.pool,
             attempt.run_attempt_id,
@@ -2781,6 +2995,14 @@ fn cancellation_terminal_result(status: AgentRunStatus) -> Result<(), AgentRunPo
             "cancellation converged to terminal status {status:?}"
         )))
     }
+}
+
+fn should_reconcile_lost_process_host(
+    consecutive_failures: usize,
+    host_presence: Option<RegisteredProcessPresence>,
+) -> bool {
+    consecutive_failures >= PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD
+        && host_presence == Some(RegisteredProcessPresence::Exited)
 }
 
 fn prefer_cancellation_terminal(
@@ -3125,7 +3347,6 @@ mod tests {
         AgentTransportKind, CanonicalMessage, WorkspaceMode, WorkspaceReference,
     };
     use sqlx::sqlite::SqlitePoolOptions;
-    use tempfile::TempDir;
 
     use super::*;
 
@@ -3433,97 +3654,110 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancellation_cleanup_restores_missing_file_registry_from_database() {
+    async fn terminal_registry_reconciliation_is_idempotent_and_preserves_outcome() {
         let db = setup_runtime_db().await;
-        let temp_dir = TempDir::new().expect("temp dir");
         let mut port = LocalAgentRunPort::new(db);
-        port.process_registry = AgentProcessRegistry::new(temp_dir.path().join("registry.json"));
+        let registry_dir = tempfile::TempDir::new().unwrap();
+        port.process_registry =
+            AgentProcessRegistry::new(registry_dir.path().join("registry.json"));
         let (request, attempt) = persisted_codex_run(&port.db).await;
+        // Keep the missing PID within the signed range accepted by tasklist
+        // and Unix kill(0); u32::MAX is invalid input, not proof of absence.
+        // This test only observes processes; it never spawns or terminates one.
+        let missing_pid = i32::MAX as u32;
         AgentRunRecord::mark_process_started(
             &port.db.pool,
             attempt.run_attempt_id,
-            4242,
-            Some(4242),
-            Some("codex"),
+            missing_pid,
+            None,
+            Some("fixture-dead-provider"),
             Utc::now(),
         )
         .await
-        .expect("mark provider running");
-
-        let preparation = port
-            .prepare_cancellation_cleanup(&request, &attempt)
+        .unwrap();
+        sqlx::query("UPDATE agent_process_registry SET host_pid = ? WHERE run_attempt_id = ?")
+            .bind(i64::from(missing_pid))
+            .bind(attempt.run_attempt_id)
+            .execute(&port.db.pool)
             .await
-            .expect("prepare cleanup");
-
-        assert_eq!(
-            preparation,
-            CancellationCleanupPreparation::OwnedProcessRegistered
+            .unwrap();
+        AgentRunRecord::mark_process_host_unreachable(&port.db.pool, attempt.run_attempt_id)
+            .await
+            .unwrap();
+        port.terminalize_failure(
+            &request,
+            &attempt,
+            AgentRunStatus::Failed,
+            AgentRuntimeError::new(AgentRuntimeErrorKind::Unknown, "fixture".to_string()),
+        )
+        .await;
+        let before = port.query(request.agent_run_id).await.unwrap().state;
+        assert!(
+            port.reconcile_terminal_process(attempt.run_attempt_id)
+                .await
+                .unwrap()
         );
-        let restored = port
-            .process_registry
-            .query_runtime(attempt.run_attempt_id)
-            .await
-            .expect("query restored process")
-            .expect("restored process");
-        assert_eq!(restored.pid, 4242);
-        assert_eq!(restored.process_group_id, Some(4242));
-        assert_eq!(restored.provider.as_deref(), Some("codex"));
+        assert!(
+            port.reconcile_terminal_process(attempt.run_attempt_id)
+                .await
+                .unwrap()
+        );
+        let after = port.query(request.agent_run_id).await.unwrap().state;
+        assert_eq!(
+            serde_json::to_value(before).unwrap(),
+            serde_json::to_value(after).unwrap()
+        );
     }
 
     #[tokio::test]
-    async fn cancellation_cleanup_trusts_prior_exit_fact_and_drops_stale_file_entry() {
+    async fn unreachable_provider_pid_is_observed_not_killed() {
         let db = setup_runtime_db().await;
-        let temp_dir = TempDir::new().expect("temp dir");
         let mut port = LocalAgentRunPort::new(db);
-        port.process_registry = AgentProcessRegistry::new(temp_dir.path().join("registry.json"));
+        let registry_dir = tempfile::TempDir::new().unwrap();
+        port.process_registry =
+            AgentProcessRegistry::new(registry_dir.path().join("registry.json"));
         let (request, attempt) = persisted_codex_run(&port.db).await;
+        // The test process is deliberately unrelated to this run. Never kill it.
         AgentRunRecord::mark_process_started(
             &port.db.pool,
             attempt.run_attempt_id,
-            4243,
-            Some(4243),
-            Some("codex"),
-            Utc::now(),
-        )
-        .await
-        .expect("mark provider running");
-        AgentRunRecord::mark_process_exited(
-            &port.db.pool,
-            attempt.run_attempt_id,
+            std::process::id(),
             None,
+            Some("unrelated-test-process"),
             Utc::now(),
         )
         .await
-        .expect("mark provider exited");
-        port.process_registry
-            .register(RegisteredAgentProcess::new(
-                attempt.run_attempt_id,
-                Some(request.session_id),
-                Some(request.workspace.workspace_id),
-                Some(request.provider_id.clone()),
-                4243,
-                Some(4243),
-                Some("codex".to_string()),
-            ))
-            .await
-            .expect("register stale projection");
-
-        let preparation = port
-            .prepare_cancellation_cleanup(&request, &attempt)
-            .await
-            .expect("prepare cleanup");
-
-        assert_eq!(
-            preparation,
-            CancellationCleanupPreparation::ProcessAlreadyExited
-        );
+        .unwrap();
         assert!(
-            port.process_registry
-                .query_runtime(attempt.run_attempt_id)
+            !port
+                .observe_attempt_processes_absent(attempt.run_attempt_id)
                 .await
-                .expect("query registry")
-                .is_none()
+                .unwrap()
         );
+        let error = port
+            .reconcile_cancel_after_host_failure(
+                &request,
+                &attempt,
+                "fixture host unavailable",
+                None,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("cannot be verified safely"));
+        assert!(
+            !port
+                .reconcile_terminal_process(attempt.run_attempt_id)
+                .await
+                .unwrap()
+        );
+        let status: String = sqlx::query_scalar(
+            "SELECT registry_status FROM agent_process_registry WHERE run_attempt_id = ?",
+        )
+        .bind(attempt.run_attempt_id)
+        .fetch_one(&port.db.pool)
+        .await
+        .unwrap();
+        assert_ne!(status, "exited");
     }
 
     #[test]
@@ -3548,6 +3782,30 @@ mod tests {
             prefer_cancellation_terminal(AgentRunStatus::AuditFailed, true),
             AgentRunStatus::AuditFailed
         );
+    }
+
+    #[test]
+    fn lost_process_host_reconciliation_requires_repeated_failures_and_confirmed_exit() {
+        assert!(!should_reconcile_lost_process_host(
+            PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD - 1,
+            Some(RegisteredProcessPresence::Exited),
+        ));
+        assert!(!should_reconcile_lost_process_host(
+            PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD,
+            Some(RegisteredProcessPresence::Alive),
+        ));
+        assert!(should_reconcile_lost_process_host(
+            PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD,
+            Some(RegisteredProcessPresence::Exited),
+        ));
+        assert!(!should_reconcile_lost_process_host(
+            PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD,
+            Some(RegisteredProcessPresence::Unreachable),
+        ));
+        assert!(!should_reconcile_lost_process_host(
+            PROCESS_HOST_OBSERVER_FAILURE_THRESHOLD,
+            None,
+        ));
     }
 
     #[tokio::test]

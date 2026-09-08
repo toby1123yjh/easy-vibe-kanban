@@ -62,6 +62,13 @@ pub struct TaskChildrenQuery {
     pub limit: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeleteTaskQuery {
+    #[serde(default)]
+    pub stop_running: bool,
+    pub session_id: Uuid,
+}
+
 fn cursor_parts(
     updated_at: Option<DateTime<Utc>>,
     id: Option<Uuid>,
@@ -160,13 +167,34 @@ async fn list_task_children(
     Ok(Json(ApiResponse::success(page)))
 }
 
+async fn delete_task(
+    State(deployment): State<DeploymentImpl>,
+    Path(task_id): Path<Uuid>,
+    Query(query): Query<DeleteTaskQuery>,
+) -> Result<Json<ApiResponse<()>>, ApiError> {
+    let _queue_guard = super::sessions::lock_session_for_deletion(
+        deployment.queued_message_service(),
+        query.session_id,
+    )
+    .await?;
+    super::sessions::deletion::prepare_deletion(
+        &deployment,
+        query.session_id,
+        Some(task_id),
+        query.stop_running,
+    )
+    .await?;
+    Task::delete_agent_with_session(&deployment.db().pool, task_id, query.session_id).await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/execution-data/capabilities", get(capabilities))
         .route("/projects", get(list_projects))
         .route("/sessions/recent", get(list_sessions))
         .route("/tasks", get(list_tasks))
-        .route("/tasks/{task_id}", get(get_task))
+        .route("/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/tasks/{task_id}/children", get(list_task_children))
 }
 
@@ -175,7 +203,18 @@ mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
-    use super::cursor_parts;
+    use super::{DeleteTaskQuery, cursor_parts};
+
+    #[test]
+    fn task_deletion_requires_the_confirmed_session_identity() {
+        assert!(serde_json::from_value::<DeleteTaskQuery>(serde_json::json!({})).is_err());
+        let session_id = Uuid::new_v4();
+        let query: DeleteTaskQuery = serde_json::from_value(serde_json::json!({
+            "session_id": session_id
+        }))
+        .unwrap();
+        assert_eq!(query.session_id, session_id);
+    }
 
     #[test]
     fn cursor_requires_both_stable_sort_parts() {

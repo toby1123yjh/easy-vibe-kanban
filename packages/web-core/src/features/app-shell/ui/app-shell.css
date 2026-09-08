@@ -295,10 +295,113 @@ button:focus-visible > .vk-module-unavailable-reason {
   align-items: center;
   gap: var(--vk-space-2);
   width: 100%;
-  min-height: 34px;
-  padding: var(--vk-space-2);
+  min-height: 40px;
+  padding: var(--vk-space-1) var(--vk-space-3);
   border-radius: var(--vk-radius-sm);
   text-align: left;
+  transition:
+    color var(--vk-duration-fast) var(--vk-ease-standard),
+    background var(--vk-duration-fast) var(--vk-ease-standard);
+}
+
+.vk-object-link--session {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--vk-space-1);
+  padding: 0;
+}
+
+.vk-object-link__main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--vk-space-2);
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--vk-space-1) var(--vk-space-2);
+  border: 0;
+  border-radius: var(--vk-radius-sm);
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.vk-object-link__main:hover,
+.vk-object-link__main:focus-visible {
+  color: var(--vk-text-high);
+  background: var(--vk-surface-hover);
+}
+
+.vk-object-link__main > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vk-object-link > svg,
+.vk-object-link__main > svg {
+  color: var(--vk-text-low);
+}
+
+.vk-object-link:hover > svg,
+.vk-object-link[data-active='true'] > svg,
+.vk-object-link__main:hover > svg,
+.vk-object-link__main:focus-visible > svg {
+  color: var(--vk-text-high);
+}
+
+.vk-object-link__action {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  margin-right: var(--vk-space-1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--vk-radius-sm);
+  cursor: pointer;
+  color: var(--vk-text-low);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--vk-duration-fast) var(--vk-ease-standard);
+}
+
+.vk-object-link--session:hover .vk-object-link__action,
+.vk-object-link--session:focus-within .vk-object-link__action,
+.vk-object-link__action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.vk-object-link__action:hover,
+.vk-object-link__action:focus-visible {
+  color: var(--vk-error-state-text);
+  background: var(--vk-surface-hover);
+}
+
+.vk-object-link__action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.vk-object-link__action:focus-visible {
+  outline: 2px solid var(--vk-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .vk-object-link--session .vk-object-link__action {
+    width: 44px;
+    height: 44px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .vk-object-link > span {

@@ -133,10 +133,8 @@ export function deriveActiveShellModule(pathname: string): ShellModule | null {
   if (normalizedPath === '/agents' || normalizedPath.startsWith('/agents/')) {
     return 'agents';
   }
-  if (
-    normalizedPath === '/projects' ||
-    normalizedPath.startsWith('/projects/')
-  ) {
+  // Individual projects own their selection in the project list.
+  if (normalizedPath === '/projects') {
     return 'projects';
   }
   return null;
@@ -167,5 +165,7 @@ export function projectRoute(project: ProjectListItem): string {
 }
 
 export function sessionRoute(session: SessionListItem): string {
-  return `/workspaces/${encodeURIComponent(session.workspace_id)}`;
+  const workspaceId = encodeURIComponent(session.workspace_id);
+  const sessionId = encodeURIComponent(session.id);
+  return `/workspaces/${workspaceId}?session_id=${sessionId}`;
 }

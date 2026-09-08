@@ -74,6 +74,107 @@ test("desktop keeps fixed shell zones and automatically pages the middle object 
   await expect(sidebar.getByText("Load more")).toHaveCount(0);
 });
 
+test("project selection and the Projects directory never highlight together", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoFixture(page);
+
+  const sidebar = page.locator(".vk-product-sidebar");
+  const projectsEntry = sidebar
+    .getByRole("navigation", { name: "Primary" })
+    .getByRole("button", { name: "Projects", exact: true });
+
+  for (const [title, route] of [
+    ["Project 01", "/projects/project-1"],
+    ["Project 02", "/projects/project-2"],
+  ]) {
+    const project = sidebar.getByRole("button", { name: title, exact: true });
+    await project.click();
+    await expect(page.getByTestId("current-route")).toHaveText(route);
+    await expect(project).toHaveAttribute("aria-current", "page");
+    await expect(projectsEntry).not.toHaveAttribute("aria-current", "page");
+    await expect(sidebar.locator('[data-active="true"]')).toHaveCount(1);
+  }
+
+  await projectsEntry.click();
+  await expect(page.getByTestId("current-route")).toHaveText("/projects");
+  await expect(projectsEntry).toHaveAttribute("aria-current", "page");
+  await expect(sidebar.locator('[data-active="true"]')).toHaveCount(1);
+});
+
+test("highlights only the selected session when a workspace has multiple sessions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoFixture(page);
+
+  const sidebar = page.locator(".vk-product-sidebar");
+  const sessions = sidebar
+    .getByRole("heading", { name: "Sessions" })
+    .locator("..");
+  const selectedSession = sessions.getByRole("button", {
+    name: "Session 02, Claude Code",
+  });
+
+  await expect(
+    sessions.getByRole("button", { name: /Session 0[1-3],/ }),
+  ).toHaveCount(3);
+  await selectedSession.click();
+
+  await expect(page.getByTestId("current-route")).toHaveText(
+    "/workspaces/workspace-shared?session_id=session-2",
+  );
+  await expect(sessions.locator('[data-active="true"]')).toHaveCount(1);
+  await expect(selectedSession).toHaveAttribute("aria-current", "page");
+  await expect(
+    sessions.getByRole("button", { name: "Session 01, Codex" }),
+  ).not.toHaveAttribute("aria-current", "page");
+  await expect(
+    sessions.getByRole("button", { name: "Session 03, Codex" }),
+  ).not.toHaveAttribute("aria-current", "page");
+});
+
+test("session rows expose an explicit delete control", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoFixture(page);
+
+  const sessions = page
+    .locator(".vk-product-sidebar")
+    .getByRole("heading", { name: "Sessions" })
+    .locator("..");
+
+  await expect(
+    sessions.getByRole("button", { name: "Delete session" }),
+  ).toHaveCount(16);
+});
+
+test("session delete controls reveal on row interaction", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoFixture(page);
+
+  const sessionRow = page
+    .locator(".vk-product-sidebar .vk-object-link--session")
+    .first();
+  const deleteButton = sessionRow.getByRole("button", {
+    name: "Delete session",
+  });
+  const chevron = sessionRow.locator(".vk-object-link__chevron");
+
+  await expect(deleteButton).toHaveCSS("opacity", "0");
+  await expect(chevron).toHaveCount(0);
+
+  await sessionRow.hover();
+  await expect(deleteButton).toHaveCSS("opacity", "1");
+
+  await sessionRow.getByRole("button", { name: /Session 01,/ }).focus();
+  await expect(deleteButton).toHaveCSS("opacity", "1");
+
+  await deleteButton.focus();
+  await expect(deleteButton).toBeFocused();
+  await expect(deleteButton).toHaveCSS("opacity", "1");
+});
+
 test("search preserves the background route and provides grouped keyboard interaction", async ({
   page,
 }) => {

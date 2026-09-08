@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from '@tanstack/react-router';
 import { useDropzone } from 'react-dropzone';
 import {
   BaseAgentCapability,
@@ -75,6 +76,7 @@ import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { sessionsApi } from '@/shared/lib/api';
+import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
 import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
@@ -197,6 +199,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const sessionId = session?.id;
   const queryClient = useQueryClient();
   const hostId = useHostId();
+  const location = useLocation();
 
   const handleRenameSession = useCallback(
     (targetSessionId: string, currentName: string) => {
@@ -211,6 +214,37 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       });
     },
     [queryClient, hostId, workspaceId]
+  );
+
+  const { deleteSession, pendingSessionId: deletingSessionId } =
+    useDeleteTaskSession({
+      hostId,
+      scopeKey: JSON.stringify([
+        hostId,
+        location.href,
+        workspaceId,
+        sessionId,
+        mode,
+      ]),
+      onDeleted: (target) => {
+        if (sessionId !== target.sessionId) return;
+        const nextSession = sessions.find(
+          (item) => item.id !== target.sessionId
+        );
+        if (nextSession) onSelectSession?.(nextSession.id);
+        else onStartNewSession?.();
+      },
+    });
+  const handleDeleteSession = useCallback(
+    (targetSessionId: string, currentName: string) => {
+      if (!workspaceId) return;
+      void deleteSession({
+        sessionId: targetSessionId,
+        workspaceId,
+        title: currentName,
+      });
+    },
+    [deleteSession, workspaceId]
   );
   const appNavigation = useAppNavigation();
 
@@ -1318,6 +1352,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         isNewSessionMode: needsExecutorSelection,
         onNewSession: onStartNewSession,
         onRenameSession: handleRenameSession,
+        onDeleteSession:
+          mode === 'existing-session' ? handleDeleteSession : undefined,
+        deletingSessionId,
       }}
       toolbarActions={{
         items: toolbarActionItems,

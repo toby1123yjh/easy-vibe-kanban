@@ -1,4 +1,5 @@
 mod agent_run;
+pub(crate) mod deletion;
 mod native_history;
 pub mod queue;
 pub mod review;
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use axum::{
     Extension, Json, Router,
-    extract::{Query, State},
+    extract::{Path as AxumPath, Query, State},
     middleware::from_fn_with_state,
     response::Json as ResponseJson,
     routing::{get, post},
@@ -21,6 +22,7 @@ use db::models::{
     requests::UpdateSession,
     scratch::{Scratch, ScratchType},
     session::{CreateSession, Session, SessionError},
+    task::{Task, TaskError, TaskSummary},
     workspace::{Workspace, WorkspaceError},
     workspace_repo::WorkspaceRepo,
 };
@@ -34,7 +36,7 @@ pub use native_history::{
     NativeAgentSessionPreview, NativeSessionDiscoveryState, NativeSessionPreviewEntry,
 };
 use serde::Deserialize;
-use services::services::container::ContainerService;
+use services::services::{container::ContainerService, queued_message::QueuedMessageService};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -107,6 +109,52 @@ pub async fn get_session(
     Extension(session): Extension<Session>,
 ) -> Result<ResponseJson<ApiResponse<Session>>, ApiError> {
     Ok(ResponseJson(ApiResponse::success(session)))
+}
+
+pub async fn delete_session(
+    State(deployment): State<DeploymentImpl>,
+    Extension(session): Extension<Session>,
+    AxumPath(_session_id): AxumPath<Uuid>,
+    Query(query): Query<deletion::DeleteSessionQuery>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    let _queue_guard =
+        lock_session_for_deletion(deployment.queued_message_service(), session.id).await?;
+    deletion::prepare_deletion(&deployment, session.id, None, query.stop_running).await?;
+    let deleted = Session::delete(&deployment.db().pool, session.id).await?;
+    if deleted == 0 {
+        return Err(ApiError::Session(SessionError::NotFound));
+    }
+
+    Ok(ResponseJson(ApiResponse::success(())))
+}
+
+pub(crate) async fn lock_session_for_deletion(
+    queue: &QueuedMessageService,
+    session_id: Uuid,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, ApiError> {
+    let guard = queue.lock_session(session_id).await;
+    if queue.has_queued(session_id) {
+        return Err(ApiError::Conflict(
+            "Session has a queued follow-up. Cancel it before deleting this session.".to_string(),
+        ));
+    }
+    Ok(guard)
+}
+
+pub async fn get_session_task(
+    State(deployment): State<DeploymentImpl>,
+    Extension(session): Extension<Session>,
+) -> Result<ResponseJson<ApiResponse<Option<TaskSummary>>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let task = match Task::find_agent_by_session_id(pool, session.id).await? {
+        Some(task) => Some(
+            Task::summary_by_id(pool, task.id)
+                .await?
+                .ok_or(TaskError::NotFound { task_id: task.id })?,
+        ),
+        None => None,
+    };
+    Ok(ResponseJson(ApiResponse::success(task)))
 }
 
 pub async fn get_resumable_agent_sessions(
@@ -480,7 +528,37 @@ pub(crate) async fn fail_reserved_coding_agent_execution(
 
 #[cfg(test)]
 mod tests {
-    use super::native_history_scope_path;
+    use db::models::scratch::DraftFollowUpData;
+    use executors::{executors::BaseCodingAgent, profile::ExecutorConfig};
+    use services::services::queued_message::QueuedMessageService;
+    use uuid::Uuid;
+
+    use super::{lock_session_for_deletion, native_history_scope_path};
+    use crate::error::ApiError;
+
+    #[tokio::test]
+    async fn deletion_rejects_queued_follow_up_without_consuming_it() {
+        let queue = QueuedMessageService::new();
+        let session_id = Uuid::new_v4();
+        queue.queue_message(
+            session_id,
+            DraftFollowUpData {
+                message: "Keep this queued message".to_string(),
+                executor_config: ExecutorConfig::new(BaseCodingAgent::Codex),
+                selected_skills: None,
+            },
+        );
+        assert!(matches!(
+            lock_session_for_deletion(&queue, session_id).await,
+            Err(ApiError::Conflict(message)) if message.contains("queued follow-up")
+        ));
+        assert_eq!(
+            queue.get_queued(session_id).unwrap().data.message,
+            "Keep this queued message"
+        );
+        queue.cancel_queued(session_id);
+        assert!(lock_session_for_deletion(&queue, session_id).await.is_ok());
+    }
 
     #[test]
     fn native_history_scope_uses_only_the_explicit_working_directory() {
@@ -557,8 +635,12 @@ pub async fn run_setup_script(
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let session_id_router = Router::new()
-        .route("/", get(get_session).put(update_session))
+        .route(
+            "/",
+            get(get_session).put(update_session).delete(delete_session),
+        )
         .route("/follow-up", post(follow_up))
+        .route("/task", get(get_session_task))
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
         .layer(from_fn_with_state(

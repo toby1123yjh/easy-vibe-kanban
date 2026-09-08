@@ -60,6 +60,7 @@ import {
   type KanbanMoveUpdate,
 } from '../model/project-kanban';
 import './project-surfaces.css';
+import { TaskDeleteButton, type TaskDeletionActions } from './TaskDeleteButton';
 
 const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') {
@@ -116,7 +117,7 @@ const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   return { x: targetRect.left, y: targetRect.top };
 };
 
-interface ProjectKanbanViewProps {
+interface ProjectKanbanViewProps extends TaskDeletionActions {
   projectName: string;
   columns: KanbanColumnProjection[];
   issueCount: number;
@@ -172,31 +173,138 @@ function IssueTaskPreview({
   task,
   onOpen,
   unavailableReason,
-}: {
+  preview = false,
+  onDeleteTask,
+  deletingSessionId,
+}: TaskDeletionActions & {
   task: TaskSummary;
   onOpen(): void;
   unavailableReason: string | null;
+  preview?: boolean;
 }) {
-  return (
-    <button
-      type="button"
-      className="vk-kanban-task-preview"
-      data-no-drag
-      aria-disabled={unavailableReason ? true : undefined}
-      title={unavailableReason ?? undefined}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (!unavailableReason) onOpen();
-      }}
-    >
+  const content = (
+    <>
       <TaskStatusIcon status={task.status} />
       <span>{task.title}</span>
       <ArrowRight aria-hidden="true" size={13} />
-    </button>
+    </>
+  );
+  if (preview)
+    return (
+      <div className="vk-task-action-row">
+        <div
+          className="vk-kanban-task-preview"
+          aria-disabled={unavailableReason ? true : undefined}
+        >
+          {content}
+        </div>
+        <TaskDeleteButton task={task} onDeleteTask={onDeleteTask} preview />
+      </div>
+    );
+  return (
+    <div className="vk-task-action-row" data-no-drag>
+      <button
+        type="button"
+        className="vk-kanban-task-preview"
+        data-no-drag
+        aria-disabled={unavailableReason ? true : undefined}
+        title={unavailableReason ?? undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!unavailableReason) onOpen();
+        }}
+      >
+        {content}
+      </button>
+      <TaskDeleteButton
+        task={task}
+        onDeleteTask={onDeleteTask}
+        deletingSessionId={deletingSessionId}
+      />
+    </div>
   );
 }
 
-interface KanbanIssueCardProps {
+function IssueCardContent({
+  issue,
+  actions,
+  preview = false,
+  onOpenMore,
+  onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
+  getTaskUnavailableReason,
+}: TaskDeletionActions & {
+  issue: KanbanIssueProjection;
+  actions?: ReactNode;
+  preview?: boolean;
+  onOpenMore?: (trigger: HTMLElement) => void;
+  onOpenTask?: (task: TaskSummary) => void;
+  getTaskUnavailableReason: (task: TaskSummary) => string | null;
+}) {
+  return (
+    <>
+      <header className="vk-kanban-issue-card__meta">
+        <span>{issue.simpleId}</span>
+        {actions}
+      </header>
+      <h3 title={issue.title}>{issue.title}</h3>
+      <div className="vk-kanban-issue-card__labels">
+        {issue.priority ? (
+          <span
+            className="vk-priority"
+            data-priority={issue.priority}
+            data-no-drag
+          >
+            {issue.priority}
+          </span>
+        ) : null}
+        {issue.tags.map((tag) => (
+          <span key={tag.id} className="vk-issue-tag" data-no-drag>
+            {tag.name}
+          </span>
+        ))}
+      </div>
+      {issue.tasks.length > 0 ? (
+        <div className="vk-kanban-issue-card__tasks" data-no-drag>
+          <small>{issue.tasks.length} tasks</small>
+          {issue.tasks.slice(0, 2).map((task) => (
+            <IssueTaskPreview
+              key={task.id}
+              task={task}
+              preview={preview}
+              onDeleteTask={onDeleteTask}
+              deletingSessionId={deletingSessionId}
+              onOpen={() => onOpenTask?.(task)}
+              unavailableReason={getTaskUnavailableReason(task)}
+            />
+          ))}
+          {issue.tasks.length > 2 ? (
+            preview ? (
+              <span className="vk-kanban-more-tasks">
+                +{issue.tasks.length - 2} tasks
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="vk-kanban-more-tasks"
+                data-no-drag
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenMore?.(event.currentTarget);
+                }}
+              >
+                +{issue.tasks.length - 2} tasks
+              </button>
+            )
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+interface KanbanIssueCardProps extends TaskDeletionActions {
   issue: KanbanIssueProjection;
   selected: boolean;
   dragDisabled: boolean;
@@ -212,6 +320,8 @@ function KanbanIssueCard({
   dragDisabled,
   onOpen,
   onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
   onDelete,
   getTaskUnavailableReason,
 }: KanbanIssueCardProps) {
@@ -338,97 +448,63 @@ function KanbanIssueCard({
         dragDisabled ? '' : 'Press Space to move or '
       }press Enter to open.`}
     >
-      <header className="vk-kanban-issue-card__meta">
-        <span>{issue.simpleId}</span>
-        <button
-          ref={menuTriggerRef}
-          type="button"
-          className="vk-kanban-issue-card__menu"
-          data-no-drag
-          aria-label={`More actions for ${issue.simpleId}`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={(event) => {
-            event.stopPropagation();
-            setMenuOpen((open) => !open);
-          }}
-        >
-          <MoreHorizontal aria-hidden="true" size={16} />
-        </button>
-        <button
-          type="button"
-          className="vk-kanban-card-drag-handle"
-          data-touch-drag-handle
-          aria-label={`Drag ${issue.simpleId}`}
-          title="Drag issue"
-        >
-          <GripVertical aria-hidden="true" size={16} />
-        </button>
-        {menuOpen ? (
-          <div
-            ref={menuRef}
-            className="vk-kanban-issue-card__menu-popover"
-            role="menu"
-          >
+      <IssueCardContent
+        issue={issue}
+        onOpenMore={onOpen}
+        onOpenTask={onOpenTask}
+        onDeleteTask={onDeleteTask}
+        deletingSessionId={deletingSessionId}
+        getTaskUnavailableReason={getTaskUnavailableReason}
+        actions={
+          <>
             <button
+              ref={menuTriggerRef}
               type="button"
-              role="menuitem"
+              className="vk-kanban-issue-card__menu"
               data-no-drag
+              aria-label={`More actions for ${issue.simpleId}`}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
               onClick={(event) => {
                 event.stopPropagation();
-                setMenuOpen(false);
-                void onDelete();
+                setMenuOpen((open) => !open);
               }}
             >
-              <Trash2 aria-hidden="true" size={15} />
-              Delete issue
+              <MoreHorizontal aria-hidden="true" size={16} />
             </button>
-          </div>
-        ) : null}
-      </header>
-      <h3 title={issue.title}>{issue.title}</h3>
-      <div className="vk-kanban-issue-card__labels">
-        {issue.priority ? (
-          <span
-            className="vk-priority"
-            data-priority={issue.priority}
-            data-no-drag
-          >
-            {issue.priority}
-          </span>
-        ) : null}
-        {issue.tags.map((tag) => (
-          <span key={tag.id} className="vk-issue-tag" data-no-drag>
-            {tag.name}
-          </span>
-        ))}
-      </div>
-      {issue.tasks.length > 0 ? (
-        <div className="vk-kanban-issue-card__tasks" data-no-drag>
-          <small>{issue.tasks.length} tasks</small>
-          {issue.tasks.slice(0, 2).map((task) => (
-            <IssueTaskPreview
-              key={task.id}
-              task={task}
-              onOpen={() => onOpenTask(task)}
-              unavailableReason={getTaskUnavailableReason(task)}
-            />
-          ))}
-          {issue.tasks.length > 2 ? (
             <button
               type="button"
-              className="vk-kanban-more-tasks"
-              data-no-drag
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpen(event.currentTarget);
-              }}
+              className="vk-kanban-card-drag-handle"
+              data-touch-drag-handle
+              aria-label={`Drag ${issue.simpleId}`}
+              title="Drag issue"
             >
-              +{issue.tasks.length - 2} tasks
+              <GripVertical aria-hidden="true" size={16} />
             </button>
-          ) : null}
-        </div>
-      ) : null}
+            {menuOpen ? (
+              <div
+                ref={menuRef}
+                className="vk-kanban-issue-card__menu-popover"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-no-drag
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMenuOpen(false);
+                    void onDelete();
+                  }}
+                >
+                  <Trash2 aria-hidden="true" size={15} />
+                  Delete issue
+                </button>
+              </div>
+            ) : null}
+          </>
+        }
+      />
     </article>
   );
 }
@@ -440,9 +516,11 @@ function KanbanColumn({
   onCreateIssue,
   onOpenIssue,
   onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
   onDeleteIssue,
   getTaskUnavailableReason,
-}: {
+}: TaskDeletionActions & {
   column: KanbanColumnProjection;
   selectedIssueId: string | null;
   dragDisabled: boolean;
@@ -494,6 +572,8 @@ function KanbanColumn({
               dragDisabled={dragDisabled}
               onOpen={(trigger) => onOpenIssue(issue.id, trigger)}
               onOpenTask={onOpenTask}
+              onDeleteTask={onDeleteTask}
+              deletingSessionId={deletingSessionId}
               onDelete={() => onDeleteIssue(issue.id)}
               getTaskUnavailableReason={getTaskUnavailableReason}
             />
@@ -518,6 +598,8 @@ export function ProjectKanbanView({
   onCreateIssue,
   onOpenIssue,
   onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
   onDeleteIssue,
   getTaskUnavailableReason,
   onMove,
@@ -713,6 +795,8 @@ export function ProjectKanbanView({
                   onCreateIssue={() => onCreateIssue(column.id)}
                   onOpenIssue={onOpenIssue}
                   onOpenTask={onOpenTask}
+                  onDeleteTask={onDeleteTask}
+                  deletingSessionId={deletingSessionId}
                   onDeleteIssue={onDeleteIssue}
                   getTaskUnavailableReason={getTaskUnavailableReason}
                 />

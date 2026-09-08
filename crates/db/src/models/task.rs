@@ -5,6 +5,8 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use super::session::{Session, SessionError};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Type, Serialize, Deserialize, TS)]
 #[sqlx(type_name = "task_execution_kind", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -106,6 +108,8 @@ pub enum TaskError {
     InvalidRuntimeStatus { status: String },
     #[error("Task {task_id} was not found")]
     NotFound { task_id: Uuid },
+    #[error("{reason}")]
+    DeletionBlocked { task_id: Uuid, reason: String },
 }
 
 #[derive(Debug, FromRow)]
@@ -403,6 +407,83 @@ impl Task {
         .bind(workspace_id)
         .fetch_optional(pool)
         .await?)
+    }
+
+    /// Delete exactly one top-level Agent Task and its expected bound Session.
+    /// Runtime reservations and all guards share a SQLite write transaction;
+    /// any Session/FK failure also rolls back Task and binding removal.
+    pub async fn delete_agent_with_session(
+        pool: &SqlitePool,
+        task_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<(), SessionError> {
+        let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+        Self::validate_agent_deletion(&mut transaction, task_id, session_id).await?;
+        sqlx::query("DELETE FROM tasks WHERE id = ?")
+            .bind(task_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(SessionError::from_deletion_error)?;
+        Session::delete_in_transaction(&mut transaction, session_id).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(SessionError::from_deletion_error)?;
+        Ok(())
+    }
+
+    pub async fn validate_agent_deletion(
+        connection: &mut sqlx::SqliteConnection,
+        task_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<(), SessionError> {
+        let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?")
+            .bind(task_id)
+            .fetch_optional(&mut *connection)
+            .await?
+            .ok_or(TaskError::NotFound { task_id })?;
+        if task.execution_kind != TaskExecutionKind::Agent {
+            return Err(TaskError::DeletionBlocked {
+                task_id,
+                reason: "Only Agent Tasks can be deleted with this action.".to_string(),
+            }
+            .into());
+        }
+        let bound_session_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT session_id FROM agent_task_bindings WHERE task_id = ?",
+        )
+        .bind(task_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+        if bound_session_id != Some(session_id) {
+            return Err(TaskError::InvalidBinding {
+                task_id,
+                detail: "Task session binding changed or is missing. Refresh and try again."
+                    .to_string(),
+            }
+            .into());
+        }
+        let has_dependents = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(SELECT 1 FROM tasks WHERE parent_task_id = ?1)
+                OR EXISTS(SELECT 1 FROM node_executions WHERE task_id = ?1)
+                OR EXISTS(SELECT 1 FROM workflow_attempts WHERE task_id = ?1)
+                OR EXISTS(SELECT 1 FROM arena_groups WHERE task_id = ?1)
+            "#,
+        )
+        .bind(task_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if task.parent_task_id.is_some() || has_dependents {
+            return Err(TaskError::DeletionBlocked {
+                task_id,
+                reason: "Task has child Tasks or belongs to a Workflow or Arena and cannot be deleted independently."
+                    .to_string(),
+            }
+            .into());
+        }
+
+        Ok(())
     }
 
     pub async fn delete_agent_by_workspace_id(

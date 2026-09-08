@@ -11,8 +11,9 @@ import {
 import type { TaskSummary } from 'shared/types';
 import type { Issue, ProjectStatus, Tag } from 'shared/remote-types';
 import { taskExecutionLabel, taskStatusLabel } from '../model/project-kanban';
+import { TaskDeleteButton, type TaskDeletionActions } from './TaskDeleteButton';
 
-interface IssueFloatingPanelProps {
+interface IssueFloatingPanelProps extends TaskDeletionActions {
   issue: Issue;
   statuses: ProjectStatus[];
   tags: Tag[];
@@ -40,30 +41,39 @@ function TaskRow({
   task,
   onOpen,
   unavailableReason,
-}: {
+  onDeleteTask,
+  deletingSessionId,
+}: TaskDeletionActions & {
   task: TaskSummary;
   onOpen(): void;
   unavailableReason: string | null;
 }) {
   return (
-    <button
-      type="button"
-      className="vk-issue-task-row"
-      aria-disabled={unavailableReason ? true : undefined}
-      title={unavailableReason ?? undefined}
-      onClick={() => {
-        if (!unavailableReason) onOpen();
-      }}
-    >
-      <span className="vk-issue-task-row__copy">
-        <strong>{task.title}</strong>
-        <small>{taskExecutionLabel(task.execution_kind)}</small>
-      </span>
-      <span className="vk-issue-task-row__status" data-status={task.status}>
-        {taskStatusLabel(task.status)}
-      </span>
-      <ArrowRight aria-hidden="true" size={16} />
-    </button>
+    <div className="vk-task-action-row">
+      <button
+        type="button"
+        className="vk-issue-task-row"
+        aria-disabled={unavailableReason ? true : undefined}
+        title={unavailableReason ?? undefined}
+        onClick={() => {
+          if (!unavailableReason) onOpen();
+        }}
+      >
+        <span className="vk-issue-task-row__copy">
+          <strong>{task.title}</strong>
+          <small>{taskExecutionLabel(task.execution_kind)}</small>
+        </span>
+        <span className="vk-issue-task-row__status" data-status={task.status}>
+          {taskStatusLabel(task.status)}
+        </span>
+        <ArrowRight aria-hidden="true" size={16} />
+      </button>
+      <TaskDeleteButton
+        task={task}
+        onDeleteTask={onDeleteTask}
+        deletingSessionId={deletingSessionId}
+      />
+    </div>
   );
 }
 
@@ -82,6 +92,8 @@ export function IssueFloatingPanel({
   comments,
   onClose,
   onOpenTask,
+  onDeleteTask,
+  deletingSessionId,
   getTaskUnavailableReason,
   onCreateAgent,
   onCreateWorkflow,
@@ -137,6 +149,8 @@ export function IssueFloatingPanel({
                   key={task.id}
                   task={task}
                   onOpen={() => onOpenTask(task)}
+                  onDeleteTask={onDeleteTask}
+                  deletingSessionId={deletingSessionId}
                   unavailableReason={getTaskUnavailableReason(task)}
                 />
               ))}

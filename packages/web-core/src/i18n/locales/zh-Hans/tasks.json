@@ -1,4 +1,22 @@
 {
+  "sessionDeletion": {
+    "stopDescription": "“{{name}}”的智能体仍在运行，或暂时无法确认已退出。是否安全停止后删除？若停止失败，将保留任务和会话。",
+    "stopAndDelete": "停止并删除",
+    "stopping": "正在停止并删除…",
+    "stopFailed": "智能体尚未停止，任务和会话已保留，请稍后重试。",
+    "taskTitle": "删除 Task 和会话？",
+    "sessionTitle": "删除会话？",
+    "taskDescription": "从 Vibe Kanban 中删除“{{name}}”及其绑定会话的历史记录？Issue、Project、Workspace、其他 Task 和会话、工作文件及 Agent 原生历史记录均会保留。此操作无法撤销。",
+    "sessionDescription": "从 Vibe Kanban 中删除会话“{{name}}”及其历史记录？Workspace、其他会话、工作文件及 Agent 原生历史记录均会保留。此操作无法撤销。",
+    "resolving": "正在检查当前 Task 与会话的绑定关系…",
+    "deleteTask": "删除 Task 和会话",
+    "deleteSession": "删除会话",
+    "action": "删除 {{name}}",
+    "deleting": "正在删除…",
+    "failed": "无法删除，请重试。",
+    "scopeChanged": "当前 Host 或所选内容已更改。请取消，然后从目标条目重新发起删除。",
+    "bindingChanged": "此 Task 已不再绑定所选会话。请刷新列表后重试。"
+  },
   "dropzone": {
     "dropImagesHere": "将图片拖放到这里",
     "supportedFormats": "支持 PNG、JPG、GIF、WebP、SVG 格式"
@@ -420,7 +438,12 @@
       "renameTitle": "重命名会话",
       "renameDescription": "输入此会话的新名称。",
       "renamePlaceholder": "输入会话名称",
-      "renaming": "正在重命名..."
+      "renaming": "正在重命名...",
+      "delete": "删除会话",
+      "deleteTitle": "删除会话？",
+      "deleteDescription": "这会删除 Vibe Kanban 中的会话历史，不会影响工作区文件或智能体原生历史。",
+      "deleteFailed": "无法删除会话",
+      "deleteFailedDescription": "会话删除失败。"
     },
     "reviewComments": {
       "count_one": "{{count}} 条审查评论将被包含",

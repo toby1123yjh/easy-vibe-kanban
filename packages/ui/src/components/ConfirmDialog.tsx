@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -15,6 +15,7 @@ import {
   InfoIcon,
   CheckCircleIcon,
   XCircleIcon,
+  SpinnerIcon,
 } from '@phosphor-icons/react';
 import { defineModal, type ConfirmResult } from '../lib/modals';
 
@@ -28,11 +29,25 @@ export interface ConfirmDialogProps {
   showCancelButton?: boolean;
 }
 
-const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
+export interface ConfirmDialogViewProps extends ConfirmDialogProps {
+  open: boolean;
+  onConfirm(): void;
+  onCancel(): void;
+  confirmDisabled?: boolean;
+  cancelDisabled?: boolean;
+  confirmPending?: boolean;
+  confirmVariant?: 'default' | 'destructive';
+  /** Disable when the caller restores focus after a guarded async operation. */
+  restoreFocus?: boolean;
+  children?: ReactNode;
+}
+
+/** Controlled confirmation presentation; callers own lookup and mutation state. */
+export function ConfirmDialogView(props: ConfirmDialogViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
-  const modal = useModal();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const {
     title,
     message,
@@ -41,17 +56,16 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
     variant = 'default',
     icon = true,
     showCancelButton = true,
+    open,
+    onConfirm,
+    onCancel,
+    confirmDisabled = false,
+    cancelDisabled = false,
+    confirmPending = false,
+    confirmVariant,
+    restoreFocus = true,
+    children,
   } = props;
-
-  const handleConfirm = () => {
-    modal.resolve('confirmed' as ConfirmResult);
-    modal.hide();
-  };
-
-  const handleCancel = () => {
-    modal.resolve('canceled' as ConfirmResult);
-    modal.hide();
-  };
 
   const getIcon = () => {
     if (!icon) return null;
@@ -91,14 +105,34 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
   };
 
   const getConfirmButtonVariant = () => {
-    return variant === 'destructive' ? 'destructive' : 'default';
+    return (
+      confirmVariant ?? (variant === 'destructive' ? 'destructive' : 'default')
+    );
   };
+
+  const confirmButton = (
+    <Button
+      ref={confirmButtonRef}
+      className={`${showCancelButton ? '' : 'ml-auto '}min-h-11 sm:min-h-[var(--vk-button-height)]`}
+      variant={getConfirmButtonVariant()}
+      disabled={confirmDisabled || confirmPending}
+      onClick={onConfirm}
+    >
+      {confirmPending && (
+        <SpinnerIcon
+          aria-hidden="true"
+          className="mr-2 size-4 animate-spin motion-reduce:animate-none"
+        />
+      )}
+      {confirmText}
+    </Button>
+  );
 
   return (
     <Dialog
-      open={modal.visible}
+      open={open}
       onOpenChange={(open) => {
-        if (!open) handleCancel();
+        if (!open && !cancelDisabled) onCancel();
       }}
     >
       <DialogContent
@@ -108,10 +142,24 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
         className="bg-[var(--vk-dialog-surface)] text-[var(--vk-text-normal)] sm:max-w-[425px]"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
+          const activeElement = document.activeElement;
+          returnFocusRef.current =
+            activeElement instanceof HTMLElement &&
+            activeElement !== document.body &&
+            activeElement !== document.documentElement
+              ? activeElement
+              : null;
           const target = showCancelButton
             ? cancelButtonRef.current
             : confirmButtonRef.current;
           target?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          // Imperative confirmations have no Radix DialogTrigger to restore.
+          event.preventDefault();
+          if (restoreFocus && returnFocusRef.current?.isConnected) {
+            returnFocusRef.current.focus({ preventScroll: true });
+          }
         }}
       >
         <DialogHeader>
@@ -123,39 +171,43 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
             {message}
           </DialogDescription>
         </DialogHeader>
+        {children}
         {showCancelButton ? (
           <DialogFooter className="gap-2">
             <Button
               ref={cancelButtonRef}
               className="min-h-11 sm:min-h-[var(--vk-button-height)]"
               variant="outline"
-              onClick={handleCancel}
+              disabled={cancelDisabled}
+              onClick={onCancel}
             >
               {cancelText}
             </Button>
-            <Button
-              ref={confirmButtonRef}
-              className="min-h-11 sm:min-h-[var(--vk-button-height)]"
-              variant={getConfirmButtonVariant()}
-              onClick={handleConfirm}
-            >
-              {confirmText}
-            </Button>
+            {confirmButton}
           </DialogFooter>
         ) : (
-          <div className="flex w-full">
-            <Button
-              ref={confirmButtonRef}
-              className="ml-auto min-h-11 sm:min-h-[var(--vk-button-height)]"
-              variant={getConfirmButtonVariant()}
-              onClick={handleConfirm}
-            >
-              {confirmText}
-            </Button>
-          </div>
+          <div className="flex w-full">{confirmButton}</div>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
+  const modal = useModal();
+
+  const close = (result: ConfirmResult) => {
+    modal.resolve(result);
+    void modal.hide();
+  };
+
+  return (
+    <ConfirmDialogView
+      {...props}
+      open={modal.visible}
+      onConfirm={() => close('confirmed')}
+      onCancel={() => close('canceled')}
+    />
   );
 });
 

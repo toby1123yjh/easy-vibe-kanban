@@ -1,18 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
+import { useSearch } from '@tanstack/react-router';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { sessionsApi } from '@/shared/lib/api';
 import { useHostId } from '@/shared/providers/HostIdProvider';
 import { workspaceSessionKeys } from '@/shared/hooks/workspaceSessionKeys';
 import type { Session } from 'shared/types';
+import {
+  deriveSessionSelection,
+  type SessionSelection,
+} from './sessionSelection';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
 }
-
-/** Discriminated union for session selection state */
-export type SessionSelection =
-  | { mode: 'existing'; sessionId: string }
-  | { mode: 'new' };
 
 function getRequestedSessionId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -49,6 +49,13 @@ export function useWorkspaceSessions(
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
+  const search = useSearch({ strict: false }) as {
+    session_id?: string;
+  };
+  const requestedSessionId =
+    typeof search.session_id === 'string' && search.session_id.length > 0
+      ? search.session_id
+      : getRequestedSessionId();
   const workspaceScopeKey = `${hostId ?? 'local'}:${workspaceId ?? 'missing'}`;
   const previousWorkspaceScopeRef = useRef(workspaceScopeKey);
 
@@ -57,7 +64,24 @@ export function useWorkspaceSessions(
     queryFn: () => sessionsApi.getByWorkspace(workspaceId!),
     enabled: enabled && !!workspaceId,
   });
-  const { data: sessions = [], isLoading, error, refetch } = sessionsQuery;
+  const {
+    data: sessions = [],
+    isLoading,
+    isFetching,
+    error,
+    refetch,
+  } = sessionsQuery;
+
+  // An empty result is only a valid initial-send state after discovery has
+  // completed successfully. During loading or an error, keep the composer in
+  // its placeholder state instead of implying that a session must be created.
+  const hasResolvedEmptySessions =
+    enabled &&
+    !!workspaceId &&
+    sessionsQuery.status === 'success' &&
+    !isFetching &&
+    !error &&
+    sessions.length === 0;
 
   const retry = useCallback(async () => {
     await refetch();
@@ -70,30 +94,37 @@ export function useWorkspaceSessions(
     const workspaceChanged =
       previousWorkspaceScopeRef.current !== workspaceScopeKey;
     previousWorkspaceScopeRef.current = workspaceScopeKey;
-    const requestedSessionId = getRequestedSessionId();
+    setSelection((prev) =>
+      deriveSessionSelection({
+        sessions,
+        requestedSessionId,
+        previous: prev,
+        workspaceChanged,
+        hasResolvedEmptySessions,
+      })
+    );
+  }, [
+    hasResolvedEmptySessions,
+    requestedSessionId,
+    sessions,
+    workspaceScopeKey,
+  ]);
 
-    if (sessions.length > 0) {
-      // Workflow run links can request a specific session; otherwise sessions
-      // are ordered by most recent use, so the first session is the default.
-      // Only preserve new session mode within the same workspace.
-      setSelection((prev) => {
-        if (
-          requestedSessionId &&
-          sessions.some((session) => session.id === requestedSessionId)
-        ) {
-          return { mode: 'existing', sessionId: requestedSessionId };
-        }
-        if (prev?.mode === 'new' && !workspaceChanged) return prev;
-        return { mode: 'existing', sessionId: sessions[0].id };
-      });
-    } else {
-      setSelection(undefined);
-    }
-  }, [sessions, workspaceScopeKey]);
-
-  const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
-  const selectedSessionId =
-    selection?.mode === 'existing' ? selection.sessionId : undefined;
+  const isNewSessionMode =
+    selection?.mode === 'new' || hasResolvedEmptySessions;
+  // Effects run after paint. While the first selection effect is pending,
+  // derive the same default synchronously so an existing workspace never
+  // flashes the placeholder/new-session composer for one render.
+  const implicitSelectedSessionId =
+    selection?.mode === 'existing'
+      ? selection.sessionId
+      : selection?.mode === 'new'
+        ? undefined
+        : requestedSessionId &&
+            sessions.some((session) => session.id === requestedSessionId)
+          ? requestedSessionId
+          : sessions[0]?.id;
+  const selectedSessionId = implicitSelectedSessionId;
 
   const selectedSession = useMemo(
     () => sessions.find((s) => s.id === selectedSessionId),

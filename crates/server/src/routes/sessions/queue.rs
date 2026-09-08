@@ -2,7 +2,10 @@ use axum::{
     Extension, Json, Router, extract::State, middleware::from_fn_with_state,
     response::Json as ResponseJson, routing::get,
 };
-use db::models::{scratch::DraftFollowUpData, session::Session};
+use db::models::{
+    scratch::DraftFollowUpData,
+    session::{Session, SessionError},
+};
 use deployment::Deployment;
 use executors::{actions::SelectedSkill, profile::ExecutorConfig};
 use serde::Deserialize;
@@ -27,6 +30,14 @@ async fn queue_message(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
+    let queue_guard = deployment
+        .queued_message_service()
+        .lock_session(session.id)
+        .await;
+    // Middleware may have loaded the Session before an in-flight deletion.
+    let session = Session::find_by_id(&deployment.db().pool, session.id)
+        .await?
+        .ok_or(SessionError::NotFound)?;
     super::validate_queued_follow_up_profile(
         &deployment.db().pool,
         &session,
@@ -44,6 +55,7 @@ async fn queue_message(
     let queued = deployment
         .queued_message_service()
         .queue_message(session.id, data);
+    drop(queue_guard);
 
     deployment
         .track_if_analytics_allowed(

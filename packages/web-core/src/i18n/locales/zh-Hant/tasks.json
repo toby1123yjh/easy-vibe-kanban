@@ -1,4 +1,22 @@
 {
+  "sessionDeletion": {
+    "stopDescription": "「{{name}}」的智慧體仍在執行，或暫時無法確認已退出。是否安全停止後刪除？若停止失敗，將保留任務和工作階段。",
+    "stopAndDelete": "停止並刪除",
+    "stopping": "正在停止並刪除…",
+    "stopFailed": "智慧體尚未停止，任務和工作階段已保留，請稍後重試。",
+    "taskTitle": "刪除 Task 和工作階段？",
+    "sessionTitle": "刪除工作階段？",
+    "taskDescription": "從 Vibe Kanban 刪除「{{name}}」及其綁定工作階段的歷史記錄？Issue、Project、Workspace、其他 Task 和工作階段、工作檔案及 Agent 原生歷史記錄均會保留。此操作無法復原。",
+    "sessionDescription": "從 Vibe Kanban 刪除工作階段「{{name}}」及其歷史記錄？Workspace、其他工作階段、工作檔案及 Agent 原生歷史記錄均會保留。此操作無法復原。",
+    "resolving": "正在檢查目前 Task 與工作階段的綁定關係…",
+    "deleteTask": "刪除 Task 和工作階段",
+    "deleteSession": "刪除工作階段",
+    "action": "刪除 {{name}}",
+    "deleting": "正在刪除…",
+    "failed": "無法刪除，請重試。",
+    "scopeChanged": "目前 Host 或選取內容已變更。請取消，然後從目標項目重新發起刪除。",
+    "bindingChanged": "此 Task 已不再綁定所選工作階段。請重新整理清單後再試。"
+  },
   "dropzone": {
     "dropImagesHere": "將圖片拖放到這裡",
     "supportedFormats": "支援 PNG、JPG、GIF、WebP、SVG 格式"
@@ -491,7 +509,12 @@
       "renameTitle": "重新命名工作階段",
       "renameDescription": "輸入此工作階段的新名稱。",
       "renamePlaceholder": "輸入工作階段名稱",
-      "renaming": "正在重新命名..."
+      "renaming": "正在重新命名...",
+      "delete": "刪除工作階段",
+      "deleteTitle": "刪除工作階段？",
+      "deleteDescription": "這會刪除 Vibe Kanban 中的工作階段歷史，不會影響工作區檔案或智慧體原生歷史。",
+      "deleteFailed": "無法刪除工作階段",
+      "deleteFailedDescription": "工作階段刪除失敗。"
     },
     "reviewComments": {
       "count_one": "{{count}} 則審查評論將被包含",

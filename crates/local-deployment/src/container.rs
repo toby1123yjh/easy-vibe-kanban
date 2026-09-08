@@ -347,6 +347,12 @@ impl LocalContainerService {
     }
 
     async fn handle_agent_run_terminal(&self, event: AgentRunTerminalEvent) {
+        // Keep deletion excluded while the message moves from the memory
+        // queue into its durable AgentRun reservation.
+        let _queue_guard = self
+            .queued_message_service
+            .lock_session(event.session_id)
+            .await;
         let Some(queued_message) = self.queued_message_service.take_queued(event.session_id) else {
             return;
         };

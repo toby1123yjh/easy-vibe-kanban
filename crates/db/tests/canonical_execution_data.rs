@@ -9,6 +9,9 @@ use sqlx::{
 };
 use uuid::Uuid;
 
+#[path = "canonical_execution_data/task_session_deletion.rs"]
+mod task_session_deletion;
+
 const BASELINE: &str = "2026-01-01T00:00:00.000Z";
 const AGENT_ACTIVITY: &str = "2026-01-02T00:00:00.000Z";
 const WORKFLOW_ACTIVITY: &str = "2026-01-03T00:00:00.000Z";

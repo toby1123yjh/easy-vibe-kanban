@@ -1,0 +1,50 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+* {
+  box-sizing: border-box;
+}
+.fixture-layout {
+  display: flex;
+  height: calc(100% - 40px);
+}
+.fixture-project {
+  flex: 1;
+  min-width: 0;
+}
+.fixture-controls {
+  display: flex;
+  gap: 8px;
+  min-height: 40px;
+}
+.fixture-controls output {
+  font: 12px monospace;
+}
+/* The fixture has no Tailwind build: provide only modal utility geometry. */
+[role='alertdialog'],
+[role='dialog'][data-state] {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10000;
+  width: min(425px, calc(100vw - 32px));
+  padding: 24px;
+  background: var(--vk-dialog-surface);
+  color: var(--vk-text-normal);
+  border: 1px solid var(--vk-dialog-border);
+  border-radius: var(--vk-dialog-radius);
+}
+[role='alertdialog'] button,
+[role='dialog'][data-state] button {
+  min-height: 40px;
+  margin: 4px;
+}
+button:focus-visible {
+  outline: 2px solid var(--vk-brand, orange);
+  outline-offset: 2px;
+}
