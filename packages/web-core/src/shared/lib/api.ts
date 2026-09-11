@@ -1010,10 +1010,14 @@ export const fileSystemApi = {
     return handleApiResponse<DirectoryInspection>(response);
   },
 
-  list: async (path?: string): Promise<DirectoryListResponse> => {
+  list: async (
+    path?: string,
+    hostId?: string | null
+  ): Promise<DirectoryListResponse> => {
     const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
-    const response = await makeRequest(
-      `/api/filesystem/directory${queryParam}`
+    const response = await makeHostAwareRequest(
+      `/api/filesystem/directory${queryParam}`,
+      hostId
     );
     return handleApiResponse<DirectoryListResponse>(response);
   },
