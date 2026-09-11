@@ -15,6 +15,9 @@ use crate::{
     model_selector::PermissionPolicy,
 };
 
+mod runtime_identity;
+pub use runtime_identity::runtime_profile_ids_match;
+
 /// Return the canonical form for variant keys.
 /// – "DEFAULT" is kept as-is  
 /// – everything else is converted to SCREAMING_SNAKE_CASE

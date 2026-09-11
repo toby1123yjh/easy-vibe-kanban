@@ -21,7 +21,7 @@ use crate::{
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
     executors::{CodingAgent, ExecutorError, SpawnedChild},
-    profile::{ExecutorConfig, ExecutorConfigs},
+    profile::{ExecutorConfig, ExecutorConfigs, runtime_profile_ids_match},
     runtime::{
         AGENT_EVENT_PAYLOAD_VERSION, AGENT_EVENT_SCHEMA_VERSION, AgentEvent, AgentEventEnvelope,
         AgentEventPayload, AgentRunStatus, AgentRuntimeError, AgentRuntimeErrorKind,
@@ -146,7 +146,8 @@ fn validate_direct_launch(request: &DirectProviderLaunchRequest<'_>) -> Result<(
                 request.provider.id()
             ))
         })?;
-        if session.provider_id != request.provider.id() || session.runtime_profile_id != profile_id
+        if session.provider_id != request.provider.id()
+            || !runtime_profile_ids_match(&session.runtime_profile_id, &profile_id)
         {
             return Err(ExecutorError::FollowUpNotSupported(format!(
                 "provider session does not match {} profile {profile_id}",
@@ -656,6 +657,10 @@ pub enum TypedProviderEvent {
         role: AgentRuntimeMessageRole,
         content: String,
         final_output: bool,
+        /// Provider-native item/message id when the protocol exposes one.
+        /// Keeping it lets streaming deltas and the completed item project
+        /// into one canonical conversation entry.
+        message_id: Option<String>,
     },
     Thinking(String),
     ToolCall {
@@ -786,6 +791,151 @@ fn fixture_manifest(provider: DirectProvider) -> NativeAuditManifest {
     }
 }
 
+/// Extract displayable text from provider-native values. Claude's stream-json
+/// assistant events put the actual text under `message.content[]`, while
+/// other providers commonly emit a string directly. Keeping this extraction
+/// here prevents each consumer from having to understand provider envelopes.
+fn text_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(values) => {
+            let parts = values
+                .iter()
+                .filter_map(text_from_value)
+                .collect::<Vec<_>>();
+            (!parts.is_empty()).then(|| parts.join(""))
+        }
+        Value::Object(map) => ["text", "content", "message", "delta", "output", "result"]
+            .iter()
+            .find_map(|key| map.get(*key).and_then(text_from_value)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => None,
+    }
+}
+
+fn text_or_number_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn error_marker(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(true)) => true,
+        Some(Value::String(text)) => !text.trim().is_empty(),
+        Some(Value::Number(_)) => true,
+        Some(Value::Object(map)) => !map.is_empty(),
+        Some(Value::Array(values)) => !values.is_empty(),
+        _ => false,
+    }
+}
+
+fn is_provider_error(object: Option<&serde_json::Map<String, Value>>, event_type: &str) -> bool {
+    let Some(object) = object else {
+        return false;
+    };
+    object
+        .get("is_api_error_message")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || object
+            .get("is_error")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || object.contains_key("api_error_status")
+        || error_marker(object.get("error"))
+        || object
+            .get("subtype")
+            .and_then(Value::as_str)
+            .is_some_and(|subtype| {
+                let subtype = subtype.to_ascii_lowercase();
+                subtype.contains("error") || subtype.contains("fail")
+            })
+        || (event_type == "result"
+            && object
+                .get("result")
+                .and_then(Value::as_str)
+                .is_some_and(|result| result.starts_with("API Error:")))
+}
+
+fn provider_error(
+    provider: DirectProvider,
+    object: Option<&serde_json::Map<String, Value>>,
+    params: Option<&serde_json::Map<String, Value>>,
+) -> AgentRuntimeError {
+    let text = |map: Option<&serde_json::Map<String, Value>>| {
+        map.and_then(|map| {
+            ["result", "message", "reason", "output", "error"]
+                .iter()
+                .find_map(|key| map.get(*key).and_then(text_from_value))
+        })
+    };
+    let message = text(object)
+        .or_else(|| text(params))
+        .or_else(|| {
+            object
+                .and_then(|map| map.get("api_error_status"))
+                .map(|status| format!("provider API error (status {status})"))
+        })
+        .unwrap_or_else(|| "provider error".to_string());
+    AgentRuntimeError::new(AgentRuntimeErrorKind::Unknown, message)
+        .with_provider(Some(provider.id()))
+}
+
+fn claude_api_retry_message(object: &serde_json::Map<String, Value>) -> String {
+    let message = ["message", "error", "reason", "detail", "details", "cause"]
+        .iter()
+        .find_map(|key| object.get(*key).and_then(text_from_value));
+    let attempt = [
+        "attempt",
+        "attemptNumber",
+        "attempt_number",
+        "retryAttempt",
+        "retry_attempt",
+        "retryCount",
+        "retry_count",
+    ]
+    .iter()
+    .find_map(|key| object.get(*key))
+    .and_then(text_or_number_from_value);
+    let max_retries = ["max_retries", "maxRetries", "max_attempts", "maxAttempts"]
+        .iter()
+        .find_map(|key| object.get(*key))
+        .and_then(text_or_number_from_value);
+    let delay_ms = ["retry_delay_ms", "retryDelayMs", "delay_ms", "delayMs"]
+        .iter()
+        .find_map(|key| object.get(*key))
+        .and_then(Value::as_u64);
+
+    let mut details = Vec::new();
+    if let Some(attempt) = attempt {
+        details.push(match max_retries {
+            Some(max_retries) => format!("attempt {attempt}/{max_retries}"),
+            None => format!("attempt {attempt}"),
+        });
+    }
+    if let Some(delay_ms) = delay_ms {
+        details.push(if delay_ms >= 1_000 && delay_ms % 1_000 == 0 {
+            format!("next in {}s", delay_ms / 1_000)
+        } else {
+            format!("next in {delay_ms}ms")
+        });
+    }
+
+    let mut content = "Claude Code is retrying a temporary API failure".to_string();
+    if let Some(message) = message.filter(|message| !message.trim().is_empty()) {
+        content.push_str(": ");
+        content.push_str(&message);
+    }
+    if !details.is_empty() {
+        content.push_str(" (");
+        content.push_str(&details.join(", "));
+        content.push(')');
+    }
+    content
+}
+
 fn classify_payload(
     provider: DirectProvider,
     event: &ProviderEvent,
@@ -802,6 +952,7 @@ fn classify_payload(
             role: AgentRuntimeMessageRole::Assistant,
             content: text,
             final_output: false,
+            message_id: None,
         });
     };
 
@@ -811,13 +962,28 @@ fn classify_payload(
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_ascii_lowercase();
+    let params = object
+        .and_then(|map| map.get("params"))
+        .and_then(Value::as_object);
     let value = |keys: &[&str]| -> Option<&Value> {
-        object.and_then(|map| keys.iter().find_map(|key| map.get(*key)))
+        object
+            .and_then(|map| keys.iter().find_map(|key| map.get(*key)))
+            .or_else(|| params.and_then(|map| keys.iter().find_map(|key| map.get(*key))))
     };
-    let text = || {
-        value(&["text", "content", "message", "delta", "output"])
+    let text =
+        || value(&["text", "content", "message", "delta", "output"]).and_then(text_from_value);
+    let message_id = || {
+        object
+            .and_then(|map| map.get("message"))
+            .and_then(Value::as_object)
+            .and_then(|message| message.get("id"))
             .and_then(Value::as_str)
             .map(str::to_owned)
+            .or_else(|| {
+                value(&["message_id", "messageId", "item_id", "itemId"])
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
     };
 
     match event_type.as_str() {
@@ -825,10 +991,29 @@ fn classify_payload(
         | "session_observed" => value(&["session_id", "sessionId", "thread_id", "threadId"])
             .and_then(Value::as_str)
             .map(|id| TypedProviderEvent::SessionObserved(id.to_string()))
-            .ok_or_else(|| NativeAuditError::MalformedFrame(event.sequence)),
+            .ok_or(NativeAuditError::MalformedFrame(event.sequence)),
         "thinking" | "reasoning" | "thought" => {
             Ok(TypedProviderEvent::Thinking(text().unwrap_or_default()))
         }
+        "system"
+            if provider == DirectProvider::ClaudeCode
+                && object
+                    .and_then(|map| map.get("subtype"))
+                    .and_then(Value::as_str)
+                    == Some("api_retry") =>
+        {
+            let object = object.expect("api_retry classification requires an object");
+            Ok(TypedProviderEvent::Message {
+                role: AgentRuntimeMessageRole::System,
+                content: claude_api_retry_message(object),
+                final_output: false,
+                // All retries in one process attempt update one visible status row.
+                message_id: Some("claude-api-retry".to_string()),
+            })
+        }
+        "assistant" if is_provider_error(object, &event_type) => Ok(TypedProviderEvent::Error(
+            provider_error(provider, object, params),
+        )),
         "assistant" | "message" | "text" | "content" | "delta" | "assistant_message"
         | "text_delta" => Ok(TypedProviderEvent::Message {
             role: AgentRuntimeMessageRole::Assistant,
@@ -836,12 +1021,91 @@ fn classify_payload(
             final_output: value(&["final", "is_final", "done"])
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            message_id: message_id(),
         }),
         "user" | "user_message" => Ok(TypedProviderEvent::Message {
             role: AgentRuntimeMessageRole::User,
             content: text().unwrap_or_default(),
             final_output: false,
+            message_id: message_id(),
         }),
+        // Codex app-server emits JSON-RPC notifications rather than the
+        // generic `assistant`/`completed` event names handled above.
+        "item/agentmessage/delta" => Ok(TypedProviderEvent::Message {
+            role: AgentRuntimeMessageRole::Assistant,
+            content: value(&["delta", "text", "content"])
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            final_output: false,
+            message_id: value(&["item_id", "itemId", "message_id", "messageId"])
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        }),
+        "item/completed" => {
+            let item = params
+                .and_then(|map| map.get("item"))
+                .and_then(Value::as_object);
+            let item_type = item
+                .and_then(|map| map.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if item_type == "agentmessage" {
+                Ok(TypedProviderEvent::Message {
+                    role: AgentRuntimeMessageRole::Assistant,
+                    content: item
+                        .and_then(|map| {
+                            ["text", "content", "message"]
+                                .iter()
+                                .find_map(|key| map.get(*key))
+                        })
+                        .and_then(text_from_value)
+                        .unwrap_or_default(),
+                    final_output: true,
+                    message_id: item
+                        .and_then(|map| map.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                })
+            } else {
+                Ok(TypedProviderEvent::Unknown {
+                    event_type,
+                    payload: payload.clone(),
+                })
+            }
+        }
+        "turn/completed" => {
+            let status = params
+                .and_then(|map| map.get("turn"))
+                .and_then(Value::as_object)
+                .and_then(|turn| turn.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            match status.as_str() {
+                "completed" => Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded)),
+                "interrupted" | "cancelled" | "canceled" => {
+                    Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Cancelled))
+                }
+                "failed" => Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Failed)),
+                _ => Ok(TypedProviderEvent::Unknown {
+                    event_type,
+                    payload: payload.clone(),
+                }),
+            }
+        }
+        "thread/started" | "thread/created" => {
+            let thread = params
+                .and_then(|map| map.get("thread"))
+                .and_then(Value::as_object);
+            thread
+                .and_then(|map| map.get("id"))
+                .or_else(|| value(&["thread_id", "threadId", "id"]))
+                .and_then(Value::as_str)
+                .map(|id| TypedProviderEvent::SessionObserved(id.to_string()))
+                .ok_or(NativeAuditError::MalformedFrame(event.sequence))
+        }
         "tool_call" | "tool_use" | "function_call" | "tool_start" => {
             Ok(TypedProviderEvent::ToolCall {
                 id: value(&["id", "call_id", "tool_call_id"])
@@ -945,7 +1209,13 @@ fn classify_payload(
                 .and_then(Value::as_u64),
         }),
         "result" | "completed" | "done" | "success" => {
-            Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded))
+            if is_provider_error(object, &event_type) {
+                Ok(TypedProviderEvent::Error(provider_error(
+                    provider, object, params,
+                )))
+            } else {
+                Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded))
+            }
         }
         "cancelled" | "canceled" | "abort" => {
             Ok(TypedProviderEvent::Lifecycle(AgentRunStatus::Cancelled))
@@ -994,9 +1264,13 @@ fn map_typed_event(
             role,
             content,
             final_output,
+            message_id,
         } => AgentEventPayload::Message {
             message: crate::runtime::CanonicalMessage {
-                message_id: event_id(manifest.run_attempt_id, event.raw.sequence),
+                message_id: message_id
+                    .clone()
+                    .map(|id| canonical_message_id(manifest.run_attempt_id, &id))
+                    .unwrap_or_else(|| event_id(manifest.run_attempt_id, event.raw.sequence)),
                 role: *role,
                 content: content.clone(),
             },
@@ -1095,6 +1369,21 @@ fn event_id(run_attempt_id: Uuid, sequence: u64) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
+fn canonical_message_id(run_attempt_id: Uuid, native_id: &str) -> Uuid {
+    if let Ok(id) = Uuid::parse_str(native_id) {
+        return id;
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(run_attempt_id.as_bytes());
+    hasher.update(b"canonical-message:");
+    hasher.update(native_id.as_bytes());
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&hasher.finalize()[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
 /// Serialize one NDJSON request without appending a second frame or accepting
 /// an embedded SDK.  Callers write the returned bytes directly to `omp` stdin.
 pub fn encode_stdio_rpc(request: &Value) -> Result<Vec<u8>, serde_json::Error> {
@@ -1170,6 +1459,34 @@ mod tests {
             current_dir: Path::new("."),
             env: &env,
         })
+    }
+
+    #[test]
+    fn follow_up_accepts_default_alias_but_rejects_named_profile_changes() {
+        let config = ExecutorConfig::new(BaseCodingAgent::Codex);
+        let mut session = provider_session(DirectProvider::Codex, &config);
+        session.runtime_profile_id = "CODEX:DEFAULT".to_string();
+        assert!(
+            validate_launch(
+                DirectProvider::Codex,
+                &config,
+                DirectIntent::FollowUp,
+                Some(&session),
+                None
+            )
+            .is_ok()
+        );
+        session.runtime_profile_id = "CODEX:PLAN".to_string();
+        assert!(
+            validate_launch(
+                DirectProvider::Codex,
+                &config,
+                DirectIntent::FollowUp,
+                Some(&session),
+                None
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1329,6 +1646,226 @@ mod tests {
                 ))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn codex_app_server_messages_and_turn_completion_are_canonical() {
+        let delta = DirectProvider::Codex
+            .decode_native_frame(&frame(
+                DirectProvider::Codex,
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "item/agentMessage/delta",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "itemId": "item-1",
+                        "delta": "hello"
+                    }
+                }),
+            ))
+            .unwrap();
+        assert!(matches!(
+            delta.typed,
+            TypedProviderEvent::Message {
+                role: AgentRuntimeMessageRole::Assistant,
+                ref content,
+                message_id: Some(ref id),
+                final_output: false,
+            } if content == "hello" && id == "item-1"
+        ));
+
+        let completed = DirectProvider::Codex
+            .decode_native_frame(&frame(
+                DirectProvider::Codex,
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "turn/completed",
+                    "params": {
+                        "turn": { "id": "turn-1", "status": "completed" }
+                    }
+                }),
+            ))
+            .unwrap();
+        assert_eq!(
+            completed.typed,
+            TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded)
+        );
+    }
+
+    #[test]
+    fn codex_completed_agent_message_reuses_item_identity() {
+        let event = DirectProvider::Codex
+            .decode_native_frame(&frame(
+                DirectProvider::Codex,
+                serde_json::json!({
+                    "method": "item/completed",
+                    "params": {
+                        "item": {
+                            "type": "agentMessage",
+                            "id": "item-1",
+                            "text": "hello world"
+                        }
+                    }
+                }),
+            ))
+            .unwrap();
+        let manifest = NativeAuditManifest {
+            audit_schema_version: crate::runtime::NATIVE_AUDIT_SCHEMA_VERSION,
+            session_id: Uuid::from_u128(1),
+            agent_run_id: Uuid::from_u128(2),
+            turn_id: Uuid::from_u128(3),
+            run_attempt_id: Uuid::from_u128(4),
+            run_attempt_number: 1,
+            provider_id: "codex".to_string(),
+            runtime_profile_id: "default".to_string(),
+            workspace_path: ".".to_string(),
+            runtime_version: None,
+            protocol_version: None,
+            adapter_version: "codex-adapter-v1".to_string(),
+            mapper_version: "codex-mapper-v1".to_string(),
+            frame_count: 1,
+            first_sequence: Some(1),
+            last_sequence: Some(1),
+            final_checksum: None,
+            integrity_status: crate::runtime::NativeAuditIntegrityStatus::Complete,
+            created_at: Utc::now(),
+            closed_at: None,
+            manifest_relative_path: "manifest.json".to_string(),
+            frames_relative_path: "frames.jsonl".to_string(),
+            raw_content_trusted: true,
+        };
+        let mapped = DirectProvider::Codex
+            .map_provider_event(&event, &manifest)
+            .unwrap();
+        let AgentEventPayload::Message {
+            message,
+            final_output,
+        } = &mapped[0].payload
+        else {
+            panic!("completed Codex agent message must map to canonical message");
+        };
+        assert_eq!(message.content, "hello world");
+        assert!(final_output);
+        assert_eq!(
+            message.message_id,
+            canonical_message_id(manifest.run_attempt_id, "item-1")
+        );
+    }
+
+    #[test]
+    fn claude_nested_assistant_content_is_projected() {
+        let event = DirectProvider::ClaudeCode
+            .decode_native_frame(&frame(
+                DirectProvider::ClaudeCode,
+                serde_json::json!({
+                    "type": "assistant",
+                    "message": {
+                        "id": "msg-1",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "hello from Claude"}]
+                    },
+                    "session_id": "session-1"
+                }),
+            ))
+            .unwrap();
+        assert!(matches!(
+            event.typed,
+            TypedProviderEvent::Message {
+                role: AgentRuntimeMessageRole::Assistant,
+                ref content,
+                message_id: Some(ref id),
+                ..
+            } if content == "hello from Claude" && id == "msg-1"
+        ));
+    }
+
+    #[test]
+    fn claude_api_error_events_are_not_success() {
+        let assistant_error = DirectProvider::ClaudeCode
+            .decode_native_frame(&frame(
+                DirectProvider::ClaudeCode,
+                serde_json::json!({
+                    "type": "assistant",
+                    "message": {
+                        "id": "msg-error",
+                        "role": "assistant",
+                        "content": [{
+                            "type": "text",
+                            "text": "API Error: 503 No available channel"
+                        }]
+                    },
+                    "is_api_error_message": true,
+                    "error": "server_error"
+                }),
+            ))
+            .unwrap();
+        let TypedProviderEvent::Error(error) = assistant_error.typed else {
+            panic!("Claude assistant API errors must map to an error event");
+        };
+        assert_eq!(error.provider.as_deref(), Some("claude_code"));
+        assert!(error.message.contains("API Error: 503"));
+
+        let result_error = DirectProvider::ClaudeCode
+            .decode_native_frame(&frame(
+                DirectProvider::ClaudeCode,
+                serde_json::json!({
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": true,
+                    "api_error_status": 503,
+                    "result": "API Error: 503 No available channel"
+                }),
+            ))
+            .unwrap();
+        let TypedProviderEvent::Error(error) = result_error.typed else {
+            panic!("Claude result API errors must map to an error event");
+        };
+        assert!(error.message.contains("API Error: 503"));
+
+        let success = DirectProvider::ClaudeCode
+            .decode_native_frame(&frame(
+                DirectProvider::ClaudeCode,
+                serde_json::json!({
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "result": "completed"
+                }),
+            ))
+            .unwrap();
+        assert_eq!(
+            success.typed,
+            TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded)
+        );
+    }
+
+    #[test]
+    fn claude_api_retry_is_a_visible_non_terminal_status() {
+        let event = DirectProvider::ClaudeCode
+            .decode_native_frame(&frame(
+                DirectProvider::ClaudeCode,
+                serde_json::json!({
+                    "type": "system",
+                    "subtype": "api_retry",
+                    "attempt": 3,
+                    "max_retries": 10,
+                    "retry_delay_ms": 4000,
+                    "error": "server_error"
+                }),
+            ))
+            .unwrap();
+
+        assert!(matches!(
+            event.typed,
+            TypedProviderEvent::Message {
+                role: AgentRuntimeMessageRole::System,
+                ref content,
+                final_output: false,
+                message_id: Some(ref message_id),
+            } if content == "Claude Code is retrying a temporary API failure: server_error (attempt 3/10, next in 4s)"
+                && message_id == "claude-api-retry"
+        ));
     }
 
     #[test]

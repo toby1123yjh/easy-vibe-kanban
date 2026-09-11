@@ -1,5 +1,6 @@
 import type {
   ExecutionDataCapabilities,
+  SessionDeletionResult,
   ProjectCursor,
   ProjectPage,
   SessionCursor,
@@ -102,11 +103,13 @@ export const executionDataApi = {
     taskId: string,
     sessionId: string,
     hostId: string | null,
-    stopRunning = false
-  ): Promise<void> {
+    stopRunning = false,
+    deleteManagedFiles = false
+  ): Promise<SessionDeletionResult> {
     const params = new URLSearchParams({ session_id: sessionId });
     if (stopRunning) params.set('stop_running', 'true');
-    await handleApiResponse<void>(
+    if (deleteManagedFiles) params.set('delete_managed_files', 'true');
+    return handleApiResponse<SessionDeletionResult>(
       await makeLocalApiRequest(
         withQuery(`/api/tasks/${encodeURIComponent(taskId)}`, params),
         { ...createDiscoveryRequestOptions({ hostId }), method: 'DELETE' }

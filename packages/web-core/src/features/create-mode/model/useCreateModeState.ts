@@ -329,6 +329,7 @@ export function useCreateModeState({
     });
 
   const hasResolvedInitialWorkspaceDefaults =
+    (state.phase === 'ready' && !state.linkedIssue) ||
     (state.phase === 'ready' &&
       !localWorkspacesLoading &&
       (!state.linkedIssue?.remoteProjectId ||
@@ -391,6 +392,8 @@ export function useCreateModeState({
     if (hasAppliedRepoDefaultsRef.current) return;
 
     hasAppliedRepoDefaultsRef.current = true;
+    // Standalone chats get a fresh managed directory, never a previous chat's repo.
+    if (!state.linkedIssue?.remoteProjectId) return;
     if (state.repos.length > 0 || state.directFolderPath) return;
     if (preferredRepos.length === 0) return;
 

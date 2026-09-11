@@ -43,7 +43,7 @@ function getRepoDisplayName(repo: Repo) {
 
 const BRANCH_LABEL_MAX_CHARS = 15;
 
-type WorkspaceCreateMode = WorkspaceTargetMode;
+type WorkspaceCreateMode = WorkspaceTargetMode | 'managed_directory';
 
 function truncateBranchLabel(branch: string) {
   return branch.length > BRANCH_LABEL_MAX_CHARS
@@ -91,15 +91,43 @@ export function CreateChatBoxContainer({
   );
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const workspaceDialogOpenRef = useRef(false);
+  const submitPendingRef = useRef(false);
+  const scopeIdentity = `${hostId ?? 'local'}:${linkedIssue?.issueId ?? 'standalone'}`;
+  const scopeRef = useRef({
+    identity: scopeIdentity,
+    generation: 0,
+    mounted: true,
+  });
+  if (scopeRef.current.identity !== scopeIdentity) {
+    scopeRef.current = {
+      identity: scopeIdentity,
+      generation: scopeRef.current.generation + 1,
+      mounted: true,
+    };
+  }
+  useEffect(() => {
+    scopeRef.current.mounted = true;
+    return () => {
+      scopeRef.current.mounted = false;
+      scopeRef.current.generation += 1;
+    };
+  }, []);
   const [hasInitializedWorkspaceTarget, setHasInitializedWorkspaceTarget] =
     useState(false);
   const [hasConfirmedWorkspaceTarget, setHasConfirmedWorkspaceTarget] =
     useState(false);
+  const [confirmedScope, setConfirmedScope] = useState(scopeIdentity);
+  useEffect(() => {
+    setHasInitializedWorkspaceTarget(false);
+    setHasConfirmedWorkspaceTarget(false);
+    setConfirmedScope(scopeIdentity);
+    setWorkspaceMode('managed_directory');
+  }, [scopeIdentity]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const [stagedResumeSession, setStagedResumeSession] =
     useState<ResumableAgentSession | null>(null);
   const [workspaceMode, setWorkspaceMode] =
-    useState<WorkspaceCreateMode>('worktree');
+    useState<WorkspaceCreateMode>('managed_directory');
 
   const selectedRepo = repos[0] ?? null;
   const hasDirectFolderPath = directFolderPath.trim().length > 0;
@@ -108,11 +136,15 @@ export function CreateChatBoxContainer({
     : null;
   const hasSelectedBranch = Boolean(selectedTargetBranch);
   const hasValidWorkspaceTarget =
-    workspaceMode === 'direct_folder'
-      ? hasDirectFolderPath
-      : selectedRepo !== null && hasSelectedBranch;
+    workspaceMode === 'managed_directory'
+      ? !linkedIssue
+      : workspaceMode === 'direct_folder'
+        ? hasDirectFolderPath
+        : selectedRepo !== null && hasSelectedBranch;
   const hasWorkspaceTarget =
-    hasConfirmedWorkspaceTarget && hasValidWorkspaceTarget;
+    confirmedScope === scopeIdentity &&
+    hasConfirmedWorkspaceTarget &&
+    hasValidWorkspaceTarget;
   const showTargetPickerStep = !hasWorkspaceTarget;
   const showChatStep = hasWorkspaceTarget;
 
@@ -203,13 +235,17 @@ export function CreateChatBoxContainer({
 
   // Determine if we can submit
   const canSubmit =
-    hasValidWorkspaceTarget &&
+    hasInitialValue &&
+    hasResolvedInitialWorkspaceDefaults &&
+    hasWorkspaceTarget &&
+    !createWorkspace.isPending &&
     message.trim().length > 0 &&
     effectiveExecutor !== null;
 
   const openWorkspaceTargetDialog = useCallback(async () => {
     if (workspaceDialogOpenRef.current) return;
     workspaceDialogOpenRef.current = true;
+    const generation = scopeRef.current.generation;
 
     try {
       const hasPreferredDirectFolder = directFolderPath.trim().length > 0;
@@ -218,7 +254,9 @@ export function CreateChatBoxContainer({
         : selectedRepo?.path;
       const initialMode = hasPreferredDirectFolder
         ? 'direct_folder'
-        : workspaceMode;
+        : workspaceMode === 'managed_directory'
+          ? 'worktree'
+          : workspaceMode;
       const result = await WorkspaceTargetDialog.show({
         initialPath,
         initialMode,
@@ -226,7 +264,12 @@ export function CreateChatBoxContainer({
         hostId,
       });
 
-      if (result.kind !== 'confirmed') return;
+      if (
+        result.kind !== 'confirmed' ||
+        !scopeRef.current.mounted ||
+        scopeRef.current.generation !== generation
+      )
+        return;
 
       clearRepos();
       if (result.selection.mode === 'worktree') {
@@ -291,12 +334,20 @@ export function CreateChatBoxContainer({
     }
 
     setHasInitializedWorkspaceTarget(true);
-    void openWorkspaceTargetDialog();
+    if (!linkedIssue && !hasDirectFolderPath && !selectedRepo) {
+      setWorkspaceMode('managed_directory');
+      setHasConfirmedWorkspaceTarget(true);
+    } else {
+      void openWorkspaceTargetDialog();
+    }
   }, [
     hasInitialValue,
     hasResolvedInitialWorkspaceDefaults,
     hasInitializedWorkspaceTarget,
     openWorkspaceTargetDialog,
+    linkedIssue,
+    hasDirectFolderPath,
+    selectedRepo,
   ]);
 
   const handlePresetSelect = (presetId: string | null) => {
@@ -314,7 +365,11 @@ export function CreateChatBoxContainer({
 
   const resumeScopePath = resolveWorkspaceWorkingDirectory({
     containerRef:
-      workspaceMode === 'direct_folder' ? directFolderPath : selectedRepo?.path,
+      workspaceMode === 'managed_directory'
+        ? undefined
+        : workspaceMode === 'direct_folder'
+          ? directFolderPath
+          : selectedRepo?.path,
   });
 
   useEffect(() => {
@@ -395,80 +450,92 @@ export function CreateChatBoxContainer({
   // Handle submit
   const handleSubmit = useCallback(async () => {
     setHasAttemptedSubmit(true);
-    if (!canSubmit || !executorConfig) return;
-
-    const { title } = splitMessageToTitleDescription(message);
-    const { prompt, isSlashCommand } = buildAgentPrompt(message, []);
-    const data = {
-      mode: workspaceMode,
-      executor_config: executorConfig,
-      name: title,
-      prompt,
-      repos:
-        workspaceMode === 'worktree' && selectedRepo && selectedTargetBranch
-          ? [
-              {
-                repo_id: selectedRepo.id,
-                target_branch: selectedTargetBranch,
-              },
-            ]
-          : [],
-      directory_path:
-        workspaceMode === 'direct_folder' ? directFolderPath.trim() : undefined,
-      linked_issue: linkedIssue
+    if (!canSubmit || !executorConfig || submitPendingRef.current) return;
+    submitPendingRef.current = true;
+    const generation = scopeRef.current.generation;
+    try {
+      const { title } = splitMessageToTitleDescription(message);
+      const { prompt, isSlashCommand } = buildAgentPrompt(message, []);
+      const data = {
+        mode: workspaceMode,
+        executor_config: executorConfig,
+        name: title,
+        prompt,
+        repos:
+          workspaceMode === 'worktree' && selectedRepo && selectedTargetBranch
+            ? [
+                {
+                  repo_id: selectedRepo.id,
+                  target_branch: selectedTargetBranch,
+                },
+              ]
+            : [],
+        directory_path:
+          workspaceMode === 'direct_folder'
+            ? directFolderPath.trim()
+            : undefined,
+        linked_issue: linkedIssue
+          ? {
+              remote_project_id: linkedIssue.remoteProjectId,
+              issue_id: linkedIssue.issueId,
+            }
+          : null,
+        selected_skills:
+          !isSlashCommand && selectedSkills.length > 0
+            ? selectedSkills
+            : undefined,
+        resume_session_id: stagedResumeSession?.agent_session_id,
+        resume_scope_path: resumeScopePath,
+        attachment_ids: getAttachmentIds(),
+      };
+      const linkToIssue = linkedIssue
         ? {
-            remote_project_id: linkedIssue.remoteProjectId,
-            issue_id: linkedIssue.issueId,
+            remoteProjectId: linkedIssue.remoteProjectId,
+            issueId: linkedIssue.issueId,
           }
-        : null,
-      selected_skills:
-        !isSlashCommand && selectedSkills.length > 0
-          ? selectedSkills
-          : undefined,
-      resume_session_id: stagedResumeSession?.agent_session_id,
-      resume_scope_path: resumeScopePath,
-      attachment_ids: getAttachmentIds(),
-    };
-    const linkToIssue = linkedIssue
-      ? {
-          remoteProjectId: linkedIssue.remoteProjectId,
-          issueId: linkedIssue.issueId,
-        }
-      : undefined;
+        : undefined;
 
-    const result = await createWorkspace.mutateAsync({
-      data,
-      linkToIssue,
-    });
+      const result = await createWorkspace.mutateAsync({
+        data,
+        linkToIssue,
+      });
+      if (
+        !scopeRef.current.mounted ||
+        scopeRef.current.generation !== generation
+      )
+        return;
 
-    if (result.workspace) {
-      onWorkspaceCreated(result.workspace.id);
+      if (result.workspace) {
+        onWorkspaceCreated(result.workspace.id);
+      }
+
+      if (linkedIssue?.remoteProjectId) {
+        const projectWorkspaceDefault =
+          workspaceMode === 'worktree' && data.repos[0]
+            ? { kind: 'git' as const, repo: data.repos[0] }
+            : workspaceMode === 'direct_folder' && data.directory_path
+              ? {
+                  kind: 'direct_folder' as const,
+                  path: data.directory_path,
+                }
+              : null;
+
+        saveProjectWorkspaceDefault(
+          linkedIssue.remoteProjectId,
+          projectWorkspaceDefault,
+          hostId
+        ).catch((err) =>
+          console.warn('Failed to save project workspace default:', err)
+        );
+      }
+
+      clearAttachments();
+      setSelectedSkills([]);
+      setStagedResumeSession(null);
+      await clearDraft();
+    } finally {
+      submitPendingRef.current = false;
     }
-
-    if (linkedIssue?.remoteProjectId) {
-      const projectWorkspaceDefault =
-        workspaceMode === 'worktree' && data.repos[0]
-          ? { kind: 'git' as const, repo: data.repos[0] }
-          : workspaceMode === 'direct_folder' && data.directory_path
-            ? {
-                kind: 'direct_folder' as const,
-                path: data.directory_path,
-              }
-            : null;
-
-      saveProjectWorkspaceDefault(
-        linkedIssue.remoteProjectId,
-        projectWorkspaceDefault,
-        hostId
-      ).catch((err) =>
-        console.warn('Failed to save project workspace default:', err)
-      );
-    }
-
-    clearAttachments();
-    setSelectedSkills([]);
-    setStagedResumeSession(null);
-    await clearDraft();
   }, [
     canSubmit,
     executorConfig,
@@ -617,16 +684,25 @@ export function CreateChatBoxContainer({
                   dropzone={{ getRootProps, getInputProps, isDragActive }}
                   onEditRepos={() => void openWorkspaceTargetDialog()}
                   repoSummaryLabel={
-                    workspaceMode === 'direct_folder'
-                      ? t('createMode.directFolder.summaryLabel', {
-                          defaultValue: 'Direct folder',
+                    workspaceMode === 'managed_directory'
+                      ? t('createMode.managedDirectory.label', {
+                          defaultValue: 'Automatic directory',
                         })
-                      : repoSummaryLabel
+                      : workspaceMode === 'direct_folder'
+                        ? t('createMode.directFolder.summaryLabel', {
+                            defaultValue: 'Direct folder',
+                          })
+                        : repoSummaryLabel
                   }
                   repoSummaryTitle={
-                    workspaceMode === 'direct_folder'
-                      ? directFolderPath
-                      : repoSummaryTitle
+                    workspaceMode === 'managed_directory'
+                      ? t('createMode.managedDirectory.description', {
+                          defaultValue:
+                            'A separate directory will be created for this session. Click to choose your own.',
+                        })
+                      : workspaceMode === 'direct_folder'
+                        ? directFolderPath
+                        : repoSummaryTitle
                   }
                   linkedIssue={
                     linkedIssue?.simpleId

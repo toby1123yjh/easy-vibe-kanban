@@ -429,7 +429,9 @@ export const Actions = {
     requiresTarget: ActionTargetType.NONE,
     isVisible: (ctx) => ctx.layoutMode === 'kanban',
     execute: (ctx) => {
-      ctx.openSettings('projects');
+      if (ctx.kanbanProjectId) {
+        ctx.openSettings('projects', { projectId: ctx.kanbanProjectId });
+      }
     },
   } satisfies GlobalActionDefinition,
 

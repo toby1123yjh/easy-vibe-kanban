@@ -1179,6 +1179,7 @@
     },
     "errors": {
       "rescan": "Impossible d’analyser cet hôte.",
+      "loadRemoteHosts": "Impossible de charger les hôtes distants. Réessayez pour actualiser la liste.",
       "setDefault": "Impossible de modifier le Provider par défaut.",
       "loadProviders": "Impossible de charger les capacités du Provider.",
       "loadTools": "Impossible d’actualiser le résumé des outils Agent."

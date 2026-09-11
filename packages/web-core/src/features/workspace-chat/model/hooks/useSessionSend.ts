@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ExecutorConfig, SelectedSkill } from 'shared/types';
+import type { ExecutorConfig, SelectedSkill, Session } from 'shared/types';
 import { sessionsApi } from '@/shared/lib/api';
 import { useCreateSession } from './useCreateSession';
 
@@ -50,8 +50,14 @@ export function useSessionSend({
   onSelectSession,
   executorConfig,
 }: UseSessionSendOptions): UseSessionSendResult {
+  const handleSessionCreated = useCallback(
+    (session: Session) => {
+      onSelectSession?.(session.id);
+    },
+    [onSelectSession]
+  );
   const { mutateAsync: createSession, isPending: isCreatingSession } =
-    useCreateSession();
+    useCreateSession({ onSessionCreated: handleSessionCreated });
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,7 +99,7 @@ export function useSessionSend({
         } catch (e: unknown) {
           const err = e as { message?: string };
           setError(
-            `Failed to create session: ${err.message ?? 'Unknown error'}`
+            `Session created, but failed to start the agent: ${err.message ?? 'Unknown error'}`
           );
           return false;
         }

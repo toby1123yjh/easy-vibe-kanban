@@ -29,7 +29,7 @@ export function deriveAgentWorkbenchHeader({
   ].filter((label): label is string => Boolean(label));
 
   return {
-    title: canonicalSession?.title.trim() || fallbackTitle,
+    title: canonicalSession?.title?.trim() || fallbackTitle,
     subtitle: contextLabels.length > 0 ? contextLabels.join(' / ') : undefined,
   };
 }

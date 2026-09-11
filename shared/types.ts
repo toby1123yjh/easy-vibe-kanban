@@ -192,7 +192,7 @@ export type TaskCursor = { updated_at: string, id: string, };
 
 export type TaskSummaryPage = { tasks: Array<TaskSummary>, next_cursor: TaskCursor | null, };
 
-export type SessionListItem = { id: string, workspace_id: string, task_id: string, project_id: string, issue_id: string, title: string, executor: string | null, created_at: string, updated_at: string, };
+export type SessionListItem = { id: string, workspace_id: string, task_id: string | null, project_id: string | null, issue_id: string | null, title: string, executor: string | null, created_at: string, updated_at: string, };
 
 export type SessionCursor = { updated_at: string, id: string, };
 
@@ -285,9 +285,9 @@ export type WorkflowRevisionConflict = { workflow_id: string, expected_revision:
 
 export type TriggerWorkflowRequest = { issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
-export type CreateWorkflowAttemptRequest = { name: string | null, graph_json: string, repos?: Array<DraftWorkspaceRepo>, };
+export type CreateWorkflowAttemptRequest = { directory_path?: string, name: string | null, graph_json: string, repos?: Array<DraftWorkspaceRepo>, };
 
-export type RunWorkflowAttemptRequest = { workspace_id: string | null, trigger_source: string, input_text: string, repos?: Array<DraftWorkspaceRepo>, };
+export type RunWorkflowAttemptRequest = { directory_path?: string, workspace_id: string | null, trigger_source: string, input_text: string, repos?: Array<DraftWorkspaceRepo>, };
 
 export type SelectArenaWinnerRequest = { candidate_id: string, };
 
@@ -541,7 +541,27 @@ export type CreateWorkspaceApiRequest = { name: string | null, };
 
 export type LinkedIssueInfo = { remote_project_id: string, issue_id: string, };
 
-export type CreateWorkspaceMode = "worktree" | "direct_folder";
+export type CreateWorkspaceMode = "worktree" | "direct_folder" | "managed_directory";
+
+export type SessionDeletionInfo = { can_delete_managed_files: boolean, managed_directory_path: string | null, };
+
+export type SessionDeletionResult = { warning: string | null, };
+
+export type GitAuthMode = "native" | "private_key";
+
+export type GitConnection = { id: string, name: string, host: string, port: number, username: string, auth_mode: GitAuthMode, fingerprint: string | null, has_passphrase: boolean, created_at: string, updated_at: string, credential_ready: boolean, credential_error: string | null, };
+
+export type WriteGitConnection = { name: string, host: string, port: number, username: string, auth_mode: GitAuthMode, private_key: string | null, password: string | null, };
+
+export type InspectGitRemote = { url: string, connection_id: string | null, };
+
+export type GitRemoteInspection = { url: string, branches: Array<string>, default_branch: string | null, suggested_directory: string, };
+
+export type StartGitImport = { request_id: string, url: string, connection_id: string | null, branch: string | null, directory_path: string | null, };
+
+export type GitImportState = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+
+export type GitImportJob = { id: string, request_id: string, url: string, connection_id: string | null, branch: string | null, directory_path: string, state: GitImportState, phase: string, progress: number | null, error: string | null, repo: Repo | null, };
 
 export type CreatePrApiRequest = { title: string, body: string | null, target_branch: string | null, draft: boolean | null, repo_id: string, auto_generate_description: boolean, };
 
@@ -697,7 +717,7 @@ export type DirectoryInspection = { path: string, is_git_repo: boolean, repo: Re
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, send_message_shortcut: SendMessageShortcut, relay_enabled: boolean, host_nickname: string | null, hidden_agents: Array<BaseCodingAgent>, };
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, analytics_enabled: boolean, workspace_dir: string | null, managed_workspace_root: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, send_message_shortcut: SendMessageShortcut, relay_enabled: boolean, host_nickname: string | null, hidden_agents: Array<BaseCodingAgent>, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 

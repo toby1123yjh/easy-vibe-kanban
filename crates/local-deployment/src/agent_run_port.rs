@@ -59,8 +59,9 @@ use crate::{
         AgentProcessRegistry, RegisteredAgentProcess, RegisteredProcessPresence,
     },
     process_host::{
-        HostBootstrap, HostCommand, HostEventPayload, HostExecutionEnv, HostLaunchRequest,
-        HostReady, send_host_command,
+        HostBootstrap, HostCommand, HostEventPayload, HostExecutionEnv, HostJournalReplay,
+        HostLaunchRequest, HostReady, host_journal_path, read_host_subscription, send_host_command,
+        subscribe_host_events,
     },
     transport::{read_json_frame, write_json_frame},
 };
@@ -625,7 +626,7 @@ impl LocalAgentRunPort {
         attempt: &RunAttemptRequest,
         mapped: AgentEventEnvelope,
         native_ref: NativeAuditReference,
-    ) {
+    ) -> Result<(), AgentRunPortError> {
         // Provider session observations are the canonical source used by the
         // next follow-up launch. Persist them independently from the event
         // projection so a replay/query can recover the native session even if
@@ -647,11 +648,11 @@ impl LocalAgentRunPort {
                     || (snapshot.state.status == AgentRunStatus::Cancelling
                         && *status != AgentRunStatus::Cancelled)
                 {
-                    return;
+                    return Ok(());
                 }
             }
         }
-        self.append_recoverable(
+        self.append_event(
             request,
             attempt,
             mapped.payload,
@@ -659,7 +660,7 @@ impl LocalAgentRunPort {
             mapped.timestamp,
             Some(mapped.event_id),
         )
-        .await;
+        .await?;
 
         if let Some(provider_session) = observed_provider_session {
             if let Err(error) = AgentProviderSessionRecord::upsert(
@@ -686,8 +687,10 @@ impl LocalAgentRunPort {
                         "failed to mark AgentRun degraded after provider-session persistence failure"
                     );
                 }
+                return Err(AgentRunPortError::Unavailable(error.to_string()));
             }
         }
+        Ok(())
     }
 
     async fn sender(&self, agent_run_id: Uuid) -> broadcast::Sender<AgentEventEnvelope> {
@@ -1337,23 +1340,38 @@ impl LocalAgentRunPort {
         attempt: RunAttemptRequest,
     ) {
         let mut consecutive_failures = 0usize;
+        let mut subscription = None;
         loop {
-            let attachment: Option<(String, String, i64, String, Option<i64>, Option<i64>)> =
-                sqlx::query_as(
-                    r#"
+            let attachment: Option<(
+                String,
+                String,
+                i64,
+                String,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+            )> = sqlx::query_as(
+                r#"
                 SELECT host_endpoint, host_token, last_host_event_sequence, registry_status,
-                       host_pid, pid
+                       host_pid, pid, host_instance_id
                 FROM agent_process_registry
                 WHERE run_attempt_id = ? AND host_endpoint IS NOT NULL AND host_token IS NOT NULL
                 "#,
-                )
-                .bind(attempt.run_attempt_id)
-                .fetch_optional(&self.db.pool)
-                .await
-                .ok()
-                .flatten();
-            let Some((endpoint, token, cursor, registry_status, host_pid, provider_pid)) =
-                attachment
+            )
+            .bind(attempt.run_attempt_id)
+            .fetch_optional(&self.db.pool)
+            .await
+            .ok()
+            .flatten();
+            let Some((
+                endpoint,
+                token,
+                cursor,
+                registry_status,
+                host_pid,
+                provider_pid,
+                host_instance_id,
+            )) = attachment
             else {
                 return;
             };
@@ -1361,16 +1379,39 @@ impl LocalAgentRunPort {
                 return;
             }
             let after_sequence = u64::try_from(cursor).unwrap_or_default();
-            match send_host_command(&endpoint, &token, HostCommand::Attach { after_sequence }).await
-            {
+            let response = async {
+                if subscription.is_none() {
+                    subscription =
+                        Some(subscribe_host_events(&endpoint, &token, after_sequence).await?);
+                }
+                let response = read_host_subscription(
+                    subscription.as_mut().expect("subscription established"),
+                )
+                .await?;
+                if host_instance_id
+                    .as_ref()
+                    .is_some_and(|expected| *expected != response.host_instance_id.to_string())
+                {
+                    return Err(crate::transport::TransportError::Protocol(
+                        "process host identity did not match persisted reservation".into(),
+                    ));
+                }
+                Ok(response)
+            }
+            .await;
+            match response {
                 Ok(response) => {
                     consecutive_failures = 0;
                     if let Some(error) = response.error {
+                        subscription = None;
                         tracing::warn!(run_attempt_id = %attempt.run_attempt_id, %error, "process host rejected attach");
                     } else if let Err(error) = self
                         .apply_host_events(&request, &attempt, response.events)
                         .await
                     {
+                        // A failed projection must replay from the durable DB
+                        // cursor, not continue beyond uncommitted observations.
+                        subscription = None;
                         tracing::error!(run_attempt_id = %attempt.run_attempt_id, %error, "failed to project process-host observations");
                     }
                     let status: Option<String> = sqlx::query_scalar(
@@ -1384,8 +1425,12 @@ impl LocalAgentRunPort {
                     if status.as_deref() == Some("exited") {
                         return;
                     }
+                    if subscription.is_some() {
+                        continue;
+                    }
                 }
                 Err(error) => {
+                    subscription = None;
                     consecutive_failures = consecutive_failures.saturating_add(1);
                     if let Err(mark_error) = AgentRunRecord::mark_process_host_unreachable(
                         &self.db.pool,
@@ -1416,6 +1461,16 @@ impl LocalAgentRunPort {
                         None => Some(RegisteredProcessPresence::Exited),
                     };
                     if should_reconcile_lost_process_host(consecutive_failures, host_presence) {
+                        if host_presence == Some(RegisteredProcessPresence::Exited) {
+                            if let Err(replay_error) =
+                                self.replay_dead_host_journal(&request, &attempt).await
+                            {
+                                tracing::error!(run_attempt_id = %attempt.run_attempt_id, %replay_error, "failed to replay dead host journal");
+                                // Do not terminalize past unprojected durable text.
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                continue;
+                            }
+                        }
                         self.reconcile_lost_process_host(
                             &request,
                             &attempt,
@@ -1447,6 +1502,47 @@ impl LocalAgentRunPort {
                 }
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn replay_dead_host_journal(
+        &self,
+        request: &AgentRunRequestEnvelope,
+        attempt: &RunAttemptRequest,
+    ) -> Result<(), AgentRunPortError> {
+        let instance: Option<String> = sqlx::query_scalar(
+            "SELECT host_instance_id FROM agent_process_registry WHERE run_attempt_id = ?",
+        )
+        .bind(attempt.run_attempt_id)
+        .fetch_optional(&self.db.pool)
+        .await
+        .map_err(port_database)?
+        .flatten();
+        let Some(instance) = instance else {
+            return Ok(());
+        };
+        let instance = Uuid::parse_str(&instance)
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        let path = host_journal_path(attempt.run_attempt_id, instance);
+        let mut replay =
+            match HostJournalReplay::open(&path, self.load_host_cursor(attempt).await?).await {
+                Ok(replay) => replay,
+                Err(crate::process_host::ProcessHostError::Io(error))
+                    if error.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(AgentRunPortError::Unavailable(error.to_string())),
+            };
+        loop {
+            let page = replay
+                .next_page()
+                .await
+                .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+            if page.is_empty() {
+                return Ok(());
+            }
+            self.apply_host_events(request, attempt, page).await?;
         }
     }
 
@@ -1766,7 +1862,7 @@ impl LocalAgentRunPort {
                         .register(registered)
                         .await
                         .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
-                    self.append_recoverable(
+                    self.append_event(
                         request,
                         attempt,
                         AgentEventPayload::Message {
@@ -1777,8 +1873,8 @@ impl LocalAgentRunPort {
                         request.created_at,
                         Some(request.input.message_id),
                     )
-                    .await;
-                    self.append_recoverable(
+                    .await?;
+                    self.append_event(
                         request,
                         attempt,
                         AgentEventPayload::LifecycleChanged {
@@ -1788,14 +1884,14 @@ impl LocalAgentRunPort {
                         event.timestamp,
                         Some(event.event_id),
                     )
-                    .await;
+                    .await?;
                 }
                 HostEventPayload::Mapped {
                     event: mapped,
                     native_ref,
                 } => {
                     self.append_mapped_event(request, attempt, mapped, native_ref)
-                        .await;
+                        .await?;
                 }
                 HostEventPayload::Terminal {
                     mut status,
@@ -1831,7 +1927,7 @@ impl LocalAgentRunPort {
                     if status != AgentRunStatus::Cancelled
                         && let Some(error) = error
                     {
-                        self.append_recoverable(
+                        self.append_event(
                             request,
                             attempt,
                             AgentEventPayload::Error { error },
@@ -1839,7 +1935,7 @@ impl LocalAgentRunPort {
                             event.timestamp,
                             error_event_id,
                         )
-                        .await;
+                        .await?;
                     }
                     // A transient snapshot/read failure must not discard the
                     // host's durable terminal fact.  Append it and let the
@@ -1852,7 +1948,7 @@ impl LocalAgentRunPort {
                         .map(|current| !current.state.status.is_terminal())
                         .unwrap_or(true);
                     if should_append_terminal {
-                        self.append_recoverable(
+                        self.append_event(
                             request,
                             attempt,
                             AgentEventPayload::LifecycleChanged { status },
@@ -1860,7 +1956,7 @@ impl LocalAgentRunPort {
                             event.timestamp,
                             Some(event.event_id),
                         )
-                        .await;
+                        .await?;
                     }
                     // A provider can fail before a child is spawned. In that
                     // case the host emits a terminal event without Started,
@@ -2339,7 +2435,8 @@ impl LocalAgentRunPort {
                                 }
                                 _ => None,
                             };
-                            port.append_mapped_event(&request, &attempt, event, native_ref.clone())
+                            let _ = port
+                                .append_mapped_event(&request, &attempt, event, native_ref.clone())
                                 .await;
                             if let Some(status) = terminal_status {
                                 let _ = notices.send(OutputNotice::ProviderTerminal(status));

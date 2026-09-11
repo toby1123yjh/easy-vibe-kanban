@@ -1,4 +1,42 @@
 {
+  "gitConnections": {
+    "title": "Git connections",
+    "description": "Connections and encrypted credentials are stored on the selected machine. Native Git / SSH remains available without a saved connection.",
+    "loading": "Loading connections…",
+    "loadFailed": "Connections could not be loaded.",
+    "unavailable": "Connect this machine before editing Git connections.",
+    "empty": "No saved connections.",
+    "credentialUnavailable": "Credential unavailable. Import the private key again.",
+    "edit": "Edit",
+    "test": "Test",
+    "delete": "Delete connection",
+    "add": "Add connection",
+    "testUrl": "Repository URL to test",
+    "testing": "Testing…",
+    "provider": "Provider",
+    "custom": "Custom",
+    "name": "Connection name",
+    "host": "Git host",
+    "port": "SSH port",
+    "username": "SSH user",
+    "auth": "Authentication",
+    "native": "Machine Git / SSH",
+    "privateKey": "Private key",
+    "keepSecret": "When editing, untouched credentials keep the saved values. Clear the passphrase explicitly to remove it. Changing authentication requires new credentials.",
+    "importKey": "Import private key file",
+    "passphrase": "Key passphrase (optional)",
+    "show": "Show credentials",
+    "hide": "Hide credentials",
+    "saving": "Saving…",
+    "saved": "Connection saved.",
+    "deleted": "Connection deleted.",
+    "tested": "Connection works; repository is readable.",
+    "required": "Complete the connection fields and required credentials.",
+    "failed": "Operation failed. Try again.",
+    "deleteHint": "Delete “{{name}}” and its saved credentials? Existing repositories are kept.",
+    "keyTooLarge": "Choose a private key smaller than 1 MB.",
+    "importFailed": "Private key could not be imported. Check the file and try again."
+  },
   "settings": {
     "common": {
       "unsavedChanges": "• You have unsaved changes",
@@ -102,6 +140,14 @@
       "selectMachineHint": "Select a machine to open machine settings."
     },
     "general": {
+      "managedDirectory": {
+        "browseFailed": "Unable to choose a directory. Try again.",
+        "label": "Default session directory",
+        "default": "Automatic (app data / workspaces)",
+        "browse": "Browse",
+        "reset": "Reset",
+        "description": "New standalone sessions get their own folder here. Existing folders and project locations are unchanged."
+      },
       "loading": "Loading settings...",
       "loadError": "Failed to load configuration.",
       "save": {

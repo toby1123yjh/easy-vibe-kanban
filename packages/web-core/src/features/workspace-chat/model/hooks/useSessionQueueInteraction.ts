@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi } from '@/shared/lib/api';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 import type { ExecutorConfig, QueueStatus, SelectedSkill } from 'shared/types';
 
 interface UseSessionQueueInteractionOptions {
@@ -39,12 +40,13 @@ export function useSessionQueueInteraction({
   sessionId,
 }: UseSessionQueueInteractionOptions): UseSessionQueueInteractionResult {
   const queryClient = useQueryClient();
+  const hostId = useHostId();
 
   // Query for queue status
   const { data: queueStatus = { status: 'empty' as const }, refetch } =
     useQuery<QueueStatus>({
-      queryKey: [QUEUE_STATUS_KEY, sessionId],
-      queryFn: () => queueApi.getStatus(sessionId!),
+      queryKey: [QUEUE_STATUS_KEY, hostId, sessionId],
+      queryFn: () => queueApi.getStatus(sessionId!, hostId),
       enabled: !!sessionId,
     });
 
@@ -73,7 +75,7 @@ export function useSessionQueueInteraction({
         selected_skills: selectedSkills,
       }),
     onSuccess: (status) => {
-      queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
+      queryClient.setQueryData([QUEUE_STATUS_KEY, hostId, sessionId], status);
     },
   });
 
@@ -81,7 +83,7 @@ export function useSessionQueueInteraction({
   const cancelMutation = useMutation({
     mutationFn: () => queueApi.cancel(sessionId!),
     onSuccess: (status) => {
-      queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
+      queryClient.setQueryData([QUEUE_STATUS_KEY, hostId, sessionId], status);
     },
   });
 

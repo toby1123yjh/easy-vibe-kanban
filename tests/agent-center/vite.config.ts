@@ -11,7 +11,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@\/shared\/dialogs\/settings\/settings\/SettingsHostContext$/,
+        find: /^@\/shared\/(hooks\/auth\/useAuth|providers\/HostIdProvider|lib\/(api|remoteApi|machineClient|relayPairingStorage))$/,
         replacement: `${fixtureRoot}/src/mocks.tsx`,
       },
       {

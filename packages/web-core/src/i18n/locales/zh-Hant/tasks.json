@@ -1,5 +1,8 @@
 {
   "sessionDeletion": {
+    "filesRetained": "會話已刪除，部分檔案仍保留：",
+    "deleteManagedFiles": "同時刪除此會話的工作目錄和檔案",
+    "withFilesDescription": "刪除「{{name}}」、會話歷史以及下方託管工作目錄？其他會話、專案和智慧體原生歷史不受影響。此操作無法復原。",
     "stopDescription": "「{{name}}」的智慧體仍在執行，或暫時無法確認已退出。是否安全停止後刪除？若停止失敗，將保留任務和工作階段。",
     "stopAndDelete": "停止並刪除",
     "stopping": "正在停止並刪除…",

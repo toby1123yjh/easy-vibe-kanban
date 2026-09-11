@@ -26,7 +26,8 @@ use crate::{
     middleware::signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
 };
 
-const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+// Repair only (e.g. an out-of-process writer); normal delivery is post-commit.
+const STREAM_REPAIR_INTERVAL: Duration = Duration::from_secs(30);
 const STREAM_PAGE_SIZE: u32 = 500;
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -299,7 +300,8 @@ async fn handle_agent_run_events_ws(
         }
     };
 
-    loop {
+    let mut changes = db::models::agent_runtime::subscribe_agent_event_changes();
+    let mut last_state = loop {
         let page = match reader
             .history_page(agent_run_id, cursor, STREAM_PAGE_SIZE)
             .await
@@ -335,20 +337,31 @@ async fn handle_agent_run_events_ws(
             send_stream_message(
                 &mut socket,
                 &AgentRunStreamMessage::Ready {
-                    state: page.state,
+                    state: page.state.clone(),
                     cursor,
                 },
             )
             .await?;
-            break;
+            break page.state;
         }
-    }
+    };
 
-    let mut interval = tokio::time::interval(LIVE_POLL_INTERVAL);
+    let mut interval = tokio::time::interval(STREAM_REPAIR_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            _ = interval.tick() => {
+            _ = async {
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => break,
+                        change = changes.recv() => match change {
+                            Ok(id) if id != agent_run_id => continue,
+                            _ => break,
+                        },
+                    }
+                }
+            } => {
+              loop {
                 let page = reader
                     .history_page(agent_run_id, cursor, STREAM_PAGE_SIZE)
                     .await?;
@@ -367,7 +380,10 @@ async fn handle_agent_run_events_ws(
                     )
                     .await?;
                 }
-                if had_events {
+                // State and events may have been read on opposite sides of a
+                // commit. Even an empty wakeup must repair a stale State.
+                if should_send_stream_state(had_events, page.has_more, page.state != last_state) {
+                    last_state = page.state.clone();
                     send_stream_message(
                         &mut socket,
                         &AgentRunStreamMessage::State {
@@ -377,6 +393,8 @@ async fn handle_agent_run_events_ws(
                     )
                     .await?;
                 }
+                if !page.has_more { break; }
+              }
             }
             inbound = socket.recv() => {
                 match inbound {
@@ -390,13 +408,20 @@ async fn handle_agent_run_events_ws(
     Ok(())
 }
 
+fn should_send_stream_state(had_events: bool, has_more: bool, state_changed: bool) -> bool {
+    !has_more && (had_events || state_changed)
+}
+
 async fn send_stream_message(
     socket: &mut MaybeSignedWebSocket,
     message: &AgentRunStreamMessage,
 ) -> anyhow::Result<()> {
-    socket
-        .send(Message::Text(serde_json::to_string(message)?.into()))
-        .await
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        socket.send(Message::Text(serde_json::to_string(message)?.into())),
+    )
+    .await??;
+    Ok(())
 }
 
 fn read_api_error(error: AgentRuntimeReadError) -> ApiError {
@@ -461,6 +486,14 @@ pub(super) fn router(_: &DeploymentImpl) -> Router<DeploymentImpl> {
 #[cfg(test)]
 mod tests {
     use super::AgentEventQuery;
+
+    #[test]
+    fn empty_page_repairs_racing_terminal_state_but_never_precedes_remaining_text() {
+        assert!(super::should_send_stream_state(false, false, true));
+        assert!(!super::should_send_stream_state(true, true, true));
+        assert!(!super::should_send_stream_state(false, false, false));
+        assert!(super::should_send_stream_state(true, false, false));
+    }
 
     #[test]
     fn cursor_requires_both_parts() {

@@ -4,6 +4,8 @@ import {
   ApprovalStatus,
   ApiResponse,
   Config,
+  SessionDeletionInfo,
+  SessionDeletionResult,
   CreateFollowUpAttempt,
   AgentRunPortSnapshot,
   EditorType,
@@ -348,6 +350,17 @@ export const handleApiResponse = async <T, E = T>(
 
 // Sessions API
 export const sessionsApi = {
+  getDeletionInfo: async (
+    sessionId: string,
+    hostId: string | null
+  ): Promise<SessionDeletionInfo> => {
+    return handleApiResponse<SessionDeletionInfo>(
+      await makeHostAwareRequest(
+        `/api/sessions/${encodeURIComponent(sessionId)}/deletion-info`,
+        hostId
+      )
+    );
+  },
   getTask: async (
     sessionId: string,
     hostId: string | null
@@ -357,6 +370,17 @@ export const sessionsApi = {
       hostId
     );
     return handleApiResponse<TaskSummary | null>(response);
+  },
+
+  getExecutorConfig: async (
+    sessionId: string,
+    hostId?: string | null
+  ): Promise<ExecutorConfig | null> => {
+    const response = await makeHostAwareRequest(
+      `/api/sessions/${sessionId}/executor-config`,
+      hostId
+    );
+    return handleApiResponse<ExecutorConfig | null>(response);
   },
 
   getByWorkspace: async (workspaceId: string): Promise<Session[]> => {
@@ -476,14 +500,18 @@ export const sessionsApi = {
   delete: async (
     sessionId: string,
     hostId?: string | null,
-    stopRunning = false
-  ): Promise<void> => {
+    stopRunning = false,
+    deleteManagedFiles = false
+  ): Promise<SessionDeletionResult> => {
+    const params = new URLSearchParams();
+    if (stopRunning) params.set('stop_running', 'true');
+    if (deleteManagedFiles) params.set('delete_managed_files', 'true');
     const response = await makeHostAwareRequest(
-      `/api/sessions/${sessionId}${stopRunning ? '?stop_running=true' : ''}`,
+      `/api/sessions/${sessionId}${params.size ? `?${params}` : ''}`,
       hostId,
       { method: 'DELETE' }
     );
-    await handleApiResponse<void>(response);
+    return handleApiResponse<SessionDeletionResult>(response);
   },
 };
 
@@ -1783,8 +1811,14 @@ export const queueApi = {
   /**
    * Get the current queue status for a session
    */
-  getStatus: async (sessionId: string): Promise<QueueStatus> => {
-    const response = await makeRequest(`/api/sessions/${sessionId}/queue`);
+  getStatus: async (
+    sessionId: string,
+    hostId?: string | null
+  ): Promise<QueueStatus> => {
+    const response = await makeHostAwareRequest(
+      `/api/sessions/${sessionId}/queue`,
+      hostId
+    );
     return handleApiResponse<QueueStatus>(response);
   },
 };

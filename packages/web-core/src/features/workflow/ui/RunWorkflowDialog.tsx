@@ -20,7 +20,7 @@ import {
   getWorkflowRunErrorMessage,
 } from '../model/issueWorkflow';
 import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
-import type { DraftWorkspaceRepo } from 'shared/types';
+import type { WorkflowWorkspaceInput } from '../model/workflowWorkspaceSelection';
 
 const CREATE_WORKFLOW_WORKSPACE_VALUE = '__create_workflow_workspace__';
 
@@ -83,6 +83,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
     );
 
     const handleCancel = () => {
+      if (isPreparingRun || isRunningAttempt) return;
       modal.resolve({ kind: 'canceled' } satisfies RunWorkflowDialogResult);
       modal.hide();
     };
@@ -110,13 +111,13 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
 
       setIsPreparingRun(true);
       try {
-        let repos: DraftWorkspaceRepo[] = [];
+        let workspace: WorkflowWorkspaceInput = { repos: [] };
         if (workspaceId === null) {
           const selectedRepos = await selectWorkflowRepositories();
           if (!selectedRepos) {
             return;
           }
-          repos = selectedRepos;
+          workspace = selectedRepos;
         }
 
         const run = await runAttempt({
@@ -125,7 +126,7 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
             workspace_id: workspaceId,
             trigger_source: 'manual',
             input_text: trimmedInput,
-            repos,
+            ...workspace,
           },
         });
         modal.resolve({

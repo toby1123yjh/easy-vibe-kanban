@@ -455,6 +455,7 @@ async fn dispatch_workflow_scheduled_task(
         task.project_id,
         task.context_issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some(task.name.clone().unwrap_or_else(|| workflow.name.clone())),
             graph_json: instantiate_workflow_template_graph(&workflow.graph_json)?,
             repos: None,
@@ -469,6 +470,7 @@ async fn dispatch_workflow_scheduled_task(
         &deployment.db().pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: if manual {
                 "schedule_manual".to_string()

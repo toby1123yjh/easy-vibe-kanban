@@ -1179,6 +1179,7 @@
     },
     "errors": {
       "rescan": "No se pudo analizar este host.",
+      "loadRemoteHosts": "No se pudieron cargar los hosts remotos. Reintenta actualizar la lista.",
       "setDefault": "No se pudo cambiar el Provider predeterminado.",
       "loadProviders": "No se pudieron cargar las capacidades del Provider.",
       "loadTools": "No se pudo actualizar el resumen de herramientas del Agent."

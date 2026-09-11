@@ -35,6 +35,18 @@ pub enum CreateWorkspaceMode {
     #[default]
     Worktree,
     DirectFolder,
+    ManagedDirectory,
+}
+
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct SessionDeletionInfo {
+    pub can_delete_managed_files: bool,
+    pub managed_directory_path: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, TS)]
+pub struct SessionDeletionResult {
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

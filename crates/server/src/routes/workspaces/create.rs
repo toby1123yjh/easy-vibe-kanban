@@ -106,7 +106,7 @@ async fn validate_direct_folder_path(
     validate_directory_path(deployment, raw_path).await
 }
 
-async fn create_direct_folder_workspace_record(
+pub(crate) async fn create_direct_folder_workspace_record(
     deployment: &DeploymentImpl,
     name: Option<String>,
     directory_path: Option<String>,
@@ -447,8 +447,20 @@ pub async fn create_and_start_workspace(
         CreateWorkspaceMode::DirectFolder => {
             create_direct_folder_workspace_record(&deployment, name, directory_path).await?
         }
+        CreateWorkspaceMode::ManagedDirectory => {
+            if !repos.is_empty()
+                || directory_path.is_some()
+                || linked_issue.is_some()
+                || resume_scope_path.is_some()
+                || resume_session_id.is_some()
+            {
+                return Err(ApiError::BadRequest("Managed directories are only for new standalone sessions without an explicit workspace or native resume path.".into()));
+            }
+            super::managed_directory::create(&deployment, name).await?
+        }
     };
     let workspace_id = workspace_record.id;
+    let retained_directory = workspace_record.container_ref.clone();
 
     let creation_result = async {
         let mut managed_workspace = deployment
@@ -667,6 +679,17 @@ pub async fn create_and_start_workspace(
     let (workspace, agent_run) = match creation_result {
         Ok(created) => created,
         Err(error) => {
+            if matches!(mode, CreateWorkspaceMode::ManagedDirectory) {
+                // A launch may already have reserved a process. Preserve the
+                // owned workspace/session and its artifacts for explicit safe
+                // deletion instead of using blind creation compensation.
+                tracing::warn!(%workspace_id, "managed session creation failed; retaining owned directory and records for recovery");
+                return Err(super::managed_directory::retained_creation_error(
+                    workspace_id,
+                    retained_directory.as_deref().unwrap_or("unknown directory"),
+                    error,
+                ));
+            }
             if let Err(cleanup_error) = compensate_failed_single_agent_creation(
                 &deployment,
                 workspace_id,

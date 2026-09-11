@@ -1,5 +1,8 @@
 {
   "sessionDeletion": {
+    "filesRetained": "Session deleted. Some files were kept:",
+    "deleteManagedFiles": "Also delete this session’s working directory and files",
+    "withFilesDescription": "Delete “{{name}}”, its session history, and the managed working directory below? Other sessions, projects, and native agent history are preserved. This cannot be undone.",
     "stopDescription": "The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.",
     "stopAndDelete": "Stop and delete",
     "stopping": "Stopping and deleting…",

@@ -1,5 +1,21 @@
 import { expect, test } from '@playwright/test';
 
+test('unrelated renders reuse history measurements but new session keys invalidate them', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Message 1', { exact: true })).toBeVisible();
+  // Allow initial ResizeObserver measurements to settle before measuring reuse.
+  await page.waitForTimeout(200);
+  const before = Number(await page.getByTestId('measurement-rebuilds').textContent());
+  for (let index = 0; index < 5; index += 1) {
+    await page.getByRole('button', { name: 'Rerender', exact: true }).click();
+  }
+  await expect(page.getByTestId('revision')).toHaveText('5');
+  await expect(page.getByTestId('measurement-rebuilds')).toHaveText(String(before));
+  await page.getByRole('button', { name: 'Replace session' }).click();
+  await expect(page.getByTestId('first-key')).toHaveText('replacement-fixture-message-0');
+  await expect.poll(async () => Number(await page.getByTestId('measurement-rebuilds').textContent())).toBeGreaterThan(before);
+});
+
 test('1000-message timeline mounts at most 200 message rows', async ({
   page,
 }) => {

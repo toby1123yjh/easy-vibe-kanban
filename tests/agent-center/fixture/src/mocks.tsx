@@ -13,6 +13,37 @@ const providers = [
   BaseCodingAgent.OH_MY_PI,
 ];
 
+const params = new URLSearchParams(window.location.search);
+export class ApiError extends Error {}
+const calls = { relay: 0, paired: 0, garage: 0 };
+Object.assign(window, { agentCenterCalls: calls });
+export const useAppRuntime = () => params.get('runtime') ?? 'local';
+export const useAuth = () => ({
+  isLoaded: true,
+  isSignedIn: params.get('signedOut') !== 'true',
+});
+export const useHostId = () => params.get('host');
+const pairedHosts = [
+  { host_id: 'remote-fixture', host_name: 'Remote fixture', paired_at: '' },
+];
+export const relayApi = {
+  listPairedRelayHosts: async () => {
+    calls.paired++;
+    return pairedHosts;
+  },
+};
+export const listPairedRelayHosts = async () => pairedHosts;
+export const subscribeRelayPairingChanges = () => () => undefined;
+export async function listRelayHosts() {
+  calls.relay++;
+  if (params.has('cloudError')) throw new Error('PRIVATE_CLOUD_ERROR');
+  return [{ id: 'remote-fixture', name: 'Remote fixture', status: 'online' }];
+}
+export const createMachineClient = (_runtime: unknown, target: unknown) => ({
+  ...machineClient,
+  target,
+});
+
 const settingsProviderFor = (executor: BaseCodingAgent) => {
   switch (executor) {
     case BaseCodingAgent.CLAUDE_CODE:
@@ -124,7 +155,12 @@ export const machineClient = {
     label: 'This machine',
   },
   queryScopeKey: ['machine', 'local'] as const,
-  getAgentGarage: async () => garage,
+  getAgentGarage: async () => {
+    calls.garage++;
+    if (params.has('scanError') && calls.garage > 1)
+      throw new Error('PRIVATE_SCAN_ERROR');
+    return garage;
+  },
   listAgentTools: async () => ({ providers: toolProviders, errors: [] }),
   listAgentCommands: async () => ({ providers: commandProviders, errors: [] }),
   discoverAgentSettings: async () => settingsInventory,

@@ -14,6 +14,7 @@ export type SettingsTab = SettingsNavigationTab;
 export type SettingsSection = SettingsNavigationSection;
 
 export interface SettingsSearchParams {
+  projectId?: string;
   tab?: string;
   section?: string;
   host?: string;
@@ -41,6 +42,7 @@ export function parseSettingsSearch(
     tab: stringParam(search.tab),
     section: stringParam(search.section),
     host: stringParam(search.host),
+    projectId: stringParam(search.projectId),
   };
 }
 
@@ -69,7 +71,7 @@ export function resolveSettingsRoute(
       ? (normalizedSection as SettingsSection)
       : SETTINGS_SECTIONS[tab][0];
 
-  return { tab, section, ...(search.host ? { host: search.host } : {}) };
+  return getSettingsNavigationTarget(section, search.host, search.projectId);
 }
 
 export function isCanonicalSettingsSearch(
@@ -79,7 +81,8 @@ export function isCanonicalSettingsSearch(
   return (
     search.tab === route.tab &&
     search.section === route.section &&
-    search.host === route.host
+    search.host === route.host &&
+    search.projectId === route.projectId
   );
 }
 

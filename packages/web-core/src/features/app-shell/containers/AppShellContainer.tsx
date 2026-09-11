@@ -102,6 +102,11 @@ export function AppShellContainer({
     initialPageParam: null as ProjectCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     staleTime: 30_000,
+    // The local web shell can mount before the backend has finished starting.
+    // Keep discovery recoverable without requiring the user to refresh the UI.
+    retry: 5,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
+    refetchInterval: (query) => (query.state.status === 'error' ? 5000 : false),
   });
 
   const sessionsQuery = useInfiniteQuery({
@@ -117,6 +122,9 @@ export function AppShellContainer({
     initialPageParam: null as SessionCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     staleTime: 15_000,
+    retry: 5,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
+    refetchInterval: (query) => (query.state.status === 'error' ? 5000 : false),
   });
 
   const projects = useMemo(
@@ -136,6 +144,7 @@ export function AppShellContainer({
     [sessionsQuery.data?.pages]
   );
   const refetchProjects = projectsQuery.refetch;
+  const fetchNextProjectPage = projectsQuery.fetchNextPage;
   const refetchSessions = sessionsQuery.refetch;
 
   const activeProjectId =
@@ -211,10 +220,10 @@ export function AppShellContainer({
       hasNextPage: projectsQuery.hasNextPage,
       isFetchingNextPage: projectsQuery.isFetchingNextPage,
       retry: async () => {
-        await projectsQuery.refetch();
+        await refetchProjects();
       },
       loadNextPage: async () => {
-        await projectsQuery.fetchNextPage();
+        await fetchNextProjectPage();
       },
     }),
     [
@@ -222,14 +231,14 @@ export function AppShellContainer({
       adapter.discoveryHostId,
       adapter.discoveryScopeKey,
       projects,
-      projectsQuery.fetchNextPage,
+      fetchNextProjectPage,
       projectsQuery.hasNextPage,
       projectsQuery.isError,
       projectsQuery.isFetchNextPageError,
       projectsQuery.isFetching,
       projectsQuery.isFetchingNextPage,
       projectsQuery.isLoading,
-      projectsQuery.refetch,
+      refetchProjects,
     ]
   );
   const sessionState = {

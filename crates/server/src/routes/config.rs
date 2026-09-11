@@ -185,6 +185,12 @@ async fn update_config(
 ) -> ResponseJson<ApiResponse<Config>> {
     let config_path = config_path();
 
+    if let Err(error) = super::workspaces::managed_directory::validate_root_setting(
+        new_config.managed_workspace_root.as_deref(),
+    ) {
+        return ResponseJson(ApiResponse::error(&error));
+    }
+
     // Validate git branch prefix
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
         return ResponseJson(ApiResponse::error(

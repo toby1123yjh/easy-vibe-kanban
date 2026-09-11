@@ -124,7 +124,10 @@ export function ModelSelectorContainer({
   }, [streamError]);
 
   const baseConfig = streamConfig;
-  const config = appendPresetModel(baseConfig, presetOptions?.model_id);
+  const config = appendPresetModel(
+    appendPresetModel(baseConfig, presetOptions?.model_id),
+    executorConfig?.model_id
+  );
 
   const availableProviderIds = useMemo(
     () => config?.providers.map((item) => item.id) ?? [],
@@ -153,10 +156,13 @@ export function ModelSelectorContainer({
   const resolvedPresetProviderId = resolveProviderId(presetProviderId);
 
   const hasDefaultModel = Boolean(config?.default_model);
+  const hasModelOverride = executorConfig?.model_id !== undefined;
   const selectedProviderId =
-    resolvedConfigProviderId ??
-    resolvedPresetProviderId ??
-    (hasDefaultModel ? fallbackProviderId : null);
+    hasModelOverride && executorConfig.model_id === null
+      ? null
+      : (resolvedConfigProviderId ??
+        resolvedPresetProviderId ??
+        (hasDefaultModel ? fallbackProviderId : null));
 
   const defaultModelId = config
     ? resolveDefaultModelId(
@@ -181,7 +187,9 @@ export function ModelSelectorContainer({
     : null;
 
   const selectedModelId = (() => {
-    const candidate = configModelId ?? resolvedPresetModelId ?? defaultModelId;
+    const candidate = hasModelOverride
+      ? configModelId
+      : (resolvedPresetModelId ?? defaultModelId);
     if (!candidate || !config || !selectedProviderId) return candidate;
     const hasMatch = isModelAvailable(config, selectedProviderId, candidate);
     return hasMatch
@@ -196,6 +204,9 @@ export function ModelSelectorContainer({
 
   const selectedModel = config
     ? getSelectedModel(config.models, selectedProviderId, selectedModelId)
+    : null;
+  const discoveredSelectedModel = baseConfig
+    ? getSelectedModel(baseConfig.models, selectedProviderId, selectedModelId)
     : null;
 
   const selectedReasoningOptions =
@@ -217,13 +228,21 @@ export function ModelSelectorContainer({
   const selectedReasoningId = reasoningOverrideState.selectedReasoningId;
 
   useEffect(() => {
-    if (loadingModels) return;
+    // Appended saved/custom models have no discovered capability metadata.
+    // Missing or failed discovery is not evidence to erase saved reasoning.
+    if (loadingModels || streamError || !discoveredSelectedModel) return;
 
     const repair = reasoningOverrideState.repair;
     if (repair) {
       onOverrideChange(repair);
     }
-  }, [loadingModels, onOverrideChange, reasoningOverrideState]);
+  }, [
+    loadingModels,
+    streamError,
+    discoveredSelectedModel,
+    onOverrideChange,
+    reasoningOverrideState,
+  ]);
 
   const defaultAgentId =
     config?.agents.find((entry) => entry.is_default)?.id ?? null;
@@ -239,7 +258,9 @@ export function ModelSelectorContainer({
     ? (presetOptions?.permission_policy ?? config?.permissions[0] ?? null)
     : null;
   const permissionPolicy = supportsPermissions
-    ? (executorConfig?.permission_policy ?? basePermissionPolicy)
+    ? executorConfig?.permission_policy !== undefined
+      ? executorConfig.permission_policy
+      : basePermissionPolicy
     : null;
 
   // LRU persistence (on popover close)

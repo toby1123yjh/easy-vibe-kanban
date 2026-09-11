@@ -35,9 +35,6 @@ export function WorkflowConfigurationFrame({
     const scrollPositions = scrollPositionsRef.current;
     if (!open || !container) return;
     container.scrollTop = scrollPositions.get(objectKey) ?? 0;
-    return () => {
-      scrollPositions.set(objectKey, container.scrollTop);
-    };
   }, [objectKey, open]);
 
   return (
@@ -54,7 +51,8 @@ export function WorkflowConfigurationFrame({
       }
       autoFocus={false}
       restoreFocus={false}
-      className="workflow-configuration-frame bottom-6 right-6 top-[calc(var(--vk-app-header-height,0px)+1.5rem)] w-[min(440px,calc(100vw-3rem))]"
+      portal={false}
+      className="workflow-configuration-frame absolute bottom-4 right-4 top-4 w-[min(440px,calc(100%-2rem))]"
       contentClassName="flex min-h-0 flex-col overflow-hidden"
       data-object-key={objectKey}
     >
@@ -62,14 +60,27 @@ export function WorkflowConfigurationFrame({
         key={objectKey}
         className="workflow-side-panel-content flex min-h-0 flex-1 flex-col overflow-hidden"
       >
-        <FloatingPanelHeader>
+        <FloatingPanelHeader className="gap-1 px-4 py-3">
           <FloatingPanelTitle>{title}</FloatingPanelTitle>
-          <FloatingPanelDescription>{description}</FloatingPanelDescription>
+          <FloatingPanelDescription
+            className="truncate text-xs"
+            title={description}
+          >
+            {description}
+          </FloatingPanelDescription>
         </FloatingPanelHeader>
         <div
           ref={scrollContainerRef}
           data-object-content-key={objectKey}
           className="min-h-0 flex-1 overflow-y-auto"
+          onScroll={(event) => {
+            // The keyed content is detached before layout-effect cleanup;
+            // reading scrollTop there would overwrite its position with zero.
+            scrollPositionsRef.current.set(
+              objectKey,
+              event.currentTarget.scrollTop
+            );
+          }}
         >
           {children}
         </div>

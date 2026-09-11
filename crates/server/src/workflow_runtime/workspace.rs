@@ -9,7 +9,10 @@ use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use super::runner::{WorkflowWorkspaceRequest, WorkflowWorkspaceResolver};
-use crate::{DeploymentImpl, error::ApiError};
+use crate::{
+    DeploymentImpl, error::ApiError,
+    routes::workspaces::create::create_direct_folder_workspace_record,
+};
 
 pub fn main_workflow_branch_name(issue_id: Uuid, run_id: Uuid) -> String {
     format!("vk/{issue_id}-wf-{}", short_run_id(run_id))
@@ -17,6 +20,23 @@ pub fn main_workflow_branch_name(issue_id: Uuid, run_id: Uuid) -> String {
 
 pub fn short_run_id(run_id: Uuid) -> String {
     run_id.simple().to_string()[..8].to_string()
+}
+
+async fn project_workspace_directory_from_db(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<Option<String>, ApiError> {
+    let Some(scratch) =
+        Scratch::find_by_id(pool, project_id, &ScratchType::ProjectRepoDefaults).await?
+    else {
+        return Ok(None);
+    };
+    let ScratchPayload::ProjectRepoDefaults(defaults) = scratch.payload else {
+        return Ok(None);
+    };
+    Ok(defaults
+        .directory_path
+        .filter(|path| !path.trim().is_empty()))
 }
 
 async fn project_workspace_repos_from_db<F>(
@@ -155,6 +175,12 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
     ) -> Result<Uuid, ApiError> {
         let pool = &self.deployment.db().pool;
 
+        if request.directory_path.is_some() && !request.repo_overrides.is_empty() {
+            return Err(ApiError::BadRequest(
+                "Choose either a direct folder or worktree repositories, not both.".to_string(),
+            ));
+        }
+
         if let Some(workspace_id) = request.existing_workspace_id {
             let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE id = ?")
                 .bind(workspace_id)
@@ -173,6 +199,21 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
                     .to_string(),
             )
         })?;
+        let directory_path =
+            if request.directory_path.is_some() || !request.repo_overrides.is_empty() {
+                request.directory_path
+            } else {
+                project_workspace_directory_from_db(pool, project_id).await?
+            };
+        if let Some(directory_path) = directory_path {
+            return create_direct_folder_workspace_record(
+                &self.deployment,
+                Some(format!("Workflow {}", short_run_id(request.run_id))),
+                Some(directory_path),
+            )
+            .await
+            .map(|workspace| workspace.id);
+        }
         let repos = if request.repo_overrides.is_empty() {
             self.project_workspace_repos(project_id).await?
         } else {
@@ -219,7 +260,7 @@ mod tests {
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::project_workspace_repos_from_db;
+    use super::{project_workspace_directory_from_db, project_workspace_repos_from_db};
 
     async fn setup_repo_defaults_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -320,6 +361,27 @@ mod tests {
         .execute(pool)
         .await
         .expect("insert repo");
+    }
+
+    #[tokio::test]
+    async fn project_workspace_directory_uses_host_local_default_without_repositories() {
+        let pool = setup_repo_defaults_pool().await;
+        let project_id = Uuid::new_v4();
+        let payload = json!({"type": "PROJECT_REPO_DEFAULTS", "data": {"repos": [], "directory_path": "F:/notes"}});
+        sqlx::query("INSERT INTO scratch (id, scratch_type, payload) VALUES (?, 'PROJECT_REPO_DEFAULTS', ?)")
+            .bind(project_id).bind(payload.to_string()).execute(&pool).await.unwrap();
+        assert_eq!(
+            project_workspace_directory_from_db(&pool, project_id)
+                .await
+                .unwrap(),
+            Some("F:/notes".to_string())
+        );
+        assert_eq!(
+            project_workspace_directory_from_db(&pool, Uuid::new_v4())
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]

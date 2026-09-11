@@ -141,14 +141,14 @@ export function WorkflowNodeInspector({
   };
 
   const inputClass =
-    'w-full rounded-md border border-secondary bg-primary px-3 py-1.5 text-sm shadow-sm transition-colors focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-50';
+    'w-full rounded border border-secondary bg-primary px-3 py-1.5 text-sm transition-colors focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-50';
   const secondaryButtonClass =
-    'inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-secondary bg-primary px-2.5 text-xs font-medium text-high shadow-sm transition-colors hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-flex h-8 items-center justify-center gap-1.5 rounded border border-secondary bg-primary px-2.5 text-xs font-medium text-high transition-colors hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-50';
   const iconButtonClass =
-    'inline-flex h-8 w-8 items-center justify-center rounded-md border border-secondary bg-primary text-low shadow-sm transition-colors hover:border-error/70 hover:text-error disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-flex h-8 w-8 items-center justify-center rounded border border-secondary bg-primary text-low transition-colors hover:border-error/70 hover:text-error disabled:cursor-not-allowed disabled:opacity-50';
 
   return (
-    <div className="flex min-h-full flex-col gap-4 bg-panel/50 p-5 text-sm">
+    <div className="workflow-inspector-body flex min-h-full flex-col gap-4 p-4 text-sm">
       {simpleFields.map((field) => (
         <WorkflowNodeFieldRenderer
           key={String(field.key)}
@@ -172,7 +172,7 @@ export function WorkflowNodeInspector({
       ) : null}
 
       {type === 'condition' ? (
-        <div className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm">
+        <div className="workflow-inspector-section flex flex-col gap-3 border-t border-secondary/60 pt-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <label className="text-xs font-semibold text-high">
@@ -250,14 +250,21 @@ export function WorkflowNodeInspector({
               })}
             </button>
           </div>
-          <p className="text-xs leading-relaxed text-low">
-            {t('workflow.inspector.conditionBranchHelp', {
-              defaultValue:
-                'Describe each route, then connect its handle to one or more downstream Nodes on the canvas.',
-            })}
-          </p>
+          <details className="text-xs leading-relaxed text-low">
+            <summary className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand">
+              {t('workflow.inspector.fieldHelp', {
+                defaultValue: 'How it works',
+              })}
+            </summary>
+            <p className="mt-2">
+              {t('workflow.inspector.conditionBranchHelp', {
+                defaultValue:
+                  'Describe each route, then connect its handle to one or more downstream Nodes on the canvas.',
+              })}
+            </p>
+          </details>
           {branches.length === 0 ? (
-            <div className="rounded-md border border-secondary/60 bg-primary/50 p-3 text-xs text-low shadow-sm">
+            <div className="rounded border border-dashed border-secondary/60 p-3 text-xs text-low">
               {t('workflow.inspector.noConditionBranches', {
                 defaultValue:
                   'Add a branch to create its semantic connection handle.',
@@ -301,7 +308,7 @@ export function WorkflowNodeInspector({
                       })
                     : undefined
                 }
-                className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm"
+                className="workflow-inspector-section flex flex-col gap-2 border-t border-secondary/60 pt-3"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-high">
@@ -374,7 +381,7 @@ export function WorkflowNodeInspector({
       ) : null}
 
       {type === 'transform' ? (
-        <div className="flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm">
+        <div className="workflow-inspector-section flex flex-col gap-2 border-t border-secondary/60 pt-4">
           <button
             type="button"
             className={secondaryButtonClass}
@@ -465,7 +472,7 @@ export function WorkflowNodeInspector({
           {attempts.map((attempt, i) => (
             <div
               key={attempt.id ?? i}
-              className="mt-2 flex flex-col gap-2 rounded-md border border-secondary/60 bg-primary/50 p-3 shadow-sm"
+              className="workflow-inspector-section mt-2 flex flex-col gap-2 border-t border-secondary/60 pt-3"
             >
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-high">

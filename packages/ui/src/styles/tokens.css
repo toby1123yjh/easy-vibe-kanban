@@ -331,6 +331,49 @@
   }
 }
 
+/* Preserve the centering transform during animation. Scaling around the
+   positioning origin keeps translate(-50%, -50%) centered at every frame.
+   Neither layout nor backdrop blur is animated. */
+.vk-dialog-centered {
+  transform-origin: 0 0;
+}
+
+.vk-dialog-overlay-motion[data-state='open'] {
+  animation: vk-dialog-fade-in var(--vk-duration-normal) ease-out;
+}
+
+.vk-dialog-overlay-motion[data-state='closed'] {
+  animation: vk-dialog-fade-out var(--vk-duration-fast) ease-in forwards;
+}
+
+.vk-dialog-content-motion[data-state='open'] {
+  animation: vk-dialog-enter var(--vk-duration-normal) ease-out;
+}
+
+.vk-dialog-content-motion[data-state='closed'] {
+  animation: vk-dialog-exit var(--vk-duration-fast) ease-in forwards;
+}
+
+@keyframes vk-dialog-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes vk-dialog-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes vk-dialog-enter {
+  from { opacity: 0; scale: 0.98; }
+  to { opacity: 1; scale: 1; }
+}
+
+@keyframes vk-dialog-exit {
+  from { opacity: 1; scale: 1; }
+  to { opacity: 0; scale: 0.98; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --vk-duration-fast: 0ms;

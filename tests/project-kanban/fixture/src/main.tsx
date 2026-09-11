@@ -40,7 +40,15 @@ const columns: KanbanColumnProjection[] = [
         statusId: 'todo',
         priority: 'high',
         sortOrder: 1,
-        tags: [],
+        tags: Array.from(
+          { length: new URLSearchParams(location.search).has('tall') ? 48 : 1 },
+          (_, index) => ({
+            id: `tag-${index}`,
+            project_id: 'project-1',
+            name: `Planning label ${index + 1}`,
+            color: '211 90% 50%',
+          })
+        ),
         tasks: [task],
       },
       {

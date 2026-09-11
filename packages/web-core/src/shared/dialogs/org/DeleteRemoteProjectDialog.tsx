@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button } from '@vibe/ui/components/Button';
 import {
   Dialog,
@@ -16,23 +16,27 @@ import { defineModal } from '@/shared/lib/modals';
 
 export interface DeleteRemoteProjectDialogProps {
   projectName: string;
+  onDelete(): Promise<void>;
 }
 
 export type DeleteRemoteProjectResult = 'deleted' | 'canceled';
 
 const DeleteRemoteProjectDialogImpl = create<DeleteRemoteProjectDialogProps>(
-  ({ projectName }) => {
+  ({ projectName, onDelete }) => {
     const modal = useModal();
     const { t } = useTranslation(['projects', 'common']);
     const [isDeleting, setIsDeleting] = useState(false);
+    const deletingRef = useRef(false);
     const [error, setError] = useState<string | null>(null);
 
     const handleDelete = async () => {
+      if (deletingRef.current) return;
+      deletingRef.current = true;
       setIsDeleting(true);
       setError(null);
 
       try {
-        // Resolve with 'deleted' to let parent handle the deletion
+        await onDelete();
         modal.resolve('deleted' as DeleteRemoteProjectResult);
         modal.hide();
       } catch {
@@ -43,11 +47,13 @@ const DeleteRemoteProjectDialogImpl = create<DeleteRemoteProjectDialogProps>(
           )
         );
       } finally {
+        deletingRef.current = false;
         setIsDeleting(false);
       }
     };
 
     const handleCancel = () => {
+      if (deletingRef.current) return;
       modal.resolve('canceled' as DeleteRemoteProjectResult);
       modal.hide();
     };
@@ -59,7 +65,14 @@ const DeleteRemoteProjectDialogImpl = create<DeleteRemoteProjectDialogProps>(
     };
 
     return (
-      <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
+      <Dialog
+        open={modal.visible}
+        onOpenChange={handleOpenChange}
+        uncloseable={isDeleting}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('deleteProjectDialog.title', 'Delete Project?')}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>

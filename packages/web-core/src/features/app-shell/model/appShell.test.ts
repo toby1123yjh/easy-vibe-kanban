@@ -43,9 +43,7 @@ test.describe('App Shell model', () => {
   });
 
   test('derives stable deep-route active modules', () => {
-    expect(deriveActiveShellModule('/projects/p-1/issues/i-1')).toBe(
-      'projects'
-    );
+    expect(deriveActiveShellModule('/projects/p-1/issues/i-1')).toBeNull();
     expect(deriveActiveShellModule('/projects/p-1/workflows')).toBe(
       'workflows'
     );
@@ -53,6 +51,13 @@ test.describe('App Shell model', () => {
       'workflows'
     );
     expect(deriveActiveShellModule('/agents/codex')).toBe('agents');
+  });
+
+  test('highlights Projects only on its directory, not individual projects', () => {
+    expect(deriveActiveShellModule('/projects')).toBe('projects');
+    expect(deriveActiveShellModule('/projects/')).toBe('projects');
+    expect(deriveActiveShellModule('/projects/p-1')).toBeNull();
+    expect(deriveActiveShellModule('/projects/p-2/')).toBeNull();
   });
 
   test('deduplicates cursor pages and preserves canonical ordering', () => {

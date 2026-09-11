@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use executors::{
     actions::ExecutorAction,
+    profile::runtime_profile_ids_match,
     runtime::{
         AgentEventEnvelope, AgentRunPortCommand, AgentRunPortCommandEnvelope,
         AgentRunRequestEnvelope, AgentRunStatus, ContractVersionError,
@@ -12,6 +13,19 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool, types::Json};
 use thiserror::Error;
 use uuid::Uuid;
+
+// Wakeups are hints only: consumers subscribe before reading their durable
+// cursor. A bounded process-wide bus is shared by every pool/DB clone; lagging
+// consumers recover from SQLite, never from an unbounded in-memory queue.
+fn event_changes() -> &'static tokio::sync::broadcast::Sender<Uuid> {
+    static CHANGES: std::sync::OnceLock<tokio::sync::broadcast::Sender<Uuid>> =
+        std::sync::OnceLock::new();
+    CHANGES.get_or_init(|| tokio::sync::broadcast::channel(256).0)
+}
+
+pub fn subscribe_agent_event_changes() -> tokio::sync::broadcast::Receiver<Uuid> {
+    event_changes().subscribe()
+}
 
 #[derive(Debug, Clone, FromRow)]
 pub struct AgentProviderSessionRecord {
@@ -1247,7 +1261,10 @@ impl AgentProviderSessionRecord {
         if let Some(existing) = &existing {
             if existing.provider_id != reference.provider_id
                 || existing.provider_session_id != reference.provider_session_id
-                || existing.runtime_profile_id != reference.runtime_profile_id
+                || !runtime_profile_ids_match(
+                    &existing.runtime_profile_id,
+                    &reference.runtime_profile_id,
+                )
             {
                 return Err(AgentRuntimePersistenceError::IdentityConflict {
                     entity: "provider session",
@@ -1263,6 +1280,8 @@ impl AgentProviderSessionRecord {
 
         let mut stored_reference = reference.clone();
         if let Some(existing) = existing {
+            // Retain the original unique key when DEFAULT was spelled differently.
+            stored_reference.runtime_profile_id = existing.runtime_profile_id;
             stored_reference.metadata = merge_provider_session_metadata(
                 existing.session_reference.0.metadata,
                 stored_reference.metadata,
@@ -1386,6 +1405,7 @@ impl AgentEventRecord {
         .await?;
 
         if result.rows_affected() == 1 {
+            let _ = event_changes().send(event.agent_run_id);
             return Ok(true);
         }
 
@@ -1538,6 +1558,7 @@ impl AgentEventRecord {
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
+        let _ = event_changes().send(event.agent_run_id);
         Ok(applied)
     }
 }
@@ -1775,6 +1796,47 @@ mod tests {
                 status: AgentRunStatus::Running,
             },
         }
+    }
+
+    #[tokio::test]
+    async fn provider_session_default_alias_keeps_one_binding_and_original_key() {
+        let pool = setup_pool().await;
+        let (session_id, _) = insert_anchors(&pool).await;
+        let mut reference = ProviderSessionReference {
+            schema_version: executors::runtime::PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
+            provider_id: "codex".to_string(),
+            runtime_profile_id: "CODEX:DEFAULT".to_string(),
+            provider_session_id: "native-session".to_string(),
+            observed_at: Utc::now(),
+            metadata: None,
+        };
+        let id = Uuid::new_v4();
+        AgentProviderSessionRecord::upsert(&pool, id, session_id, &reference)
+            .await
+            .unwrap();
+        reference.runtime_profile_id = "CODEX".to_string();
+        AgentProviderSessionRecord::upsert(&pool, Uuid::new_v4(), session_id, &reference)
+            .await
+            .unwrap();
+        let rows: Vec<(Uuid, String, Json<ProviderSessionReference>)> = sqlx::query_as("SELECT id, runtime_profile_id, session_reference FROM agent_provider_sessions WHERE session_id = ?")
+            .bind(session_id).fetch_all(&pool).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, id);
+        assert_eq!(rows[0].1, "CODEX:DEFAULT");
+        assert_eq!(rows[0].2.0.runtime_profile_id, "CODEX:DEFAULT");
+        reference.runtime_profile_id = "CODEX:PLAN".to_string();
+        assert!(
+            AgentProviderSessionRecord::upsert(&pool, Uuid::new_v4(), session_id, &reference)
+                .await
+                .is_err()
+        );
+        reference.runtime_profile_id = "CODEX".to_string();
+        reference.provider_session_id = "other-session".to_string();
+        assert!(
+            AgentProviderSessionRecord::upsert(&pool, Uuid::new_v4(), session_id, &reference)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -2029,12 +2091,23 @@ mod tests {
             .await
             .unwrap();
         let event = event(&request, &attempt, 1);
+        let mut changes = subscribe_agent_event_changes();
         assert_eq!(
             AgentEventRecord::append_and_project(&pool, &event)
                 .await
                 .unwrap(),
             ReducerApply::Applied
         );
+        // Notification is emitted only after commit; a fresh reader observes
+        // the exact event/state even when it wakes immediately.
+        while changes.recv().await.unwrap() != request.agent_run_id {}
+        let persisted: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM agent_events WHERE event_id = ?")
+                .bind(event.event_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted, 1);
         assert_eq!(
             AgentEventRecord::append_and_project(&pool, &event)
                 .await
@@ -2048,6 +2121,22 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(status, AgentRunStatus::Running);
+        sqlx::raw_sql("CREATE TRIGGER reject_test_event BEFORE INSERT ON agent_events BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;")
+            .execute(&pool).await.unwrap();
+        let mut rejected = event.clone();
+        rejected.event_id = Uuid::new_v4();
+        rejected.sequence = 2;
+        assert!(
+            AgentEventRecord::append_and_project(&pool, &rejected)
+                .await
+                .is_err()
+        );
+        while let Ok(changed) = changes.try_recv() {
+            assert_ne!(
+                changed, request.agent_run_id,
+                "duplicate/rollback must not publish a change"
+            );
+        }
     }
 
     #[tokio::test]

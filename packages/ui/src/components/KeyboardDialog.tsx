@@ -29,6 +29,29 @@ const Dialog = React.forwardRef<
 >(({ className, open, onOpenChange, children, uncloseable, ...props }, ref) => {
   const { enableScope, disableScope } = useHotkeysContext();
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
+  const [present, setPresent] = React.useState(Boolean(open));
+
+  React.useEffect(() => {
+    if (open) {
+      setPresent(true);
+      return;
+    }
+    if (!present) return;
+    // Keep only the closing presentation, not the interactive dialog, alive.
+    // Use the computed token duration so reduced motion and missing styles
+    // remove it immediately; the fallback also handles interrupted animations.
+    const duration = dialogRef.current
+      ? getComputedStyle(dialogRef.current).animationDuration
+      : '0s';
+    const milliseconds = duration.endsWith('ms')
+      ? parseFloat(duration)
+      : parseFloat(duration) * 1000;
+    const timer = window.setTimeout(
+      () => setPresent(false),
+      Number.isFinite(milliseconds) && milliseconds >= 1 ? milliseconds + 32 : 0
+    );
+    return () => window.clearTimeout(timer);
+  }, [open, present]);
 
   const setDialogRef = React.useCallback(
     (node: HTMLDivElement | null) => {
@@ -131,19 +154,30 @@ const Dialog = React.forwardRef<
     [open]
   );
 
-  if (!open) return null;
+  if (!open && !present) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-start justify-center p-4 overflow-y-auto">
+    <div
+      ref={(node) => {
+        if (node) node.inert = !open;
+      }}
+      aria-hidden={!open || undefined}
+      className={cn(
+        'fixed inset-0 z-[10000] flex items-start justify-center p-4 overflow-y-auto',
+        !open && 'pointer-events-none'
+      )}
+    >
       <div
         data-tauri-drag-region
-        className="fixed inset-0 bg-black/50"
+        data-state={open ? 'open' : 'closed'}
+        className="fixed inset-0 bg-black/50 vk-dialog-overlay-motion"
         onClick={() => (uncloseable ? {} : onOpenChange?.(false))}
       />
       <div
         ref={setDialogRef}
+        data-state={open ? 'open' : 'closed'}
         className={cn(
-          'relative z-[10000] flex flex-col w-full max-w-xl gap-4 bg-primary p-6 shadow-lg duration-200 sm:rounded-lg my-8',
+          'relative z-[10000] flex flex-col w-full max-w-xl gap-4 bg-primary p-6 shadow-lg sm:rounded-lg my-8 vk-dialog-content-motion',
           className
         )}
         {...props}

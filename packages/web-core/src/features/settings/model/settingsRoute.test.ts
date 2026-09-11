@@ -55,7 +55,12 @@ test.describe('Settings route model', () => {
         host: 42,
         extra: 'ignored',
       })
-    ).toEqual({ tab: undefined, section: undefined, host: undefined });
+    ).toEqual({
+      tab: undefined,
+      section: undefined,
+      host: undefined,
+      projectId: undefined,
+    });
   });
 
   test('preserves a selected host while canonicalizing the section', () => {
@@ -71,5 +76,35 @@ test.describe('Settings route model', () => {
       section: 'organizations',
       host: 'remote-host-id',
     });
+  });
+
+  test('retains the exact project identity only in project settings', () => {
+    const route = resolveSettingsRoute({
+      section: 'projects',
+      projectId: 'project-b',
+      host: 'host-b',
+    });
+    expect(route).toEqual({
+      tab: 'cloud',
+      section: 'projects',
+      projectId: 'project-b',
+      host: 'host-b',
+    });
+    expect(
+      isCanonicalSettingsSearch({ ...route, projectId: 'project-a' }, route)
+    ).toBe(false);
+    expect(
+      resolveSettingsRoute({ section: 'application', projectId: 'project-b' })
+    ).toEqual({ tab: 'general', section: 'application' });
+    expect(
+      resolveSettingsRoute({
+        tab: 'host',
+        section: 'projects',
+        projectId: 'project-b',
+      })
+    ).toEqual({ tab: 'host', section: 'repositories' });
+    expect(
+      parseSettingsSearch({ projectId: ['project-b'] }).projectId
+    ).toBeUndefined();
   });
 });

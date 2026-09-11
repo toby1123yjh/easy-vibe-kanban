@@ -164,19 +164,32 @@ export function useConversationVirtualizer({
   // Virtualizer instance
   // -------------------------------------------------------------------------
 
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: (index) => {
+  // TanStack includes getItemKey in its measurement-cache dependencies. A new
+  // closure on every scroll render rebuilds positions for the entire history,
+  // even though only the visible window changed.
+  const getItemKey = useCallback(
+    (index: number) => rows[index]?.semanticKey ?? index,
+    [rows]
+  );
+  const getScrollElement = useCallback(
+    () => scrollContainerRef.current,
+    [scrollContainerRef]
+  );
+  const estimateSize = useCallback(
+    (index: number) => {
       const row = rows[index];
       if (!row) return SIZE_ESTIMATE_PX.medium;
       const containerWidth = scrollContainerRef.current?.clientWidth ?? null;
       return estimateSizeForRow(row, containerWidth);
     },
-    getItemKey: (index) => {
-      const row = rows[index];
-      return row ? row.semanticKey : index;
-    },
+    [rows, scrollContainerRef]
+  );
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement,
+    estimateSize,
+    getItemKey,
     overscan: OVERSCAN,
     measureElement: defaultMeasureElement,
     useAnimationFrameWithResizeObserver: false,
@@ -221,7 +234,7 @@ export function useConversationVirtualizer({
     return () => {
       virtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     };
-  }, [shouldSuppressSizeAdjustment, virtualizer]);
+  }, [scrollContainerRef, shouldSuppressSizeAdjustment, virtualizer]);
 
   // -------------------------------------------------------------------------
   // Reactive isAtBottom state
@@ -335,7 +348,7 @@ export function useConversationVirtualizer({
         el.scrollTop = el.scrollHeight - el.clientHeight;
       }
     },
-    [scrollContainerRef, virtualizer]
+    [scrollContainerRef]
   );
 
   const scrollToIndex = useCallback(

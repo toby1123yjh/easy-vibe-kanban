@@ -1,7 +1,8 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { createPortal, flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import {
   DragDropContext,
   Droppable,
@@ -15,8 +16,6 @@ import {
 import {
   SpinnerIcon,
   PlusIcon,
-  TrashIcon,
-  DotsThreeIcon,
   SignInIcon,
   XIcon,
   DotsSixVerticalIcon,
@@ -49,7 +48,8 @@ import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
-import { DeleteRemoteProjectDialog } from '@/shared/dialogs/org/DeleteRemoteProjectDialog';
+import { ProjectActionsMenu } from '@/shared/components/ProjectActionsMenu';
+import { useDeleteProject } from '@/shared/hooks/useDeleteProject';
 import { useShape } from '@/shared/integrations/electric/hooks';
 import { bulkUpdateProjectStatuses } from '@/shared/lib/remoteApi';
 
@@ -59,7 +59,6 @@ import {
   PROJECT_PROJECT_STATUSES_SHAPE,
   PROJECT_STATUS_MUTATION,
   PROJECT_ISSUES_SHAPE,
-  type Project,
 } from 'shared/remote-types';
 import { getRandomPresetColor, PRESET_COLORS } from '@/shared/lib/colors';
 import { InlineColorPicker } from '@vibe/ui/components/ColorPicker';
@@ -77,7 +76,10 @@ import {
 } from './SettingsComponents';
 import { useSettingsDirty } from './SettingsDirtyContext';
 import { ReposSettingsSection } from './ReposSettingsSection';
-import { SettingsMachineUserSystemProvider } from './SettingsMachineUserSystemProvider';
+import {
+  SettingsMachineUserSystemProvider,
+  useSettingsMachineState,
+} from './SettingsMachineUserSystemProvider';
 import type { GitBranch, Repo } from 'shared/types';
 import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import {
@@ -99,6 +101,7 @@ interface FormState {
 
 interface RemoteProjectsSettingsSectionProps {
   initialState?: { organizationId?: string; projectId?: string };
+  scoped?: boolean;
 }
 
 interface StatusItem {
@@ -343,13 +346,16 @@ function StatusRow({
 
 export function RemoteProjectsSettingsSection({
   initialState,
+  scoped = false,
 }: RemoteProjectsSettingsSectionProps) {
   const { t } = useTranslation(['settings', 'common', 'projects']);
+  const navigate = useNavigate();
   const { setDirty: setContextDirty } = useSettingsDirty();
-  const { selectedHost } = useSettingsHost();
+  const { selectedHost, selectedHostId } = useSettingsHost();
   const { isSignedIn, isLoaded } = useAuth();
   const queryClient = useQueryClient();
   const machineClient = useSettingsMachineClient();
+  const machineState = useSettingsMachineState();
   const machineScopeKey = machineClient?.queryScopeKey.join(':') ?? 'none';
   const repoDefaultsHostId = machineClient?.target.apiHostId;
 
@@ -360,6 +366,23 @@ export function RemoteProjectsSettingsSection({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     initialState?.projectId ?? null
   );
+  const ownerRef = useRef({
+    projectId: selectedProjectId,
+    machineScopeKey,
+    canMutate: machineState.canMutate,
+  });
+  ownerRef.current = {
+    projectId: selectedProjectId,
+    machineScopeKey,
+    canMutate: machineState.canMutate,
+  };
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Form state for editing
   const [formState, setFormState] = useState<FormState | null>(null);
@@ -386,6 +409,7 @@ export function RemoteProjectsSettingsSection({
     new Set()
   );
   const [repoConfigDirty, setRepoConfigDirty] = useState(false);
+  const workspaceDraftDirtyRef = useRef(false);
 
   // Fetch organizations
   const {
@@ -419,8 +443,9 @@ export function RemoteProjectsSettingsSection({
   const {
     data: projects,
     isLoading: projectsLoading,
+    error: projectsError,
+    retry: retryProjects,
     update,
-    remove,
   } = useShape(PROJECTS_SHAPE, params, {
     enabled: !!selectedOrgId,
     mutation: PROJECT_MUTATION,
@@ -441,6 +466,25 @@ export function RemoteProjectsSettingsSection({
     () => projects.find((p) => p.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
+  const { deleteProject: handleDeleteProject, pendingProjectId } =
+    useDeleteProject({
+      scopeKey: `settings:${selectedOrgId}:${selectedProjectId}:${selectedHostId}`,
+      enabled: isSignedIn && !isSaving && !projectsLoading && !projectsError,
+      onDeleted: (project) => {
+        if (selectedProjectId === project.id) {
+          // The named deletion confirmation discards this project's draft only
+          // after persistence. Update the route blocker before leaving the editor.
+          flushSync(() => {
+            setSelectedProjectId(null);
+            setFormState(null);
+            setHasStatusChanges(false);
+            setRepoConfigDirty(false);
+            setContextDirty('remote-projects', false);
+          });
+        }
+        if (scoped) void navigate({ to: '/projects', replace: true });
+      },
+    });
 
   // Fetch statuses and issues for selected project (for status settings)
   const projectParams = useMemo(
@@ -520,8 +564,11 @@ export function RemoteProjectsSettingsSection({
       setSavedWorkspaceDefault(null);
       setAllRepos([]);
       setDefaultReposError(null);
+      setIsLoadingDefaults(false);
       return;
     }
+    if (!machineState.canMutate) return;
+    let cancelled = false;
     setIsLoadingDefaults(true);
     setDefaultReposError(null);
     setBranchCache(new Map());
@@ -537,28 +584,39 @@ export function RemoteProjectsSettingsSection({
       }) ?? Promise.resolve([] as Repo[]),
     ])
       .then(([projectWorkspaceDefault, registeredRepos]) => {
-        setWorkspaceDefault(projectWorkspaceDefault);
-        setSavedWorkspaceDefault(projectWorkspaceDefault);
+        if (cancelled) return;
+        if (!workspaceDraftDirtyRef.current) {
+          setWorkspaceDefault(projectWorkspaceDefault);
+          setSavedWorkspaceDefault(projectWorkspaceDefault);
+        }
         setAllRepos(registeredRepos);
       })
       .catch(() => {
+        if (cancelled) return;
         setWorkspaceDefault(null);
         setSavedWorkspaceDefault(null);
         setDefaultReposError(
           t('settings:settings.remoteProjects.form.defaultRepos.fetchError')
         );
       })
-      .finally(() => setIsLoadingDefaults(false));
+      .finally(() => {
+        if (!cancelled) setIsLoadingDefaults(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     machineClient,
     machineScopeKey,
+    machineState.canMutate,
     repoDefaultsHostId,
     selectedProjectId,
     t,
   ]);
 
   const handleChooseProjectWorkspace = useCallback(async () => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId || !ownerRef.current.canMutate) return;
+    const owner = ownerRef.current;
 
     const currentRepo =
       workspaceDefault?.kind === 'git'
@@ -590,7 +648,14 @@ export function RemoteProjectsSettingsSection({
           }
         ),
       });
-      if (result.kind !== 'confirmed') return;
+      if (
+        result.kind !== 'confirmed' ||
+        !mountedRef.current ||
+        !ownerRef.current.canMutate ||
+        owner.projectId !== ownerRef.current.projectId ||
+        owner.machineScopeKey !== ownerRef.current.machineScopeKey
+      )
+        return;
 
       const nextWorkspaceDefault: ProjectWorkspaceDefault =
         result.selection.mode === 'worktree'
@@ -724,6 +789,7 @@ export function RemoteProjectsSettingsSection({
       ),
     [savedWorkspaceDefault, workspaceDefault]
   );
+  workspaceDraftDirtyRef.current = hasDefaultRepoChanges;
   const gitWorkspaceDefault =
     workspaceDefault?.kind === 'git' ? workspaceDefault.repo : null;
   const workspaceDefaultRepo = gitWorkspaceDefault
@@ -734,9 +800,9 @@ export function RemoteProjectsSettingsSection({
 
   // Sync dirty state to context for unsaved changes confirmation
   useEffect(() => {
-    setContextDirty('remote-projects', isDirty);
+    setContextDirty('remote-projects', isDirty || repoConfigDirty);
     return () => setContextDirty('remote-projects', false);
-  }, [isDirty, setContextDirty]);
+  }, [isDirty, repoConfigDirty, setContextDirty]);
 
   const handleStatusToggleHidden = useCallback(
     (id: string, hidden: boolean) => {
@@ -927,6 +993,7 @@ export function RemoteProjectsSettingsSection({
     try {
       const result = await CreateRemoteProjectDialog.show({
         organizationId: selectedOrgId,
+        initialHostId: selectedHostId ?? undefined,
       });
 
       if (result.action === 'created' && result.project) {
@@ -948,33 +1015,9 @@ export function RemoteProjectsSettingsSection({
     }
   };
 
-  const handleDeleteProject = async (project: Project) => {
-    try {
-      const result = await DeleteRemoteProjectDialog.show({
-        projectName: project.name,
-      });
-
-      if (result === 'deleted') {
-        remove(project.id);
-        if (selectedProjectId === project.id) {
-          setSelectedProjectId(null);
-          setFormState(null);
-        }
-        setSuccess(
-          t(
-            'settings.remoteProjects.deleteSuccess',
-            'Project deleted successfully'
-          )
-        );
-        setTimeout(() => setSuccess(null), 3000);
-      }
-    } catch {
-      // Dialog cancelled
-    }
-  };
-
   const handleSave = async () => {
     if (!selectedProjectId || !formState) return;
+    if (hasDefaultRepoChanges && !ownerRef.current.canMutate) return;
 
     const trimmedName = formState.name.trim();
     if (!trimmedName) {
@@ -995,6 +1038,12 @@ export function RemoteProjectsSettingsSection({
           color: formState.color,
         });
         await result.persisted;
+        await queryClient.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === 'app-shell' ||
+            (query.queryKey[0] === 'project-settings' &&
+              query.queryKey[1] === selectedProjectId),
+        });
       }
 
       if (hasStatusChanges) {
@@ -1006,6 +1055,13 @@ export function RemoteProjectsSettingsSection({
       }
 
       if (hasDefaultRepoChanges) {
+        if (
+          !mountedRef.current ||
+          !ownerRef.current.canMutate ||
+          ownerRef.current.projectId !== selectedProjectId ||
+          ownerRef.current.machineScopeKey !== machineScopeKey
+        )
+          return;
         try {
           await saveProjectWorkspaceDefault(
             selectedProjectId,
@@ -1068,7 +1124,23 @@ export function RemoteProjectsSettingsSection({
   };
 
   // Loading state
-  if (!isLoaded || orgsLoading) {
+  if (scoped && projectsLoading) {
+    return <p role="status">{t('common:states.loading')}</p>;
+  }
+  if (scoped && projectsError) {
+    return (
+      <div role="alert">
+        <p>
+          {t('projects:scoped.loadError', 'Could not load project settings')}
+        </p>
+        <button onClick={retryProjects}>{t('common:buttons.retry')}</button>
+      </div>
+    );
+  }
+  if (scoped && !selectedProject) {
+    return <p>{t('projects:scoped.notFound', 'Project not found')}</p>;
+  }
+  if (!isLoaded || (!scoped && orgsLoading)) {
     return (
       <div className="flex items-center justify-center py-8 gap-2">
         <SpinnerIcon
@@ -1112,7 +1184,7 @@ export function RemoteProjectsSettingsSection({
   }
 
   // Error state
-  if (orgsError) {
+  if (!scoped && orgsError) {
     return (
       <div className="py-8">
         <div className="bg-error/10 border border-error/50 rounded-sm p-4 text-error">
@@ -1143,102 +1215,120 @@ export function RemoteProjectsSettingsSection({
       )}
 
       <SettingsCard
-        title={t('settings.remoteProjects.title', 'Project settings')}
+        title={
+          scoped
+            ? (selectedProject?.name ?? '')
+            : t('settings.remoteProjects.title', 'Project settings')
+        }
         description={t(
           'settings.remoteProjects.description',
           'Manage project details, boards, and the workspace used on this device.'
         )}
+        headerAction={
+          scoped && selectedProject ? (
+            <ProjectActionsMenu
+              projectName={selectedProject.name}
+              className="inline-flex size-9 items-center justify-center rounded-sm border border-border bg-primary text-low hover:bg-secondary hover:text-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 [@media(pointer:coarse)]:size-11"
+              disabled={isSaving || pendingProjectId !== null}
+              onDelete={() => void handleDeleteProject(selectedProject)}
+            />
+          ) : undefined
+        }
       >
         {/* Two-column picker */}
-        <TwoColumnPicker>
-          {/* Organizations column */}
-          <TwoColumnPickerColumn
-            label={t(
-              'settings.remoteProjects.columns.organizations',
-              'Organizations'
-            )}
-            isFirst
-          >
-            {organizations.map((org) => (
-              <TwoColumnPickerItem
-                key={org.id}
-                selected={selectedOrgId === org.id}
-                onClick={() => handleOrgSelect(org.id)}
-                trailing={
-                  org.is_personal && (
-                    <TwoColumnPickerBadge>
-                      {t('common:personal', 'Personal')}
-                    </TwoColumnPickerBadge>
-                  )
-                }
-              >
-                {org.name}
-              </TwoColumnPickerItem>
-            ))}
-          </TwoColumnPickerColumn>
-
-          {/* Projects column */}
-          <TwoColumnPickerColumn
-            label={t('settings.remoteProjects.columns.projects', 'Projects')}
-            headerAction={
-              selectedOrgId && (
-                <button
-                  className="p-half rounded-sm hover:bg-secondary text-low hover:text-normal"
-                  onClick={handleCreateProject}
-                  disabled={isSaving}
-                  title={t(
-                    'settings.remoteProjects.actions.addProject',
-                    'Add Project'
-                  )}
-                >
-                  <PlusIcon className="size-icon-2xs" weight="bold" />
-                </button>
-              )
-            }
-          >
-            {projectsLoading ? (
-              <div className="flex items-center justify-center py-double gap-base">
-                <SpinnerIcon className="size-icon-sm animate-spin" />
-              </div>
-            ) : selectedOrgId && projects.length > 0 ? (
-              projects.map((project) => (
+        {!scoped && (
+          <TwoColumnPicker>
+            {/* Organizations column */}
+            <TwoColumnPickerColumn
+              label={t(
+                'settings.remoteProjects.columns.organizations',
+                'Organizations'
+              )}
+              isFirst
+            >
+              {organizations.map((org) => (
                 <TwoColumnPickerItem
-                  key={project.id}
-                  selected={selectedProjectId === project.id}
-                  onClick={() => handleProjectSelect(project.id)}
-                  leading={
-                    <span
-                      className="w-3 h-3 rounded-full shrink-0"
-                      style={{ backgroundColor: `hsl(${project.color})` }}
-                    />
-                  }
+                  key={org.id}
+                  selected={selectedOrgId === org.id}
+                  onClick={() => handleOrgSelect(org.id)}
                   trailing={
-                    <ProjectActionsDropdown
-                      project={project}
-                      onDelete={handleDeleteProject}
-                    />
+                    org.is_personal && (
+                      <TwoColumnPickerBadge>
+                        {t('common:personal', 'Personal')}
+                      </TwoColumnPickerBadge>
+                    )
                   }
                 >
-                  {project.name}
+                  {org.name}
                 </TwoColumnPickerItem>
-              ))
-            ) : selectedOrgId ? (
-              <TwoColumnPickerEmpty>
-                {t(
-                  'settings.remoteProjects.noProjects',
-                  'No projects yet. Create one to get started.'
-                )}
-              </TwoColumnPickerEmpty>
-            ) : (
-              <TwoColumnPickerEmpty>
-                {t(
-                  'settings.remoteProjects.selectOrg',
-                  'Select an organization'
-                )}
-              </TwoColumnPickerEmpty>
-            )}
-          </TwoColumnPickerColumn>
-        </TwoColumnPicker>
+              ))}
+            </TwoColumnPickerColumn>
+
+            {/* Projects column */}
+            <TwoColumnPickerColumn
+              label={t('settings.remoteProjects.columns.projects', 'Projects')}
+              headerAction={
+                selectedOrgId && (
+                  <button
+                    className="p-half rounded-sm hover:bg-secondary text-low hover:text-normal"
+                    onClick={handleCreateProject}
+                    disabled={isSaving}
+                    title={t(
+                      'settings.remoteProjects.actions.addProject',
+                      'Add Project'
+                    )}
+                  >
+                    <PlusIcon className="size-icon-2xs" weight="bold" />
+                  </button>
+                )
+              }
+            >
+              {projectsLoading ? (
+                <div className="flex items-center justify-center py-double gap-base">
+                  <SpinnerIcon className="size-icon-sm animate-spin" />
+                </div>
+              ) : selectedOrgId && projects.length > 0 ? (
+                projects.map((project) => (
+                  <TwoColumnPickerItem
+                    key={project.id}
+                    selected={selectedProjectId === project.id}
+                    onClick={() => handleProjectSelect(project.id)}
+                    leading={
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: `hsl(${project.color})` }}
+                      />
+                    }
+                    trailing={
+                      <ProjectActionsMenu
+                        projectName={project.name}
+                        className="p-half rounded-sm hover:bg-panel text-low hover:text-normal opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:ring-2 focus-visible:ring-brand [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:size-11"
+                        disabled={isSaving || pendingProjectId !== null}
+                        onDelete={() => void handleDeleteProject(project)}
+                      />
+                    }
+                  >
+                    {project.name}
+                  </TwoColumnPickerItem>
+                ))
+              ) : selectedOrgId ? (
+                <TwoColumnPickerEmpty>
+                  {t(
+                    'settings.remoteProjects.noProjects',
+                    'No projects yet. Create one to get started.'
+                  )}
+                </TwoColumnPickerEmpty>
+              ) : (
+                <TwoColumnPickerEmpty>
+                  {t(
+                    'settings.remoteProjects.selectOrg',
+                    'Select an organization'
+                  )}
+                </TwoColumnPickerEmpty>
+              )}
+            </TwoColumnPickerColumn>
+          </TwoColumnPicker>
+        )}
 
         {/* Edit form (when project selected) */}
         {selectedProjectId && formState && (
@@ -1281,13 +1371,22 @@ export function RemoteProjectsSettingsSection({
         )}
 
         {selectedProjectId && (
-          <div
+          <fieldset
+            disabled={!machineState.canMutate || isLoadingDefaults}
             className={cn(
               'bg-secondary/50 border border-border rounded-sm p-4 space-y-base',
               isSaving && 'opacity-60 pointer-events-none'
             )}
           >
             <div>
+              {!machineState.canMutate && (
+                <p role="status" className="text-sm text-low">
+                  {t(
+                    'settings.page.states.unavailable',
+                    'The selected host is unavailable. Host-owned settings cannot be edited.'
+                  )}
+                </p>
+              )}
               <p className="text-sm font-medium text-normal">
                 {t('settings:settings.remoteProjects.form.defaultRepos.label')}
               </p>
@@ -1476,12 +1575,14 @@ export function RemoteProjectsSettingsSection({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-normal">
                         {t(
-                          'settings:settings.remoteProjects.form.defaultRepos.executionSettings'
+                          'projects:scoped.repositoryTitle',
+                          'Linked repository configuration'
                         )}
                       </p>
                       <p className="mt-quarter text-xs text-low">
                         {t(
-                          'settings:settings.remoteProjects.form.defaultRepos.executionSettingsDescription'
+                          'projects:scoped.repositoryDescription',
+                          'Repository scripts and execution settings are shared by every project using this repository.'
                         )}
                       </p>
                     </div>
@@ -1525,7 +1626,7 @@ export function RemoteProjectsSettingsSection({
                 )}
               </span>
             </button>
-          </div>
+          </fieldset>
         )}
 
         {/* Project status settings (kanban columns) */}
@@ -1629,47 +1730,6 @@ export function RemoteProjectsSettingsSection({
         onDiscard={handleDiscard}
       />
     </>
-  );
-}
-
-// Helper component for project actions dropdown
-function ProjectActionsDropdown({
-  project,
-  onDelete,
-}: {
-  project: Project;
-  onDelete: (project: Project) => void;
-}) {
-  const { t } = useTranslation(['common']);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className={cn(
-            'p-half rounded-sm hover:bg-panel text-low hover:text-normal',
-            'opacity-0 group-hover:opacity-100 transition-opacity'
-          )}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DotsThreeIcon className="size-icon-xs" weight="bold" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(project);
-          }}
-          className="text-error focus:text-error"
-        >
-          <div className="flex items-center gap-half w-full">
-            <TrashIcon className="size-icon-xs mr-base" />
-            {t('common:buttons.delete', 'Delete')}
-          </div>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

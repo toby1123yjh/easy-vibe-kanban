@@ -7,6 +7,7 @@ import type {
 import { openLocalApiWebSocket } from '@/shared/lib/localApiTransport';
 import {
   emptyCanonicalAgentTimeline,
+  isCanonicalAgentRunTerminal,
   mergeCanonicalAgentTimeline,
   type CanonicalAgentTimeline,
 } from './canonicalAgentTimeline';
@@ -64,9 +65,57 @@ export function useAgentRunCanonicalStream(
     }
 
     let cancelled = false;
+    let frame: number | null = null;
+    let fallbackTimer: number | null = null;
+    let pendingEvents: AgentEventEnvelope[] = [];
+    let pendingSnapshots: Array<{
+      state: RunState;
+      cursor?: AgentEventCursor | null;
+    }> = [];
+    let pendingReady = false;
     timelineRef.current = emptyCanonicalAgentTimeline();
     setTimeline(timelineRef.current);
     setIsInitialized(false);
+    setIsConnected(false);
+    setError(null);
+    retryAttemptRef.current = 0;
+
+    const clearScheduledFlush = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      frame = null;
+      fallbackTimer = null;
+    };
+    const flush = () => {
+      clearScheduledFlush();
+      if (cancelled) return;
+      let next = timelineRef.current ?? emptyCanonicalAgentTimeline();
+      next = mergeCanonicalAgentTimeline(next, pendingEvents);
+      for (const snapshot of pendingSnapshots) {
+        next = mergeCanonicalAgentTimeline(
+          next,
+          [],
+          snapshot.state,
+          snapshot.cursor
+        );
+      }
+      pendingEvents = [];
+      pendingSnapshots = [];
+      timelineRef.current = next;
+      setTimeline(next);
+      if (pendingReady) setIsInitialized(true);
+      pendingReady = false;
+    };
+    const scheduleFlush = () => {
+      // Bound the pending queue even when animation frames are suspended.
+      // Received events are never dropped; reconnect uses the applied cursor.
+      if (pendingEvents.length + pendingSnapshots.length >= 2048) {
+        flush();
+      } else if (frame === null) {
+        frame = window.requestAnimationFrame(flush);
+        fallbackTimer = window.setTimeout(flush, 100);
+      }
+    };
 
     const scheduleReconnect = () => {
       if (cancelled || retryTimerRef.current !== null) return;
@@ -97,38 +146,39 @@ export function useAgentRunCanonicalStream(
         }
         socketRef.current = socket;
         socket.onopen = () => {
+          if (cancelled || socketRef.current !== socket) return;
           retryAttemptRef.current = 0;
           setIsConnected(true);
           setError(null);
         };
         socket.onmessage = (message) => {
+          if (cancelled || socketRef.current !== socket) return;
           try {
             const parsed = JSON.parse(message.data) as AgentRunStreamMessage;
-            const current =
-              timelineRef.current ?? emptyCanonicalAgentTimeline();
-            let next = current;
             switch (parsed.type) {
               case 'event':
-                next = mergeCanonicalAgentTimeline(current, [
-                  parsed.data.event,
-                ]);
+                pendingEvents.push(parsed.data.event);
                 break;
               case 'ready':
               case 'state':
-                next = mergeCanonicalAgentTimeline(
-                  current,
-                  [],
-                  parsed.data.state,
-                  parsed.data.cursor
-                );
+                pendingSnapshots.push(parsed.data);
+                if (parsed.type === 'ready') pendingReady = true;
                 break;
               case 'error':
+                flush();
                 setError(parsed.data.message);
                 return;
             }
-            timelineRef.current = next;
-            setTimeline(next);
-            if (parsed.type === 'ready') setIsInitialized(true);
+            if (
+              parsed.type === 'ready' ||
+              (parsed.type === 'state' &&
+                isCanonicalAgentRunTerminal(parsed.data.state))
+            ) {
+              // Publish the final text and terminal state atomically.
+              flush();
+            } else {
+              scheduleFlush();
+            }
           } catch (parseError) {
             setError(
               parseError instanceof Error
@@ -138,14 +188,18 @@ export function useAgentRunCanonicalStream(
           }
         };
         socket.onerror = () => {
+          if (cancelled || socketRef.current !== socket) return;
           setError('AgentRun stream connection failed');
         };
         socket.onclose = () => {
+          if (cancelled || socketRef.current !== socket) return;
+          flush();
           socketRef.current = null;
           setIsConnected(false);
           scheduleReconnect();
         };
       } catch (connectError) {
+        if (cancelled) return;
         setIsConnected(false);
         setError(
           connectError instanceof Error
@@ -159,6 +213,9 @@ export function useAgentRunCanonicalStream(
     void connect();
     return () => {
       cancelled = true;
+      clearScheduledFlush();
+      pendingEvents = [];
+      pendingSnapshots = [];
       socketRef.current?.close();
       socketRef.current = null;
       if (retryTimerRef.current !== null) {

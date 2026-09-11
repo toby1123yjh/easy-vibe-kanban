@@ -1,14 +1,15 @@
-import * as React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useQueryClient } from '@tanstack/react-query';
+import * as React from "react";
+import NiceModal from "@ebay/nice-modal-react";
+import { HotkeysProvider } from "react-hotkeys-hook";
+import { createRoot } from "react-dom/client";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   createMemoryHistory,
   createRootRoute,
   createRouter,
   RouterProvider,
-} from '@tanstack/react-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ProjectListItem } from 'shared/types';
+} from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   BaseCodingAgent,
   EditorType,
@@ -17,58 +18,54 @@ import {
   ThemeMode,
   type Config,
   type UserSystemInfo,
-} from 'shared/types';
-import { AppNavigationProvider } from '../../../../packages/web-core/src/shared/hooks/useAppNavigation';
-import { AuthContext } from '../../../../packages/web-core/src/shared/hooks/auth/useAuth';
-import { AppRuntimeProvider } from '../../../../packages/web-core/src/shared/hooks/useAppRuntime';
-import { AppShellProjectsProvider } from '../../../../packages/web-core/src/shared/hooks/useAppShellProjects';
-import { SettingsPage } from '../../../../packages/web-core/src/features/settings/ui/SettingsPage';
-import { SettingsDirtyProvider } from '../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsDirtyContext';
-import { SettingsHostProvider } from '../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsHostContext';
-import { SettingsMachineUserSystemProvider } from '../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider';
-import { organizationKeys } from '../../../../packages/web-core/src/shared/hooks/organizationKeys';
-import { configureAuthRuntime } from '../../../../packages/web-core/src/shared/lib/auth/runtime';
-import { setLocalRemoteApiEnabled } from '../../../../packages/web-core/src/shared/lib/remoteApi';
-import { useAppUpdateStore } from '../../../../packages/web-core/src/shared/stores/useAppUpdateStore';
-import { ProjectDirectoryPage } from '../../../../packages/web-core/src/features/projects/ui/ProjectDirectoryPage';
-import { WorkspacesSidebar } from '../../../../packages/ui/src/components/WorkspacesSidebar';
-import '../../../../packages/web-core/src/i18n/config';
-import '../../../../packages/ui/src/styles/tokens.css';
-import './style.css';
+} from "shared/types";
+import { AppNavigationProvider } from "../../../../packages/web-core/src/shared/hooks/useAppNavigation";
+import { AuthContext } from "../../../../packages/web-core/src/shared/hooks/auth/useAuth";
+import { AppRuntimeProvider } from "../../../../packages/web-core/src/shared/hooks/useAppRuntime";
+import { AppShellProjectsProvider } from "../../../../packages/web-core/src/shared/hooks/useAppShellProjects";
+import { SettingsPage } from "../../../../packages/web-core/src/features/settings/ui/SettingsPage";
+import { SettingsDirtyProvider } from "../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsDirtyContext";
+import { SettingsHostProvider } from "../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsHostContext";
+import { SettingsMachineUserSystemProvider } from "../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsMachineUserSystemProvider";
+import { organizationKeys } from "../../../../packages/web-core/src/shared/hooks/organizationKeys";
+import { configureAuthRuntime } from "../../../../packages/web-core/src/shared/lib/auth/runtime";
+import { setLocalRemoteApiEnabled } from "../../../../packages/web-core/src/shared/lib/remoteApi";
+import { useAppUpdateStore } from "../../../../packages/web-core/src/shared/stores/useAppUpdateStore";
+import { ProjectDirectoryPage } from "../../../../packages/web-core/src/features/projects/ui/ProjectDirectoryPage";
+import { ProjectKanbanView } from "../../../../packages/web-core/src/features/projects/ui/ProjectKanbanView";
+import { ProjectBoardActions } from "../../../../packages/web-core/src/features/projects/ui/ProjectBoardActions";
+import { useFixtureProjects } from "./projectSettingsMock";
+import { WorkspacesSidebar } from "../../../../packages/ui/src/components/WorkspacesSidebar";
+import "../../../../packages/web-core/src/i18n/config";
+import "../../../../packages/ui/src/styles/tokens.css";
+import "./style.css";
 
 setLocalRemoteApiEnabled(true);
 configureAuthRuntime({
-  getToken: async () => 'page-surfaces-fixture-token',
-  triggerRefresh: async () => 'page-surfaces-fixture-token',
+  getToken: async () => "page-surfaces-fixture-token",
+  triggerRefresh: async () => "page-surfaces-fixture-token",
   registerShape: () => () => undefined,
-  getCurrentUser: async () => ({ user_id: 'fixture-user' }),
+  getCurrentUser: async () => ({ user_id: "fixture-user" }),
 });
-
-const projects: ProjectListItem[] = Array.from({ length: 8 }, (_, index) => ({
-  id: `project-${index + 1}`,
-  name: `Project ${index + 1}`,
-  created_at: '2026-08-01T00:00:00Z',
-  updated_at: `2026-08-${String(20 - index).padStart(2, '0')}T00:00:00Z`,
-}));
 
 const workspaces = [
   {
-    id: 'workspace-1',
-    name: 'Fix keyboard navigation',
+    id: "workspace-1",
+    name: "Fix keyboard navigation",
     isRunning: true,
     isPinned: true,
     hasPendingApproval: true,
   },
   {
-    id: 'workspace-2',
-    name: 'Add project metrics',
+    id: "workspace-2",
+    name: "Add project metrics",
     isRunning: false,
     isPinned: false,
     hasUnseenActivity: true,
   },
   {
-    id: 'workspace-3',
-    name: 'Update release notes',
+    id: "workspace-3",
+    name: "Update release notes",
     isRunning: false,
     isPinned: false,
   },
@@ -77,37 +74,45 @@ const workspaces = [
 function navigation() {
   const record = (destination: string) => {
     window.dispatchEvent(
-      new CustomEvent('fixture-navigation', { detail: destination })
+      new CustomEvent("fixture-navigation", { detail: destination }),
     );
   };
   return {
     resolveFromPath: () => null,
-    goToRoot: () => record('root'),
-    goToOnboarding: () => record('onboarding'),
-    goToOnboardingSignIn: () => record('onboarding-sign-in'),
-    goToWorkspaces: () => record('workspaces'),
-    goToWorkspacesCreate: () => record('workspaces-create'),
+    goToRoot: () => record("root"),
+    goToOnboarding: () => record("onboarding"),
+    goToOnboardingSignIn: () => record("onboarding-sign-in"),
+    goToWorkspaces: () => record("workspaces"),
+    goToWorkspacesCreate: () => record("workspaces-create"),
     goToWorkspace: (id: string) => record(`workspace:${id}`),
     goToWorkspaceVsCode: (id: string) => record(`vscode:${id}`),
-    goToExport: () => record('export'),
+    goToExport: () => record("export"),
     goToProject: (id: string) => record(`project:${id}`),
-    goToProjectWorkflows: () => record('project-workflows'),
-    goToProjectWorkflowEdit: () => record('project-workflow-edit'),
-    goToProjectWorkflowRun: () => record('project-workflow-run'),
-    goToProjectIssue: () => record('project-issue'),
-    goToProjectIssueArena: () => record('project-issue-arena'),
-    goToProjectIssueWorkspace: () => record('project-issue-workspace'),
+    goToProjectWorkflows: () => record("project-workflows"),
+    goToProjectWorkflowEdit: () => record("project-workflow-edit"),
+    goToProjectWorkflowRun: () => record("project-workflow-run"),
+    goToProjectIssue: () => record("project-issue"),
+    goToProjectIssueArena: () => record("project-issue-arena"),
+    goToProjectIssueWorkspace: () => record("project-issue-workspace"),
     goToProjectIssueWorkspaceCreate: () =>
-      record('project-issue-workspace-create'),
-    goToProjectWorkspaceCreate: () => record('project-workspace-create'),
+      record("project-issue-workspace-create"),
+    goToProjectWorkspaceCreate: () => record("project-workspace-create"),
   };
 }
 
-function ProjectDirectoryFixture() {
+function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
+  const projects = useFixtureProjects();
+  const [scope, setScope] = React.useState("fixture");
+  React.useEffect(() => {
+    const changeScope = () => setScope((previous) => `${previous}-changed`);
+    window.addEventListener("fixture-change-scope", changeScope);
+    return () =>
+      window.removeEventListener("fixture-change-scope", changeScope);
+  }, []);
   const projectsState = React.useMemo(
     () => ({
-      scopeKey: 'fixture',
-      deployment: 'local' as const,
+      scopeKey: scope,
+      deployment: "local" as const,
       hostId: null,
       items: projects,
       isLoading: false,
@@ -116,15 +121,48 @@ function ProjectDirectoryFixture() {
       isFetchNextPageError: false,
       hasNextPage: false,
       isFetchingNextPage: false,
-      retry: async () => undefined,
+      retry: async () => {
+        document.documentElement.dataset.projectRefreshes = String(
+          Number(document.documentElement.dataset.projectRefreshes ?? 0) + 1,
+        );
+      },
       loadNextPage: async () => undefined,
     }),
-    []
+    [projects, scope],
   );
   return (
     <AppShellProjectsProvider value={projectsState}>
       <section data-testid="project-directory-surface" className="fixture-page">
-        <ProjectDirectoryPage />
+        {board ? (
+          <ProjectKanbanView
+            projectName="Project 2"
+            projectActions={
+              projects.some((project) => project.id === "project-2") ? (
+                <ProjectBoardActions
+                  projectId="project-2"
+                  projectName="Project 2"
+                  hostId={null}
+                />
+              ) : null
+            }
+            columns={[]}
+            issueCount={0}
+            query=""
+            selectedIssueId={null}
+            dragDisabled={false}
+            taskSource={{ state: "ready" }}
+            panel={null}
+            onQueryChange={() => undefined}
+            onCreateIssue={() => undefined}
+            onOpenIssue={() => undefined}
+            onOpenTask={() => undefined}
+            onDeleteIssue={async () => undefined}
+            getTaskUnavailableReason={() => null}
+            onMove={async () => undefined}
+          />
+        ) : (
+          <ProjectDirectoryPage />
+        )}
       </section>
     </AppShellProjectsProvider>
   );
@@ -132,7 +170,7 @@ function ProjectDirectoryFixture() {
 
 function WorkspaceListFixture() {
   const [selected, setSelected] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState('');
+  const [query, setQuery] = React.useState("");
   return (
     <section
       data-testid="workspace-list-surface"
@@ -151,13 +189,13 @@ function WorkspaceListFixture() {
         onOpenWorkspaceActions={() => undefined}
         listState="ready"
       />
-      <output data-testid="selected-workspace">{selected ?? ''}</output>
+      <output data-testid="selected-workspace">{selected ?? ""}</output>
     </section>
   );
 }
 
 const settingsConfig: Config = {
-  config_version: 'fixture',
+  config_version: "fixture",
   theme: ThemeMode.SYSTEM,
   executor_profile: { executor: BaseCodingAgent.CODEX, variant: null },
   disclaimer_acknowledged: true,
@@ -186,30 +224,30 @@ const settingsConfig: Config = {
   workspace_dir: null,
   last_app_version: null,
   show_release_notes: false,
-  language: 'EN',
-  git_branch_prefix: '',
+  language: "EN",
+  git_branch_prefix: "",
   showcases: { seen_features: [] },
   pr_auto_description_enabled: false,
   pr_auto_description_prompt: null,
   commit_reminder_enabled: false,
   commit_reminder_prompt: null,
-  send_message_shortcut: 'ModifierEnter',
+  send_message_shortcut: "ModifierEnter",
   relay_enabled: false,
   host_nickname: null,
   hidden_agents: [],
 };
 
 const settingsUserSystem: UserSystemInfo = {
-  version: '0.1.44',
+  version: "0.1.44",
   config: settingsConfig,
-  machine_id: 'fixture-machine',
-  login_status: { status: 'loggedout' },
+  machine_id: "fixture-machine",
+  login_status: { status: "loggedout" },
   remote_auth_degraded: null,
   environment: {
-    os_type: 'fixture',
-    os_version: '1',
-    os_architecture: 'x64',
-    bitness: '64',
+    os_type: "fixture",
+    os_version: "1",
+    os_architecture: "x64",
+    bitness: "64",
   },
   capabilities: {},
   shared_api_base: null,
@@ -218,12 +256,18 @@ const settingsUserSystem: UserSystemInfo = {
 };
 
 function SettingsFixture() {
-  const mode = new URLSearchParams(window.location.search).get('mode');
-  const initialHostId = mode === 'offline' ? 'remote-1' : undefined;
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  const initialHostId = mode === "offline" ? "remote-1" : undefined;
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState({
-    tab: mode === 'offline' ? 'host' : 'general',
-    section: mode === 'offline' ? 'repositories' : 'application',
+    tab: mode === "actions" ? "cloud" : mode === "offline" ? "host" : "general",
+    section:
+      mode === "actions"
+        ? "projects"
+        : mode === "offline"
+          ? "repositories"
+          : "application",
+    ...(mode === "actions" ? { projectId: "project-2" } : {}),
     ...(initialHostId ? { host: initialHostId } : {}),
   });
   const reportAvailable = useAppUpdateStore((state) => state.reportAvailable);
@@ -247,8 +291,8 @@ function SettingsFixture() {
                   data-testid="report-update"
                   onClick={() =>
                     reportAvailable(
-                      '0.1.45',
-                      'Keyboard and responsive improvements'
+                      "0.1.45",
+                      "Keyboard and responsive improvements",
                     )
                   }
                 >
@@ -257,17 +301,17 @@ function SettingsFixture() {
                 <button
                   type="button"
                   data-testid="report-ready"
-                  onClick={() => reportReady('0.1.45', async () => undefined)}
+                  onClick={() => reportReady("0.1.45", async () => undefined)}
                 >
                   Mark update ready
                 </button>
-                {mode === 'degraded' && (
+                {mode === "degraded" && (
                   <button
                     type="button"
                     data-testid="refresh-host-sources"
                     onClick={() =>
                       void queryClient.invalidateQueries({
-                        queryKey: ['remote-cloud-hosts', 'state'],
+                        queryKey: ["user-system", "local"],
                       })
                     }
                   >
@@ -289,36 +333,43 @@ function SettingsFixture() {
 
 function Harness() {
   const [surface, setSurface] = React.useState<
-    'projects' | 'workspaces' | 'settings'
-  >('projects');
+    "projects" | "workspaces" | "settings" | "board"
+  >(
+    () =>
+      (new URLSearchParams(window.location.search).get("surface") as
+        | "settings"
+        | "board") ?? "projects",
+  );
   return (
     <div className="fixture-shell">
       <nav aria-label="Surface selector" className="fixture-nav">
         <button
           type="button"
-          aria-pressed={surface === 'projects'}
-          onClick={() => setSurface('projects')}
+          aria-pressed={surface === "projects"}
+          onClick={() => setSurface("projects")}
         >
           Projects
         </button>
         <button
           type="button"
-          aria-pressed={surface === 'workspaces'}
-          onClick={() => setSurface('workspaces')}
+          aria-pressed={surface === "workspaces"}
+          onClick={() => setSurface("workspaces")}
         >
           Workspaces
         </button>
         <button
           type="button"
-          aria-pressed={surface === 'settings'}
-          onClick={() => setSurface('settings')}
+          aria-pressed={surface === "settings"}
+          onClick={() => setSurface("settings")}
         >
           Settings
         </button>
       </nav>
-      {surface === 'projects' ? (
+      {surface === "projects" ? (
         <ProjectDirectoryFixture />
-      ) : surface === 'workspaces' ? (
+      ) : surface === "board" ? (
+        <ProjectDirectoryFixture board />
+      ) : surface === "workspaces" ? (
         <WorkspaceListFixture />
       ) : (
         <SettingsFixture />
@@ -330,7 +381,7 @@ function Harness() {
 const rootRoute = createRootRoute({ component: Harness });
 const router = createRouter({
   routeTree: rootRoute,
-  history: createMemoryHistory({ initialEntries: ['/'] }),
+  history: createMemoryHistory({ initialEntries: ["/"] }),
 });
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -338,28 +389,36 @@ const queryClient = new QueryClient({
 queryClient.setQueryData(organizationKeys.userList(), {
   organizations: [
     {
-      id: 'org-1',
-      name: 'Fixture Organization',
-      slug: 'fixture-organization',
+      id: "org-1",
+      name: "Fixture Organization",
+      slug: "fixture-organization",
       is_personal: true,
-      issue_prefix: 'FIX',
-      created_at: '2026-08-01T00:00:00Z',
-      updated_at: '2026-08-01T00:00:00Z',
+      issue_prefix: "FIX",
+      created_at: "2026-08-01T00:00:00Z",
+      updated_at: "2026-08-01T00:00:00Z",
       user_role: MemberRole.ADMIN,
     },
   ],
 });
 
-const root = document.getElementById('root');
-if (!root) throw new Error('Page surfaces fixture root is missing');
+const root = document.getElementById("root");
+if (!root) throw new Error("Page surfaces fixture root is missing");
 createRoot(root).render(
   <QueryClientProvider client={queryClient}>
     <AuthContext.Provider
-      value={{ isSignedIn: true, isLoaded: true, userId: 'fixture-user' }}
+      value={{ isSignedIn: true, isLoaded: true, userId: "fixture-user" }}
     >
       <AppNavigationProvider value={navigation()}>
-        <RouterProvider router={router} />
+        <HotkeysProvider>
+          <NiceModal.Provider>
+            <RouterProvider router={router} />
+          </NiceModal.Provider>
+        </HotkeysProvider>
       </AppNavigationProvider>
     </AuthContext.Provider>
-  </QueryClientProvider>
+  </QueryClientProvider>,
 );
+
+router.subscribe("onResolved", () => {
+  document.documentElement.dataset.fixtureRoute = router.state.location.href;
+});

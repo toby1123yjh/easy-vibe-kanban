@@ -36,7 +36,10 @@ use executors::{
 use futures_util::StreamExt;
 use git::{GitCli, StatusEntry, WorktreeStatus};
 use serde_json::{Value, json};
-use services::services::orchestration::{OrchestrationService, OrchestrationServiceError};
+use services::services::{
+    container::ContainerService,
+    orchestration::{OrchestrationService, OrchestrationServiceError},
+};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqliteConnection, SqlitePool, sqlite::SqliteRow};
 use thiserror::Error;
@@ -100,6 +103,7 @@ impl From<WorkflowRuntimeError> for ApiError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowWorkspaceRequest {
+    pub directory_path: Option<String>,
     pub issue_id: Uuid,
     pub run_id: Uuid,
     pub project_id: Option<Uuid>,
@@ -110,6 +114,7 @@ pub struct WorkflowWorkspaceRequest {
 
 #[derive(Debug)]
 pub struct WorkflowRunStartRequest {
+    pub directory_path: Option<String>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
     pub trigger: TriggerWorkflowRequest,
@@ -619,6 +624,16 @@ impl DeploymentWorkflowAgentExecutor {
     }
 }
 
+fn workflow_direct_folder_agent_path(root: &str, agent_working_dir: Option<&str>) -> String {
+    match agent_working_dir.filter(|directory| !directory.is_empty()) {
+        Some(directory) => PathBuf::from(root)
+            .join(directory)
+            .to_string_lossy()
+            .into_owned(),
+        None => root.to_string(),
+    }
+}
+
 #[async_trait]
 impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
     async fn run_agent(&self, request: AgentNodeRequest) -> Result<AgentNodeExecution, ApiError> {
@@ -656,9 +671,18 @@ impl WorkflowAgentExecutor for DeploymentWorkflowAgentExecutor {
             .await?
         };
 
-        let workspace_path = workspace.container_ref.clone().ok_or_else(|| {
-            ApiError::BadRequest("Workflow workspace has no local path".to_string())
-        })?;
+        let workspace_path = if workspace.is_direct_folder() {
+            let root = self
+                .deployment
+                .container()
+                .ensure_container_exists(&workspace)
+                .await?;
+            workflow_direct_folder_agent_path(&root, session.agent_working_dir.as_deref())
+        } else {
+            workspace.container_ref.clone().ok_or_else(|| {
+                ApiError::BadRequest("Workflow workspace has no local path".to_string())
+            })?
+        };
         let workspace_mode = match workspace.workspace_kind {
             WorkspaceKind::DirectFolder => WorkspaceMode::SharedWorkspace,
             WorkspaceKind::Worktree => WorkspaceMode::IsolatedWorktree,
@@ -857,6 +881,7 @@ where
             workflow_id,
             attempt_id,
             trigger: request,
+            directory_path: None,
             repo_overrides: Vec::new(),
         },
         workspace_resolver,
@@ -882,6 +907,7 @@ where
         workflow_id,
         attempt_id,
         trigger,
+        directory_path,
         repo_overrides,
     } = request;
     let workflow = get_workflow_template(pool, workflow_id).await?;
@@ -900,6 +926,7 @@ where
             run_id,
             project_id,
             existing_workspace_id: trigger.workspace_id,
+            directory_path,
             repo_overrides,
             branch_name: main_workflow_branch_name(trigger.issue_id, run_id),
         })
@@ -4313,6 +4340,19 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn workflow_direct_folder_cwd_preserves_plain_path_and_selected_git_root() {
+        assert_eq!(
+            super::workflow_direct_folder_agent_path("F:/notes", None),
+            "F:/notes"
+        );
+        assert_eq!(
+            super::workflow_direct_folder_agent_path("F:/projects", Some("repo")),
+            std::path::Path::new("F:/projects")
+                .join("repo")
+                .to_string_lossy()
+        );
+    }
     use workflow::graph::{ArenaAttemptConfig, WorkflowNodeData};
 
     use super::*;

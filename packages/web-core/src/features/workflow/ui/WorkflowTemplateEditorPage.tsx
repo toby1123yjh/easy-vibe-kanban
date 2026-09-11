@@ -72,6 +72,7 @@ import {
 } from '@vibe/ui/components/StateSurface';
 import {
   Loader2,
+  MoreHorizontal,
   ArrowLeft,
   Save,
   Copy,
@@ -87,7 +88,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { ReactFlowProvider } from '@xyflow/react';
-import type { DraftWorkspaceRepo, ExecutorConfig } from 'shared/types';
+import type { ExecutorConfig } from 'shared/types';
+import {
+  workflowDraftWorkspaceInput,
+  type WorkflowWorkspaceInput,
+} from '../model/workflowWorkspaceSelection';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -96,6 +101,11 @@ import {
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import {
+  Dialog as DescriptionDialog,
+  DialogContent as DescriptionDialogContent,
+  DialogTitle as DescriptionDialogTitle,
+} from '@vibe/ui/components/Dialog';
 import { WorkspaceContextHeader } from '@/shared/components/WorkspaceContextHeader';
 import { useBlocker } from '@tanstack/react-router';
 import {
@@ -307,6 +317,8 @@ export function WorkflowTemplateEditorPage({
   const [isSavingBeforeLeave, setIsSavingBeforeLeave] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [isDescriptionOpen, setIsDescriptionOpen] = useState(false);
+  const moreActionsRef = useRef<HTMLButtonElement>(null);
   const [graphParseError, setGraphParseError] = useState<string | null>(null);
   const [runStartError, setRunStartError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
@@ -569,13 +581,13 @@ export function WorkflowTemplateEditorPage({
   ) => {
     if (!localDraft || !localDraftId) return null;
 
-    let repos = localDraft.repos;
-    if (repos.length === 0) {
+    let workspace = workflowDraftWorkspaceInput(localDraft);
+    if (workspace.repos.length === 0 && !workspace.directory_path) {
       const selectedRepos = await selectWorkflowRepositories();
       if (!selectedRepos) {
         return null;
       }
-      repos = selectedRepos;
+      workspace = selectedRepos;
     }
 
     const attempt = await createAttempt({
@@ -584,7 +596,7 @@ export function WorkflowTemplateEditorPage({
       payload: {
         name,
         graph_json: JSON.stringify(nextGraph),
-        repos,
+        ...workspace,
       },
     });
 
@@ -677,13 +689,13 @@ export function WorkflowTemplateEditorPage({
     setIsStartingRun(true);
     setRunStartError(null);
     try {
-      let repoOverrides: DraftWorkspaceRepo[] = [];
+      let workspace: WorkflowWorkspaceInput = { repos: [] };
       if (!workflowAttempt.workspace_id) {
         const selectedRepos = await selectWorkflowRepositories();
         if (!selectedRepos) {
           return;
         }
-        repoOverrides = selectedRepos;
+        workspace = selectedRepos;
       }
 
       if (!authoringState) return;
@@ -697,7 +709,7 @@ export function WorkflowTemplateEditorPage({
             title: issue?.title ?? name,
             description: issue?.description ?? description,
           }),
-          repos: repoOverrides,
+          ...workspace,
         },
       });
 
@@ -1296,38 +1308,58 @@ export function WorkflowTemplateEditorPage({
         </DialogContent>
       </Dialog>
 
+      <DescriptionDialog
+        open={isDescriptionOpen}
+        onOpenChange={setIsDescriptionOpen}
+      >
+        <DescriptionDialogContent
+          className="max-w-md p-4"
+          aria-describedby={undefined}
+          closeLabel={t('buttons.close')}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            moreActionsRef.current?.focus();
+          }}
+        >
+          <DescriptionDialogTitle className="mb-3 pr-8">
+            {t('workflow.editor.descriptionPlaceholder')}
+          </DescriptionDialogTitle>
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            disabled={readOnly}
+            aria-label={t('workflow.editor.descriptionPlaceholder')}
+            className="w-full rounded border border-secondary bg-primary px-3 py-2 text-sm text-normal outline-none focus-visible:ring-1 focus-visible:ring-brand"
+          />
+        </DescriptionDialogContent>
+      </DescriptionDialog>
+
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-secondary bg-panel p-base">
-        <div className="flex items-center gap-4">
+      <div className="workflow-editor-toolbar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-secondary bg-primary px-4 py-2 sm:flex-nowrap">
+        <div className="workflow-editor-toolbar__identity flex min-w-0 basis-full items-center gap-3 sm:basis-auto sm:flex-1">
           <Button
-            variant="outline"
+            variant="ghost"
             onClick={handleBack}
             className="flex h-9 w-9 items-center justify-center p-0 transition-colors hover:bg-secondary/20"
             aria-label={t('workflow.editor.backToWorkflows')}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={readOnly}
-              className="bg-transparent text-base font-semibold text-high outline-none transition-colors hover:text-brand focus:text-brand disabled:opacity-50"
+              readOnly={readOnly}
+              className="min-w-0 w-full bg-transparent text-sm font-semibold text-high outline-none transition-colors hover:text-brand focus:text-brand"
               placeholder={t('workflow.editor.workflowNamePlaceholder')}
-            />
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={readOnly}
-              className="min-w-[280px] bg-transparent text-xs text-low outline-none transition-colors focus:text-high disabled:opacity-50"
-              placeholder={t('workflow.editor.descriptionPlaceholder')}
+              aria-label={t('workflow.editor.workflowNamePlaceholder')}
             />
             {workflowAttempt || localDraft ? (
               <WorkspaceContextHeader
                 workspaceId={workflowAttempt?.workspace_id}
                 draftRepo={localDraft?.repos[0]}
+                draftDirectoryPath={localDraft?.directoryPath}
                 className="max-w-[620px]"
               />
             ) : null}
@@ -1338,7 +1370,7 @@ export function WorkflowTemplateEditorPage({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="workflow-editor-toolbar__actions flex max-w-full shrink-0 flex-wrap items-center gap-1.5 sm:flex-nowrap">
           <Button
             variant="outline"
             disabled={readOnly || !authoringState?.undoStack.length}
@@ -1367,66 +1399,93 @@ export function WorkflowTemplateEditorPage({
           >
             <Redo2 className="h-4 w-4" />
           </Button>
-          <Button
-            variant="outline"
-            disabled={readOnly}
-            onClick={handleTidyGraph}
-            className="flex items-center gap-2"
-          >
-            <LayoutGrid className="h-4 w-4" />
-            {t('workflow.editor.tidy')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={readOnly}
-            onClick={handleAddStickyNote}
-            className="flex items-center gap-2"
-          >
-            <StickyNote className="h-4 w-4" />
-            {t('workflow.editor.note')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={readOnly}
-            onClick={handleAddStageGroup}
-            className="flex items-center gap-2"
-          >
-            <Ungroup className="h-4 w-4" />
-            {t('workflow.editor.stage')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={readOnly}
-            onClick={openRouterConfigPanel}
-            className="flex items-center gap-2"
-          >
-            <GitBranch className="h-4 w-4" />
-            {t('workflow.router.toolbar', {
-              defaultValue: 'Router',
-            })}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setValidationTouched(true)}
-            className="flex items-center gap-2"
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            {t('workflow.editor.validate')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={isLocalDraft}
-            onClick={handleOpenScheduledTask}
-            className="flex items-center gap-2"
-            title={
-              isLocalDraft
-                ? t('workflow.schedule.saveBeforeSchedule')
-                : undefined
-            }
-          >
-            <CalendarClock className="h-4 w-4" />
-            {t('workflow.schedule.button')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                ref={moreActionsRef}
+                variant="ghost"
+                className="h-9 w-9 p-0"
+                aria-label={t('workflow.editor.moreActions', {
+                  defaultValue: 'More actions',
+                })}
+                title={t('workflow.editor.moreActions', {
+                  defaultValue: 'More actions',
+                })}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-64"
+              onCloseAutoFocus={(event) => {
+                if (isDescriptionOpen) event.preventDefault();
+              }}
+            >
+              <DropdownMenuItem onSelect={() => setIsDescriptionOpen(true)}>
+                {t('workflow.editor.descriptionPlaceholder')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem disabled={readOnly} onSelect={handleTidyGraph}>
+                <LayoutGrid className="mr-2 h-4 w-4" />
+                {t('workflow.editor.tidy')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={readOnly}
+                onSelect={handleAddStickyNote}
+              >
+                <StickyNote className="mr-2 h-4 w-4" />
+                {t('workflow.editor.note')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={readOnly}
+                onSelect={handleAddStageGroup}
+              >
+                <Ungroup className="mr-2 h-4 w-4" />
+                {t('workflow.editor.stage')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={readOnly}
+                onSelect={openRouterConfigPanel}
+              >
+                <GitBranch className="mr-2 h-4 w-4" />
+                {t('workflow.router.toolbar', { defaultValue: 'Router' })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setValidationTouched(true)}>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {t('workflow.editor.validate')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={isLocalDraft}
+                onSelect={handleOpenScheduledTask}
+                title={
+                  isLocalDraft
+                    ? t('workflow.schedule.saveBeforeSchedule')
+                    : undefined
+                }
+              >
+                <CalendarClock className="mr-2 h-4 w-4" />
+                {t('workflow.schedule.button')}
+              </DropdownMenuItem>
+              {workflowAttempt?.latest_run_id ? (
+                <DropdownMenuItem onSelect={handleOpenLatestRun}>
+                  {t('workflow.editor.openLatestRun')}
+                </DropdownMenuItem>
+              ) : null}
+              {!isSystem ? (
+                <DropdownMenuItem
+                  onSelect={() => void handleSaveAsTemplate()}
+                  disabled={isCreating || !isValid}
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  {t('workflow.editor.saveAsTemplate', {
+                    defaultValue: 'Save as template',
+                  })}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             disabled={!canRunWorkflowAttempt}
@@ -1441,63 +1500,45 @@ export function WorkflowTemplateEditorPage({
                   : t('workflow.errors.notLinkedToAttempt')
             }
           >
-            {isStartingRun || isRunningAttempt || isWorkflowAttemptLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <PlayIcon className="h-4 w-4" />
-            )}
-            {t('workflow.editor.runWorkflow')}
+            <span className="inline-flex items-center gap-2">
+              {isStartingRun || isRunningAttempt || isWorkflowAttemptLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <PlayIcon className="h-4 w-4" />
+              )}
+              {t('workflow.editor.runWorkflow')}
+            </span>
           </Button>
-          {workflowAttempt?.latest_run_id ? (
-            <Button
-              variant="outline"
-              onClick={handleOpenLatestRun}
-              className="flex items-center gap-2"
-            >
-              {t('workflow.editor.openLatestRun')}
-            </Button>
-          ) : null}
           {isSystem ? (
             <Button
               onClick={handleCopy}
               disabled={isCreating}
               className="flex items-center gap-2"
             >
-              {isCreating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              {t('workflow.editor.copyToProject')}
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                onClick={handleSaveAsTemplate}
-                disabled={isCreating || !isValid}
-                className="flex items-center gap-2"
-              >
+              <span className="inline-flex items-center gap-2">
                 {isCreating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
-                {t('workflow.editor.saveAsTemplate', {
-                  defaultValue: 'Save as template',
-                })}
-              </Button>
+                {t('workflow.editor.copyToProject')}
+              </span>
+            </Button>
+          ) : (
+            <>
               <Button
                 onClick={() => void handleSave()}
                 disabled={isUpdating || isCreatingAttempt || !isValid}
                 className="flex items-center gap-2"
               >
-                {isUpdating || isCreatingAttempt ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {t('buttons.save')}
+                <span className="inline-flex items-center gap-2">
+                  {isUpdating || isCreatingAttempt ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {t('buttons.save')}
+                </span>
               </Button>
             </>
           )}

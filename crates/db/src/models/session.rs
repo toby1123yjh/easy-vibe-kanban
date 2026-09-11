@@ -73,9 +73,9 @@ pub struct Session {
 pub struct SessionListItem {
     pub id: Uuid,
     pub workspace_id: Uuid,
-    pub task_id: Uuid,
-    pub project_id: Uuid,
-    pub issue_id: Uuid,
+    pub task_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub issue_id: Option<Uuid>,
     pub title: String,
     pub executor: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -101,6 +101,27 @@ pub struct CreateSession {
 }
 
 impl Session {
+    fn session_page(mut sessions: Vec<SessionListItem>, page_size: i64) -> SessionPage {
+        let has_more = sessions.len() > page_size as usize;
+        if has_more {
+            sessions.pop();
+        }
+        let next_cursor = has_more.then(|| {
+            let last = sessions
+                .last()
+                .expect("a paginated Session page with more rows is non-empty");
+            SessionCursor {
+                updated_at: last.updated_at,
+                id: last.id,
+            }
+        });
+
+        SessionPage {
+            sessions,
+            next_cursor,
+        }
+    }
+
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Session,
@@ -356,7 +377,7 @@ impl Session {
     /// Shared guarded deletion for standalone Sessions and exact Agent Task
     /// deletion. The caller must hold a write transaction and remove the Task
     /// in that same transaction before calling this method.
-    pub(crate) async fn delete_in_transaction(
+    pub async fn delete_in_transaction(
         connection: &mut SqliteConnection,
         id: Uuid,
     ) -> Result<u64, SessionError> {
@@ -532,27 +553,69 @@ impl Session {
             .push(" ORDER BY julianday(session.updated_at) DESC, session.id ASC LIMIT ")
             .push_bind(page_size + 1);
 
-        let mut sessions = query
+        let sessions = query
             .build_query_as::<SessionListItem>()
             .fetch_all(pool)
             .await?;
-        let has_more = sessions.len() > page_size as usize;
-        if has_more {
-            sessions.pop();
-        }
-        let next_cursor = has_more.then(|| {
-            let last = sessions
-                .last()
-                .expect("a paginated Session page with more rows is non-empty");
-            SessionCursor {
-                updated_at: last.updated_at,
-                id: last.id,
-            }
-        });
+        Ok(Self::session_page(sessions, page_size))
+    }
 
-        Ok(SessionPage {
-            sessions,
-            next_cursor,
-        })
+    /// List all recent sessions, including sessions that have not been linked
+    /// to a canonical Agent Task yet. Task metadata is optional for these
+    /// ordinary workspace sessions.
+    pub async fn list_recent_all(
+        pool: &SqlitePool,
+        project_id: Option<Uuid>,
+        cursor: Option<SessionCursor>,
+        limit: u32,
+    ) -> Result<SessionPage, sqlx::Error> {
+        let page_size = limit.clamp(1, 100) as i64;
+        let mut query = QueryBuilder::<Sqlite>::new(
+            r#"
+            SELECT session.id,
+                   session.workspace_id,
+                   task.id AS task_id,
+                   task.project_id,
+                   task.issue_id,
+                   COALESCE(
+                       NULLIF(trim(task.title), ''),
+                       NULLIF(trim(session.name), ''),
+                       NULLIF(trim(workspace.name), ''),
+                       'Untitled session'
+                   ) AS title,
+                   session.executor,
+                   session.created_at,
+                   session.updated_at
+            FROM sessions session
+            JOIN workspaces workspace ON workspace.id = session.workspace_id
+            LEFT JOIN agent_task_bindings binding ON binding.session_id = session.id
+            LEFT JOIN tasks task
+                ON task.id = binding.task_id AND task.execution_kind = 'agent'
+            WHERE 1 = 1
+            "#,
+        );
+        if let Some(project_id) = project_id {
+            query.push(" AND task.project_id = ").push_bind(project_id);
+        }
+        if let Some(cursor) = cursor {
+            query
+                .push(" AND (julianday(session.updated_at) < julianday(")
+                .push_bind(cursor.updated_at)
+                .push(") OR (julianday(session.updated_at) = julianday(")
+                .push_bind(cursor.updated_at)
+                .push(") AND session.id > ")
+                .push_bind(cursor.id)
+                .push("))");
+        }
+        query
+            .push(" ORDER BY julianday(session.updated_at) DESC, session.id ASC LIMIT ")
+            .push_bind(page_size + 1);
+
+        let sessions = query
+            .build_query_as::<SessionListItem>()
+            .fetch_all(pool)
+            .await?;
+
+        Ok(Self::session_page(sessions, page_size))
     }
 }

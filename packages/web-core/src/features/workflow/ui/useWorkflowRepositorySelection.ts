@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserContext } from '@/shared/hooks/useUserContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
@@ -7,7 +7,10 @@ import { saveProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaul
 import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
 import { buildLocalWorkspaceIdSet } from '@/shared/lib/workspaceCreateState';
 import { repoApi } from '@/shared/lib/api';
-import type { DraftWorkspaceRepo } from 'shared/types';
+import {
+  workflowWorkspaceInput,
+  type WorkflowWorkspaceInput,
+} from '../model/workflowWorkspaceSelection';
 import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 
 interface UseWorkflowRepositorySelectionOptions {
@@ -23,64 +26,77 @@ export function useWorkflowRepositorySelection({
   const { workspaces } = useUserContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
   const routeState = useCurrentKanbanRouteState();
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const ownerRef = useRef({ projectId, hostId: routeState.hostId });
+  ownerRef.current = { projectId, hostId: routeState.hostId };
 
   const localWorkspaceIds = useMemo(
     () => buildLocalWorkspaceIdSet(activeWorkspaces, archivedWorkspaces),
     [activeWorkspaces, archivedWorkspaces]
   );
 
-  const selectWorkflowRepositories = useCallback(async (): Promise<
-    DraftWorkspaceRepo[] | null
-  > => {
-    if (!projectId) return null;
+  const selectWorkflowRepositories =
+    useCallback(async (): Promise<WorkflowWorkspaceInput | null> => {
+      if (!projectId) return null;
+      const owner = ownerRef.current;
+      const isCurrentOwner = () =>
+        mountedRef.current &&
+        owner.projectId === ownerRef.current.projectId &&
+        owner.hostId === ownerRef.current.hostId;
 
-    const defaults = await getWorkspaceDefaults(
-      workspaces,
-      localWorkspaceIds,
-      projectId,
-      routeState.hostId
-    );
-    const preferredRepo = defaults?.preferredRepos[0];
-    const preferredRepoDetails = preferredRepo
-      ? await repoApi
-          .getById(preferredRepo.repo_id, routeState.hostId)
-          .catch(() => null)
-      : null;
+      const defaults = await getWorkspaceDefaults(
+        workspaces,
+        localWorkspaceIds,
+        projectId,
+        routeState.hostId
+      );
+      const preferredRepo = defaults?.preferredRepos[0];
+      const preferredRepoDetails = preferredRepo
+        ? await repoApi
+            .getById(preferredRepo.repo_id, routeState.hostId)
+            .catch(() => null)
+        : null;
 
-    const result = await WorkspaceTargetDialog.show({
-      initialPath: preferredRepoDetails?.path,
-      initialMode: 'worktree',
-      initialBranch: preferredRepo?.target_branch,
-      hostId: routeState.hostId,
-      allowedModes: ['worktree'],
-      title: t('workflow.workspaceDialog.title', {
-        defaultValue: 'Choose workflow workspace',
-      }),
-      description: t('workflow.workspaceDialog.description', {
-        defaultValue:
-          'Choose one Git repository and a base branch. The workflow will run in an isolated worktree.',
-      }),
-    });
+      if (!isCurrentOwner()) return null;
+      const result = await WorkspaceTargetDialog.show({
+        initialPath:
+          defaults?.preferredDirectoryPath ?? preferredRepoDetails?.path,
+        initialMode: defaults?.preferredDirectoryPath
+          ? 'direct_folder'
+          : 'worktree',
+        initialBranch: preferredRepo?.target_branch,
+        hostId: routeState.hostId,
+        title: t('workflow.workspaceDialog.title', {
+          defaultValue: 'Choose workflow workspace',
+        }),
+        description: t('workflow.workspaceDialog.description', {
+          defaultValue:
+            'Choose a working folder, or a Git repository and base branch for an isolated worktree.',
+        }),
+      });
 
-    if (result.kind === 'canceled' || result.selection.mode !== 'worktree') {
-      return null;
-    }
+      if (result.kind === 'canceled' || !isCurrentOwner()) {
+        return null;
+      }
 
-    const repos: DraftWorkspaceRepo[] = [
-      {
-        repo_id: result.selection.repo.id,
-        target_branch: result.selection.targetBranch,
-      },
-    ];
+      const workspace = workflowWorkspaceInput(result.selection);
 
-    await saveProjectWorkspaceDefault(
-      projectId,
-      { kind: 'git', repo: repos[0]! },
-      routeState.hostId
-    ).catch(() => undefined);
+      await saveProjectWorkspaceDefault(
+        projectId,
+        result.selection.mode === 'direct_folder'
+          ? { kind: 'direct_folder', path: result.selection.path }
+          : { kind: 'git', repo: workspace.repos[0]! },
+        routeState.hostId
+      ).catch(() => undefined);
 
-    return repos;
-  }, [projectId, routeState.hostId, t, workspaces, localWorkspaceIds]);
+      return isCurrentOwner() ? workspace : null;
+    }, [projectId, routeState.hostId, t, workspaces, localWorkspaceIds]);
 
   return { selectWorkflowRepositories };
 }

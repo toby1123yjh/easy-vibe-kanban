@@ -583,7 +583,7 @@
     "errors": {
       "createDraftFailed": "创建工作流草稿失败。",
       "notLinkedToAttempt": "此工作流未关联到任务执行。",
-      "repositoryRequired": "此工作流需要一个至少包含一个仓库的工作区。请在开始运行前至少选择一个仓库。",
+      "repositoryRequired": "启动工作流前，请选择工作目录或 Git worktree。",
       "runInputRequired": "请先填写运行输入，再启动工作流。",
       "draftMissing": "这个本地工作流草稿已不存在，请重新新建工作流执行。",
       "saveBeforeRun": "请先保存工作流执行，再启动运行。",
@@ -592,6 +592,10 @@
       "revisionConflict": "此工作流已在其他位置更新（当前版本 {{currentRevision}}）。再次保存前请重新加载；画布上的本地修改仍会保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "无法解析工作流 JSON。"
+    },
+    "workspaceDialog": {
+      "title": "选择工作流工作区",
+      "description": "可以直接使用目录，也可以选择 Git 仓库和基准分支创建隔离 worktree。"
     },
     "repositoryDialog": {
       "title": "新建工作流执行",
@@ -607,7 +611,7 @@
       "createWorkflowWorkspace": "创建工作流工作区",
       "usesExistingWorkspace": "使用现有工作区。",
       "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的现有工作区。",
-      "createWorkspaceHint": "后端会为本次运行创建专用的工作流工作区。",
+      "createWorkspaceHint": "为本次运行选择目录或 Git worktree，工作流节点共用所选工作区。",
       "runInput": "运行输入",
       "startRun": "开始运行"
     },
@@ -679,6 +683,7 @@
       "runWorkflow": "运行工作流",
       "loadFailed": "加载工作流失败：{{message}}",
       "backToWorkflows": "返回工作流列表",
+      "moreActions": "更多操作",
       "workflowNamePlaceholder": "工作流名称",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系统模板（只读）",
@@ -793,6 +798,7 @@
       "branchLabel": "分支 {{index}}",
       "removeBranch": "移除分支 {{index}}",
       "selectNode": "选择节点以查看详情",
+      "fieldHelp": "使用说明",
       "selectEdge": "选择连线以查看详情",
       "step": "节点",
       "routerAgent": "路由智能体",
@@ -1399,6 +1405,28 @@
     }
   },
   "createMode": {
+    "managedDirectory": {
+      "label": "自动工作目录",
+      "description": "将为此会话创建独立目录。点击可自行选择。"
+    },
+    "workspaceDialog": {
+      "title": "选择工作目录",
+      "pathLabel": "工作目录",
+      "browse": "浏览",
+      "modeLabel": "工作方式",
+      "directTitle": "直接编辑",
+      "worktreeTitle": "独立 Worktree",
+      "worktreeUnavailable": "需要 Git 仓库",
+      "directDescription": "智能体将直接修改此目录中的文件。",
+      "worktreeDescription": "创建独立工作副本，不修改原目录。",
+      "branchLabel": "基础分支",
+      "branchPlaceholder": "选择分支",
+      "useDirectory": "使用此目录",
+      "useWorkspace": "使用此工作区",
+      "useProjectLocation": "使用此位置",
+      "inspecting": "正在检查目录…",
+      "loadingBranches": "正在加载分支…"
+    },
     "headings": {
       "repoStep": "你想在哪些仓库上工作？",
       "chatStep": "你想做什么工作？"
@@ -1838,6 +1866,7 @@
     },
     "errors": {
       "rescan": "无法重新扫描当前主机。",
+      "loadRemoteHosts": "无法加载远程主机列表，请重试。本机扫描不受影响。",
       "setDefault": "无法更新默认 Provider。",
       "loadProviders": "无法加载 Provider 能力数据。",
       "loadTools": "无法刷新智能体工具摘要。"

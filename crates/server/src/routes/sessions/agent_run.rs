@@ -9,7 +9,7 @@ use db::models::{
 use executors::{
     actions::SelectedSkill,
     executors::provider_adapter::DirectProvider,
-    profile::ExecutorConfig,
+    profile::{ExecutorConfig, runtime_profile_ids_match},
     provider_policy::direct_provider_capability_snapshot,
     runtime::{
         AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentCapability,
@@ -118,16 +118,17 @@ pub(super) async fn latest_provider_session(
         r#"
         SELECT session_reference
         FROM agent_provider_sessions
-        WHERE session_id = ? AND provider_id = ? AND runtime_profile_id = ?
+        WHERE session_id = ? AND provider_id = ?
         LIMIT 1
         "#,
     )
     .bind(session_id)
     .bind(provider.id())
-    .bind(runtime_profile_id)
     .fetch_optional(pool)
     .await?;
-    Ok(reference.map(|reference| reference.0))
+    Ok(reference.map(|reference| reference.0).filter(|reference| {
+        runtime_profile_ids_match(&reference.runtime_profile_id, runtime_profile_id)
+    }))
 }
 
 pub(super) fn explicit_provider_session(
@@ -275,7 +276,7 @@ pub(super) async fn validate_session_provider_binding(
                 provider.id()
             )));
         }
-        if existing.runtime_profile_id != runtime_profile_id {
+        if !runtime_profile_ids_match(&existing.runtime_profile_id, runtime_profile_id) {
             return Err(ApiError::BadRequest(format!(
                 "Session is bound to runtime profile {}; create a new VK session for {}",
                 existing.runtime_profile_id, runtime_profile_id
@@ -310,7 +311,16 @@ pub(super) async fn validate_session_provider_binding(
                 .and_then(Value::as_object)
                 .and_then(|metadata| metadata.get("profile_fingerprint"))
                 .and_then(Value::as_str);
-            let actual_context = native_adoption_profile_context(executor_config, selected_skills);
+            // Fingerprints include the serialized variant. Use the already-bound
+            // spelling for the equivalent omitted/explicit DEFAULT alias only.
+            let mut bound_config = executor_config.clone();
+            if matches!(bound_config.variant.as_deref(), None | Some("DEFAULT")) {
+                bound_config.variant = existing
+                    .runtime_profile_id
+                    .split_once(':')
+                    .map(|(_, variant)| variant.to_string());
+            }
+            let actual_context = native_adoption_profile_context(&bound_config, selected_skills);
             let actual = native_adoption_profile_fingerprint(&actual_context);
             if expected != Some(actual.as_str()) {
                 return Err(ApiError::BadRequest(
@@ -546,6 +556,74 @@ mod tests {
         pool
     }
 
+    #[tokio::test]
+    async fn default_alias_lookup_resumes_the_existing_native_session() {
+        for (stored, requested) in [("CODEX:DEFAULT", "CODEX"), ("CODEX", "CODEX:DEFAULT")] {
+            let pool = provider_binding_test_pool().await;
+            let session_id = uuid::Uuid::new_v4();
+            let config = ExecutorConfig::new(BaseCodingAgent::Codex);
+            let reference = explicit_provider_session(
+                DirectProvider::Codex,
+                stored,
+                Some("native-session"),
+                chrono::Utc::now(),
+            )
+            .unwrap();
+            sqlx::query("INSERT INTO agent_provider_sessions VALUES (?, ?, ?, ?, ?)")
+                .bind(session_id)
+                .bind("codex")
+                .bind(stored)
+                .bind("native-session")
+                .bind(serde_json::to_string(&reference).unwrap())
+                .execute(&pool)
+                .await
+                .unwrap();
+            super::validate_session_provider_binding(
+                &pool,
+                session_id,
+                DirectProvider::Codex,
+                requested,
+                None,
+                &config,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            let resumed =
+                super::latest_provider_session(&pool, session_id, DirectProvider::Codex, requested)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(resumed, reference);
+            assert!(
+                super::validate_session_provider_binding(
+                    &pool,
+                    session_id,
+                    DirectProvider::Codex,
+                    "CODEX:PLAN",
+                    None,
+                    &config,
+                    None,
+                    None
+                )
+                .await
+                .is_err()
+            );
+            assert!(
+                super::latest_provider_session(
+                    &pool,
+                    session_id,
+                    DirectProvider::Codex,
+                    "CODEX:PLAN"
+                )
+                .await
+                .unwrap()
+                .is_none()
+            );
+        }
+    }
+
     #[test]
     fn direct_provider_mapping_covers_the_four_v1_runtimes() {
         let cases = [
@@ -694,6 +772,21 @@ mod tests {
             .await
             .is_ok()
         );
+
+        let mut explicit_default_config = config.clone();
+        explicit_default_config.variant = Some("DEFAULT".to_string());
+        super::validate_session_provider_binding(
+            &pool,
+            session_id,
+            DirectProvider::Codex,
+            "CODEX:DEFAULT",
+            Some(&reference),
+            &explicit_default_config,
+            Some(&skills),
+            Some(std::path::Path::new("C:/vk-worktree")),
+        )
+        .await
+        .expect("equivalent DEFAULT spelling must preserve the native adoption fingerprint");
 
         let scope_error = super::validate_session_provider_binding(
             &pool,

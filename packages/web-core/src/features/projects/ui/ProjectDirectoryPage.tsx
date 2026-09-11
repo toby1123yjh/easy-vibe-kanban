@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  FolderKanban,
-  LoaderCircle,
-  MoreHorizontal,
-  Plus,
-  Search,
-  Settings,
-} from 'lucide-react';
+import { FolderKanban, LoaderCircle, Plus, Search } from 'lucide-react';
 import type { ProjectListItem } from 'shared/types';
 import {
   DegradedState,
@@ -16,20 +9,18 @@ import {
   LoadingState,
   OfflineState,
 } from '@vibe/ui/components/StateSurface';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@vibe/ui/components/DropdownMenu';
+import { ProjectActionsMenu } from '@/shared/components/ProjectActionsMenu';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useAppShellProjects } from '@/shared/hooks/useAppShellProjects';
 import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
+import { useDeleteProject } from '@/shared/hooks/useDeleteProject';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { deriveProjectDirectoryState } from '../model/projectDirectoryState';
 import './project-surfaces.css';
+
+const EMPTY_PROJECTS: readonly ProjectListItem[] = [];
 
 function formatUpdatedAt(value: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
@@ -42,11 +33,15 @@ function ProjectCard({
   locale,
   onOpen,
   onManage,
+  onDelete,
+  deleting,
 }: {
   project: ProjectListItem;
   locale: string;
   onOpen(): void;
   onManage(): void;
+  onDelete(): void;
+  deleting: boolean;
 }) {
   const { t } = useTranslation('projects');
 
@@ -55,6 +50,7 @@ function ProjectCard({
       <button
         type="button"
         className="vk-project-card__open"
+        disabled={deleting}
         onClick={onOpen}
         aria-label={t('directory.openProject', {
           name: project.name,
@@ -74,28 +70,13 @@ function ProjectCard({
           </small>
         </span>
       </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="vk-project-card__menu-trigger"
-            aria-label={t('directory.moreActions', {
-              name: project.name,
-              defaultValue: 'More actions for {{name}}',
-            })}
-          >
-            <MoreHorizontal aria-hidden="true" size={17} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onManage}>
-            <Settings aria-hidden="true" size={15} />
-            {t('directory.manageProjects', {
-              defaultValue: 'Manage projects',
-            })}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ProjectActionsMenu
+        projectName={project.name}
+        className="vk-project-card__menu-trigger"
+        disabled={deleting}
+        onSettings={onManage}
+        onDelete={onDelete}
+      />
     </article>
   );
 }
@@ -105,6 +86,13 @@ export function ProjectDirectoryPage() {
   const navigation = useAppNavigation();
   const { openSettings } = useSettingsNavigation();
   const projectsState = useAppShellProjects();
+  const { deleteProject: handleDelete, pendingProjectId: deletingProjectId } =
+    useDeleteProject({
+      scopeKey: 'directory',
+      enabled:
+        Boolean(projectsState?.scopeKey) &&
+        !(projectsState?.deployment === 'remote' && !projectsState.hostId),
+    });
   const { data: organizationData } = useUserOrganizations();
   const selectedOrganizationId = useOrganizationStore(
     (state) => state.selectedOrgId
@@ -116,7 +104,7 @@ export function ProjectDirectoryPage() {
   const scopeEpochRef = useRef(0);
   const paginationSentinelRef = useRef<HTMLDivElement>(null);
   const scopeKey = projectsState?.scopeKey ?? 'missing-app-shell-projects';
-  const projects = projectsState?.items ?? [];
+  const projects = projectsState?.items ?? EMPTY_PROJECTS;
 
   useEffect(() => {
     scopeEpochRef.current += 1;
@@ -323,7 +311,8 @@ export function ProjectDirectoryPage() {
         />
       ) : directoryState === 'error' ? (
         <ErrorState
-          className="vk-project-directory__state"
+          compact
+          className="vk-project-directory__state vk-project-directory__state--inline"
           title={t('directory.errorTitle', {
             defaultValue: 'Projects could not be loaded',
           })}
@@ -412,7 +401,14 @@ export function ProjectDirectoryPage() {
                   project={project}
                   locale={i18n.resolvedLanguage ?? i18n.language}
                   onOpen={() => navigation.goToProject(project.id)}
-                  onManage={() => openSettings('organizations')}
+                  onManage={() =>
+                    openSettings('projects', {
+                      projectId: project.id,
+                      hostId: projectsState?.hostId,
+                    })
+                  }
+                  onDelete={() => void handleDelete(project)}
+                  deleting={deletingProjectId !== null}
                 />
               ))}
             </div>

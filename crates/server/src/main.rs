@@ -46,6 +46,24 @@ pub enum VibeKanbanError {
 
 #[tokio::main]
 async fn main() -> Result<(), VibeKanbanError> {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--git-import-worker")
+    {
+        let result = server::routes::git_import::worker_main().await;
+        if let Err(error) = &result {
+            // Keep the helper protocol total: startup/read failures must still
+            // produce a terminal frame instead of an unexplained EOF.
+            println!(
+                "{{\"kind\":\"error\",\"message\":{}}}",
+                serde_json::to_string(&error.to_string())
+                    .unwrap_or_else(|_| "\"Git worker failed\"".into())
+            );
+        }
+        // The parent-death watcher blocks on stdin. Do not wait for Tokio's
+        // blocking pool shutdown while the parent waits for this helper to exit.
+        std::process::exit(if result.is_ok() { 0 } else { 2 });
+    }
     // Install rustls crypto provider before any TLS operations
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()

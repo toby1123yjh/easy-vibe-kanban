@@ -157,6 +157,63 @@ describe('projectCanonicalAgentConversation', () => {
     ).toBe(true);
   });
 
+  it('updates one visible status row for repeated provider retry notices', () => {
+    const runId = 'run-retry';
+    const projection = projectRuns([
+      {
+        runId,
+        status: 'running',
+        events: [
+          event(runId, 1, {
+            type: 'message',
+            data: {
+              message: {
+                message_id: 'retry-status',
+                role: 'system',
+                content: 'Retrying (attempt 1/10)',
+              },
+              final_output: false,
+            },
+          }),
+          event(runId, 2, {
+            type: 'provider_extension',
+            data: {
+              provider_namespace: 'claude_code',
+              provider_event: 'retry_metadata',
+              payload: null,
+            },
+          }),
+          event(runId, 3, {
+            type: 'message',
+            data: {
+              message: {
+                message_id: 'retry-status',
+                role: 'system',
+                content: 'Retrying (attempt 2/10)',
+              },
+              final_output: false,
+            },
+          }),
+        ],
+      },
+    ]);
+    const statusEntries = projection.entries.filter(
+      (entry) =>
+        entry.type === 'NORMALIZED_ENTRY' &&
+        entry.content.entry_type.type === 'system_message'
+    );
+
+    expect(statusEntries).toHaveLength(1);
+    expect(statusEntries[0]?.type).toBe('NORMALIZED_ENTRY');
+    if (statusEntries[0]?.type === 'NORMALIZED_ENTRY') {
+      expect(statusEntries[0].content.content).toBe('Retrying (attempt 2/10)');
+      expect(statusEntries[0].canonical?.eventIds).toEqual([
+        `${runId}-event-1`,
+        `${runId}-event-3`,
+      ]);
+    }
+  });
+
   it('aggregates tools by run and tool-call id and closes them at terminal state', () => {
     const firstRun = 'run-tool-1';
     const secondRun = 'run-tool-2';

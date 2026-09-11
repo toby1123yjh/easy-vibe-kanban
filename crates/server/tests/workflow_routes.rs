@@ -1598,6 +1598,7 @@ async fn create_workflow_attempt_creates_issue_bound_draft() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -1648,6 +1649,7 @@ async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Workflow attempt".to_string()),
             graph_json: valid_graph_json(),
             repos: Some(vec![DraftWorkspaceRepo {
@@ -1673,6 +1675,79 @@ async fn create_workflow_attempt_with_resources_binds_ready_workspace() {
     assert_eq!(requests[0].repo_overrides.len(), 1);
     assert_eq!(requests[0].repo_overrides[0].repo_id, repo_id);
     assert_eq!(requests[0].repo_overrides[0].target_branch, "main");
+}
+
+#[tokio::test]
+async fn create_workflow_attempt_passes_direct_folder_to_workspace_resolver() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Folder workflow").await;
+    let resolver = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let attempt = create_issue_workflow_attempt_with_resources(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            directory_path: Some("F:/notes".to_string()),
+            name: Some("Folder workflow".to_string()),
+            graph_json: valid_graph_json(),
+            repos: None,
+        },
+        &resolver,
+    )
+    .await
+    .unwrap();
+    assert_eq!(attempt.workspace_id, Some(workspace_id));
+    let requests = resolver.requests();
+    assert_eq!(requests[0].directory_path.as_deref(), Some("F:/notes"));
+    assert!(requests[0].repo_overrides.is_empty());
+}
+
+#[tokio::test]
+async fn run_unbound_workflow_attempt_passes_direct_folder_to_workspace_resolver() {
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Folder workflow").await;
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            directory_path: None,
+            name: Some("Folder workflow".to_string()),
+            graph_json: valid_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .unwrap();
+    let resolver = FakeWorkspaceResolver::new(&pool, workspace_id);
+    let agent = FakeAgentExecutor::new(Uuid::new_v4(), "unused");
+    let run = run_workflow_attempt_runtime(
+        &pool,
+        attempt.id,
+        RunWorkflowAttemptRequest {
+            directory_path: Some("F:/notes".to_string()),
+            workspace_id: None,
+            trigger_source: "manual".to_string(),
+            input_text: "Run".to_string(),
+            repos: None,
+        },
+        &resolver,
+        &agent,
+    )
+    .await
+    .unwrap();
+    assert_eq!(run.attempt_id, Some(attempt.id));
+    let requests = resolver.requests();
+    assert_eq!(requests[0].directory_path.as_deref(), Some("F:/notes"));
+    assert!(requests[0].repo_overrides.is_empty());
 }
 
 #[tokio::test]
@@ -1723,6 +1798,7 @@ async fn workflow_attempt_resource_failure_compensates_all_created_resources() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Compensated attempt".to_string()),
             graph_json: agent_graph_json(),
             repos: None,
@@ -1757,6 +1833,7 @@ async fn list_project_workflows_excludes_attempt_owned_backing_workflows() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Hidden attempt graph".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -1790,6 +1867,7 @@ async fn workflow_attempt_can_be_resolved_from_backing_workflow() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Canvas-owned attempt".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -1821,6 +1899,7 @@ async fn delete_workflow_attempt_removes_backing_graph_runs_and_nodes() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Delete me".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -1917,6 +1996,7 @@ async fn workflow_attempt_create_rejects_issue_from_another_project() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Invalid".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -2089,6 +2169,7 @@ async fn revision_conflict_does_not_create_agent_sessions() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Concurrent Agent workflow".to_string()),
             graph_json: agent_graph_json(),
             repos: None,
@@ -2320,6 +2401,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Attempt run".to_string()),
             graph_json: valid_graph_json(),
             repos: None,
@@ -2334,6 +2416,7 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Implement by workflow".to_string(),
@@ -2381,6 +2464,7 @@ async fn workflow_agent_node_materializes_one_child_task_and_agent_binding() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Agent Task workflow".to_string()),
             graph_json: agent_graph_json(),
             repos: None,
@@ -2393,6 +2477,7 @@ async fn workflow_agent_node_materializes_one_child_task_and_agent_binding() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Run the Agent Task".to_string(),
@@ -2467,6 +2552,7 @@ async fn workflow_structural_nodes_never_materialize_tasks() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Structural workflow".to_string()),
             graph_json: structural_graph_json(),
             repos: None,
@@ -2479,6 +2565,7 @@ async fn workflow_structural_nodes_never_materialize_tasks() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Pause before routing".to_string(),
@@ -2527,6 +2614,7 @@ async fn workflow_arena_node_and_group_share_one_child_task() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Arena Task workflow".to_string()),
             graph_json: arena_graph_json(),
             repos: None,
@@ -2540,6 +2628,7 @@ async fn workflow_arena_node_and_group_share_one_child_task() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Run one Arena Task".to_string(),
@@ -2595,6 +2684,7 @@ async fn workflow_initialization_failure_rolls_back_runtime_materialization() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Atomic initialization".to_string()),
             graph_json: agent_graph_json(),
             repos: None,
@@ -2630,6 +2720,7 @@ async fn workflow_initialization_failure_rolls_back_runtime_materialization() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Trigger atomic rollback".to_string(),
@@ -2690,6 +2781,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
         project_id,
         issue_id,
         CreateWorkflowAttemptRequest {
+            directory_path: None,
             name: Some("Cancel attempt".to_string()),
             graph_json: agent_graph_json(),
             repos: None,
@@ -2704,6 +2796,7 @@ async fn canceling_workflow_attempt_syncs_attempt_status() {
         &pool,
         attempt.id,
         RunWorkflowAttemptRequest {
+            directory_path: None,
             workspace_id: None,
             trigger_source: "manual".to_string(),
             input_text: "Long task".to_string(),

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import { useDropzone } from 'react-dropzone';
+import { useTranslation } from 'react-i18next';
 import {
   BaseAgentCapability,
   type Session,
@@ -25,12 +26,10 @@ import {
   useEntries,
   useTokenUsage,
 } from '../model/contexts/EntriesContext';
-import { useExecutionProcesses } from '@/shared/hooks/useExecutionProcesses';
 import { useReviewOptional } from '@/shared/hooks/useReview';
 import { useActions } from '@/shared/hooks/useActions';
 import { useTodos } from '../model/hooks/useTodos';
-import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
-import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
+import { useSessionExecutorConfig } from '../model/hooks/useSessionExecutorConfig';
 import { useSessionMessageEditor } from '../model/hooks/useSessionMessageEditor';
 import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueInteraction';
 import { useSessionSend } from '../model/hooks/useSessionSend';
@@ -166,6 +165,7 @@ type SessionChatBoxContainerProps =
   | PlaceholderProps;
 
 export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
+  const { t } = useTranslation('tasks');
   const { openAgentCenter } = useSettingsNavigation();
   const {
     mode,
@@ -436,39 +436,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     });
   }, [workspaceId, repoWithConflicts, attemptBranch]);
 
-  // User profiles, config preference, and latest executor from processes
+  // User profiles and defaults are only initial values for unbound sessions.
   const { profiles, config, capabilities } = useUserSystem();
-
-  // Fetch processes from last session to get full profile (only in new session mode)
-  const lastSessionId = isNewSessionMode ? sessions?.[0]?.id : undefined;
-  const { executionProcesses: lastSessionProcesses } =
-    useExecutionProcesses(lastSessionId);
-
-  // Compute latestConfig: current processes > last session processes > session metadata
-  const latestConfig = useMemo(() => {
-    // Current session's processes take priority (full ExecutorConfig)
-    const fromProcesses = getLatestConfigFromProcesses(processes);
-    if (fromProcesses) return fromProcesses;
-
-    // Try full config from last session's processes
-    const fromLastSession = getLatestConfigFromProcesses(lastSessionProcesses);
-    if (fromLastSession) return fromLastSession;
-
-    // Fallback: just executor from session metadata
-    const lastSessionExecutor = sessions?.[0]?.executor;
-    if (lastSessionExecutor) {
-      return {
-        executor: lastSessionExecutor as BaseCodingAgent,
-      };
-    }
-
-    return null;
-  }, [processes, lastSessionProcesses, sessions]);
-
-  const resolvedInitialConfig = preferredExecutorConfig ?? latestConfig;
-  const needsExecutorSelection =
-    isNewSessionMode ||
-    (!session?.executor && !resolvedInitialConfig?.executor);
 
   // Message editor state
   const {
@@ -485,12 +454,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   // Ref to access current message value for attachment handler
   const localMessageRef = useRef(localMessage);
+  const draftScope = JSON.stringify([hostId, scratchId]);
   const draftIdentityRef = useRef({
-    sessionId: scratchId ?? '',
+    sessionId: draftScope,
     revision: 0,
   });
-  if (draftIdentityRef.current.sessionId !== (scratchId ?? '')) {
-    draftIdentityRef.current = { sessionId: scratchId ?? '', revision: 0 };
+  if (draftIdentityRef.current.sessionId !== draftScope) {
+    draftIdentityRef.current = { sessionId: draftScope, revision: 0 };
   }
   useEffect(() => {
     localMessageRef.current = localMessage;
@@ -530,8 +500,17 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
   const { uploadFiles, localAttachments, clearUploadedAttachments } =
     useSessionAttachments(workspaceId, sessionId, handleInsertMarkdown);
-  const scratchExecutorConfig =
-    preferredExecutorConfig ?? scratchData?.executor_config ?? undefined;
+
+  // The queue owns the submitted config until its durable run is created.
+  const {
+    isQueued,
+    queuedMessage,
+    queuedConfig,
+    isQueueLoading,
+    queueMessage,
+    cancelQueue,
+    refreshQueueStatus,
+  } = useSessionQueueInteraction({ sessionId });
 
   // Unified executor + variant + model selector options resolution
   const {
@@ -541,17 +520,48 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     executorOptions,
     variantOptions,
     presetOptions,
+    isConfigLoading,
+    configError,
+    refetchConfig,
+    needsExecutorSelection,
     setExecutor: setExecutor,
     setVariant: setSelectedVariant,
     setOverrides: setExecutorOverrides,
-  } = useExecutorConfig({
+  } = useSessionExecutorConfig({
+    sessionId,
+    workspaceId,
+    sessionExecutor: session?.executor,
+    isNewSessionMode,
+    preferredExecutorConfig,
+    isScratchLoading: mode !== 'placeholder' && isScratchLoading,
     profiles,
-    lastUsedConfig: latestConfig,
-    scratchConfig: scratchExecutorConfig,
+    scratchConfig: isQueued ? queuedConfig : scratchData?.executor_config,
     configExecutorProfile: config?.executor_profile,
     hiddenAgents: config?.hidden_agents,
-    onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
+    onPersist: (cfg) => {
+      draftIdentityRef.current.revision += 1;
+      void saveToScratch(localMessageRef.current, cfg);
+    },
   });
+  const liveExecutorConfigRef = useRef({
+    scope: draftScope,
+    config: executorConfig,
+  });
+  if (liveExecutorConfigRef.current.scope !== draftScope || executorConfig) {
+    // A refetch temporarily gates sending with null; retain the latest choice
+    // only for acknowledgement of this same draft, never for another session.
+    liveExecutorConfigRef.current = {
+      scope: draftScope,
+      config: executorConfig,
+    };
+  }
+
+  // Queue launches, retries and other tabs can create a new attempt without
+  // passing through this composer's send acknowledgement.
+  const latestRunAttemptId = latestAgentRunState?.last_run_attempt_id;
+  useEffect(() => {
+    if (sessionId && latestRunAttemptId) void refetchConfig();
+  }, [sessionId, latestRunAttemptId, refetchConfig]);
   const providerPolicy = useAgentProviderPolicy(effectiveExecutor);
   const [stagedResumeSession, setStagedResumeSession] =
     useState<ResumableAgentSession | null>(null);
@@ -585,17 +595,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     setSelectedSkills([]);
   }, [sessionId, workspaceId]);
 
-  // Queue interaction
-  const {
-    isQueued,
-    queuedMessage,
-    queuedConfig,
-    isQueueLoading,
-    queueMessage,
-    cancelQueue,
-    refreshQueueStatus,
-  } = useSessionQueueInteraction({ sessionId });
-
   // Send actions
   const {
     send,
@@ -611,9 +610,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   });
 
   const handleSend = useCallback(async () => {
+    if (!executorConfig) return;
     const submittedMessage = localMessage;
     const submission = snapshotSessionDraft({
-      sessionId: scratchId ?? '',
+      sessionId: draftScope,
       text: submittedMessage,
       revision: draftIdentityRef.current.revision,
     });
@@ -628,6 +628,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       resumeScopePath: resumeScopePath,
     });
     if (success) {
+      // Refresh the canonical snapshot before deleting the submitted draft.
+      if (sessionId) await refetchConfig();
+      if (draftIdentityRef.current.sessionId !== submission.sessionId) return;
       cancelDebouncedSave();
       const currentMessage = localMessageRef.current;
       if (
@@ -642,10 +645,13 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         setLocalMessage('');
         await clearDraft();
       } else if (
-        executorConfig &&
+        liveExecutorConfigRef.current.config &&
         draftIdentityRef.current.sessionId === submission.sessionId
       ) {
-        await saveToScratch(currentMessage, executorConfig);
+        await saveToScratch(
+          currentMessage,
+          liveExecutorConfigRef.current.config
+        );
       }
       setSelectedSkills([]);
       setStagedResumeSession(null);
@@ -663,7 +669,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     onScrollToBottom,
     send,
     localMessage,
-    scratchId,
+    draftScope,
     reviewMarkdown,
     selectedSkills,
     stagedResumeSession?.agent_session_id,
@@ -675,6 +681,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     clearUploadedAttachments,
     clearDraft,
     reviewContext,
+    sessionId,
+    refetchConfig,
   ]);
 
   // Track canonical run discovery for queue refresh.
@@ -705,7 +713,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     const submittedMessage = localMessage;
     const submission = snapshotSessionDraft({
-      sessionId: scratchId ?? '',
+      sessionId: draftScope,
       text: submittedMessage,
       revision: draftIdentityRef.current.revision,
     });
@@ -715,6 +723,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     await saveToScratch(submittedMessage, executorConfig);
     await queueMessage(prompt, executorConfig, selectedSkills);
 
+    if (draftIdentityRef.current.sessionId !== submission.sessionId) return;
     const currentMessage = localMessageRef.current;
     if (
       isSessionDraftSubmissionCurrent(
@@ -727,15 +736,15 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       draftIdentityRef.current.revision += 1;
       setLocalMessage('');
       await clearDraft();
-    } else if (draftIdentityRef.current.sessionId === submission.sessionId) {
-      await saveToScratch(currentMessage, executorConfig);
+    } else if (liveExecutorConfigRef.current.config) {
+      await saveToScratch(currentMessage, liveExecutorConfigRef.current.config);
     }
     setSelectedSkills([]);
     clearUploadedAttachments();
     reviewContext?.clearComments();
   }, [
     localMessage,
-    scratchId,
+    draftScope,
     reviewMarkdown,
     executorConfig,
     selectedSkills,
@@ -1229,31 +1238,43 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       />
     ) : undefined;
 
-  const modelSelectorNode =
-    effectiveExecutor || stagedResumeSession ? (
-      <>
-        {effectiveExecutor && (
-          <ModelSelectorContainer
-            agent={effectiveExecutor}
-            workspaceId={workspaceId}
-            sessionId={sessionId}
-            onAdvancedSettings={handleCustomise}
-            presets={variantOptions}
-            selectedPreset={selectedVariant}
-            onPresetSelect={setSelectedVariant}
-            onOverrideChange={setExecutorOverrides}
-            executorConfig={executorConfig}
-            presetOptions={presetOptions}
-          />
-        )}
-        {stagedResumeSession && (
-          <AgentSessionResumeChip
-            session={stagedResumeSession}
-            onClear={() => setStagedResumeSession(null)}
-          />
-        )}
-      </>
-    ) : undefined;
+  const modelSelectorNode = isConfigLoading ? (
+    <span className="text-low text-sm" role="status">
+      {t('common:sessionConfig.loading', 'Restoring session configuration…')}
+    </span>
+  ) : configError ? (
+    <button
+      type="button"
+      className="text-error text-sm"
+      onClick={() => void refetchConfig()}
+    >
+      {t('common:sessionConfig.retry', 'Retry loading session configuration')}
+    </button>
+  ) : effectiveExecutor || stagedResumeSession ? (
+    <>
+      {effectiveExecutor && (
+        <ModelSelectorContainer
+          key={`${hostId ?? 'local'}:${sessionId ?? workspaceId}`}
+          agent={effectiveExecutor}
+          workspaceId={workspaceId}
+          sessionId={sessionId}
+          onAdvancedSettings={handleCustomise}
+          presets={variantOptions}
+          selectedPreset={selectedVariant}
+          onPresetSelect={setSelectedVariant}
+          onOverrideChange={setExecutorOverrides}
+          executorConfig={executorConfig}
+          presetOptions={presetOptions}
+        />
+      )}
+      {stagedResumeSession && (
+        <AgentSessionResumeChip
+          session={stagedResumeSession}
+          onClear={() => setStagedResumeSession(null)}
+        />
+      )}
+    </>
+  ) : undefined;
 
   // In placeholder mode, render a disabled version to maintain visual structure
   if (mode === 'placeholder') {
@@ -1370,7 +1391,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         conflictedFilesCount,
         onResolveConflicts: handleResolveConflicts,
       }}
-      error={sendError}
+      error={configError?.message ?? sendError}
       agent={effectiveExecutor}
       todos={todos}
       inProgressTodo={inProgressTodo}

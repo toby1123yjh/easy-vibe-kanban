@@ -7,6 +7,8 @@ import {
 } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from '@/shared/hooks/useTheme';
+import { useReducedMotion } from '@/shared/hooks/useReducedMotion';
 import {
   ReactFlow,
   BaseEdge,
@@ -304,9 +306,9 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
   const agentDisplay =
     nodeKind === 'agent' ? getWorkflowAgentDisplay(data) : null;
   const authoringCardClasses = cn(
-    'rounded-lg border bg-panel shadow-sm transition-[border-color,box-shadow]',
-    issueCount > 0 ? 'border-warning/70' : 'border-secondary',
-    selected && 'border-brand ring-2 ring-brand/30'
+    WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.card,
+    'border-secondary',
+    selected && 'border-brand ring-1 ring-brand/25'
   );
 
   if (structural) {
@@ -324,12 +326,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
           <div
             data-testid={`workflow-node-issue-${id}`}
             title={validationIssues.map((issue) => issue.message).join('\n')}
-            className={cn(
-              'absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm',
-              WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.issueBadgeBorder
-            )}
+            className="absolute -top-5 right-0 text-xs text-warning"
           >
-            {issueCount}
+            {t('workflow.canvas.needsConfiguration', {
+              defaultValue: 'Needs configuration',
+            })}
           </div>
         ) : null}
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-secondary bg-secondary/30 text-low">
@@ -338,11 +339,8 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <div className="min-w-0">
           <div
             data-testid={`workflow-node-kind-${id}`}
-            className="text-[9px] font-semibold uppercase tracking-normal text-low"
+            className="truncate text-sm font-semibold text-high"
           >
-            {getWorkflowNodeKindLabel(nodeKind, t)}
-          </div>
-          <div className="truncate text-xs font-semibold text-high">
             {data.display_name || getWorkflowNodeKindLabel(nodeKind, t)}
           </div>
         </div>
@@ -355,7 +353,7 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
       data-testid={`workflow-node-${id}`}
       style={{ pointerEvents: 'all' }}
       className={cn(
-        'workflow-agent-step-node relative w-[232px] cursor-grab overflow-visible text-high active:cursor-grabbing',
+        'workflow-agent-step-node relative w-[248px] cursor-grab overflow-visible text-high active:cursor-grabbing',
         authoringCardClasses
       )}
     >
@@ -365,12 +363,11 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <div
           data-testid={`workflow-node-issue-${id}`}
           title={validationIssues.map((issue) => issue.message).join('\n')}
-          className={cn(
-            'absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full border bg-amber-500 px-1 text-[10px] font-semibold text-white shadow-sm',
-            WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.issueBadgeBorder
-          )}
+          className="absolute -top-5 right-0 text-xs text-warning"
         >
-          {issueCount}
+          {t('workflow.canvas.needsConfiguration', {
+            defaultValue: 'Needs configuration',
+          })}
         </div>
       ) : null}
       <div className="flex items-start gap-3 px-3 py-3 pl-4">
@@ -380,27 +377,21 @@ const BaseNode = ({ id, data, type, selected }: BaseNodeProps) => {
         <div className="min-w-0 flex-1">
           <div
             data-testid={`workflow-node-kind-${id}`}
-            className="truncate text-[10px] font-semibold uppercase tracking-normal text-low"
+            className="line-clamp-2 text-sm font-semibold leading-5 text-high"
           >
-            {getWorkflowNodeKindLabel(nodeKind, t)}
-            {issueCount > 0
-              ? ` · ${t('workflow.canvas.needsConfiguration', { defaultValue: 'Needs configuration' })}`
-              : ''}
-          </div>
-          <div className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-high">
             {data.display_name || type || t('workflow.canvas.nodeFallback')}
           </div>
           {agentDisplay ? (
             <div
               data-testid={`workflow-node-agent-${id}`}
-              className="mt-1 truncate text-[11px] text-low"
+              className="mt-1 truncate text-xs text-low"
               title={agentDisplay.agentLabel}
             >
               {agentDisplay.agentLabel}
             </div>
           ) : null}
           {nodeKind === 'arena' ? (
-            <div className="mt-1 text-[11px] text-low">
+            <div className="mt-1 text-xs text-low">
               {t('workflow.metadata.attempts', { defaultValue: 'Candidates' })}:{' '}
               {data.attempts?.length ?? 0}
             </div>
@@ -756,7 +747,7 @@ const WorkflowEdge = ({
           interactionWidth={0}
           className="workflow-edge-track"
           style={{
-            strokeWidth: isRunning ? 5.5 : selected || isInvalid ? 4.5 : 3.5,
+            strokeWidth: selected || isInvalid ? 3 : 2.5,
           }}
         />
         <BaseEdge
@@ -767,14 +758,16 @@ const WorkflowEdge = ({
           className={cn(
             'workflow-edge-path',
             selected && 'workflow-edge-path-selected',
-            selected ? 'stroke-brand' : statusPathClass
+            selected && visualStatus === 'idle' && !isInvalid
+              ? 'stroke-brand'
+              : statusPathClass
           )}
           style={{
             strokeWidth:
               visualStatus === 'running'
-                ? 2.8
+                ? 2
                 : selected || visualStatus === 'failed' || isInvalid
-                  ? 2.4
+                  ? 2
                   : 1.5,
             opacity:
               visualStatus === 'running'
@@ -793,7 +786,7 @@ const WorkflowEdge = ({
             isRunning && 'workflow-edge-beam-running',
             selected && isRunning && 'opacity-100'
           )}
-          style={{ strokeWidth: isRunning ? 3.35 : selected ? 2.25 : 1.5 }}
+          style={{ strokeWidth: 2 }}
         />
         {connectionIssueMessage ? (
           <EdgeLabelRenderer>
@@ -809,7 +802,7 @@ const WorkflowEdge = ({
               <span
                 data-testid={`workflow-edge-invalid-${id}`}
                 title={connectionIssueMessage}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-error/55 bg-error/15 text-error shadow-[0_0_16px_rgba(239,68,68,0.32)]"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-error/55 bg-error/15 text-error"
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
               </span>
@@ -913,6 +906,8 @@ export function WorkflowCanvas({
   onEdgeDelete,
   onNodeContextMenu,
 }: WorkflowCanvasProps) {
+  const { effectiveTheme } = useTheme();
+  const reducedMotion = useReducedMotion();
   const { t } = useTranslation('common');
   const [nodes, setNodes] = useNodesState<WorkflowCanvasFlowNode>([]);
   const [edges, setEdges] = useEdgesState<
@@ -1025,8 +1020,8 @@ export function WorkflowCanvas({
     const preserveLocalPositions =
       readOnly && lastSyncedGraphRef.current === graph;
     setNodes(() => {
-      const localPositions = new Map(
-        nodesRef.current.map((node) => [node.id, node.position] as const)
+      const localNodes = new Map(
+        nodesRef.current.map((node) => [node.id, node] as const)
       );
       const fallbackPositions = Object.fromEntries(
         graph.nodes.map((node, index) => [
@@ -1053,9 +1048,9 @@ export function WorkflowCanvas({
                 } satisfies WorkflowCanvasObjectActions,
               },
               position: preserveLocalPositions
-                ? (localPositions.get(n.id) ?? n.position)
+                ? (localNodes.get(n.id)?.position ?? n.position)
                 : n.position,
-              selected: false,
+              selected: localNodes.get(n.id)?.selected ?? false,
             } satisfies WorkflowCanvasFlowNode;
           }
 
@@ -1067,9 +1062,9 @@ export function WorkflowCanvas({
               __validationIssues: issuesByNodeId.get(n.id) ?? [],
             },
             position: preserveLocalPositions
-              ? (localPositions.get(n.id) ?? n.position)
+              ? (localNodes.get(n.id)?.position ?? n.position)
               : n.position,
-            selected: false,
+            selected: localNodes.get(n.id)?.selected ?? false,
           } satisfies WorkflowCanvasFlowNode;
         }
       );
@@ -1078,6 +1073,11 @@ export function WorkflowCanvas({
     });
     lastSyncedGraphRef.current = graph;
     const graphEdgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+    // Graph edits and validation refreshes must not clear interaction state.
+    // The selection effect below handles changes to the controlled IDs.
+    const selectedEdges = new Set(
+      edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id)
+    );
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
     const nextEdges = toReactFlowEdges(graph).map((edge) => {
       const graphEdge = graphEdgeById.get(edge.id);
@@ -1104,7 +1104,7 @@ export function WorkflowCanvas({
               getWorkflowCanvasNodeTypeById(graph.nodes)
             ) ?? undefined,
         },
-        selected: false,
+        selected: selectedEdges.has(edge.id),
       };
     }) satisfies ReactFlowEdge<WorkflowCanvasEdgeData>[];
     edgesRef.current = nextEdges;
@@ -1669,23 +1669,20 @@ export function WorkflowCanvas({
         snapGrid={WORKFLOW_CANVAS_SNAP_GRID}
         deleteKeyCode={null}
         fitView
+        colorMode={effectiveTheme}
         className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
       >
         <Background
           id="bg-grid-dots"
           variant={BackgroundVariant.Dots}
           gap={WORKFLOW_CANVAS_SNAP_GRID[0]}
-          size={1.5}
+          size={1}
           color="var(--workflow-canvas-grid-dot)"
         />
-        <Background
-          id="bg-grid-lines"
-          variant={BackgroundVariant.Lines}
-          gap={WORKFLOW_CANVAS_SNAP_GRID[0] * 5}
-          size={1}
-          color="var(--workflow-canvas-grid-line)"
+        <Controls
+          className={WORKFLOW_CANVAS_CLASS_NAMES.controls}
+          fitViewOptions={{ duration: reducedMotion ? 0 : 240 }}
         />
-        <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
       </ReactFlow>
     </div>
   );

@@ -8,6 +8,7 @@ pub mod gh_cli_setup;
 pub mod git;
 pub mod integration;
 pub mod links;
+pub(crate) mod managed_directory;
 pub mod pr;
 pub mod repos;
 pub mod streams;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cloneDeep, isEqual, merge } from 'lodash';
 import {
@@ -54,14 +54,32 @@ import {
   SettingsTextarea,
 } from './SettingsComponents';
 import { useSettingsDirty } from './SettingsDirtyContext';
+import { useSettingsMachineState } from './SettingsMachineUserSystemProvider';
+import { ManagedWorkspaceDirectoryField } from './ManagedWorkspaceDirectoryField';
+import { useSettingsMachineClient } from './SettingsHostContext';
 
 export function GeneralSettingsSection({
   includeAgentSettings = true,
 }: {
   includeAgentSettings?: boolean;
 } = {}) {
+  const machineClient = useSettingsMachineClient();
+  return (
+    <GeneralSettingsForm
+      key={`${machineClient?.target.kind}:${machineClient?.target.id}`}
+      includeAgentSettings={includeAgentSettings}
+    />
+  );
+}
+
+function GeneralSettingsForm({
+  includeAgentSettings,
+}: {
+  includeAgentSettings: boolean;
+}) {
   const { t } = useTranslation(['settings', 'common']);
   const { setDirty: setContextDirty } = useSettingsDirty();
+  const machineState = useSettingsMachineState();
 
   const isMobile = useIsMobile();
   const [mobileFontScale, setMobileFontScale] = useMobileFontScale();
@@ -78,6 +96,14 @@ export function GeneralSettingsSection({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const saveOwner = useRef({ mounted: true, pending: false });
+  useEffect(() => {
+    const owner = saveOwner.current;
+    owner.mounted = true;
+    return () => {
+      owner.mounted = false;
+    };
+  }, []);
   const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
     null
   );
@@ -142,8 +168,10 @@ export function GeneralSettingsSection({
 
   const hasUnsavedChanges = useMemo(() => {
     if (!draft || !config) return false;
-    return !isEqual(draft, config);
-  }, [draft, config]);
+    // The controller optimistically updates config before persistence finishes.
+    // Keep the draft dirty until saving explicitly succeeds or it is discarded.
+    return dirty || !isEqual(draft, config);
+  }, [draft, config, dirty]);
 
   // Sync dirty state to context for unsaved changes confirmation
   useEffect(() => {
@@ -156,9 +184,7 @@ export function GeneralSettingsSection({
       setDraft((prev: typeof config) => {
         if (!prev) return prev;
         const next = merge({}, prev, patch);
-        if (!isEqual(next, config)) {
-          setDirty(true);
-        }
+        setDirty(!isEqual(next, config));
         return next;
       });
     },
@@ -184,23 +210,33 @@ export function GeneralSettingsSection({
   };
 
   const handleSave = async () => {
-    if (!draft) return;
+    if (!draft || saveOwner.current.pending || !machineState.canMutate) return;
+    const owner = saveOwner.current;
+    owner.pending = true;
 
     setSaving(true);
     setError(null);
     setSuccess(false);
 
     try {
-      await updateAndSaveConfig(draft);
+      const saved = await updateAndSaveConfig(draft);
+      if (!owner.mounted) return;
+      if (!saved) {
+        setError(t('settings.general.save.error'));
+        return;
+      }
       setTheme(draft.theme);
       setDirty(false);
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => {
+        if (owner.mounted) setSuccess(false);
+      }, 3000);
     } catch (err) {
-      setError(t('settings.general.save.error'));
+      if (owner.mounted) setError(t('settings.general.save.error'));
       console.error('Error saving config:', err);
     } finally {
-      setSaving(false);
+      owner.pending = false;
+      if (owner.mounted) setSaving(false);
     }
   };
 
@@ -534,6 +570,18 @@ export function GeneralSettingsSection({
         </SettingsCard>
       )}
 
+      <SettingsCard
+        title={t('settings.general.managedDirectory.label', {
+          defaultValue: 'Default session directory',
+        })}
+      >
+        <ManagedWorkspaceDirectoryField
+          value={draft?.managed_workspace_root ?? null}
+          onChange={(value) => updateDraft({ managed_workspace_root: value })}
+          disabled={saving}
+        />
+      </SettingsCard>
+
       {/* Git */}
       <SettingsCard
         title={t('settings.general.git.title')}
@@ -848,7 +896,7 @@ export function GeneralSettingsSection({
       <SettingsSaveBar
         show={hasUnsavedChanges}
         saving={saving}
-        saveDisabled={!!branchPrefixError}
+        saveDisabled={!!branchPrefixError || !machineState.canMutate}
         onSave={handleSave}
         onDiscard={handleDiscard}
       />

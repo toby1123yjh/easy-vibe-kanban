@@ -60,8 +60,10 @@ export function WorkflowNodeTypePicker({
               defaultValue: 'Add Node',
             })}
           >
-            <Plus className="size-4" aria-hidden="true" />
-            {t('workflow.nodePicker.addNode', { defaultValue: 'Add Node' })}
+            <span className="inline-flex items-center gap-2">
+              <Plus className="size-4 shrink-0" aria-hidden="true" />
+              {t('workflow.nodePicker.addNode', { defaultValue: 'Add Node' })}
+            </span>
           </Button>
         </PopoverTrigger>
       )}

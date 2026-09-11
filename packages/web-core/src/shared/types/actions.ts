@@ -61,7 +61,7 @@ export interface ActionExecutorContext {
   appNavigation: AppNavigation;
   openSettings: (
     section: SettingsNavigationSection,
-    options?: { hostId?: string | null; replace?: boolean }
+    options?: { hostId?: string | null; replace?: boolean; projectId?: string }
   ) => void;
   queryClient: QueryClient;
   selectWorkspace: (workspaceId: string) => void;

@@ -418,17 +418,27 @@ impl Task {
         session_id: Uuid,
     ) -> Result<(), SessionError> {
         let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
-        Self::validate_agent_deletion(&mut transaction, task_id, session_id).await?;
+        Self::delete_agent_with_session_in_transaction(&mut transaction, task_id, session_id)
+            .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(SessionError::from_deletion_error)?;
+        Ok(())
+    }
+
+    pub async fn delete_agent_with_session_in_transaction(
+        transaction: &mut sqlx::SqliteConnection,
+        task_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<(), SessionError> {
+        Self::validate_agent_deletion(&mut *transaction, task_id, session_id).await?;
         sqlx::query("DELETE FROM tasks WHERE id = ?")
             .bind(task_id)
             .execute(&mut *transaction)
             .await
             .map_err(SessionError::from_deletion_error)?;
-        Session::delete_in_transaction(&mut transaction, session_id).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(SessionError::from_deletion_error)?;
+        Session::delete_in_transaction(&mut *transaction, session_id).await?;
         Ok(())
     }
 

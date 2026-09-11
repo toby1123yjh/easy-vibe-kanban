@@ -22,6 +22,38 @@
   text-transform: uppercase;
 }
 
+.vk-settings-page__back {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  margin: -12px 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--vk-radius-sm);
+  background: transparent;
+  color: var(--vk-text-normal);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.vk-settings-page__back svg {
+  width: 16px;
+  height: 16px;
+}
+
+.vk-settings-page__back:hover {
+  color: var(--vk-text-high);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.vk-settings-page__back:focus-visible {
+  outline: 2px solid var(--vk-brand);
+  outline-offset: 2px;
+}
+
 .vk-settings-page__header h1 {
   margin: 0;
   color: var(--vk-text-high);

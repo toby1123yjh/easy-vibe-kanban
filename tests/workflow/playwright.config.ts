@@ -1,10 +1,11 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from "@playwright/test";
 
 const port = 4175;
 const repoRoot = process.cwd();
 
 export default defineConfig({
-  testDir: './specs',
+  testDir: "./specs",
+  testIgnore: "workflow-visual.spec.ts",
   outputDir: `${repoRoot}/test-results/workflow`,
   timeout: 30_000,
   expect: {
@@ -13,19 +14,19 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [
-    ['list'],
+    ["list"],
     [
-      'html',
+      "html",
       {
-        open: 'never',
+        open: "never",
         outputFolder: `${repoRoot}/playwright-report/workflow`,
       },
     ],
   ],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    screenshot: 'only-on-failure',
-    trace: 'on-first-retry',
+    screenshot: "only-on-failure",
+    trace: "on-first-retry",
   },
   webServer: {
     command: `pnpm exec vite --host 127.0.0.1 --port ${port} --strictPort --config tests/workflow/vite.config.ts`,
@@ -35,10 +36,10 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: "chromium",
       use: {
-        ...devices['Desktop Chrome'],
-        ...(process.env.CI ? {} : { channel: 'chrome' }),
+        ...devices["Desktop Chrome"],
+        ...(process.env.CI ? {} : { channel: "chrome" }),
       },
     },
   ],

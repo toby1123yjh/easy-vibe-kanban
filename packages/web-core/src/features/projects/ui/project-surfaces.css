@@ -21,9 +21,7 @@
 .vk-project-card__copy strong,
 .vk-project-card__copy small,
 .vk-kanban-issue-card h3,
-.vk-kanban-column__header h2,
-.vk-kanban-drag-preview span,
-.vk-kanban-drag-preview strong {
+.vk-kanban-column__header h2 {
   margin: 0;
 }
 
@@ -174,6 +172,44 @@
   color: var(--vk-text-high);
 }
 
+.vk-project-actions-trigger {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
+  color: var(--vk-text-low);
+  background: var(--vk-surface-primary);
+  cursor: pointer;
+}
+
+.vk-project-actions-trigger:hover,
+.vk-project-actions-trigger[aria-expanded='true'] {
+  color: var(--vk-text-high);
+  background: var(--vk-surface-hover);
+}
+
+.vk-project-actions-trigger:focus-visible {
+  outline: 2px solid var(--vk-brand);
+  outline-offset: 2px;
+}
+
+.vk-project-actions-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .vk-project-actions-trigger {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .vk-project-card__cover {
   display: grid;
   min-height: 116px;
@@ -206,6 +242,42 @@
   border: 1px dashed var(--vk-border-subtle);
   border-radius: var(--vk-radius-lg);
   background: var(--vk-surface-primary);
+}
+
+.vk-project-directory__state.vk-project-directory__state--inline {
+  display: flex;
+  min-height: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--vk-space-3);
+  padding: var(--vk-space-4);
+  border-style: solid;
+  border-radius: var(--vk-radius-md);
+  color: var(--vk-text-low);
+  background: var(--vk-surface-secondary);
+  text-align: left;
+}
+
+.vk-project-directory__state.vk-project-directory__state--inline[data-state='error'] {
+  color: var(--vk-text-low);
+  background: var(--vk-surface-secondary);
+}
+
+.vk-project-directory__state--inline [class*='max-w-prose'] {
+  min-width: 0;
+}
+
+.vk-project-directory__state--inline [class*='max-w-prose'] > div:first-child {
+  color: var(--vk-text-high);
+}
+
+.vk-project-directory__state--inline [class*='max-w-prose'] > div + div {
+  color: var(--vk-text-low);
+}
+
+.vk-project-directory__state--inline [class*='max-w-prose'] + div {
+  margin-left: auto;
 }
 
 .vk-project-surface-state {
@@ -375,13 +447,14 @@
   min-height: 100%;
   align-items: stretch;
   gap: var(--vk-kanban-column-gap);
-  padding: 0 var(--vk-page-gutter) var(--vk-page-gutter);
+  padding: var(--vk-space-3) var(--vk-page-gutter) var(--vk-page-gutter);
 }
 
 .vk-kanban-column {
   width: var(--vk-kanban-column-width);
   min-width: var(--vk-kanban-column-width);
-  border-radius: 0 0 var(--vk-radius-lg) var(--vk-radius-lg);
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
   background: var(--vk-kanban-column-surface);
 }
 
@@ -400,6 +473,8 @@
   gap: var(--vk-space-2);
   padding: var(--vk-space-2) var(--vk-space-3);
   border-bottom: 1px solid var(--vk-border-subtle);
+  border-radius: calc(var(--vk-radius-sm) - 1px) calc(var(--vk-radius-sm) - 1px)
+    0 0;
   background: var(--vk-kanban-column-surface);
 }
 
@@ -481,7 +556,8 @@
 }
 
 .vk-kanban-issue-card[data-dragging='true'] {
-  opacity: 0.4;
+  opacity: 0;
+  transition: none;
   cursor: grabbing;
 }
 
@@ -735,25 +811,25 @@
 }
 
 .vk-kanban-drag-preview {
-  display: grid;
-  width: var(--vk-kanban-column-width);
-  gap: var(--vk-space-2);
-  padding: var(--vk-space-3);
+  position: relative;
+  box-sizing: border-box;
+  align-content: start;
+  grid-auto-rows: max-content;
+  overflow: hidden;
   border: 1px solid var(--vk-selection-ring);
-  border-radius: var(--vk-radius-md);
-  color: var(--vk-text-high);
-  background: var(--vk-surface-elevated);
   box-shadow: var(--vk-shadow-drag);
+  pointer-events: none;
+  transition: none;
 }
 
-.vk-kanban-drag-preview span {
-  color: var(--vk-text-low);
-  font-family: var(--vk-font-mono);
-  font-size: var(--vk-font-size-2xs);
-}
-
-.vk-kanban-drag-preview strong {
-  font-size: var(--vk-font-size-sm);
+.vk-kanban-drag-preview[data-clipped='true']::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--vk-space-8);
+  background: linear-gradient(transparent, var(--vk-surface-primary));
+  content: '';
 }
 
 .vk-issue-floating-panel {

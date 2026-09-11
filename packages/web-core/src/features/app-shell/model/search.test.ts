@@ -112,6 +112,15 @@ test.describe('Global Search projection', () => {
   });
 
   test('maps scoped object routes before capability revalidation', () => {
+    expect(deriveSearchRouteModule('/projects/p-1/issues/i-1')).toBe(
+      'projects'
+    );
+    expect(
+      isSearchRouteAvailable('/projects/p-1?tab=issues', {
+        ...MODULE_CAPABILITIES,
+        projects: { availability: 'unavailable', reason: 'Host offline' },
+      })
+    ).toBe(false);
     expect(deriveSearchRouteModule('/workspaces/w-1?tab=chat')).toBe(
       'projects'
     );

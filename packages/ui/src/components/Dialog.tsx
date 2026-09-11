@@ -24,8 +24,7 @@ const DialogOverlay = React.forwardRef<
     data-tauri-drag-region
     className={cn(
       'fixed inset-0 z-[var(--vk-z-overlay)] bg-[var(--vk-dialog-scrim)] backdrop-blur-[var(--vk-overlay-backdrop-blur)]',
-      'data-[state=open]:animate-in data-[state=closed]:animate-out',
-      'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+      'vk-dialog-overlay-motion',
       className
     )}
     {...props}
@@ -60,13 +59,10 @@ const DialogContent = React.forwardRef<
         ref={ref}
         className={cn(
           'fixed left-1/2 top-1/2 z-[var(--vk-z-dialog)] max-h-[min(85vh,720px)] w-[calc(100%-2rem)] max-w-lg',
-          '-translate-x-1/2 -translate-y-1/2 overflow-y-auto',
+          '-translate-x-1/2 -translate-y-1/2 vk-dialog-centered overflow-y-auto',
           'rounded-[var(--vk-dialog-radius)] border border-[var(--vk-dialog-border)] bg-[var(--vk-dialog-surface)] text-[var(--vk-text-normal)] shadow-[var(--vk-dialog-shadow)]',
           'break-words outline-none',
-          'data-[state=open]:animate-in data-[state=closed]:animate-out',
-          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-          'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-          'duration-[var(--vk-duration-normal)]',
+          'vk-dialog-content-motion',
           className
         )}
         {...props}

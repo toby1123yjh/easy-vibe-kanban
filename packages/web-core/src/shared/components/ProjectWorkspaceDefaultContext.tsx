@@ -68,7 +68,7 @@ export function ProjectWorkspaceDefaultContext({
   );
 
   const openConfiguration = () => {
-    openSettings('projects', { hostId: hostId ?? 'local' });
+    openSettings('projects', { hostId: hostId ?? 'local', projectId });
   };
 
   const isPanel = variant === 'panel';

@@ -1179,6 +1179,7 @@
     },
     "errors": {
       "rescan": "ホストを再スキャンできませんでした。",
+      "loadRemoteHosts": "リモートホスト一覧を読み込めませんでした。再試行してください。",
       "setDefault": "既定の Provider を更新できませんでした。",
       "loadProviders": "Provider の機能を読み込めませんでした。",
       "loadTools": "Agent Tool の概要を更新できませんでした。"

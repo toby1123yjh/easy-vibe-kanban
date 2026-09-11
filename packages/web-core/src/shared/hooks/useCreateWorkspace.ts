@@ -7,6 +7,7 @@ import {
   USER_WORKSPACES_SHAPE,
 } from 'shared/remote-types';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
+import { invalidateSessionDiscovery } from '@/shared/lib/sessionDiscoveryCache';
 
 interface CreateWorkspaceParams {
   data: CreateAndStartWorkspaceRequest;
@@ -23,12 +24,18 @@ export function useCreateWorkspace() {
     mutationFn: async ({ data, linkToIssue }: CreateWorkspaceParams) => {
       const { workspace } = await workspacesApi.createAndStart(data);
 
+      // Start persists the first session too. Publish it before optional Issue
+      // linking, whose failure must not hide an already-created session.
+      void invalidateSessionDiscovery(queryClient);
+
       if (linkToIssue && workspace && !data.linked_issue) {
         await workspacesApi.linkToIssue(
           workspace.id,
           linkToIssue.remoteProjectId,
           linkToIssue.issueId
         );
+        // The optional link updates the canonical session's Issue identity.
+        void invalidateSessionDiscovery(queryClient);
       }
 
       return { workspace };

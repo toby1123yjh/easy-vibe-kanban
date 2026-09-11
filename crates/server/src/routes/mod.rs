@@ -20,6 +20,7 @@ pub mod events;
 pub mod execution_data;
 pub mod execution_processes;
 pub mod frontend;
+pub mod git_import;
 pub mod health;
 pub mod host_relay;
 pub mod local_remote;
@@ -58,6 +59,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(organizations::router())
         .merge(filesystem::router())
         .merge(repo::router())
+        .merge(git_import::router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
         .merge(scratch::router(&deployment))

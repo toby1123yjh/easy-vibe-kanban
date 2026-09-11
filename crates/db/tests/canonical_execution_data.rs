@@ -219,6 +219,120 @@ async fn updated_at(pool: &SqlitePool, table: &str, id: Uuid) -> String {
 }
 
 #[tokio::test]
+async fn unbound_session_deletion_cascades_session_owned_records() {
+    let pool = migrated_pool().await;
+    let workspace_id = uuid(9_001);
+    let session_id = uuid(9_002);
+    insert_workspace_and_session(&pool, workspace_id, session_id, "Ordinary", BASELINE).await;
+    sqlx::query(
+        "INSERT INTO scratch (id, scratch_type, payload) VALUES (?, 'draft_follow_up', '{}')",
+    )
+    .bind(session_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(Session::delete(&pool, session_id).await.unwrap(), 1);
+    assert!(
+        Session::find_by_id(&pool, session_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let scratch_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM scratch WHERE id = ?")
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(scratch_count, 0);
+}
+
+#[tokio::test]
+async fn bound_session_deletion_is_rejected_without_removing_session() {
+    let pool = migrated_pool().await;
+    let project_id = uuid(9_101);
+    let issue_id = uuid(9_102);
+    let workspace_id = uuid(9_103);
+    let session_id = uuid(9_104);
+    let task_id = uuid(9_105);
+    insert_project(&pool, project_id, "Project", BASELINE).await;
+    insert_issue(&pool, project_id, issue_id, 9_101).await;
+    insert_workspace_and_session(&pool, workspace_id, session_id, "Bound", BASELINE).await;
+    insert_task(
+        &pool,
+        task_id,
+        project_id,
+        issue_id,
+        None,
+        "Bound task",
+        "agent",
+        BASELINE,
+    )
+    .await;
+    bind_agent(&pool, task_id, session_id).await;
+
+    let error = Session::delete(&pool, session_id).await.unwrap_err();
+    assert!(matches!(
+        error,
+        db::models::session::SessionError::AgentTaskBound { task_id: id } if id == task_id
+    ));
+    assert!(
+        Session::find_by_id(&pool, session_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn active_agent_session_deletion_is_rejected_without_removing_session() {
+    let pool = migrated_pool().await;
+    let workspace_id = uuid(9_201);
+    let session_id = uuid(9_202);
+    let run_id = uuid(9_203);
+    insert_workspace_and_session(&pool, workspace_id, session_id, "Active", BASELINE).await;
+    insert_agent_run_state(&pool, run_id, session_id, workspace_id, "running", BASELINE).await;
+
+    let error = Session::delete(&pool, session_id).await.unwrap_err();
+    assert!(matches!(
+        error,
+        db::models::session::SessionError::ActiveAgentRun
+    ));
+    assert!(
+        Session::find_by_id(&pool, session_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn running_process_session_deletion_is_rejected_without_removing_session() {
+    let pool = migrated_pool().await;
+    let workspace_id = uuid(9_301);
+    let session_id = uuid(9_302);
+    insert_workspace_and_session(&pool, workspace_id, session_id, "Process", BASELINE).await;
+    sqlx::query("INSERT INTO execution_processes (id, session_id) VALUES (?, ?)")
+        .bind(uuid(9_303))
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let error = Session::delete(&pool, session_id).await.unwrap_err();
+    assert!(matches!(
+        error,
+        db::models::session::SessionError::ActiveExecutionProcess
+    ));
+    assert!(
+        Session::find_by_id(&pool, session_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
 async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
     let pool = migrated_pool().await;
     let project_ids = [uuid(1), uuid(2), uuid(3), uuid(4)];
@@ -367,6 +481,161 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
             .iter()
             .chain(&second_sessions.sessions)
             .all(|session| session.id != incidental_session_id)
+    );
+}
+
+#[tokio::test]
+async fn recent_sessions_include_unbound_workspaces_and_title_fallbacks() {
+    let pool = migrated_pool().await;
+    let project_id = uuid(500);
+    let issue_id = uuid(501);
+    insert_project(&pool, project_id, "Projection project", BASELINE).await;
+    insert_issue(&pool, project_id, issue_id, 50).await;
+
+    let bound_workspace_id = uuid(510);
+    let bound_session_id = uuid(511);
+    let bound_task_id = uuid(512);
+    insert_workspace_and_session(
+        &pool,
+        bound_workspace_id,
+        bound_session_id,
+        "Bound session",
+        AGENT_ACTIVITY,
+    )
+    .await;
+    insert_task(
+        &pool,
+        bound_task_id,
+        project_id,
+        issue_id,
+        None,
+        "Bound task title",
+        "agent",
+        AGENT_ACTIVITY,
+    )
+    .await;
+    bind_agent(&pool, bound_task_id, bound_session_id).await;
+
+    let session_named_workspace_id = uuid(520);
+    let session_named_id = uuid(521);
+    insert_workspace_and_session(
+        &pool,
+        session_named_workspace_id,
+        session_named_id,
+        "Session title",
+        WORKFLOW_ACTIVITY,
+    )
+    .await;
+    sqlx::query("UPDATE workspaces SET name = 'Workspace title' WHERE id = ?")
+        .bind(session_named_workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let workspace_named_workspace_id = uuid(530);
+    let workspace_named_id = uuid(531);
+    insert_workspace_and_session(
+        &pool,
+        workspace_named_workspace_id,
+        workspace_named_id,
+        "Workspace title",
+        NODE_ACTIVITY,
+    )
+    .await;
+    sqlx::query("UPDATE sessions SET name = NULL WHERE id = ?")
+        .bind(workspace_named_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let untitled_workspace_id = uuid(540);
+    let untitled_id = uuid(541);
+    insert_workspace_and_session(
+        &pool,
+        untitled_workspace_id,
+        untitled_id,
+        "",
+        ARENA_ACTIVITY,
+    )
+    .await;
+    sqlx::query("UPDATE workspaces SET name = NULL WHERE id = ?")
+        .bind(untitled_workspace_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE sessions SET name = NULL WHERE id = ?")
+        .bind(untitled_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let page = Session::list_recent_all(&pool, None, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(page.sessions.len(), 4);
+
+    let first_page = Session::list_recent_all(&pool, None, None, 2)
+        .await
+        .unwrap();
+    let second_page = Session::list_recent_all(&pool, None, first_page.next_cursor, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        first_page
+            .sessions
+            .iter()
+            .chain(&second_page.sessions)
+            .map(|session| session.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        4
+    );
+    assert!(second_page.next_cursor.is_none());
+
+    let bound = page
+        .sessions
+        .iter()
+        .find(|session| session.id == bound_session_id)
+        .unwrap();
+    assert_eq!(bound.task_id, Some(bound_task_id));
+    assert_eq!(bound.project_id, Some(project_id));
+    assert_eq!(bound.issue_id, Some(issue_id));
+    assert_eq!(bound.title, "Bound task title");
+
+    let session_named = page
+        .sessions
+        .iter()
+        .find(|session| session.id == session_named_id)
+        .unwrap();
+    assert_eq!(session_named.task_id, None);
+    assert_eq!(session_named.project_id, None);
+    assert_eq!(session_named.issue_id, None);
+    assert_eq!(session_named.title, "Session title");
+
+    let workspace_named = page
+        .sessions
+        .iter()
+        .find(|session| session.id == workspace_named_id)
+        .unwrap();
+    assert_eq!(workspace_named.title, "Workspace title");
+
+    let untitled = page
+        .sessions
+        .iter()
+        .find(|session| session.id == untitled_id)
+        .unwrap();
+    assert_eq!(untitled.title, "Untitled session");
+
+    let project_page = Session::list_recent_all(&pool, Some(project_id), None, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        project_page
+            .sessions
+            .iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>(),
+        vec![bound_session_id]
     );
 }
 

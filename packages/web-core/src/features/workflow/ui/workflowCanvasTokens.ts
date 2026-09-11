@@ -28,6 +28,7 @@ export const WORKFLOW_CANVAS_COLOR_TOKENS = {
 } as const;
 
 export const WORKFLOW_CANVAS_NODE_SURFACE_CLASSES = {
+  card: 'workflow-node-card rounded-[6px] border bg-[var(--workflow-node-bg)] shadow-[var(--workflow-node-shadow-base)] transition-colors duration-[140ms] motion-reduce:transition-none',
   structural:
     'bg-[var(--workflow-node-structural-bg)] shadow-[var(--workflow-node-shadow-structural)]',
   agent:
@@ -41,10 +42,10 @@ export const WORKFLOW_CANVAS_NODE_SURFACE_CLASSES = {
     'h-4 w-4 border-[3px] border-[var(--workflow-node-port-ring)] bg-brand/80 shadow-[var(--workflow-node-shadow-port)] transition-colors hover:bg-brand',
   issueBadgeBorder: 'border-[var(--workflow-node-issue-border)]',
   staleBadge:
-    'absolute -top-2 right-2 z-10 max-w-[170px] truncate rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-200 shadow-[var(--workflow-node-shadow-stale)]',
-  chip: 'inline-flex items-center rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low',
+    'absolute -top-2 right-2 z-10 max-w-[170px] truncate rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold text-warning shadow-[var(--workflow-node-shadow-stale)]',
+  chip: 'inline-flex items-center rounded border border-secondary bg-secondary/30 px-1.5 py-0.5 text-xs font-medium leading-none text-low',
   chipTruncate:
-    'inline-flex max-w-full items-center truncate rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium leading-none text-low',
+    'inline-flex max-w-full items-center truncate rounded border border-secondary bg-secondary/30 px-1.5 py-0.5 text-xs font-medium leading-none text-low',
   note: 'relative h-full min-h-[120px] w-full min-w-[220px] overflow-hidden rounded-lg border p-3 shadow-[var(--workflow-note-shadow)] backdrop-blur transition-colors',
   stageGroup:
     'relative h-full min-h-[170px] w-full min-w-[360px] rounded-xl border p-4 text-low transition-colors',
@@ -54,14 +55,14 @@ export const WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES: Record<
   WorkflowCanvasNodeState,
   string
 > = {
-  draft: 'border-white/12',
-  configured: 'border-white/12',
-  pending: 'border-white/15',
+  draft: 'border-secondary',
+  configured: 'border-secondary',
+  pending: 'border-secondary',
   running: 'border-brand/70 shadow-[var(--workflow-node-shadow-running)]',
   succeeded: 'border-success/45 shadow-[var(--workflow-node-shadow-succeeded)]',
   failed: 'border-error/70 shadow-[var(--workflow-node-shadow-failed)]',
   waiting: 'border-warning/60 shadow-[var(--workflow-node-shadow-waiting)]',
-  skipped: 'border-white/10 opacity-80',
+  skipped: 'border-secondary opacity-80',
 };
 
 export const WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES: Record<
@@ -86,14 +87,14 @@ export const WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES: Record<
   WorkflowCanvasNodeState,
   string
 > = {
-  draft: 'border-white/10 bg-white/[0.04] text-low',
-  configured: 'border-white/10 bg-white/[0.04] text-low',
-  pending: 'border-white/10 bg-white/[0.04] text-low',
+  draft: 'border-secondary bg-secondary/30 text-low',
+  configured: 'border-secondary bg-secondary/30 text-low',
+  pending: 'border-secondary bg-secondary/30 text-low',
   running: 'border-brand/35 bg-brand/10 text-brand',
   succeeded: 'border-success/35 bg-success/10 text-success',
   failed: 'border-error/35 bg-error/10 text-error',
   waiting: 'border-warning/35 bg-warning/10 text-warning',
-  skipped: 'border-white/10 bg-white/[0.03] text-low',
+  skipped: 'border-secondary bg-secondary/30 text-low',
 };
 
 export const WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES: Record<
@@ -138,21 +139,21 @@ export const WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES: Record<
 
 export const WORKFLOW_CANVAS_EDGE_CLASSES = {
   actionButton:
-    'workflow-edge-action-button nodrag nopan relative flex h-7 w-7 items-center justify-center rounded-[6px] border border-brand/35 bg-[var(--workflow-edge-action-bg)] text-brand shadow-[var(--workflow-edge-action-shadow)] transition-[transform,border-color,background-color,color,box-shadow] duration-150 hover:border-brand hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/55 active:scale-95',
+    'workflow-edge-action-button nodrag nopan relative flex h-7 w-7 items-center justify-center rounded-[6px] border border-brand/35 bg-[var(--workflow-edge-action-bg)] text-brand shadow-[var(--workflow-edge-action-shadow)] transition-colors duration-150 hover:border-brand hover:bg-brand hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/55',
 } as const;
 
 export const WORKFLOW_CANVAS_NOTE_COLOR_CLASSES = {
-  amber: 'border-amber-300/35 bg-amber-300/12 text-amber-50',
-  blue: 'border-sky-300/30 bg-sky-300/10 text-sky-50',
-  green: 'border-emerald-300/30 bg-emerald-300/10 text-emerald-50',
-  neutral: 'border-white/12 bg-white/[0.06] text-high',
+  amber: 'border-amber-300/35 bg-amber-300/12 text-normal',
+  blue: 'border-sky-300/30 bg-sky-300/10 text-normal',
+  green: 'border-emerald-300/30 bg-emerald-300/10 text-normal',
+  neutral: 'border-secondary bg-secondary/30 text-high',
 } satisfies Record<string, string>;
 
 export const WORKFLOW_CANVAS_GROUP_COLOR_CLASSES = {
   amber: 'border-amber-300/18 bg-amber-300/[0.035]',
   blue: 'border-sky-300/18 bg-sky-300/[0.035]',
   green: 'border-emerald-300/18 bg-emerald-300/[0.035]',
-  neutral: 'border-white/10 bg-white/[0.025]',
+  neutral: 'border-secondary bg-white/[0.025]',
 } satisfies Record<string, string>;
 
 const WORKFLOW_NODE_STATUS_IDENTITY_OVERRIDE_STATES =

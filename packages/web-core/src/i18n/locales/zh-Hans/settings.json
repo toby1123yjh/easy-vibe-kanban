@@ -1,4 +1,42 @@
 {
+  "gitConnections": {
+    "title": "Git 连接",
+    "description": "连接和加密凭据保存在所选机器。无需保存连接也可使用本机 Git / SSH。",
+    "loading": "正在加载连接…",
+    "loadFailed": "无法加载连接。",
+    "unavailable": "请先连接此机器，再编辑 Git 连接。",
+    "empty": "暂无已保存的连接。",
+    "credentialUnavailable": "凭据不可用，请重新导入私钥。",
+    "edit": "编辑",
+    "test": "测试",
+    "delete": "删除连接",
+    "add": "添加连接",
+    "testUrl": "测试仓库地址",
+    "testing": "正在测试…",
+    "provider": "服务商",
+    "custom": "自定义",
+    "name": "连接名称",
+    "host": "Git 主机",
+    "port": "SSH 端口",
+    "username": "SSH 用户",
+    "auth": "认证方式",
+    "native": "本机 Git / SSH",
+    "privateKey": "私钥",
+    "keepSecret": "编辑时未修改的凭据保持原值；清空密码框可移除密钥密码。更换认证方式需要重新填写凭据。",
+    "importKey": "导入私钥文件",
+    "passphrase": "密钥密码（可选）",
+    "show": "显示凭据",
+    "hide": "隐藏凭据",
+    "saving": "正在保存…",
+    "saved": "连接已保存。",
+    "deleted": "连接已删除。",
+    "tested": "连接成功，可读取仓库。",
+    "required": "请填写连接信息和必需的凭据。",
+    "failed": "操作失败，请重试。",
+    "deleteHint": "删除“{{name}}”及其保存的凭据？已有仓库会保留。",
+    "keyTooLarge": "请选择小于 1 MB 的私钥文件。",
+    "importFailed": "私钥导入失败，请检查文件后重试。"
+  },
   "settings": {
     "common": {
       "unsavedChanges": "• 您有未保存的更改",
@@ -94,6 +132,14 @@
       }
     },
     "general": {
+      "managedDirectory": {
+        "browseFailed": "无法选择目录，请重试。",
+        "label": "默认会话目录",
+        "default": "自动（应用数据目录 / workspaces）",
+        "browse": "浏览",
+        "reset": "重置",
+        "description": "新建独立会话时，在此目录下创建各自的文件夹。不影响已有目录和项目位置。"
+      },
       "loading": "加载设置中...",
       "loadError": "加载配置失败。",
       "save": {

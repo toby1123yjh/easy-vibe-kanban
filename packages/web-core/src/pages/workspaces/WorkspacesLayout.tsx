@@ -67,6 +67,8 @@ export function WorkspacesLayout() {
     selectedSessionId,
     sessions,
     isSessionsLoading,
+    sessionsError,
+    retrySessions,
     selectSession,
     repos,
     isNewSessionMode,
@@ -108,7 +110,7 @@ export function WorkspacesLayout() {
       ? t('agentWorkbench.header.newWorkspace', {
           defaultValue: 'New workspace',
         })
-      : isNewSessionMode
+      : isNewSessionMode && sessions.length > 0
         ? t('agentWorkbench.header.newSession', {
             defaultValue: 'New session',
           })
@@ -117,7 +119,7 @@ export function WorkspacesLayout() {
           t('agentWorkbench.header.untitledTask', {
             defaultValue: 'Untitled task',
           });
-    const issueId = canonicalSession?.issue_id.trim();
+    const issueId = canonicalSession?.issue_id?.trim();
     return deriveAgentWorkbenchHeader({
       canonicalSession,
       fallbackTitle,
@@ -275,6 +277,8 @@ export function WorkspacesLayout() {
                     isRetryingWorkspace={isRetryingWorkspace}
                     onRetryWorkspace={handleRetryWorkspace}
                     isSessionsLoading={isSessionsLoading}
+                    sessionsError={sessionsError}
+                    onRetrySessions={retrySessions}
                     isNewSessionMode={isNewSessionMode}
                     onStartNewSession={startNewSession}
                   />

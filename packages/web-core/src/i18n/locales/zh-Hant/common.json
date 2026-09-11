@@ -572,7 +572,7 @@
     "errors": {
       "createDraftFailed": "建立工作流草稿失敗。",
       "notLinkedToAttempt": "此工作流未關聯到任務執行。",
-      "repositoryRequired": "此工作流需要一個至少包含一個儲存庫的工作區。請在開始執行前至少選擇一個儲存庫。",
+      "repositoryRequired": "啟動工作流前，請選擇工作目錄或 Git worktree。",
       "runInputRequired": "請先填寫執行輸入，再啟動工作流。",
       "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流執行。",
       "saveBeforeRun": "請先儲存工作流執行，再開始執行。",
@@ -581,6 +581,10 @@
       "revisionConflict": "此工作流已在其他位置更新（目前版本 {{currentRevision}}）。再次儲存前請重新載入；畫布上的本機修改仍會保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "無法解析工作流 JSON。"
+    },
+    "workspaceDialog": {
+      "title": "選擇工作流工作區",
+      "description": "可以直接使用目錄，也可以選擇 Git 儲存庫和基準分支建立隔離 worktree。"
     },
     "repositoryDialog": {
       "title": "新增工作流執行",
@@ -596,7 +600,7 @@
       "createWorkflowWorkspace": "建立工作流工作區",
       "usesExistingWorkspace": "使用現有工作區。",
       "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的現有工作區。",
-      "createWorkspaceHint": "後端會為本次執行建立專用的工作流工作區。",
+      "createWorkspaceHint": "為本次執行選擇目錄或 Git worktree，工作流節點共用所選工作區。",
       "runInput": "執行輸入",
       "startRun": "開始執行"
     },
@@ -605,6 +609,7 @@
       "runWorkflow": "執行工作流",
       "loadFailed": "載入工作流失敗：{{message}}",
       "backToWorkflows": "返回工作流列表",
+      "moreActions": "更多操作",
       "workflowNamePlaceholder": "工作流名稱",
       "descriptionPlaceholder": "描述",
       "systemTemplateReadOnly": "系統範本（唯讀）",
@@ -719,6 +724,7 @@
       "branchLabel": "分支 {{index}}",
       "removeBranch": "移除分支 {{index}}",
       "selectNode": "選擇節點以查看詳情",
+      "fieldHelp": "使用說明",
       "selectEdge": "選擇連線以查看詳情",
       "step": "節點",
       "routerAgent": "路由智能體",
@@ -1374,6 +1380,28 @@
     }
   },
   "createMode": {
+    "managedDirectory": {
+      "label": "自動工作目錄",
+      "description": "將為此會話建立獨立目錄。點擊可自行選擇。"
+    },
+    "workspaceDialog": {
+      "title": "選擇工作目錄",
+      "pathLabel": "工作目錄",
+      "browse": "瀏覽",
+      "modeLabel": "工作方式",
+      "directTitle": "直接編輯",
+      "worktreeTitle": "獨立 Worktree",
+      "worktreeUnavailable": "需要 Git 倉庫",
+      "directDescription": "智慧體將直接修改此目錄中的檔案。",
+      "worktreeDescription": "建立獨立工作副本，不修改原目錄。",
+      "branchLabel": "基礎分支",
+      "branchPlaceholder": "選擇分支",
+      "useDirectory": "使用此目錄",
+      "useWorkspace": "使用此工作區",
+      "useProjectLocation": "使用此位置",
+      "inspecting": "正在檢查目錄…",
+      "loadingBranches": "正在載入分支…"
+    },
     "headings": {
       "repoStep": "你想在哪些儲存庫上工作？",
       "chatStep": "你想做什麼工作？"
@@ -1813,6 +1841,7 @@
     },
     "errors": {
       "rescan": "無法重新掃描目前主機。",
+      "loadRemoteHosts": "無法載入遠端主機清單，請重試。本機掃描不受影響。",
       "setDefault": "無法更新預設 Provider。",
       "loadProviders": "無法載入 Provider 能力資料。",
       "loadTools": "無法重新整理智能體工具摘要。"

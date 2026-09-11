@@ -4,7 +4,6 @@ import type {
   ExecutorConfigs,
   ExecutorProfile,
   ExecutorAction,
-  ExecutorProfileId,
   ExecutionProcess,
 } from 'shared/types';
 
@@ -37,8 +36,8 @@ export function getSortedExecutorVariantKeys(
  * Treats null/undefined variant as equivalent to "DEFAULT".
  */
 export function areProfilesEqual(
-  a: ExecutorProfileId | null | undefined,
-  b: ExecutorProfileId | null | undefined
+  a: Pick<ExecutorConfig, 'executor' | 'variant'> | null | undefined,
+  b: Pick<ExecutorConfig, 'executor' | 'variant'> | null | undefined
 ): boolean {
   if (!a || !b) return a === b;
   if (a.executor !== b.executor) return false;
@@ -71,6 +70,7 @@ export function getVariantOptions(
 export function executorConfigFromAction(
   _action: ExecutorAction | null
 ): ExecutorConfig | null {
+  void _action;
   return null;
 }
 

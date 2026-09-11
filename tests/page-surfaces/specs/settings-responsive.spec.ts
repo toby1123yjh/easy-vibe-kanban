@@ -80,14 +80,13 @@ async function installSettingsApi(page: Page) {
 
     if (
       mode === 'degraded' &&
-      (path.endsWith('/api/relay-auth/client/hosts') ||
-        path.endsWith('/api/local/v1/hosts')) &&
+      path.endsWith('/api/info') &&
       count > 1
     ) {
       await route.fulfill({
         status: 503,
         contentType: 'application/json',
-        body: JSON.stringify({ message: 'Host discovery temporarily failed' }),
+        body: JSON.stringify({ message: 'Host configuration temporarily failed' }),
       });
       return;
     }

@@ -10,9 +10,9 @@ import {
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
+  AlertCircle,
   Bot,
   Boxes,
-  ChevronRight,
   CircleUserRound,
   FolderKanban,
   Gauge,
@@ -34,7 +34,6 @@ import type { ProjectListItem, SessionListItem } from 'shared/types';
 import {
   DegradedState,
   EmptyState,
-  ErrorState,
   LoadingState,
 } from '@vibe/ui/components/StateSurface';
 import type {
@@ -114,8 +113,14 @@ function SectionState({
     isError: state.isError,
   });
   const retryAction = (
-    <button type="button" className="vk-state-retry" onClick={state.retry}>
-      {t('appShell.objects.retry')}
+    <button
+      type="button"
+      className="vk-state-retry"
+      onClick={state.retry}
+      aria-label={t('appShell.objects.retry')}
+      title={t('appShell.objects.retry')}
+    >
+      <RefreshCw aria-hidden="true" size={13} />
     </button>
   );
 
@@ -140,13 +145,16 @@ function SectionState({
       );
     case 'error':
       return (
-        <ErrorState
-          compact
-          className="vk-sidebar-state-surface"
-          title={t('appShell.objects.unavailable', { label })}
-          description={t('appShell.objects.unavailableDescription', { label })}
-          action={retryAction}
-        />
+        <div
+          className="vk-sidebar-inline-state"
+          data-state="error"
+          role="status"
+          aria-live="polite"
+        >
+          <AlertCircle aria-hidden="true" size={14} />
+          <span>{t('appShell.objects.unavailable', { label })}</span>
+          {retryAction}
+        </div>
       );
     case 'degraded':
       return (
@@ -423,7 +431,6 @@ function ObjectLists({
             >
               <Boxes aria-hidden="true" size={15} />
               <span>{project.name}</span>
-              <ChevronRight aria-hidden="true" size={14} />
             </button>
           )}
         />
@@ -457,7 +464,7 @@ function ObjectLists({
                 aria-current={
                   session.id === activeSessionId ? 'page' : undefined
                 }
-                title={`${session.title} ? ${session.executor ?? t('appShell.objects.agent')}`}
+                title={`${session.title} — ${session.executor ?? t('appShell.objects.agent')}`}
                 onClick={() => onSession(session)}
               >
                 <MessageSquareText aria-hidden="true" size={15} />
@@ -764,16 +771,6 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
 
   return (
     <div className="vk-system-zone">
-      {adapter.openUser && (
-        <button type="button" onClick={adapter.openUser}>
-          <CircleUserRound aria-hidden="true" size={17} />
-          <span>{adapter.userLabel ?? t('appShell.system.user')}</span>
-        </button>
-      )}
-      <button type="button" onClick={adapter.openSettings}>
-        <Settings aria-hidden="true" size={17} />
-        <span>{t('appShell.system.settings')}</span>
-      </button>
       {updateNotice && (
         <button
           type="button"
@@ -781,10 +778,36 @@ function SystemZone({ adapter }: { adapter: AppShellCapabilityAdapter }) {
           data-update-phase={updateNotice.phase}
           onClick={updateNotice.open}
         >
-          <RefreshCw aria-hidden="true" size={17} />
-          <span>{updateNoticeLabel}</span>
+          <span className="vk-system-zone__update-icon">
+            <RefreshCw aria-hidden="true" size={17} />
+          </span>
+          <span className="vk-system-zone__update-copy">
+            {updateNoticeLabel}
+          </span>
         </button>
       )}
+      <div className="vk-system-zone__account">
+        {adapter.openUser && (
+          <button
+            type="button"
+            className="vk-system-zone__user"
+            onClick={adapter.openUser}
+          >
+            <CircleUserRound aria-hidden="true" size={18} />
+            <span>{adapter.userLabel ?? t('appShell.system.user')}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          className="vk-system-zone__settings"
+          aria-label={t('appShell.system.settings')}
+          title={t('appShell.system.settings')}
+          onClick={adapter.openSettings}
+        >
+          <Settings aria-hidden="true" size={17} />
+          <span>{t('appShell.system.settings')}</span>
+        </button>
+      </div>
       {adapter.versionLabel && <small>v{adapter.versionLabel}</small>}
     </div>
   );

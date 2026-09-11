@@ -46,3 +46,17 @@ test('uses a clear fallback when no canonical session mapping exists', () => {
     })
   ).toEqual({ title: 'New session', subtitle: undefined });
 });
+
+test('uses a fallback when a legacy session has a null title', () => {
+  const legacySessionWithNullTitle = {
+    ...canonicalSession,
+    title: null,
+  } as unknown as SessionListItem;
+
+  expect(
+    deriveAgentWorkbenchHeader({
+      canonicalSession: legacySessionWithNullTitle,
+      fallbackTitle: 'Legacy session title',
+    })
+  ).toEqual({ title: 'Legacy session title', subtitle: undefined });
+});

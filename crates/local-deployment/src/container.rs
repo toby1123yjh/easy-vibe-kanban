@@ -31,6 +31,7 @@ use executors::{
         CancellationToken, ExecutorExitSignal,
         provider_adapter::{DirectProvider, require_capability},
     },
+    profile::runtime_profile_ids_match,
     provider_policy::direct_provider_capability_snapshot,
     runtime::{
         AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentCapability,
@@ -1045,7 +1046,7 @@ impl LocalContainerService {
         .fetch_optional(&self.db.pool)
         .await?
         .map(|(bound_profile_id, reference)| {
-            if bound_profile_id != runtime_profile_id {
+            if !runtime_profile_ids_match(&bound_profile_id, &runtime_profile_id) {
                 return Err(ContainerError::Other(anyhow!(
                     "Session is bound to runtime profile {bound_profile_id}; create a new VK session for {runtime_profile_id}"
                 )));

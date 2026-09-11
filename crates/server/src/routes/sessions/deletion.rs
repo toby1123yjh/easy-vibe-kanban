@@ -17,6 +17,19 @@ use crate::{DeploymentImpl, error::ApiError};
 pub struct DeleteSessionQuery {
     #[serde(default)]
     pub stop_running: bool,
+    #[serde(default)]
+    pub delete_managed_files: bool,
+}
+
+#[cfg(test)]
+mod managed_file_defaults {
+    #[test]
+    fn deleting_session_never_removes_files_without_explicit_choice() {
+        let query: super::DeleteSessionQuery =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!query.delete_managed_files);
+        assert!(!query.stop_running);
+    }
 }
 
 /// Called under the session queue gate. Never hold a DB transaction across

@@ -154,10 +154,22 @@ export function mergeCanonicalAgentTimeline(
   state?: RunState | null,
   serverCursor?: AgentEventCursor | null
 ): CanonicalAgentTimeline {
-  const knownIds = new Set(previous.events.map((event) => event.event_id));
-  const freshEvents = events
-    .filter((event) => !knownIds.has(event.event_id))
-    .sort(eventSort);
+  const knownIds = new Set(
+    events.length ? previous.events.map((event) => event.event_id) : []
+  );
+  const freshEvents = events.filter((event) => {
+    if (knownIds.has(event.event_id)) return false;
+    knownIds.add(event.event_id);
+    return true;
+  });
+  if (
+    freshEvents.some(
+      (event, index) =>
+        index > 0 && eventSort(freshEvents[index - 1], event) > 0
+    )
+  ) {
+    freshEvents.sort(eventSort);
+  }
   if (
     freshEvents.length === 0 &&
     state === undefined &&
@@ -166,8 +178,33 @@ export function mergeCanonicalAgentTimeline(
     return previous;
   }
 
-  const mergedEvents = [...previous.events, ...freshEvents].sort(eventSort);
-  const mergedItems = mergedEvents.map(itemFromEvent);
+  // Live traffic is ordered. Preserve existing item identities instead of
+  // sorting and projecting the complete history for every text delta. Replays
+  // arriving out of order use the deterministic fallback without losing data.
+  const lastEvent = previous.events.at(-1);
+  const appendOnly =
+    !lastEvent ||
+    !freshEvents.length ||
+    eventSort(lastEvent, freshEvents[0]) <= 0;
+  const mergedEvents =
+    freshEvents.length === 0
+      ? previous.events
+      : appendOnly
+        ? [...previous.events, ...freshEvents]
+        : [...previous.events, ...freshEvents].sort(eventSort);
+  const mergedItems =
+    freshEvents.length === 0
+      ? previous.items
+      : appendOnly
+        ? [...previous.items, ...freshEvents.map(itemFromEvent)]
+        : (() => {
+            const existing = new Map(
+              previous.items.map((item) => [item.eventId, item])
+            );
+            return mergedEvents.map(
+              (event) => existing.get(event.event_id) ?? itemFromEvent(event)
+            );
+          })();
   const latestEvent = mergedEvents.at(-1);
   const eventCursor = latestEvent
     ? ({
@@ -175,7 +212,10 @@ export function mergeCanonicalAgentTimeline(
         sequence: sequenceBigInt(latestEvent.sequence),
       } satisfies AgentEventCursor)
     : previous.cursor;
-  const cursor = newestCursor(eventCursor, serverCursor);
+  const cursor = newestCursor(
+    newestCursor(previous.cursor, eventCursor),
+    serverCursor
+  );
 
   return {
     state:

@@ -97,7 +97,10 @@ export function useDeleteTaskSession({
         const result = await DeleteTaskSessionDialog.show({
           resolveTarget: async () => {
             assertCurrent();
-            const task = await sessionsApi.getTask(target.sessionId, hostId);
+            const [task, deletionInfo] = await Promise.all([
+              sessionsApi.getTask(target.sessionId, hostId),
+              sessionsApi.getDeletionInfo(target.sessionId, hostId),
+            ]);
             assertCurrent();
             if (
               (target.taskId && target.taskId !== task?.id) ||
@@ -108,21 +111,28 @@ export function useDeleteTaskSession({
             ) {
               throw new Error(t('sessionDeletion.bindingChanged'));
             }
-            return { title: task?.title ?? target.title, task };
+            return { title: task?.title ?? target.title, task, deletionInfo };
           },
-          onDelete: async ({ task }, stopRunning) => {
+          onDelete: async ({ task }, stopRunning, deleteManagedFiles) => {
             assertCurrent();
+            let result;
             if (task) {
-              await executionDataApi.deleteTask(
+              result = await executionDataApi.deleteTask(
                 task.id,
                 target.sessionId,
                 hostId,
-                stopRunning
+                stopRunning,
+                deleteManagedFiles
               );
             } else {
               // A newly bound Task must be rejected by Session DELETE. Never
               // escalate an already confirmed standalone scope into Task deletion.
-              await sessionsApi.delete(target.sessionId, hostId, stopRunning);
+              result = await sessionsApi.delete(
+                target.sessionId,
+                hostId,
+                stopRunning,
+                deleteManagedFiles
+              );
             }
             // Run the guarded selection update before refetch can select a sibling.
             try {
@@ -154,6 +164,7 @@ export function useDeleteTaskSession({
                   (queryKey[3] === 'sessions' || queryKey[3] === 'projects'),
               }),
             ]);
+            return result;
           },
         });
         if (result === 'canceled') {

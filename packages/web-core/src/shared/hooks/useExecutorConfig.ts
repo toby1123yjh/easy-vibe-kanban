@@ -5,24 +5,13 @@ import type {
   ExecutorProfile,
   ExecutorProfileId,
 } from 'shared/types';
-import { getVariantOptions } from '@/shared/lib/executor';
+import { areProfilesEqual, getVariantOptions } from '@/shared/lib/executor';
 import { filterVisibleAgents } from '@/shared/lib/agentVisibility';
 import { usePresetOptions } from '@/shared/hooks/usePresetOptions';
-
-function getProfileKey(
-  executor: BaseCodingAgent | null,
-  variant: string | null
-): string | null {
-  if (!executor) return null;
-  return `${executor}:${variant ?? 'DEFAULT'}`;
-}
-
-const OVERRIDE_FIELDS = [
-  'model_id',
-  'agent_id',
-  'reasoning_id',
-  'permission_policy',
-] as const;
+import {
+  executorProfileKey,
+  resolveExecutorOverrides,
+} from '@/shared/lib/executorConfig';
 
 /**
  * Resolves effective executor.
@@ -144,48 +133,14 @@ function useEffectiveOverrides(
   presetOptions: ExecutorConfig | null | undefined
 ) {
   return useMemo((): ExecutorConfig | null => {
-    if (!effectiveExecutor) return null;
-
-    const profileKey = getProfileKey(effectiveExecutor, resolvedVariant);
-    const scratchMatches = scratchConfig
-      ? getProfileKey(scratchConfig.executor, scratchConfig.variant ?? null) ===
-        profileKey
-      : false;
-    const lastUsedMatches = lastUsedConfig
-      ? getProfileKey(
-          lastUsedConfig.executor,
-          lastUsedConfig.variant ?? null
-        ) === profileKey
-      : false;
-
-    const resolved: ExecutorConfig = {
-      executor: effectiveExecutor,
-      variant: resolvedVariant,
-    };
-
-    for (const field of OVERRIDE_FIELDS) {
-      const modelMustMatch = field === 'reasoning_id';
-      const scratchModelMatches =
-        !modelMustMatch || scratchConfig?.model_id === resolved.model_id;
-      const lastUsedModelMatches =
-        !modelMustMatch || lastUsedConfig?.model_id === resolved.model_id;
-
-      const value =
-        field in userSelections
-          ? userSelections[field]
-          : ((scratchMatches && scratchModelMatches
-              ? scratchConfig?.[field]
-              : undefined) ??
-            (lastUsedMatches && lastUsedModelMatches
-              ? lastUsedConfig?.[field]
-              : undefined) ??
-            presetOptions?.[field]);
-      if (value !== undefined) {
-        (resolved as Record<string, unknown>)[field] = value;
-      }
-    }
-
-    return resolved;
+    return resolveExecutorOverrides(
+      effectiveExecutor,
+      resolvedVariant,
+      userSelections,
+      scratchConfig,
+      lastUsedConfig,
+      presetOptions
+    );
   }, [
     effectiveExecutor,
     resolvedVariant,
@@ -203,6 +158,12 @@ interface UseExecutorConfigOptions {
   configExecutorProfile?: ExecutorProfileId | null;
   hiddenAgents?: readonly BaseCodingAgent[] | null;
   onPersist?: (config: ExecutorConfig) => void;
+  /** Isolate in-memory choices when the owning workspace/session changes. */
+  scopeKey?: string;
+  /** Existing sessions cannot change their provider or bound runtime profile. */
+  lockedExecutor?: BaseCodingAgent | null;
+  lockedConfig?: ExecutorConfig | null;
+  enabled?: boolean;
 }
 
 interface UseExecutorConfigResult {
@@ -225,25 +186,54 @@ export function useExecutorConfig({
   configExecutorProfile,
   hiddenAgents,
   onPersist,
+  scopeKey,
+  lockedExecutor,
+  lockedConfig,
+  enabled = true,
 }: UseExecutorConfigOptions): UseExecutorConfigResult {
   const [userSelections, setUserSelections] = useState<Partial<ExecutorConfig>>(
     {}
   );
+  const [selectionScope, setSelectionScope] = useState(scopeKey);
+  // Reset during render, before children can observe the previous session's config.
+  if (selectionScope !== scopeKey) {
+    setSelectionScope(scopeKey);
+    setUserSelections({});
+  }
+  const selections = useMemo(
+    () => ({
+      ...(selectionScope === scopeKey ? userSelections : {}),
+      ...(lockedExecutor ? { executor: lockedExecutor } : {}),
+      ...(lockedConfig
+        ? {
+            executor: lockedConfig.executor,
+            variant: lockedConfig.variant ?? null,
+          }
+        : {}),
+    }),
+    [selectionScope, scopeKey, userSelections, lockedExecutor, lockedConfig]
+  );
+  const compatibleScratch =
+    scratchConfig &&
+    ((lockedConfig && !areProfilesEqual(scratchConfig, lockedConfig)) ||
+      (lockedExecutor && scratchConfig.executor !== lockedExecutor))
+      ? undefined
+      : scratchConfig;
 
   const executor = useEffectiveExecutor(
-    userSelections,
+    selections,
     profiles,
-    scratchConfig,
+    compatibleScratch,
     lastUsedConfig,
     configExecutorProfile,
     hiddenAgents
   );
 
   const variant = useEffectiveVariant(
-    userSelections,
+    selections,
     executor.effective,
     profiles,
-    scratchConfig,
+    compatibleScratch,
     lastUsedConfig,
     configExecutorProfile
   );
@@ -256,13 +246,13 @@ export function useExecutorConfig({
   const executorConfig = useEffectiveOverrides(
     executor.effective,
     variant.resolved,
-    userSelections,
-    scratchConfig,
+    selections,
+    compatibleScratch,
     lastUsedConfig,
     presetOptions
   );
 
-  const profileKey = getProfileKey(executor.effective, variant.resolved);
+  const profileKey = executorProfileKey(executor.effective, variant.resolved);
   const prevProfileKeyRef = useRef<string | null>(profileKey);
   useEffect(() => {
     const prev = prevProfileKeyRef.current;
@@ -287,13 +277,14 @@ export function useExecutorConfig({
   // Clears variant + all override fields.
   const setExecutor = useCallback(
     (exec: BaseCodingAgent) => {
+      if (!enabled || lockedExecutor || lockedConfig) return;
       setUserSelections({ executor: exec });
       // Persist with auto-resolved variant (no overrides)
       const newVariants = getVariantOptions(exec, profiles);
       const newVariant = newVariants[0] ?? null;
       persist({ executor: exec, variant: newVariant });
     },
-    [profiles, persist]
+    [profiles, persist, enabled, lockedExecutor, lockedConfig]
   );
 
   // Setting variant → keeps executor, sets variant, clears all override fields.
@@ -301,25 +292,32 @@ export function useExecutorConfig({
   // → override fields fall through to preset options for the new variant.
   const setVariant = useCallback(
     (v: string | null) => {
+      if (!enabled || lockedConfig) return;
       setUserSelections((prev) => ({ executor: prev.executor, variant: v }));
       if (executor.effective) {
         persist({ executor: executor.effective, variant: v });
       }
     },
-    [executor.effective, persist]
+    [executor.effective, persist, enabled, lockedConfig]
   );
 
   // Model selector updates individual override fields (merge into existing).
   // Changing model clears reasoning selection; other overrides are independent.
   const setOverrides = useCallback(
     (partial: Partial<ExecutorConfig>) => {
+      if (!enabled) return;
       setUserSelections((prev) => {
         const next = { ...prev, ...partial };
+        if (lockedExecutor || lockedConfig) {
+          delete next.executor;
+        }
+        if (lockedConfig) delete next.variant;
         if ('model_id' in partial && !('reasoning_id' in partial)) {
-          delete next.reasoning_id;
+          next.reasoning_id = null;
         }
         const persistedConfig = executor.effective
           ? {
+              ...executorConfig,
               ...next,
               executor: executor.effective,
               variant: variant.resolved,
@@ -332,7 +330,15 @@ export function useExecutorConfig({
         return next;
       });
     },
-    [executor.effective, variant.resolved, persist]
+    [
+      executor.effective,
+      variant.resolved,
+      persist,
+      executorConfig,
+      enabled,
+      lockedExecutor,
+      lockedConfig,
+    ]
   );
 
   return {

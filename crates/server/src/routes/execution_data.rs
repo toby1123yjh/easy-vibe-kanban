@@ -66,6 +66,8 @@ pub struct TaskChildrenQuery {
 pub struct DeleteTaskQuery {
     #[serde(default)]
     pub stop_running: bool,
+    #[serde(default)]
+    pub delete_managed_files: bool,
     pub session_id: Uuid,
 }
 
@@ -107,7 +109,7 @@ async fn list_sessions(
 ) -> Result<Json<ApiResponse<SessionPage>>, ApiError> {
     let cursor = cursor_parts(query.cursor_updated_at, query.cursor_id)?
         .map(|(updated_at, id)| SessionCursor { updated_at, id });
-    let page = Session::list_recent_task_bound(
+    let page = Session::list_recent_all(
         &deployment.db().pool,
         query.project_id,
         cursor,
@@ -171,10 +173,16 @@ async fn delete_task(
     State(deployment): State<DeploymentImpl>,
     Path(task_id): Path<Uuid>,
     Query(query): Query<DeleteTaskQuery>,
-) -> Result<Json<ApiResponse<()>>, ApiError> {
+) -> Result<Json<ApiResponse<db::models::requests::SessionDeletionResult>>, ApiError> {
     let _queue_guard = super::sessions::lock_session_for_deletion(
         deployment.queued_message_service(),
         query.session_id,
+    )
+    .await?;
+    super::workspaces::managed_directory::preflight_files(
+        &deployment,
+        query.session_id,
+        query.delete_managed_files,
     )
     .await?;
     super::sessions::deletion::prepare_deletion(
@@ -184,8 +192,14 @@ async fn delete_task(
         query.stop_running,
     )
     .await?;
-    Task::delete_agent_with_session(&deployment.db().pool, task_id, query.session_id).await?;
-    Ok(Json(ApiResponse::success(())))
+    let result = super::workspaces::managed_directory::delete(
+        &deployment,
+        query.session_id,
+        Some(task_id),
+        query.delete_managed_files,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(result)))
 }
 
 pub fn router() -> Router<DeploymentImpl> {
@@ -214,6 +228,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(query.session_id, session_id);
+        assert!(!query.delete_managed_files);
     }
 
     #[test]

@@ -11,6 +11,8 @@ import { useTranslation } from 'react-i18next';
 import type { Workspace, Session, RepoWithTargetBranch } from 'shared/types';
 import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { WorkspacesMain } from '@vibe/ui/components/WorkspacesMain';
+import { Button } from '@vibe/ui/components/Button';
+import { ErrorState, LoadingState } from '@vibe/ui/components/StateSurface';
 import {
   ConversationList,
   type ConversationListHandle,
@@ -36,6 +38,9 @@ function ChatBoxWithDiffStats({
   session,
   workspaceId,
   isNewSessionMode,
+  isSessionsLoading,
+  sessionsError,
+  onRetrySessions,
   sessions,
   onSelectSession,
   onStartNewSession,
@@ -47,6 +52,9 @@ function ChatBoxWithDiffStats({
   session: Session | undefined;
   workspaceId: string | undefined;
   isNewSessionMode: boolean;
+  isSessionsLoading: boolean;
+  sessionsError: unknown;
+  onRetrySessions?: () => Promise<void>;
   sessions: Session[];
   onSelectSession: (sessionId: string) => void;
   onStartNewSession: () => void;
@@ -55,7 +63,40 @@ function ChatBoxWithDiffStats({
   onScrollToUserMessage: (patchKey: string) => void;
   getActiveTurnPatchKey: () => string | null;
 }) {
+  const { t } = useTranslation('common');
   const diffStats = useDiffStats();
+
+  if (isSessionsLoading) {
+    return (
+      <LoadingState
+        className="w-chat max-w-full min-h-24"
+        title={t('agentSessionResume.loading', {
+          defaultValue: 'Loading sessions...',
+        })}
+      />
+    );
+  }
+
+  if (sessionsError && sessions.length === 0) {
+    return (
+      <ErrorState
+        className="w-chat max-w-full min-h-24"
+        title={t('agentSessionResume.error', {
+          defaultValue: 'Failed to load sessions',
+        })}
+        description={t('workspaces.errorDescription', {
+          defaultValue: 'Check the connection and try again.',
+        })}
+        action={
+          onRetrySessions ? (
+            <Button className="min-h-10" onClick={() => void onRetrySessions()}>
+              {t('buttons.retry', { defaultValue: 'Retry' })}
+            </Button>
+          ) : undefined
+        }
+      />
+    );
+  }
 
   return (
     <SessionChatBoxContainer
@@ -142,6 +183,8 @@ interface WorkspacesMainContainerProps {
   isRetryingWorkspace?: boolean;
   onRetryWorkspace?: () => Promise<void>;
   isSessionsLoading?: boolean;
+  sessionsError?: unknown;
+  onRetrySessions?: () => Promise<void>;
   isNewSessionMode: boolean;
   onStartNewSession: () => void;
 }
@@ -161,6 +204,9 @@ export const WorkspacesMainContainer = forwardRef<
     workspaceState = 'ready',
     isRetryingWorkspace = false,
     onRetryWorkspace,
+    isSessionsLoading = false,
+    sessionsError,
+    onRetrySessions,
     isNewSessionMode,
     onStartNewSession,
   },
@@ -245,31 +291,38 @@ export const WorkspacesMainContainer = forwardRef<
     ? `${workspaceWithSession.id}-${selectedSessionId ?? 'new'}`
     : 'empty';
 
-  const conversationContent = workspaceWithSession ? (
-    <div
-      className="flex-1 min-h-0 overflow-hidden flex justify-center"
-      onWheel={(e) => forwardWheelToScroller(e, conversationListRef)}
-    >
-      <div className="w-chat max-w-full h-full">
-        <RetryUiProvider workspaceId={workspaceWithSession.id}>
-          <ConversationList
-            key={entriesProviderKey}
-            ref={conversationListRef}
-            attempt={workspaceWithSession}
-            repos={repos}
-            onAtBottomChange={handleAtBottomChange}
-            sessionScopeId={selectedSessionId}
-          />
-        </RetryUiProvider>
+  const conversationContent =
+    workspaceWithSession &&
+    !isSessionsLoading &&
+    (!sessionsError || sessions.length > 0) &&
+    (Boolean(selectedSessionId) || isNewSessionMode) ? (
+      <div
+        className="flex-1 min-h-0 overflow-hidden flex justify-center"
+        onWheel={(e) => forwardWheelToScroller(e, conversationListRef)}
+      >
+        <div className="w-chat max-w-full h-full">
+          <RetryUiProvider workspaceId={workspaceWithSession.id}>
+            <ConversationList
+              key={entriesProviderKey}
+              ref={conversationListRef}
+              attempt={workspaceWithSession}
+              repos={repos}
+              onAtBottomChange={handleAtBottomChange}
+              sessionScopeId={selectedSessionId}
+            />
+          </RetryUiProvider>
+        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
   const chatBoxContent = (
     <ChatBoxWithDiffStats
       session={session}
       workspaceId={workspaceWithSession?.id}
       isNewSessionMode={isNewSessionMode}
+      isSessionsLoading={isSessionsLoading}
+      sessionsError={sessionsError}
+      onRetrySessions={onRetrySessions}
       sessions={sessions}
       onSelectSession={onSelectSession}
       onStartNewSession={onStartNewSession}

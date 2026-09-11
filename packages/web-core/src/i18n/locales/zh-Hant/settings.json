@@ -1,4 +1,42 @@
 {
+  "gitConnections": {
+    "title": "Git 連線",
+    "description": "連線與加密憑證儲存在所選機器。無需儲存連線也可使用本機 Git / SSH。",
+    "loading": "正在載入連線…",
+    "loadFailed": "無法載入連線。",
+    "unavailable": "請先連接此機器，再編輯 Git 連線。",
+    "empty": "尚無已儲存的連線。",
+    "credentialUnavailable": "憑證無法使用，請重新匯入私鑰。",
+    "edit": "編輯",
+    "test": "測試",
+    "delete": "刪除連線",
+    "add": "新增連線",
+    "testUrl": "測試儲存庫網址",
+    "testing": "正在測試…",
+    "provider": "服務商",
+    "custom": "自訂",
+    "name": "連線名稱",
+    "host": "Git 主機",
+    "port": "SSH 連接埠",
+    "username": "SSH 使用者",
+    "auth": "驗證方式",
+    "native": "本機 Git / SSH",
+    "privateKey": "私鑰",
+    "keepSecret": "編輯時未修改的憑證保持原值；清空密碼框可移除金鑰密碼。更換驗證方式需要重新填寫憑證。",
+    "importKey": "匯入私鑰檔案",
+    "passphrase": "金鑰密碼（選填）",
+    "show": "顯示憑證",
+    "hide": "隱藏憑證",
+    "saving": "正在儲存…",
+    "saved": "連線已儲存。",
+    "deleted": "連線已刪除。",
+    "tested": "連線成功，可讀取儲存庫。",
+    "required": "請填寫連線資訊與必要的憑證。",
+    "failed": "操作失敗，請重試。",
+    "deleteHint": "刪除「{{name}}」與其儲存的憑證？既有儲存庫會保留。",
+    "keyTooLarge": "請選擇小於 1 MB 的私鑰檔案。",
+    "importFailed": "私鑰匯入失敗，請檢查檔案後重試。"
+  },
   "settings": {
     "common": {
       "unsavedChanges": "• 您有未儲存的變更",
@@ -94,6 +132,14 @@
       }
     },
     "general": {
+      "managedDirectory": {
+        "browseFailed": "無法選擇目錄，請重試。",
+        "label": "預設會話目錄",
+        "default": "自動（應用程式資料目錄 / workspaces）",
+        "browse": "瀏覽",
+        "reset": "重設",
+        "description": "新建獨立會話時，在此目錄下建立各自的資料夾。不影響已有目錄和專案位置。"
+      },
       "loading": "載入設定中...",
       "loadError": "載入設定失敗。",
       "save": {

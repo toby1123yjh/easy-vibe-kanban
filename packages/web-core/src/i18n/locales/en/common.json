@@ -597,7 +597,7 @@
     "errors": {
       "createDraftFailed": "Failed to create workflow draft.",
       "notLinkedToAttempt": "This workflow is not linked to a task attempt.",
-      "repositoryRequired": "This workflow needs a workspace with at least one repository. Select at least one repository before starting the run.",
+      "repositoryRequired": "Choose a working directory or a Git worktree before starting the workflow.",
       "runInputRequired": "Add run input before starting the workflow.",
       "draftMissing": "This local workflow draft no longer exists. Create a new workflow attempt to continue.",
       "saveBeforeRun": "Save the workflow attempt before starting a run.",
@@ -606,6 +606,10 @@
       "revisionConflict": "This workflow changed elsewhere (now revision {{currentRevision}}). Reload before saving again; your local canvas changes are still here.",
       "invalidGraph": "Workflow JSON did not contain a valid workflow.",
       "parseGraphFailed": "Workflow JSON could not be parsed."
+    },
+    "workspaceDialog": {
+      "title": "Choose workflow workspace",
+      "description": "Use a directory directly, or select a Git repository and base branch for an isolated worktree."
     },
     "repositoryDialog": {
       "title": "New workflow attempt",
@@ -621,7 +625,7 @@
       "createWorkflowWorkspace": "Create workflow workspace",
       "usesExistingWorkspace": "Uses existing workspace.",
       "usesExistingWorkspaceWithBranch": "Uses existing workspace on {{branch}}.",
-      "createWorkspaceHint": "The backend will create a dedicated workflow workspace for this run.",
+      "createWorkspaceHint": "Choose a directory or Git worktree for this run. Workflow nodes share the selected workspace.",
       "runInput": "Run input",
       "startRun": "Start run"
     },
@@ -693,6 +697,7 @@
       "runWorkflow": "Run workflow",
       "loadFailed": "Failed to load workflow: {{message}}",
       "backToWorkflows": "Back to workflows",
+      "moreActions": "More actions",
       "workflowNamePlaceholder": "Workflow name",
       "descriptionPlaceholder": "Description",
       "systemTemplateReadOnly": "System template (read-only)",
@@ -807,6 +812,7 @@
       "branchLabel": "Branch {{index}}",
       "removeBranch": "Remove branch {{index}}",
       "selectNode": "Select a node to inspect",
+      "fieldHelp": "How it works",
       "selectEdge": "Select an edge to inspect",
       "step": "Node",
       "routerAgent": "Router agent",
@@ -1413,6 +1419,28 @@
     }
   },
   "createMode": {
+    "managedDirectory": {
+      "label": "Automatic directory",
+      "description": "A separate directory will be created for this session. Click to choose your own."
+    },
+    "workspaceDialog": {
+      "title": "Choose working directory",
+      "pathLabel": "Working directory",
+      "browse": "Browse",
+      "modeLabel": "Working mode",
+      "directTitle": "Direct editing",
+      "worktreeTitle": "Isolated Worktree",
+      "worktreeUnavailable": "Requires a Git repository",
+      "directDescription": "The agent will edit files in this directory.",
+      "worktreeDescription": "Create an isolated checkout; keep the source directory unchanged.",
+      "branchLabel": "Base branch",
+      "branchPlaceholder": "Choose a branch",
+      "useDirectory": "Use this directory",
+      "useWorkspace": "Use this workspace",
+      "useProjectLocation": "Use this location",
+      "inspecting": "Checking directory…",
+      "loadingBranches": "Loading branches…"
+    },
     "headings": {
       "repoStep": "Which repositories would you like to work on?",
       "chatStep": "What would you like to work on?"
@@ -1729,6 +1757,7 @@
     },
     "errors": {
       "rescan": "Could not rescan this host.",
+      "loadRemoteHosts": "Could not load remote hosts. Retry to refresh the remote host list.",
       "setDefault": "Could not update the default provider.",
       "loadProviders": "Could not load provider capability data.",
       "loadTools": "Could not refresh the Agent Tool summary."

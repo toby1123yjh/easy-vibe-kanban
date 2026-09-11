@@ -6,7 +6,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::{AgentRuntimeError, AgentRuntimeMessageRole, AgentRuntimeToolStatus};
-use crate::profile::ExecutorConfig;
+use crate::profile::{ExecutorConfig, runtime_profile_ids_match};
 
 pub const AGENT_REQUEST_SCHEMA_VERSION: u16 = 1;
 pub const AGENT_REQUEST_PAYLOAD_VERSION: u16 = 1;
@@ -313,8 +313,10 @@ impl RunAttemptRequest {
         }
         if let Some(provider_session) = &self.provider_session {
             provider_session.validate_current()?;
-            if provider_session.runtime_profile_id != self.runtime_profile_id
-                || provider_session.provider_id != self.provider_id
+            if !runtime_profile_ids_match(
+                &provider_session.runtime_profile_id,
+                &self.runtime_profile_id,
+            ) || provider_session.provider_id != self.provider_id
             {
                 return Err(RunAttemptRequestError::ExecutionContextMismatch);
             }
@@ -756,6 +758,33 @@ mod tests {
             created_at: now,
         };
         (request, attempt)
+    }
+
+    #[test]
+    fn resumed_default_alias_preserves_native_session_and_rejects_other_profiles() {
+        let (mut request, mut attempt) = run_attempt_requests(AgentRunIntent::FollowUp);
+        request.runtime_profile_id = "CODEX".to_string();
+        attempt.runtime_profile_id = "CODEX".to_string();
+        attempt.capability_snapshot.runtime_profile_id = "CODEX".to_string();
+        attempt.executor_config.variant = None;
+        attempt.provider_session = Some(ProviderSessionReference {
+            schema_version: PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
+            provider_id: "codex".to_string(),
+            runtime_profile_id: "CODEX:DEFAULT".to_string(),
+            provider_session_id: "native-session".to_string(),
+            observed_at: Utc::now(),
+            metadata: None,
+        });
+        assert!(attempt.validate_for_run(&request).is_ok());
+        attempt
+            .provider_session
+            .as_mut()
+            .unwrap()
+            .runtime_profile_id = "CODEX:PLAN".to_string();
+        assert!(matches!(
+            attempt.validate_for_run(&request),
+            Err(RunAttemptRequestError::ExecutionContextMismatch)
+        ));
     }
 
     #[test]

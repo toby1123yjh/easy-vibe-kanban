@@ -46,8 +46,8 @@ export function useCreateIssueWorkflowAttempt({
       setIsPreparingDraft(true);
       setError(null);
       try {
-        const repos = await selectWorkflowRepositories();
-        if (!repos) {
+        const workspace = await selectWorkflowRepositories();
+        if (!workspace) {
           return null;
         }
 
@@ -60,7 +60,7 @@ export function useCreateIssueWorkflowAttempt({
           untitledTitle: t('workflow.draft.untitledTask'),
           defaultGraphLabels: getWorkflowDefaultGraphLabels(t),
           templateGraphJson: options.template?.graph_json ?? null,
-          repos,
+          repos: workspace.repos,
         });
         const draft = createIssueWorkflowAttemptDraft({
           projectId,
@@ -71,7 +71,8 @@ export function useCreateIssueWorkflowAttempt({
             draftPayload.name ??
             t('workflow.draft.name', { title: workflowTitle }),
           graphJson: draftPayload.graph_json,
-          repos,
+          repos: workspace.repos,
+          directoryPath: workspace.directory_path,
         });
         navigation.goToProjectWorkflowEdit(
           projectId,

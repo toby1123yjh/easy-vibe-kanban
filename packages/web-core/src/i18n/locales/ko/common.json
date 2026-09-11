@@ -1179,6 +1179,7 @@
     },
     "errors": {
       "rescan": "호스트를 다시 검색할 수 없습니다.",
+      "loadRemoteHosts": "원격 호스트 목록을 불러올 수 없습니다. 다시 시도하세요.",
       "setDefault": "기본 Provider를 업데이트할 수 없습니다.",
       "loadProviders": "Provider 기능 데이터를 불러올 수 없습니다.",
       "loadTools": "Agent Tool 요약을 새로 고칠 수 없습니다."

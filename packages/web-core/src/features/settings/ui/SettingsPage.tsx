@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useBlocker } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import {
+  ArrowLeftIcon,
   CloudIcon,
   DesktopIcon,
   GearIcon,
@@ -17,9 +18,11 @@ import {
   OfflineState,
 } from '@vibe/ui/components/StateSurface';
 import { GeneralSettingsSection } from '@/shared/dialogs/settings/settings/GeneralSettingsSection';
+import { GitConnectionsSettings } from '@/shared/dialogs/settings/settings/GitConnectionsSettings';
 import { OrganizationsSettingsSection } from '@/shared/dialogs/settings/settings/OrganizationsSettingsSection';
 import { RelaySettingsSectionContent } from '@/shared/dialogs/settings/settings/RelaySettingsSection';
-import { RemoteProjectsSettingsSection } from '@/shared/dialogs/settings/settings/RemoteProjectsSettingsSection';
+import { ProjectSettingsContent } from './ProjectSettingsContent';
+import { useNavigate } from '@tanstack/react-router';
 import { ReposSettingsSection } from '@/shared/dialogs/settings/settings/ReposSettingsSection';
 import { SettingsCard } from '@/shared/dialogs/settings/settings/SettingsComponents';
 import {
@@ -85,10 +88,12 @@ const SECTION_LABELS = {
 
 export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
   const { t } = useTranslation('settings');
+  const navigate = useNavigate();
   const { availableHosts, selectedHostId, setSelectedHostId } =
     useSettingsHost();
   const { clearAll: clearDirty, isDirty } = useSettingsDirty();
   const route = useMemo(() => resolveSettingsRoute(search), [search]);
+  const isProjectSettings = route.section === 'projects';
   const confirmationPendingRef = useRef(false);
   const allowNavigationRef = useRef(false);
   const navigationBlocker = useBlocker({
@@ -200,88 +205,121 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
     <section className="vk-settings-page" aria-labelledby="settings-title">
       <header className="vk-settings-page__header">
         <div>
-          <p className="vk-settings-page__eyebrow">
-            {t('settings.page.eyebrow', 'Application and environment')}
-          </p>
-          <h1 id="settings-title">{t('settings.page.title', 'Settings')}</h1>
+          {isProjectSettings && (
+            <button
+              type="button"
+              className="vk-settings-page__back"
+              aria-label={t('projects:scoped.back', 'Back to projects')}
+              onClick={() => void navigate({ to: '/projects' })}
+            >
+              <ArrowLeftIcon aria-hidden="true" />
+              {t('projects:directory.title', 'Projects')}
+            </button>
+          )}
+          {!isProjectSettings && (
+            <p className="vk-settings-page__eyebrow">
+              {t('settings.page.eyebrow', 'Application and environment')}
+            </p>
+          )}
+          <h1 id="settings-title">
+            {isProjectSettings
+              ? t('projects:directory.projectSettings', 'Project settings')
+              : t('settings.page.title', 'Settings')}
+          </h1>
           <p>
-            {t(
-              'settings.page.description',
-              'Manage application preferences, the selected host and cloud resources.'
-            )}
+            {isProjectSettings
+              ? t(
+                  'projects:scoped.description',
+                  'Settings for this project only.'
+                )
+              : t(
+                  'settings.page.description',
+                  'Manage application preferences, the selected host and cloud resources.'
+                )}
           </p>
         </div>
-        {route.tab !== 'cloud' && availableHosts.length > 0 && (
-          <label className="vk-settings-page__host-picker">
-            <span>{t('settings.page.currentHost', 'Current host')}</span>
-            <select
-              value={selectedHostId ?? ''}
-              onChange={(event) => {
-                const hostId = event.target.value;
-                if (hostId === selectedHostId) return;
-                void runAfterDirtyConfirmation(() => {
-                  setSelectedHostId(hostId);
-                  onSearchChange({ ...route, host: hostId });
-                }, true);
-              }}
-            >
-              {availableHosts.map((host) => (
-                <option key={host.id} value={host.id}>
-                  {host.label}
-                  {host.status === 'offline'
-                    ? ` · ${t('settings.page.states.offline', 'Offline')}`
-                    : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {(route.tab !== 'cloud' || isProjectSettings) &&
+          availableHosts.length > 0 && (
+            <label className="vk-settings-page__host-picker">
+              <span>{t('settings.page.currentHost', 'Current host')}</span>
+              <select
+                value={selectedHostId ?? ''}
+                onChange={(event) => {
+                  const hostId = event.target.value;
+                  if (hostId === selectedHostId) return;
+                  void runAfterDirtyConfirmation(() => {
+                    setSelectedHostId(hostId);
+                    onSearchChange({ ...route, host: hostId });
+                  }, true);
+                }}
+              >
+                {availableHosts.map((host) => (
+                  <option key={host.id} value={host.id}>
+                    {host.label}
+                    {host.status === 'offline'
+                      ? ` · ${t('settings.page.states.offline', 'Offline')}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
       </header>
 
-      <nav
-        className="vk-settings-page__tabs"
-        aria-label={t('settings.page.tabsLabel', 'Settings categories')}
-      >
-        {SETTINGS_TABS.map((tab) => {
-          const Icon = TAB_ICONS[tab];
-          return (
-            <button
-              key={tab}
-              type="button"
-              aria-current={route.tab === tab ? 'page' : undefined}
-              onClick={() =>
-                navigateTo({ tab, section: SETTINGS_SECTIONS[tab][0] })
-              }
-            >
-              <Icon aria-hidden="true" />
-              {t(`settings.page.tabs.${tab}`, TAB_LABELS[tab])}
-            </button>
-          );
-        })}
-      </nav>
+      {!isProjectSettings && (
+        <nav
+          className="vk-settings-page__tabs"
+          aria-label={t('settings.page.tabsLabel', 'Settings categories')}
+        >
+          {SETTINGS_TABS.map((tab) => {
+            const Icon = TAB_ICONS[tab];
+            return (
+              <button
+                key={tab}
+                type="button"
+                aria-current={route.tab === tab ? 'page' : undefined}
+                onClick={() =>
+                  navigateTo({ tab, section: SETTINGS_SECTIONS[tab][0] })
+                }
+              >
+                <Icon aria-hidden="true" />
+                {t(`settings.page.tabs.${tab}`, TAB_LABELS[tab])}
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
-      <nav
-        className="vk-settings-page__sections"
-        aria-label={t('settings.page.sectionsLabel', 'Settings sections')}
-      >
-        {SETTINGS_SECTIONS[route.tab].map((section) => (
-          <button
-            key={section}
-            type="button"
-            aria-current={route.section === section ? 'page' : undefined}
-            onClick={() => navigateTo({ tab: route.tab, section })}
-          >
-            {t(`settings.page.sections.${section}`, SECTION_LABELS[section])}
-          </button>
-        ))}
-      </nav>
+      {!isProjectSettings && (
+        <nav
+          className="vk-settings-page__sections"
+          aria-label={t('settings.page.sectionsLabel', 'Settings sections')}
+        >
+          {SETTINGS_SECTIONS[route.tab]
+            .filter((section) => section !== 'projects')
+            .map((section) => (
+              <button
+                key={section}
+                type="button"
+                aria-current={route.section === section ? 'page' : undefined}
+                onClick={() => navigateTo({ tab: route.tab, section })}
+              >
+                {t(
+                  `settings.page.sections.${section}`,
+                  SECTION_LABELS[section]
+                )}
+              </button>
+            ))}
+        </nav>
+      )}
 
       <div className="vk-settings-page__content">
         <SettingsContentBoundary
-          key={`${selectedHostId ?? 'unselected'}:${route.section}`}
+          key={`${selectedHostId ?? 'unselected'}:${route.section}:${route.projectId ?? ''}`}
           requiresHost={requiresHost}
           section={route.section}
           routeHostId={route.host}
+          projectId={route.projectId}
         />
       </div>
     </section>
@@ -292,10 +330,12 @@ function SettingsContentBoundary({
   requiresHost,
   section,
   routeHostId,
+  projectId,
 }: {
   requiresHost: boolean;
   section: SettingsSection;
   routeHostId?: string;
+  projectId?: string;
 }) {
   const { t } = useTranslation('settings');
   const { hostDiscovery, selectedHost, selectedHostId } = useSettingsHost();
@@ -303,7 +343,13 @@ function SettingsContentBoundary({
   const machineState = useSettingsMachineState();
 
   if (!requiresHost) {
-    return <SettingsContent section={section} hostId={routeHostId} />;
+    return (
+      <SettingsContent
+        section={section}
+        hostId={routeHostId}
+        projectId={projectId}
+      />
+    );
   }
 
   if (hostDiscovery.isLoading && !hostDiscovery.hasCanonicalData) {
@@ -536,9 +582,11 @@ function RetryButton({
 function SettingsContent({
   section,
   hostId,
+  projectId,
 }: {
   section: SettingsSection;
   hostId?: string;
+  projectId?: string;
 }) {
   switch (section) {
     case 'application':
@@ -550,14 +598,35 @@ function SettingsContent({
         </>
       );
     case 'repositories':
-      return <ReposSettingsSection />;
+      return (
+        <>
+          <GitConnectionsSettings />
+          <ReposSettingsSection />
+        </>
+      );
     case 'relay':
       return <RelaySettingsContent hostId={hostId} />;
     case 'organizations':
       return <OrganizationsSettingsSection />;
     case 'projects':
-      return <RemoteProjectsSettingsSection />;
+      return projectId ? (
+        <ProjectSettingsContent projectId={projectId} />
+      ) : (
+        <ProjectSettingsSelectionHint />
+      );
   }
+}
+
+function ProjectSettingsSelectionHint() {
+  const { t } = useTranslation('projects');
+  return (
+    <p>
+      {t(
+        'scoped.noSelection',
+        'Open a project’s menu in Projects to edit its settings.'
+      )}
+    </p>
+  );
 }
 
 function VersionSettings() {

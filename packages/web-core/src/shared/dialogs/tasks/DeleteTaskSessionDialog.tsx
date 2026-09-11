@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useTranslation } from 'react-i18next';
 import { LoaderCircle } from 'lucide-react';
-import type { TaskSummary } from 'shared/types';
+import type {
+  TaskSummary,
+  SessionDeletionInfo,
+  SessionDeletionResult,
+} from 'shared/types';
 import { ConfirmDialogView } from '@vibe/ui/components/ConfirmDialog';
 import { defineModal, type DeleteResult } from '@/shared/lib/modals';
 import { ApiError } from '@/shared/lib/api';
@@ -10,14 +14,16 @@ import { ApiError } from '@/shared/lib/api';
 export interface ResolvedTaskSessionDeleteTarget {
   title: string;
   task: TaskSummary | null;
+  deletionInfo?: SessionDeletionInfo;
 }
 
 interface DeleteTaskSessionDialogProps {
   resolveTarget(): Promise<ResolvedTaskSessionDeleteTarget>;
   onDelete(
     target: ResolvedTaskSessionDeleteTarget,
-    stopRunning: boolean
-  ): Promise<void>;
+    stopRunning: boolean,
+    deleteManagedFiles: boolean
+  ): Promise<SessionDeletionResult | void>;
 }
 
 const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
@@ -32,12 +38,17 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
     const [error, setError] = useState<string | null>(null);
     const [retry, setRetry] = useState(0);
     const [requiresStop, setRequiresStop] = useState(false);
+    const [deleteManagedFiles, setDeleteManagedFiles] = useState(false);
+    const [completedWarning, setCompletedWarning] = useState<string | null>(
+      null
+    );
 
     useEffect(() => {
       let active = true;
       setTarget(null);
       setLoading(true);
       setError(null);
+      setDeleteManagedFiles(false);
       void resolveTarget().then(
         (resolved) => {
           if (active) {
@@ -67,7 +78,7 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
       modal.remove();
     };
     const cancel = () => {
-      if (!pendingRef.current) close('canceled');
+      if (!pendingRef.current) close(completedWarning ? 'deleted' : 'canceled');
     };
     const confirm = async () => {
       if (!target || loading || pendingRef.current) return;
@@ -75,7 +86,16 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
       setDeleting(true);
       setError(null);
       try {
-        await onDelete(target, requiresStop);
+        const result = await onDelete(
+          target,
+          requiresStop,
+          deleteManagedFiles &&
+            target.deletionInfo?.can_delete_managed_files === true
+        );
+        if (result?.warning) {
+          setCompletedWarning(result.warning);
+          return;
+        }
         close('deleted');
       } catch (cause) {
         if (
@@ -119,54 +139,98 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
             : 'sessionDeletion.sessionTitle'
         )}
         message={
-          requiresStop
-            ? t('sessionDeletion.stopDescription', {
-                name: target?.title,
-                defaultValue:
-                  'The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.',
+          completedWarning
+            ? t('sessionDeletion.filesRetained', {
+                defaultValue: 'Session deleted. Some files were kept:',
               })
-            : target
-              ? t(
-                  target.task
-                    ? 'sessionDeletion.taskDescription'
-                    : 'sessionDeletion.sessionDescription',
-                  { name: target.title }
-                )
-              : t('sessionDeletion.resolving')
+            : requiresStop
+              ? t('sessionDeletion.stopDescription', {
+                  name: target?.title,
+                  defaultValue:
+                    'The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.',
+                })
+              : target && deleteManagedFiles
+                ? t('sessionDeletion.withFilesDescription', {
+                    name: target.title,
+                    defaultValue:
+                      'Delete “{{name}}”, its session history, and the managed working directory below? Other sessions, projects, and native agent history are preserved. This cannot be undone.',
+                  })
+                : target
+                  ? t(
+                      target.task
+                        ? 'sessionDeletion.taskDescription'
+                        : 'sessionDeletion.sessionDescription',
+                      { name: target.title }
+                    )
+                  : t('sessionDeletion.resolving')
         }
+        showCancelButton={!completedWarning}
         cancelText={t('common:buttons.cancel', 'Cancel')}
         confirmText={
-          requiresStop
-            ? t(
-                deleting
-                  ? 'sessionDeletion.stopping'
-                  : 'sessionDeletion.stopAndDelete',
-                {
-                  defaultValue: deleting
-                    ? 'Stopping and deleting…'
-                    : 'Stop and delete',
-                }
-              )
-            : retryLookup
-              ? t('common:buttons.retry', 'Retry')
-              : t(
+          completedWarning
+            ? t('common:buttons.close', 'Close')
+            : requiresStop
+              ? t(
                   deleting
-                    ? 'sessionDeletion.deleting'
-                    : target?.task
-                      ? 'sessionDeletion.deleteTask'
-                      : 'sessionDeletion.deleteSession'
+                    ? 'sessionDeletion.stopping'
+                    : 'sessionDeletion.stopAndDelete',
+                  {
+                    defaultValue: deleting
+                      ? 'Stopping and deleting…'
+                      : 'Stop and delete',
+                  }
                 )
+              : retryLookup
+                ? t('common:buttons.retry', 'Retry')
+                : t(
+                    deleting
+                      ? 'sessionDeletion.deleting'
+                      : target?.task
+                        ? 'sessionDeletion.deleteTask'
+                        : 'sessionDeletion.deleteSession'
+                  )
         }
-        confirmVariant={retryLookup ? 'default' : 'destructive'}
+        confirmVariant={
+          retryLookup || completedWarning ? 'default' : 'destructive'
+        }
         confirmDisabled={loading || (!target && !retryLookup)}
         confirmPending={deleting}
         cancelDisabled={deleting}
         onCancel={cancel}
         onConfirm={() => {
-          if (retryLookup) setRetry((value) => value + 1);
+          if (completedWarning) close('deleted');
+          else if (retryLookup) setRetry((value) => value + 1);
           else void confirm();
         }}
       >
+        {target?.deletionInfo?.can_delete_managed_files &&
+          !completedWarning && (
+            <label className="flex items-start gap-2 text-sm text-normal">
+              <input
+                type="checkbox"
+                checked={deleteManagedFiles}
+                disabled={deleting}
+                onChange={(event) =>
+                  setDeleteManagedFiles(event.target.checked)
+                }
+                className="mt-1 accent-brand"
+              />
+              <span>
+                {t('sessionDeletion.deleteManagedFiles', {
+                  defaultValue:
+                    'Also delete this session’s working directory and files',
+                })}
+                <span className="mt-1 block break-all text-xs text-low">
+                  {target.deletionInfo.managed_directory_path}
+                </span>
+              </span>
+            </label>
+          )}
+        {completedWarning && (
+          <p role="status" className="break-words text-sm text-normal">
+            {completedWarning}
+          </p>
+        )}
         {loading && (
           <LoaderCircle
             aria-hidden="true"

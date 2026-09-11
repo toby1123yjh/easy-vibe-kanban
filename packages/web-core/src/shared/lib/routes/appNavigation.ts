@@ -70,11 +70,13 @@ export interface SettingsNavigationTarget {
   tab: SettingsNavigationTab;
   section: SettingsNavigationSection;
   host?: string;
+  projectId?: string;
 }
 
 export function getSettingsNavigationTarget(
   section: SettingsNavigationSection,
-  host?: string | null
+  host?: string | null,
+  projectId?: string
 ): SettingsNavigationTarget {
   const tab = SETTINGS_NAVIGATION_TABS.find((candidate) =>
     SETTINGS_NAVIGATION_SECTIONS[candidate].includes(section)
@@ -83,7 +85,12 @@ export function getSettingsNavigationTarget(
     throw new Error(`Settings section has no owner: ${section}`);
   }
 
-  return { tab, section, ...(host ? { host } : {}) };
+  return {
+    tab,
+    section,
+    ...(host ? { host } : {}),
+    ...(section === 'projects' && projectId ? { projectId } : {}),
+  };
 }
 
 export interface AppNavigation {

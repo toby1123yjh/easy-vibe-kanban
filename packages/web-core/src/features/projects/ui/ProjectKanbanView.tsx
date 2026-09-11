@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   closestCorners,
+  defaultDropAnimationSideEffects,
   DndContext,
   DragOverlay,
   KeyboardSensor,
@@ -21,7 +22,9 @@ import {
   type DragEndEvent,
   type DragCancelEvent,
   type DragStartEvent,
+  type DropAnimation,
   type KeyboardCoordinateGetter,
+  type Modifier,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -29,7 +32,8 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { CSS, getEventCoordinates } from '@dnd-kit/utilities';
+import { useReducedMotion } from '@/shared/hooks/useReducedMotion';
 import { Button } from '@vibe/ui/components/Button';
 import { DegradedState, LoadingState } from '@vibe/ui/components/StateSurface';
 import { useTranslation } from 'react-i18next';
@@ -119,6 +123,7 @@ const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
 
 interface ProjectKanbanViewProps extends TaskDeletionActions {
   projectName: string;
+  projectActions?: ReactNode;
   columns: KanbanColumnProjection[];
   issueCount: number;
   query: string;
@@ -312,6 +317,7 @@ interface KanbanIssueCardProps extends TaskDeletionActions {
   onOpenTask(task: TaskSummary): void;
   onDelete(): Promise<void>;
   getTaskUnavailableReason(task: TaskSummary): string | null;
+  placeholderHeight?: number;
 }
 
 function KanbanIssueCard({
@@ -324,6 +330,7 @@ function KanbanIssueCard({
   deletingSessionId,
   onDelete,
   getTaskUnavailableReason,
+  placeholderHeight,
 }: KanbanIssueCardProps) {
   const {
     attributes,
@@ -435,6 +442,7 @@ function KanbanIssueCard({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
+        height: placeholderHeight,
       }}
       {...attributes}
       onPointerDown={handlePointerDown}
@@ -520,6 +528,7 @@ function KanbanColumn({
   deletingSessionId,
   onDeleteIssue,
   getTaskUnavailableReason,
+  dragSnapshot,
 }: TaskDeletionActions & {
   column: KanbanColumnProjection;
   selectedIssueId: string | null;
@@ -529,6 +538,7 @@ function KanbanColumn({
   onOpenTask(task: TaskSummary): void;
   onDeleteIssue(issueId: string): Promise<void>;
   getTaskUnavailableReason(task: TaskSummary): string | null;
+  dragSnapshot: KanbanDragSnapshot | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -567,7 +577,14 @@ function KanbanColumn({
           {column.issues.map((issue) => (
             <KanbanIssueCard
               key={issue.id}
-              issue={issue}
+              issue={
+                dragSnapshot?.issue.id === issue.id ? dragSnapshot.issue : issue
+              }
+              placeholderHeight={
+                dragSnapshot?.issue.id === issue.id
+                  ? dragSnapshot.height
+                  : undefined
+              }
               selected={issue.id === selectedIssueId}
               dragDisabled={dragDisabled}
               onOpen={(trigger) => onOpenIssue(issue.id, trigger)}
@@ -584,8 +601,17 @@ function KanbanColumn({
   );
 }
 
+interface KanbanDragSnapshot {
+  issue: KanbanIssueProjection;
+  width: number;
+  height: number;
+  previewHeight: number;
+  gripOffsetY: number;
+}
+
 export function ProjectKanbanView({
   projectName,
+  projectActions,
   columns,
   issueCount,
   query,
@@ -607,6 +633,66 @@ export function ProjectKanbanView({
   const { t } = useTranslation('common');
   const [displayColumns, setDisplayColumns] = useState(columns);
   const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
+  const [dragSnapshot, setDragSnapshot] = useState<KanbanDragSnapshot | null>(
+    null
+  );
+  const reducedMotion = useReducedMotion();
+  const dropCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dropCleanupRef.current?.(), []);
+  const previewModifiers = useMemo<Modifier[]>(
+    () => [
+      ({ transform }) => ({
+        ...transform,
+        y: transform.y + (dragSnapshot?.gripOffsetY ?? 0),
+      }),
+    ],
+    [dragSnapshot]
+  );
+  const dropAnimation = useMemo<DropAnimation | null>(
+    () =>
+      reducedMotion
+        ? null
+        : {
+            duration: 160,
+            easing: 'ease-out',
+            keyframes: ({ transform }) => [
+              {
+                transform: CSS.Transform.toString({
+                  ...transform.initial,
+                  scaleX: 1,
+                  scaleY: 1,
+                }),
+              },
+              {
+                transform: CSS.Transform.toString({
+                  ...transform.final,
+                  scaleX: 1,
+                  scaleY: 1,
+                }),
+              },
+            ],
+            sideEffects: (parameters) => {
+              // A second drag can start before the previous return finishes.
+              // Restore before capturing styles, and make old completion inert.
+              dropCleanupRef.current?.();
+              const restore = defaultDropAnimationSideEffects({
+                styles: { active: { opacity: '0' } },
+              })(parameters);
+              let restored = false;
+              const cleanup = () => {
+                if (restored) return;
+                restored = true;
+                restore?.();
+                if (dropCleanupRef.current === cleanup) {
+                  dropCleanupRef.current = null;
+                }
+              };
+              dropCleanupRef.current = cleanup;
+              return cleanup;
+            },
+          },
+    [reducedMotion]
+  );
   const [announcement, setAnnouncement] = useState('');
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -634,7 +720,33 @@ export function ProjectKanbanView({
   );
 
   const handleDragStart = (event: DragStartEvent) => {
+    dropCleanupRef.current?.();
     const issue = findKanbanIssue(displayColumns, String(event.active.id));
+    const source = event.activatorEvent.target;
+    const rect =
+      event.active.rect.current.initial ??
+      (source instanceof Element
+        ? source.closest('[data-issue-id]')?.getBoundingClientRect()
+        : undefined);
+    setDragSnapshot(null);
+    if (issue && rect) {
+      const previewHeight = Math.min(
+        rect.height,
+        Math.min(480, window.innerHeight * 0.65)
+      );
+      const pointer = getEventCoordinates(event.activatorEvent);
+      const gripY = pointer ? pointer.y - rect.top : 0;
+      setDragSnapshot({
+        issue: structuredClone(issue),
+        width: rect.width,
+        height: rect.height,
+        previewHeight,
+        gripOffsetY:
+          previewHeight < rect.height
+            ? Math.max(0, gripY - previewHeight + 24)
+            : 0,
+      });
+    }
     setActiveIssueId(issue?.id ?? null);
     if (issue) setAnnouncement(`Picked up ${issue.simpleId}.`);
   };
@@ -711,6 +823,7 @@ export function ProjectKanbanView({
           </span>
           <strong>{projectName}</strong>
         </div>
+        {projectActions}
         <label className="vk-kanban-search">
           <Search aria-hidden="true" size={16} />
           <span className="vk-visually-hidden">
@@ -799,15 +912,43 @@ export function ProjectKanbanView({
                   deletingSessionId={deletingSessionId}
                   onDeleteIssue={onDeleteIssue}
                   getTaskUnavailableReason={getTaskUnavailableReason}
+                  dragSnapshot={activeIssueId ? dragSnapshot : null}
                 />
               ))}
             </div>
           </div>
-          <DragOverlay dropAnimation={null}>
-            {activeIssue ? (
-              <div className="vk-kanban-drag-preview">
-                <span>{activeIssue.simpleId}</span>
-                <strong>{activeIssue.title}</strong>
+          <DragOverlay
+            adjustScale={false}
+            transition={reducedMotion ? 'none' : undefined}
+            modifiers={previewModifiers}
+            dropAnimation={dropAnimation}
+          >
+            {activeIssueId && dragSnapshot ? (
+              <div
+                className="vk-kanban-issue-card vk-kanban-drag-preview"
+                data-clipped={dragSnapshot.previewHeight < dragSnapshot.height}
+                aria-hidden="true"
+                style={{
+                  width: dragSnapshot.width,
+                  height: dragSnapshot.previewHeight,
+                }}
+              >
+                <IssueCardContent
+                  issue={dragSnapshot.issue}
+                  preview
+                  onDeleteTask={onDeleteTask}
+                  getTaskUnavailableReason={getTaskUnavailableReason}
+                  actions={
+                    <>
+                      <div className="vk-kanban-issue-card__menu">
+                        <MoreHorizontal aria-hidden="true" size={16} />
+                      </div>
+                      <div className="vk-kanban-card-drag-handle">
+                        <GripVertical aria-hidden="true" size={16} />
+                      </div>
+                    </>
+                  }
+                />
               </div>
             ) : null}
           </DragOverlay>

@@ -13,12 +13,14 @@ import { useHostId } from '@/shared/providers/HostIdProvider';
 export interface WorkspaceContextHeaderProps {
   workspaceId?: string | null;
   draftRepo?: DraftWorkspaceRepo | null;
+  draftDirectoryPath?: string | null;
   className?: string;
 }
 
 export function WorkspaceContextHeader({
   workspaceId,
   draftRepo,
+  draftDirectoryPath,
   className,
 }: WorkspaceContextHeaderProps) {
   const { t } = useTranslation('common');
@@ -28,7 +30,8 @@ export function WorkspaceContextHeader({
   const workspaceRepos = useWorkspaceRepo(normalizedWorkspaceId, {
     enabled: !!normalizedWorkspaceId,
   });
-  const shouldLoadDraftRepo = !normalizedWorkspaceId && !!draftRepo;
+  const shouldLoadDraftRepo =
+    !normalizedWorkspaceId && !draftDirectoryPath && !!draftRepo;
   const draftRepoQuery = useQuery({
     queryKey: ['workspace-context-draft-repo', hostId, draftRepo?.repo_id],
     queryFn: () => repoApi.getById(draftRepo!.repo_id, hostId),
@@ -50,6 +53,9 @@ export function WorkspaceContextHeader({
       });
     }
 
+    if (!normalizedWorkspaceId && draftDirectoryPath) {
+      return buildWorkspaceContext({ containerRef: draftDirectoryPath });
+    }
     if (draftRepo && draftRepoQuery.data) {
       return buildWorkspaceContext({
         containerRef: draftRepoQuery.data.path,
@@ -64,6 +70,8 @@ export function WorkspaceContextHeader({
     return [];
   }, [
     draftRepo,
+    draftDirectoryPath,
+    normalizedWorkspaceId,
     draftRepoQuery.data,
     t,
     workspaceQuery.data,

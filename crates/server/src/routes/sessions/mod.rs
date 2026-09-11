@@ -1,5 +1,6 @@
 mod agent_run;
 pub(crate) mod deletion;
+mod executor_config;
 mod native_history;
 pub mod queue;
 pub mod review;
@@ -116,16 +117,24 @@ pub async fn delete_session(
     Extension(session): Extension<Session>,
     AxumPath(_session_id): AxumPath<Uuid>,
     Query(query): Query<deletion::DeleteSessionQuery>,
-) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<db::models::requests::SessionDeletionResult>>, ApiError> {
     let _queue_guard =
         lock_session_for_deletion(deployment.queued_message_service(), session.id).await?;
+    super::workspaces::managed_directory::preflight_files(
+        &deployment,
+        session.id,
+        query.delete_managed_files,
+    )
+    .await?;
     deletion::prepare_deletion(&deployment, session.id, None, query.stop_running).await?;
-    let deleted = Session::delete(&deployment.db().pool, session.id).await?;
-    if deleted == 0 {
-        return Err(ApiError::Session(SessionError::NotFound));
-    }
-
-    Ok(ResponseJson(ApiResponse::success(())))
+    let result = super::workspaces::managed_directory::delete(
+        &deployment,
+        session.id,
+        None,
+        query.delete_managed_files,
+    )
+    .await?;
+    Ok(ResponseJson(ApiResponse::success(result)))
 }
 
 pub(crate) async fn lock_session_for_deletion(
@@ -641,6 +650,14 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         )
         .route("/follow-up", post(follow_up))
         .route("/task", get(get_session_task))
+        .route(
+            "/deletion-info",
+            get(super::workspaces::managed_directory::deletion_info),
+        )
+        .route(
+            "/executor-config",
+            get(executor_config::get_executor_config),
+        )
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
         .layer(from_fn_with_state(

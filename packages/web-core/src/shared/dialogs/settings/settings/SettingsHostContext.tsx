@@ -38,6 +38,7 @@ interface SettingsHostContextValue {
     canRetry: boolean;
     retry: () => Promise<void>;
   };
+  remoteHostDiscovery: SettingsHostContextValue['hostDiscovery'];
   selectedHostId: SettingsHostTargetId | null;
   selectedHost: SettingsHostTarget | null;
   setSelectedHostId: (hostId: SettingsHostTargetId) => void;
@@ -110,20 +111,16 @@ export function SettingsHostProvider({
   const runtime = useAppRuntime();
   const routeHostId = useHostId();
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
-  const discoveryEnabled = runtime === 'local' || (authLoaded && isSignedIn);
+  const discoveryEnabled = authLoaded && isSignedIn;
   const remoteCloudHostsState = useRemoteCloudHostsState({
     enabled: discoveryEnabled,
   });
   const hostDiscoveryHasCanonicalData =
-    runtime === 'local' ||
-    (authLoaded && !isSignedIn) ||
-    remoteCloudHostsState.hasCanonicalData;
+    (authLoaded && !isSignedIn) || remoteCloudHostsState.hasCanonicalData;
   const hostDiscoveryLoading =
-    runtime === 'remote' &&
-    (!authLoaded || (isSignedIn && remoteCloudHostsState.isLoading));
-  const hostsResolved = !hostDiscoveryLoading;
+    !authLoaded || (isSignedIn && remoteCloudHostsState.isLoading);
 
-  const hostDiscovery = useMemo(
+  const remoteHostDiscovery = useMemo(
     () => ({
       hasCanonicalData: hostDiscoveryHasCanonicalData,
       isLoading: hostDiscoveryLoading,
@@ -189,6 +186,24 @@ export function SettingsHostProvider({
   // effect here would expose one render of the previous Host's settings.
   const selectedHostId = initialHostId ?? routeHostId ?? storedSelectedHostId;
 
+  // Remote discovery is optional for this machine. Its failures must not
+  // revoke local config writes or masquerade as local scan failures.
+  const hostDiscovery = useMemo(
+    () =>
+      runtime === 'local' && selectedHostId === 'local'
+        ? {
+            hasCanonicalData: true,
+            isLoading: false,
+            isRetrying: false,
+            error: null,
+            canRetry: false,
+            retry: async () => undefined,
+          }
+        : remoteHostDiscovery,
+    [remoteHostDiscovery, runtime, selectedHostId]
+  );
+  const hostsResolved = !hostDiscovery.isLoading;
+
   const selectedHost = useMemo(
     () => availableHosts.find((host) => host.id === selectedHostId) ?? null,
     [availableHosts, selectedHostId]
@@ -199,11 +214,19 @@ export function SettingsHostProvider({
       availableHosts,
       hostsResolved,
       hostDiscovery,
+      remoteHostDiscovery,
       selectedHostId,
       selectedHost,
       setSelectedHostId,
     }),
-    [availableHosts, hostDiscovery, hostsResolved, selectedHost, selectedHostId]
+    [
+      availableHosts,
+      hostDiscovery,
+      remoteHostDiscovery,
+      hostsResolved,
+      selectedHost,
+      selectedHostId,
+    ]
   );
 
   return (

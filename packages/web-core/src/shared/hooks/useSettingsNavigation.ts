@@ -6,6 +6,7 @@ import {
 } from '@/shared/lib/routes/appNavigation';
 
 interface SettingsNavigationOptions {
+  projectId?: string;
   hostId?: string | null;
   replace?: boolean;
 }
@@ -28,7 +29,11 @@ export function useSettingsNavigation() {
       const hostId = options?.hostId ?? settingsHostId ?? routeHostId ?? null;
       void navigate({
         to: '/settings',
-        search: getSettingsNavigationTarget(section, hostId),
+        search: getSettingsNavigationTarget(
+          section,
+          hostId,
+          options?.projectId
+        ),
         replace: options?.replace,
       });
     },

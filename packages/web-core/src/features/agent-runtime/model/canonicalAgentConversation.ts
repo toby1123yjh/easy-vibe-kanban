@@ -160,6 +160,7 @@ function appendRunEntries(
   const toolIndexes = new Map<string, number>();
   const approvalIndexes = new Map<string, number>();
   const inputIndexes = new Map<string, number>();
+  const systemMessageIndexes = new Map<string, number>();
   let previousMessage:
     | { index: number; messageId: string; role: string }
     | undefined;
@@ -179,23 +180,35 @@ function appendRunEntries(
             : message.role === 'assistant'
               ? 'assistant_message'
               : 'system_message';
-        const canMerge =
-          message.role === 'assistant' &&
-          previousMessage?.messageId === message.message_id &&
-          previousMessage.role === message.role;
-        if (canMerge && previousMessage) {
-          const previous = output[previousMessage.index];
+        const mergeIndex =
+          message.role === 'system'
+            ? systemMessageIndexes.get(message.message_id)
+            : message.role === 'assistant' &&
+                previousMessage?.messageId === message.message_id &&
+                previousMessage.role === message.role
+              ? previousMessage.index
+              : undefined;
+        if (mergeIndex !== undefined) {
+          const previous = output[mergeIndex];
           if (previous.type === 'NORMALIZED_ENTRY') {
             const previousContent = previous.content.content;
             previous.content = {
               ...previous.content,
-              content: message.content.startsWith(previousContent)
-                ? message.content
-                : `${previousContent}${message.content}`,
+              content:
+                message.role === 'assistant'
+                  ? message.content.startsWith(previousContent)
+                    ? message.content
+                    : `${previousContent}${message.content}`
+                  : message.content,
               timestamp: event.timestamp,
             };
             mergeEventIdentity(previous, event, runActive);
           }
+          previousMessage = {
+            index: mergeIndex,
+            messageId: message.message_id,
+            role: message.role,
+          };
           break;
         }
         output.push(
@@ -210,6 +223,9 @@ function appendRunEntries(
           messageId: message.message_id,
           role: message.role,
         };
+        if (message.role === 'system') {
+          systemMessageIndexes.set(message.message_id, output.length - 1);
+        }
         break;
       }
       case 'thinking':

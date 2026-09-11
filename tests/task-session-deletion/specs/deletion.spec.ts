@@ -50,6 +50,9 @@ async function setup(page: Page) {
     deleteError: false,
     requiresStop: false,
     stopRequests: 0,
+    managedDirectory: false,
+    cleanupWarning: null as string | null,
+    fileDeleteRequests: 0,
     staleBinding: false,
     gate: null as ReturnType<typeof deferred> | null,
     writes: [] as {
@@ -73,6 +76,16 @@ async function setup(page: Page) {
       json({ success: true, data, message: null });
     if (url.pathname === '/__fixture/tasks') return json(state.tasks);
     if (url.pathname === '/__fixture/sessions') return json(state.sessions);
+    if (
+      /^\/__fixture\/api\/sessions\/[^/]+\/deletion-info$/.test(url.pathname)
+    ) {
+      return success({
+        can_delete_managed_files: state.managedDirectory,
+        managed_directory_path: state.managedDirectory
+          ? 'C:/fixture/workspaces/owned-session'
+          : null,
+      });
+    }
     const match = url.pathname.match(
       /^\/__fixture\/api\/sessions\/([^/]+)\/task$/
     );
@@ -90,6 +103,8 @@ async function setup(page: Page) {
       return success(found);
     }
     if (route.request().method() === 'DELETE') {
+      if (url.searchParams.get('delete_managed_files') === 'true')
+        state.fileDeleteRequests++;
       if (url.searchParams.get('stop_running') === 'true') state.stopRequests++;
       state.writes.push({
         path: url.pathname,
@@ -99,7 +114,14 @@ async function setup(page: Page) {
       });
       if (state.gate) await state.gate.promise;
       if (state.requiresStop && url.searchParams.get('stop_running') !== 'true')
-        return json({ success: false, message: 'Agent is active', error_data: { code: 'session_requires_stop' } }, 409);
+        return json(
+          {
+            success: false,
+            message: 'Agent is active',
+            error_data: { code: 'session_requires_stop' },
+          },
+          409
+        );
       if (state.deleteError)
         return json(
           {
@@ -133,7 +155,7 @@ async function setup(page: Page) {
           (row) => row.id !== standaloneMatch[1]
         );
       }
-      return success(null);
+      return success({ warning: state.cleanupWarning });
     }
     throw new Error(
       `Unexpected fixture request ${route.request().method()} ${url.pathname}`
@@ -160,33 +182,116 @@ async function openDelete(
   return dialog;
 }
 
+test('external directories never offer file deletion', async ({ page }) => {
+  const state = await setup(page);
+  const dialog = await openDelete(page, 'sidebar', 'Standalone');
+  await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+  await dialog
+    .getByRole('button', { name: 'Delete session', exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.fileDeleteRequests).toBe(0);
+});
+
+test('managed session keeps files by default', async ({ page }) => {
+  const state = await setup(page);
+  state.managedDirectory = true;
+  const dialog = await openDelete(page, 'sidebar', 'Standalone');
+  await expect(dialog.getByRole('checkbox')).not.toBeChecked();
+  await dialog
+    .getByRole('button', { name: 'Delete session', exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.fileDeleteRequests).toBe(0);
+});
+
+test('managed file deletion consent survives stop confirmation', async ({
+  page,
+}) => {
+  const state = await setup(page);
+  state.managedDirectory = true;
+  state.requiresStop = true;
+  const dialog = await openDelete(page, 'sidebar', 'Standalone');
+  await dialog.getByRole('checkbox').check();
+  await dialog
+    .getByRole('button', { name: 'Delete session', exact: true })
+    .click();
+  await expect(
+    dialog.getByRole('button', { name: 'Stop and delete', exact: true })
+  ).toBeVisible();
+  await expect(dialog.getByRole('checkbox')).toBeChecked();
+  expect(state.stopRequests).toBe(0);
+  await dialog
+    .getByRole('button', { name: 'Stop and delete', exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.stopRequests).toBe(1);
+  expect(state.fileDeleteRequests).toBe(2);
+});
+
+test('cleanup warning reports committed deletion without retrying it', async ({
+  page,
+}) => {
+  const state = await setup(page);
+  state.managedDirectory = true;
+  state.cleanupWarning =
+    'Files retained at C:/fixture/recovery; session was deleted.';
+  const dialog = await openDelete(page, 'sidebar', 'Standalone');
+  await dialog.getByRole('checkbox').check();
+  await dialog
+    .getByRole('button', { name: 'Delete session', exact: true })
+    .click();
+  await expect(dialog).toContainText(state.cleanupWarning);
+  await expect(page.getByTestId('session-count')).toHaveText('2');
+  await expect(
+    dialog.getByRole('button', { name: 'Delete session', exact: true })
+  ).toHaveCount(0);
+  expect(state.writes).toHaveLength(1);
+});
+
 for (const surface of ['project', 'sidebar'] as const) {
-  test(`${surface}: stop requires a separate confirmation and failure preserves data`, async ({ page }) => {
+  test(`${surface}: stop requires a separate confirmation and failure preserves data`, async ({
+    page,
+  }) => {
     const state = await setup(page);
     state.requiresStop = true;
     const dialog = await openDelete(page, surface);
-    await dialog.getByRole('button', { name: 'Delete Task and session', exact: true }).click();
-    await expect(dialog.getByRole('button', { name: 'Stop and delete', exact: true })).toBeVisible();
+    await dialog
+      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .click();
+    await expect(
+      dialog.getByRole('button', { name: 'Stop and delete', exact: true })
+    ).toBeVisible();
     expect(state.stopRequests).toBe(0);
     await expect(page.getByTestId('task-count')).toHaveText('2');
     state.deleteError = true;
-    await dialog.getByRole('button', { name: 'Stop and delete', exact: true }).click();
+    await dialog
+      .getByRole('button', { name: 'Stop and delete', exact: true })
+      .click();
     await expect(dialog.getByRole('alert')).toBeVisible();
     await expect(page.getByTestId('task-count')).toHaveText('2');
     expect(state.stopRequests).toBe(1);
     state.deleteError = false;
-    await dialog.getByRole('button', { name: 'Stop and delete', exact: true }).click();
+    await dialog
+      .getByRole('button', { name: 'Stop and delete', exact: true })
+      .click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByTestId('task-count')).toHaveText('1');
     expect(state.stopRequests).toBe(2);
   });
 
-  test(`${surface}: cancel second confirmation never stops`, async ({ page }) => {
+  test(`${surface}: cancel second confirmation never stops`, async ({
+    page,
+  }) => {
     const state = await setup(page);
     state.requiresStop = true;
     const dialog = await openDelete(page, surface);
-    await dialog.getByRole('button', { name: 'Delete Task and session', exact: true }).click();
-    await expect(dialog.getByRole('button', { name: 'Stop and delete', exact: true })).toBeVisible();
+    await dialog
+      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .click();
+    await expect(
+      dialog.getByRole('button', { name: 'Stop and delete', exact: true })
+    ).toBeVisible();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(state.stopRequests).toBe(0);
     await expect(page.getByTestId('session-count')).toHaveText('3');

@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { create, useModal } from '@ebay/nice-modal-react';
 import {
-  AlertTriangle,
-  CheckCircle2,
   Folder,
   FolderOpen,
   GitBranch as GitBranchIcon,
   Loader2,
-  ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { DirectoryInspection, GitBranch, Repo } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
+import { Tooltip } from '@vibe/ui/components/Tooltip';
 import { Input } from '@vibe/ui/components/Input';
 import {
   Dialog,
@@ -62,11 +61,6 @@ type DialogError = {
   scope: 'path' | 'branch';
   message: string;
 };
-
-const modeCardClassName =
-  'flex w-full items-start gap-base rounded-sm border p-base text-left ' +
-  'transition-colors focus-visible:outline-none focus-visible:ring-1 ' +
-  'focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50';
 
 const DEFAULT_ALLOWED_MODES: WorkspaceTargetMode[] = [
   'worktree',
@@ -397,17 +391,20 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
         }}
       >
         <DialogContent
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="workspace-target-title"
           className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
           style={{ maxWidth: 'min(640px, calc(100vw - 32px))' }}
         >
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle id="workspace-target-title">
               {title ??
                 t('createMode.workspaceDialog.title', {
-                  defaultValue: 'Choose workspace',
+                  defaultValue: 'Choose working directory',
                 })}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               {description ??
                 t('createMode.workspaceDialog.description', {
                   defaultValue:
@@ -483,142 +480,89 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
             </div>
 
             {inspection && !isProjectDefault ? (
-              <div
-                className={cn(
-                  'rounded-sm border px-base py-half',
-                  inspection.is_git_repo
-                    ? 'border-success/30 bg-success/10'
-                    : 'border-border bg-secondary'
-                )}
-              >
-                <div className="flex items-start gap-half">
-                  {inspection.is_git_repo ? (
-                    <CheckCircle2 className="mt-[2px] size-icon-sm shrink-0 text-success" />
-                  ) : (
-                    <Folder className="mt-[2px] size-icon-sm shrink-0 text-low" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-high">
-                      {inspection.is_git_repo
-                        ? t('createMode.workspaceDialog.gitRepository', {
-                            defaultValue: 'Git repository',
-                          })
-                        : t('createMode.workspaceDialog.regularDirectory', {
-                            defaultValue: 'Directory',
-                          })}
-                      {inspection.repo
-                        ? ` · ${inspection.repo.display_name || inspection.repo.name}`
-                        : ''}
-                    </p>
-                    <p
-                      className="truncate text-xs text-low"
-                      title={inspection.path}
-                    >
-                      {inspection.path}
-                    </p>
-                    {inspection.current_branch ? (
-                      <p className="mt-half text-xs text-normal">
-                        {t('createMode.workspaceDialog.currentBranch', {
-                          defaultValue: 'Current branch',
-                        })}
-                        : {inspection.current_branch}
-                      </p>
-                    ) : (
-                      <p className="mt-half text-xs text-low">
-                        {t('createMode.workspaceDialog.nonGitHint', {
-                          defaultValue:
-                            'This directory is not a Git repository, so worktree isolation is unavailable.',
-                        })}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {inspection && !isProjectDefault ? (
               <fieldset className="flex flex-col gap-half">
                 <legend className="mb-half text-sm font-medium text-normal">
                   {t('createMode.workspaceDialog.modeLabel', {
                     defaultValue: 'Working mode',
                   })}
                 </legend>
-                {allowedModeSet.has('worktree') ? (
-                  <button
-                    type="button"
-                    onClick={() => handleModeChange('worktree')}
-                    disabled={!inspection.is_git_repo || !inspection.repo}
-                    className={cn(
-                      modeCardClassName,
-                      mode === 'worktree'
-                        ? 'border-brand bg-brand/10'
-                        : 'border-border bg-primary hover:bg-secondary'
-                    )}
-                  >
-                    <ShieldCheck
-                      className={cn(
-                        'mt-[2px] size-icon-sm shrink-0',
-                        mode === 'worktree' ? 'text-brand' : 'text-low'
-                      )}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-high">
+                <div className="flex flex-wrap items-center gap-base">
+                  {allowedModeSet.has('direct_folder') ? (
+                    <label className="flex min-h-9 cursor-pointer items-center gap-half text-sm text-normal">
+                      <input
+                        type="radio"
+                        name="workspace-working-mode"
+                        value="direct_folder"
+                        checked={mode === 'direct_folder'}
+                        onChange={() => handleModeChange('direct_folder')}
+                        className="accent-brand"
+                      />
+                      {t('createMode.workspaceDialog.directTitle', {
+                        defaultValue: 'Direct editing',
+                      })}
+                    </label>
+                  ) : null}
+                  {allowedModeSet.has('worktree') ? (
+                    <div className="flex items-center gap-half">
+                      <label
+                        className={cn(
+                          'flex min-h-9 items-center gap-half text-sm text-normal',
+                          !inspection.is_git_repo || !inspection.repo
+                            ? 'cursor-not-allowed opacity-50'
+                            : 'cursor-pointer'
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="workspace-working-mode"
+                          value="worktree"
+                          checked={mode === 'worktree'}
+                          disabled={!inspection.is_git_repo || !inspection.repo}
+                          onChange={() => handleModeChange('worktree')}
+                          className="accent-brand"
+                        />
                         {t('createMode.workspaceDialog.worktreeTitle', {
-                          defaultValue: 'Isolated worktree',
+                          defaultValue: 'Isolated Worktree',
                         })}
-                      </span>
-                      <span className="mt-half block text-xs text-low">
-                        {inspection.is_git_repo
-                          ? t(
-                              'createMode.workspaceDialog.worktreeDescription',
-                              {
-                                defaultValue:
-                                  'Create an isolated checkout and leave the source directory unchanged.',
-                              }
-                            )
-                          : t(
+                      </label>
+                      {!inspection.is_git_repo || !inspection.repo ? (
+                        <Tooltip
+                          content={t(
+                            'createMode.workspaceDialog.worktreeUnavailable',
+                            {
+                              defaultValue: 'Requires a Git repository',
+                            }
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className="flex size-9 items-center justify-center rounded-sm text-low focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+                            aria-label={t(
                               'createMode.workspaceDialog.worktreeUnavailable',
                               {
-                                defaultValue:
-                                  'Requires the selected directory to be a Git repository.',
+                                defaultValue: 'Requires a Git repository',
                               }
                             )}
-                      </span>
-                    </span>
-                  </button>
-                ) : null}
-
-                {allowedModeSet.has('direct_folder') ? (
-                  <button
-                    type="button"
-                    onClick={() => handleModeChange('direct_folder')}
-                    className={cn(
-                      modeCardClassName,
-                      mode === 'direct_folder'
-                        ? 'border-brand bg-brand/10'
-                        : 'border-border bg-primary hover:bg-secondary'
-                    )}
-                  >
-                    <Folder
-                      className={cn(
-                        'mt-[2px] size-icon-sm shrink-0',
-                        mode === 'direct_folder' ? 'text-brand' : 'text-low'
-                      )}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-high">
-                        {t('createMode.workspaceDialog.directTitle', {
-                          defaultValue: 'Work directly in this directory',
-                        })}
-                      </span>
-                      <span className="mt-half block text-xs text-low">
-                        {t('createMode.workspaceDialog.directDescription', {
+                          >
+                            <Info className="size-icon-xs" aria-hidden="true" />
+                          </button>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                {mode ? (
+                  <p className="text-xs text-low">
+                    {mode === 'direct_folder'
+                      ? t('createMode.workspaceDialog.directDescription', {
                           defaultValue:
-                            'The agent edits the selected directory itself. No worktree is created.',
+                            'The agent will edit files in this directory.',
+                        })
+                      : t('createMode.workspaceDialog.worktreeDescription', {
+                          defaultValue:
+                            'Create an isolated checkout; keep the source directory unchanged.',
                         })}
-                      </span>
-                    </span>
-                  </button>
+                  </p>
                 ) : null}
               </fieldset>
             ) : null}
@@ -655,19 +599,6 @@ const WorkspaceTargetDialogImpl = create<WorkspaceTargetDialogProps>(
                     {error.message}
                   </p>
                 ) : null}
-              </div>
-            ) : null}
-
-            {inspection && mode === 'direct_folder' && !isProjectDefault ? (
-              <div className="flex items-start gap-half rounded-sm border border-warning/30 bg-warning/10 px-base py-half text-xs text-normal">
-                <AlertTriangle className="mt-[1px] size-icon-sm shrink-0 text-warning" />
-                <span>
-                  {t('createMode.workspaceDialog.directWarning', {
-                    defaultValue:
-                      'The agent will modify this directory directly: {{path}}',
-                    path: inspection.path,
-                  })}
-                </span>
               </div>
             ) : null}
           </div>

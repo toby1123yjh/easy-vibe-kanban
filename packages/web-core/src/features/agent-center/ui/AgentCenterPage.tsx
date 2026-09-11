@@ -54,13 +54,7 @@ type AgentCenterTab = 'providers' | 'mcp' | 'skills' | 'commands' | 'profiles';
 
 type SummaryState = AgentCenterSourceState;
 
-type RefreshSource =
-  | 'hosts'
-  | 'garage'
-  | 'tools'
-  | 'commands'
-  | 'settings'
-  | 'config';
+type RefreshSource = 'garage' | 'tools' | 'commands' | 'settings' | 'config';
 
 type RefreshDiagnostic = {
   source: RefreshSource;
@@ -204,6 +198,7 @@ export function AgentCenterPage() {
   const {
     availableHosts,
     hostDiscovery,
+    remoteHostDiscovery,
     selectedHost,
     selectedHostId,
     setSelectedHostId,
@@ -508,7 +503,6 @@ export function AgentCenterPage() {
         return t('agentCenter.errors.loadTools');
       case 'commands':
       case 'settings':
-      case 'hosts':
       case 'config':
         return t('agentCenter.errors.rescan');
     }
@@ -516,8 +510,6 @@ export function AgentCenterPage() {
 
   const refreshSourceLabel = (source: RefreshSource): string => {
     switch (source) {
-      case 'hosts':
-        return t('agentCenter.host');
       case 'garage':
         return t('agentCenter.tabs.providers');
       case 'tools':
@@ -549,9 +541,6 @@ export function AgentCenterPage() {
 
     const attempts = sources.map(async (source) => {
       switch (source) {
-        case 'hosts':
-          await hostDiscovery.retry();
-          return;
         case 'garage': {
           const result = await garageQuery.refetch();
           if (result.isError) {
@@ -721,7 +710,7 @@ export function AgentCenterPage() {
       <section className="vk-agent-center" aria-label={t('agentCenter.title')}>
         <ErrorState
           title={t('agentCenter.title')}
-          description={t('agentCenter.errors.rescan')}
+          description={t('agentCenter.errors.loadRemoteHosts')}
           action={
             hostDiscovery.canRetry ? (
               <button
@@ -800,9 +789,6 @@ export function AgentCenterPage() {
             }
             onClick={() =>
               void runRefresh([
-                ...(hostDiscovery.canRetry
-                  ? (['hosts'] as RefreshSource[])
-                  : []),
                 'garage',
                 'tools',
                 'commands',
@@ -824,24 +810,20 @@ export function AgentCenterPage() {
         </div>
       </header>
 
-      {Boolean(hostDiscovery.error) && hostDiscovery.hasCanonicalData && (
-        <DegradedState
-          compact
-          title={t('agentCenter.readiness.degraded')}
-          description={t('agentCenter.errors.rescan')}
-          action={
-            hostDiscovery.canRetry ? (
-              <button
-                type="button"
-                className="vk-agent-center__state-action"
-                disabled={hostDiscovery.isRetrying}
-                onClick={() => void hostDiscovery.retry()}
-              >
-                {t('buttons.retry')}
-              </button>
-            ) : undefined
-          }
-        />
+      {Boolean(remoteHostDiscovery.error) && (
+        <div role="status" className="vk-agent-center__header-actions">
+          <span>{t('agentCenter.errors.loadRemoteHosts')}</span>
+          {remoteHostDiscovery.canRetry && (
+            <button
+              type="button"
+              className="vk-agent-center__state-action"
+              disabled={remoteHostDiscovery.isRetrying}
+              onClick={() => void remoteHostDiscovery.retry()}
+            >
+              {t('buttons.retry')}
+            </button>
+          )}
+        </div>
       )}
 
       {currentRefreshStatus &&

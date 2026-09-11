@@ -25,6 +25,7 @@ import {
 } from '../model/project-kanban';
 import { IssueFloatingPanelContainer } from './IssueFloatingPanelContainer';
 import { ProjectKanbanView } from './ProjectKanbanView';
+import { ProjectBoardActions } from './ProjectBoardActions';
 
 interface ProjectKanbanContainerProps {
   projectName: string;
@@ -379,6 +380,13 @@ export function ProjectKanbanContainer({
   return (
     <ProjectKanbanView
       projectName={projectName}
+      projectActions={
+        <ProjectBoardActions
+          projectId={projectId}
+          projectName={projectName}
+          hostId={routeState.hostId}
+        />
+      }
       columns={columns}
       issueCount={columns.reduce(
         (count, column) => count + column.issues.length,

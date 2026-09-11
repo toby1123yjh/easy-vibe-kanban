@@ -1,3 +1,5 @@
+import { useTheme } from '@/shared/hooks/useTheme';
+import { useReducedMotion } from '@/shared/hooks/useReducedMotion';
 import {
   useCallback,
   useEffect,
@@ -91,8 +93,8 @@ import {
   WORKFLOW_CANVAS_COLOR_TOKENS,
   WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES,
   WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES,
-  getWorkflowNodeIdentityClass,
-  getWorkflowNodeStatusClass,
+  WORKFLOW_CANVAS_NODE_SURFACE_CLASSES,
+  WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES,
 } from './workflowCanvasTokens';
 import {
   WORKFLOW_CANVAS_DEFAULT_EDGE_OPTIONS,
@@ -161,10 +163,9 @@ function RunNode({ data }: { data: RunNodeData }) {
     type,
     data,
   });
-  const premiumClasses = cn(
-    'node-premium-dark rounded-lg border bg-panel shadow-sm transition-[border-color,box-shadow] motion-reduce:transition-none',
-    getWorkflowNodeIdentityClass(type, agentDisplay?.executor),
-    getWorkflowNodeStatusClass(nodeState)
+  const cardClasses = cn(
+    WORKFLOW_CANVAS_NODE_SURFACE_CLASSES.card,
+    WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES[nodeState]
   );
 
   const handles = (
@@ -198,28 +199,23 @@ function RunNode({ data }: { data: RunNodeData }) {
         data-testid={`workflow-run-node-${data.nodeId}`}
         className={cn(
           'relative flex min-w-[120px] items-center gap-2 overflow-visible px-3 py-2 text-normal',
-          premiumClasses
+          cardClasses
         )}
       >
         {handles}
         <span
+          title={stateLabel}
+          aria-label={stateLabel}
           className={cn(
             'absolute right-2 top-2 h-2.5 w-2.5 rounded-full border border-panel',
-            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-            data.runtimeStatus === 'running' ||
-              data.runtimeStatus === 'starting'
-              ? 'workflow-status-dot-running motion-reduce:animate-none'
-              : ''
+            WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState]
           )}
         />
         <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-secondary bg-secondary/30 text-low">
           <Icon className="h-3.5 w-3.5" />
         </div>
         <div className="min-w-0">
-          <div className="text-[9px] font-semibold uppercase tracking-normal text-low">
-            {getWorkflowNodeKindLabel(type, t)}
-          </div>
-          <div className="truncate text-xs font-semibold text-high">
+          <div className="truncate pr-3 text-sm font-semibold text-high">
             {data.display_name || getWorkflowNodeKindLabel(type, t)}
           </div>
         </div>
@@ -231,18 +227,15 @@ function RunNode({ data }: { data: RunNodeData }) {
     <div
       data-testid={`workflow-run-node-${data.nodeId}`}
       className={cn(
-        'relative w-[232px] overflow-visible text-high',
-        premiumClasses
+        'relative w-[248px] overflow-visible text-high',
+        cardClasses
       )}
     >
       {handles}
       <span
         className={cn(
           'absolute right-3 top-3 h-2.5 w-2.5 rounded-full border border-panel shadow-sm',
-          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState],
-          data.runtimeStatus === 'running' || data.runtimeStatus === 'starting'
-            ? 'workflow-status-dot-running motion-reduce:animate-none'
-            : ''
+          WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES[nodeState]
         )}
         title={stateLabel}
       />
@@ -255,14 +248,11 @@ function RunNode({ data }: { data: RunNodeData }) {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[10px] font-semibold uppercase tracking-normal text-low">
-            {getWorkflowNodeKindLabel(type, t)}
-          </div>
-          <div className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-high">
+          <div className="line-clamp-2 pr-3 text-sm font-semibold leading-5 text-high">
             {data.display_name || getWorkflowNodeKindLabel(type, t)}
           </div>
           {agentDisplay ? (
-            <div className="mt-1 truncate text-[11px] text-low">
+            <div className="mt-1 truncate text-xs text-low">
               {agentDisplay.agentLabel}
             </div>
           ) : null}
@@ -271,7 +261,7 @@ function RunNode({ data }: { data: RunNodeData }) {
       <div className="border-t border-secondary/60 px-3 py-2 pl-4">
         <span
           className={cn(
-            'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none',
+            'inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium leading-none',
             WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES[nodeState]
           )}
         >
@@ -358,6 +348,8 @@ export function WorkflowRunCanvasTab({
   projectId,
   run,
 }: WorkflowRunCanvasTabProps) {
+  const { effectiveTheme } = useTheme();
+  const reducedMotion = useReducedMotion();
   const { t } = useTranslation('common');
   const { data: template, isLoading: isTemplateLoading } = useWorkflowTemplate(
     run.workflow_id
@@ -627,7 +619,7 @@ export function WorkflowRunCanvasTab({
   const attentionItem = detailsNodeId ? null : (attentionItems[0] ?? null);
 
   return (
-    <div className="workflow-canvas-shell relative h-full min-h-[360px] w-full overflow-hidden bg-primary">
+    <div className="workflow-canvas-shell workflow-canvas-surface relative h-full min-h-[360px] w-full overflow-hidden bg-[var(--workflow-canvas-bg)]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -648,15 +640,19 @@ export function WorkflowRunCanvasTab({
         elementsSelectable
         deleteKeyCode={null}
         fitView
+        colorMode={effectiveTheme}
         className={WORKFLOW_CANVAS_CLASS_NAMES.reactFlow}
         aria-label={t('workflow.runCanvas.canvasLabel')}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          size={1.5}
+          size={1}
           color={WORKFLOW_CANVAS_COLOR_TOKENS.grid}
         />
-        <Controls className={WORKFLOW_CANVAS_CLASS_NAMES.controls} />
+        <Controls
+          className={WORKFLOW_CANVAS_CLASS_NAMES.controls}
+          fitViewOptions={{ duration: reducedMotion ? 0 : 240 }}
+        />
       </ReactFlow>
 
       {attentionItem ? (
@@ -742,7 +738,7 @@ function WorkflowRunAttentionCard({
             )}
           </p>
           {itemCount > 1 ? (
-            <p className="mt-half text-[10px] text-low">
+            <p className="mt-half text-xs text-low">
               {t('workflow.runCanvas.moreAttentionItems', {
                 count: itemCount - 1,
               })}
@@ -847,7 +843,7 @@ function WorkflowRunNodeDetailsDialog({
         <section aria-labelledby="workflow-node-status-heading">
           <h3
             id="workflow-node-status-heading"
-            className="text-[10px] font-semibold uppercase tracking-normal text-low"
+            className="text-xs font-semibold uppercase tracking-normal text-low"
           >
             {t('workflow.dashboard.status')}
           </h3>
@@ -881,7 +877,7 @@ function WorkflowRunNodeDetailsDialog({
 
         {output && !waitingPrompt ? (
           <section>
-            <h3 className="text-[10px] font-semibold uppercase tracking-normal text-low">
+            <h3 className="text-xs font-semibold uppercase tracking-normal text-low">
               {t('workflow.runCanvas.currentOutput')}
             </h3>
             <pre className="mt-half whitespace-pre-wrap break-words rounded border border-secondary bg-primary p-base text-xs text-high">
@@ -1178,9 +1174,7 @@ function MetadataRow({
 }) {
   return (
     <div className="rounded border border-secondary bg-panel p-half">
-      <div className="text-[10px] font-semibold uppercase text-low">
-        {label}
-      </div>
+      <div className="text-xs font-semibold uppercase text-low">{label}</div>
       <div className="mt-1 break-all text-xs text-high">{children}</div>
     </div>
   );

@@ -37,6 +37,9 @@ test("desktop keeps fixed shell zones and automatically pages the middle object 
   await unavailableWorkflow.press("Enter");
   await expect(page.getByTestId("current-route")).toHaveText("/dashboard");
   await expect(system.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect(system.getByRole("button", { name: "Settings" })).toHaveText(
+    "Settings",
+  );
   await expect(
     system.getByRole("button", { name: "Update 2.0.0 ready" }),
   ).toBeVisible();

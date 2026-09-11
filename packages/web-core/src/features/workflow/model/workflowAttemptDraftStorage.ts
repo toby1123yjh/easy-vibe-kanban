@@ -12,6 +12,7 @@ export interface IssueWorkflowAttemptDraft {
   name: string;
   graphJson: string;
   repos: DraftWorkspaceRepo[];
+  directoryPath?: string;
   createdAt: string;
 }
 

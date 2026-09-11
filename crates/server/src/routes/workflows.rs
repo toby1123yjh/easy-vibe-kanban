@@ -131,6 +131,9 @@ pub struct TriggerWorkflowRequest {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateWorkflowAttemptRequest {
+    #[serde(default)]
+    #[ts(optional)]
+    pub directory_path: Option<String>,
     pub name: Option<String>,
     pub graph_json: String,
     #[serde(default)]
@@ -140,6 +143,9 @@ pub struct CreateWorkflowAttemptRequest {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct RunWorkflowAttemptRequest {
+    #[serde(default)]
+    #[ts(optional)]
+    pub directory_path: Option<String>,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
     pub input_text: String,
@@ -740,6 +746,9 @@ where
 {
     let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
         .map_err(ApiError::BadRequest)?;
+    let directory_path =
+        workflow_workspace_directory_override(request.directory_path.as_deref(), &repo_overrides)
+            .map_err(ApiError::BadRequest)?;
     let attempt = create_issue_workflow_attempt(pool, project_id, issue_id, request).await?;
     let workspace_id = match workspace_resolver
         .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
@@ -747,6 +756,7 @@ where
             run_id: attempt.id,
             project_id: Some(project_id),
             existing_workspace_id: None,
+            directory_path,
             repo_overrides,
             branch_name: main_workflow_branch_name(issue_id, attempt.id),
         })
@@ -813,6 +823,24 @@ where
             Err(error)
         }
     }
+}
+
+fn workflow_workspace_directory_override(
+    directory_path: Option<&str>,
+    repos: &[CreateWorkspaceRepo],
+) -> Result<Option<String>, String> {
+    let Some(path) = directory_path else {
+        return Ok(None);
+    };
+    if path.trim().is_empty() {
+        return Err("A directory path is required for direct folder workspaces.".to_string());
+    }
+    if !repos.is_empty() {
+        return Err(
+            "Choose either a direct folder or worktree repositories, not both.".to_string(),
+        );
+    }
+    Ok(Some(path.trim().to_string()))
 }
 
 fn workflow_workspace_repo_overrides(
@@ -1192,6 +1220,9 @@ where
     let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
         .map_err(ApiError::BadRequest)?;
 
+    let directory_path =
+        workflow_workspace_directory_override(request.directory_path.as_deref(), &repo_overrides)
+            .map_err(ApiError::BadRequest)?;
     let run = trigger_workflow_run_for_attempt_with_repos(
         pool,
         WorkflowRunStartRequest {
@@ -1204,6 +1235,7 @@ where
                 input_text: request.input_text,
             },
             repo_overrides,
+            directory_path,
         },
         workspace_resolver,
         agent_executor,
@@ -2354,6 +2386,29 @@ fn workflow_event_to_sse_event(event: workflow::WorkflowEvent) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_directory_selection_rejects_empty_or_mixed_targets() {
+        assert_eq!(
+            workflow_workspace_directory_override(Some(" F:/notes "), &[]).unwrap(),
+            Some("F:/notes".to_string())
+        );
+        assert!(workflow_workspace_directory_override(Some(" "), &[]).is_err());
+        assert!(
+            workflow_workspace_directory_override(
+                Some("F:/notes"),
+                &[CreateWorkspaceRepo {
+                    repo_id: Uuid::new_v4(),
+                    target_branch: "main".to_string()
+                }]
+            )
+            .is_err()
+        );
+        assert_eq!(
+            workflow_workspace_directory_override(None, &[]).unwrap(),
+            None
+        );
+    }
 
     fn ts(value: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(value)

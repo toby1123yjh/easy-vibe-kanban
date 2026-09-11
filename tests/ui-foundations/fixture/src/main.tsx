@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
+import { HotkeysProvider } from '../../../../packages/ui/node_modules/react-hotkeys-hook';
+import { Dialog as KeyboardDialog } from '../../../../packages/ui/src/components/KeyboardDialog';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   RouterContextProvider,
@@ -435,6 +437,18 @@ ${Array.from(
 
 Read the [full release](https://github.com/BloopAI/vibe-kanban/releases).`;
 
+function KeyboardMotionHarness() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <HotkeysProvider initiallyActiveScopes={['kanban', 'projects']}>
+      <button data-testid="keyboard-motion-open" onClick={() => setOpen(true)}>Open keyboard dialog</button>
+      <KeyboardDialog open={open} onOpenChange={setOpen} data-testid="keyboard-motion-dialog">
+        <button data-testid="keyboard-motion-close" onClick={() => setOpen(false)}>Dismiss</button>
+      </KeyboardDialog>
+    </HotkeysProvider>
+  );
+}
+
 function ReleaseNotesHarness() {
   const [open, setOpen] = React.useState(false);
 
@@ -503,5 +517,6 @@ createRoot(componentRoot).render(
     <NotificationsHarness />
     <NotFoundHarness />
     <ReleaseNotesHarness />
+    <KeyboardMotionHarness />
   </React.StrictMode>
 );

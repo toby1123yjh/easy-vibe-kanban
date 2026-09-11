@@ -234,7 +234,7 @@ export function buildSearchResults(options: {
       group: 'feature-object',
       title: session.title,
       path: copy.sessionPath(session.executor ?? copy.agentFallback),
-      route: `/workspaces/${encodeURIComponent(session.workspace_id)}`,
+      route: `/workspaces/${encodeURIComponent(session.workspace_id)}?session_id=${encodeURIComponent(session.id)}`,
       sourceState: options.sessionSourceState,
     })
   );
@@ -260,7 +260,13 @@ export function deriveSearchRouteModule(
   const pathname = route.split(/[?#]/, 1)[0] || '/';
   const activeModule = deriveActiveShellModule(pathname);
   if (activeModule && activeModule !== 'search') return activeModule;
-  if (pathname.startsWith('/workspaces/')) return 'projects';
+  // Capability ownership includes detail routes even without a module highlight.
+  if (
+    pathname.startsWith('/projects/') ||
+    pathname.startsWith('/workspaces/')
+  ) {
+    return 'projects';
+  }
   return null;
 }
 
