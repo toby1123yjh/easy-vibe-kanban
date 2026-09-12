@@ -98,7 +98,10 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     enabled: !isCreateMode && hasPrAttached,
   });
 
-  const { diffs } = useDiffStream(workspaceId ?? null, !isCreateMode);
+  const { diffs, error: diffError } = useDiffStream(
+    workspaceId ?? null,
+    !isCreateMode
+  );
 
   const diffPaths = useMemo(
     () =>
@@ -120,6 +123,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
   const latestDiffDataRef = useRef({
     diffs,
+    diffError,
     diffPaths,
     diffStats,
     gitHubComments,
@@ -133,6 +137,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   });
   latestDiffDataRef.current = {
     diffs,
+    diffError,
     diffPaths,
     diffStats,
     gitHubComments,
@@ -164,6 +169,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     };
   }, [
     diffs,
+    diffError,
     diffPaths,
     diffStats,
     gitHubComments,

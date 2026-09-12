@@ -25,7 +25,10 @@ import { MessageEditProvider } from '@/features/workspace-chat/model/contexts/Me
 import { RetryUiProvider } from '@/features/workspace-chat/model/contexts/RetryUiContext';
 import { ApprovalFeedbackProvider } from '@/features/workspace-chat/model/contexts/ApprovalFeedbackContext';
 import { forwardWheelToScroller } from '@/features/workspace-chat/ui/forwardWheelToScroller';
-import { useDiffStats } from '@/shared/stores/useWorkspaceDiffStore';
+import {
+  useDiffError,
+  useDiffStats,
+} from '@/shared/stores/useWorkspaceDiffStore';
 import type { WorkspaceDetailState } from '@/shared/lib/workspaceDetailState';
 
 /**
@@ -65,6 +68,7 @@ function ChatBoxWithDiffStats({
 }) {
   const { t } = useTranslation('common');
   const diffStats = useDiffStats();
+  const diffError = useDiffError();
 
   if (isSessionsLoading) {
     return (
@@ -120,6 +124,7 @@ function ChatBoxWithDiffStats({
       filesChanged={diffStats.files_changed}
       linesAdded={diffStats.lines_added}
       linesRemoved={diffStats.lines_removed}
+      diffStatsUnavailable={Boolean(diffError)}
       disableViewCode={false}
       showOpenWorkspaceButton={false}
       onScrollToPreviousMessage={onScrollToPreviousMessage}

@@ -31,6 +31,7 @@ const noopSetShowGitHubComments = () => {};
 
 interface WorkspaceDiffData {
   diffs: Diff[];
+  diffError: string | null;
   diffPaths: Set<string>;
   diffStats: DiffStats;
   gitHubComments: UnifiedPrComment[];
@@ -52,6 +53,7 @@ interface WorkspaceDiffState extends WorkspaceDiffData {
 
 const DEFAULT_DATA: WorkspaceDiffData = {
   diffs: EMPTY_DIFFS,
+  diffError: null,
   diffPaths: EMPTY_DIFF_PATHS,
   diffStats: EMPTY_DIFF_STATS,
   gitHubComments: EMPTY_COMMENTS,
@@ -81,6 +83,8 @@ export const useWorkspaceDiffStore = create<WorkspaceDiffState>()((set) => ({
 // ---------------------------------------------------------------------------
 
 export const useDiffs = () => useWorkspaceDiffStore((s) => s.diffs);
+
+export const useDiffError = () => useWorkspaceDiffStore((s) => s.diffError);
 
 export const useDiffPaths = () => useWorkspaceDiffStore((s) => s.diffPaths);
 

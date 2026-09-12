@@ -183,6 +183,7 @@ interface StatsProps {
   filesChanged?: number;
   linesAdded?: number;
   linesRemoved?: number;
+  diffStatsUnavailable?: boolean;
   hasConflicts?: boolean;
   conflictedFilesCount?: number;
   onResolveConflicts?: () => void;
@@ -560,6 +561,9 @@ export function SessionChatBox<TExecutor extends string = string>({
   const filesChanged = stats?.filesChanged ?? 0;
   const linesAdded = stats?.linesAdded;
   const linesRemoved = stats?.linesRemoved;
+  const hasDiffStats =
+    !stats?.diffStatsUnavailable &&
+    (filesChanged > 0 || (linesAdded ?? 0) > 0 || (linesRemoved ?? 0) > 0);
 
   // Render action buttons based on status
   const renderActionButtons = () => {
@@ -981,7 +985,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                       </span>
                     </button>
                   )}
-                  {onOpenWorkspace ? (
+                  {hasDiffStats && onOpenWorkspace ? (
                     <PrimaryButton
                       variant="secondary"
                       onClick={onOpenWorkspace}
@@ -1016,7 +1020,13 @@ export function SessionChatBox<TExecutor extends string = string>({
                         )}
                       </span>
                     </PrimaryButton>
-                  ) : (
+                  ) : stats?.diffStatsUnavailable ? (
+                    <span className="text-sm text-low min-w-0 truncate">
+                      {t("diff.unavailable", {
+                        defaultValue: "Changes unavailable",
+                      })}
+                    </span>
+                  ) : hasDiffStats ? (
                     <span className="text-sm text-low space-x-half whitespace-nowrap truncate min-w-0">
                       <span>
                         {t("diff.filesChanged", { count: filesChanged })}
@@ -1033,7 +1043,7 @@ export function SessionChatBox<TExecutor extends string = string>({
                         </span>
                       )}
                     </span>
-                  )}
+                  ) : null}
                 </>
               )}
             </>

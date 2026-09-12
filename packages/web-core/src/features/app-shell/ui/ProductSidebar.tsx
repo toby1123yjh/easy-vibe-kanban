@@ -468,12 +468,7 @@ function ObjectLists({
                 onClick={() => onSession(session)}
               >
                 <MessageSquareText aria-hidden="true" size={15} />
-                <span>
-                  {session.title}
-                  <small>
-                    {session.executor ?? t('appShell.objects.agent')}
-                  </small>
-                </span>
+                <span>{session.title}</span>
               </button>
               {onDeleteSession && (
                 <button

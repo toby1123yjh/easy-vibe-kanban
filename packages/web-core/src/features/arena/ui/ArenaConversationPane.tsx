@@ -82,6 +82,7 @@ function ChatBoxWithDiffSummary({
       filesChanged={diffSummary.fileCount}
       linesAdded={diffSummary.added}
       linesRemoved={diffSummary.deleted}
+      diffStatsUnavailable={Boolean(diffSummary.error)}
       disableViewCode
       showOpenWorkspaceButton
       onScrollToPreviousMessage={onScrollToPreviousMessage}

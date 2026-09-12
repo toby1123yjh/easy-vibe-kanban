@@ -343,6 +343,7 @@ function WorkspaceSessionPanel({
                   filesChanged={workspaceSummary?.filesChanged ?? 0}
                   linesAdded={workspaceSummary?.linesAdded ?? 0}
                   linesRemoved={workspaceSummary?.linesRemoved ?? 0}
+                  diffStatsUnavailable={workspaceSummary?.filesChanged == null}
                   disableViewCode
                   showOpenWorkspaceButton
                   onScrollToPreviousMessage={handleScrollToPreviousMessage}

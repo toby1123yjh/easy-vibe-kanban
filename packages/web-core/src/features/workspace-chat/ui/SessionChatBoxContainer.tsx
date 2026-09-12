@@ -118,6 +118,7 @@ interface SharedProps {
   linesAdded: number;
   /** Number of lines removed */
   linesRemoved: number;
+  diffStatsUnavailable?: boolean;
   /** Callback to scroll to previous user message */
   onScrollToPreviousMessage: () => void;
   /** Callback to scroll to bottom of conversation */
@@ -173,6 +174,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     filesChanged,
     linesAdded,
     linesRemoved,
+    diffStatsUnavailable,
     onScrollToPreviousMessage,
     onScrollToBottom,
     onScrollToUserMessage,
@@ -1387,6 +1389,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         filesChanged,
         linesAdded,
         linesRemoved,
+        diffStatsUnavailable,
         hasConflicts,
         conflictedFilesCount,
         onResolveConflicts: handleResolveConflicts,
