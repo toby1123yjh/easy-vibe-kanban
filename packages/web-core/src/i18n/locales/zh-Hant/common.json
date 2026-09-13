@@ -1488,6 +1488,7 @@
     "objects": {
       "projects": "專案",
       "sessions": "工作階段",
+      "newSession": "新增工作階段",
       "noProjects": "沒有專案",
       "noSessions": "沒有工作階段",
       "retry": "重試",

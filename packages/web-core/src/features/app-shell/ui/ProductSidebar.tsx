@@ -21,6 +21,7 @@ import {
   Menu,
   MessageSquareText,
   MoreHorizontal,
+  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -38,6 +39,7 @@ import {
 } from '@vibe/ui/components/StateSurface';
 import type {
   AppShellCapabilityAdapter,
+  AppShellModuleCapability,
   AppShellUpdateNotice,
   ShellModule,
 } from '../model/appShell';
@@ -88,6 +90,7 @@ interface ProductSidebarProps {
   activeSessionId: string | null;
   projects: SidebarSectionState<ProjectListItem>;
   sessions: SidebarSectionState<SessionListItem>;
+  newSession: AppShellModuleCapability;
   objectDrawerOpen: boolean;
   onObjectDrawerOpenChange(open: boolean): void;
   onSearch(): void;
@@ -384,6 +387,7 @@ function PrimaryNavigation({
 function ObjectLists({
   projects,
   sessions,
+  newSession,
   activeProjectId,
   activeSessionId,
   onProject,
@@ -394,6 +398,7 @@ function ObjectLists({
   ProductSidebarProps,
   | 'projects'
   | 'sessions'
+  | 'newSession'
   | 'activeProjectId'
   | 'activeSessionId'
   | 'onProject'
@@ -405,6 +410,9 @@ function ObjectLists({
   const { t } = useTranslation('common');
   const projectsLabelId = `${labelPrefix}-projects-label`;
   const sessionsLabelId = `${labelPrefix}-sessions-label`;
+  const newSessionReasonId = `${labelPrefix}-new-session-reason`;
+  const newSessionUnavailableReason =
+    newSession.availability === 'unavailable' ? newSession.reason : null;
   return (
     <div className="vk-object-lists" data-testid="shell-object-scroll">
       <section aria-labelledby={projectsLabelId}>
@@ -438,9 +446,31 @@ function ObjectLists({
       </section>
 
       <section aria-labelledby={sessionsLabelId}>
-        <h2 id={sessionsLabelId} className="vk-sidebar-section-label">
-          {t('appShell.objects.sessions')}
-        </h2>
+        <div className="vk-sidebar-section-header">
+          <h2 id={sessionsLabelId} className="vk-sidebar-section-label">
+            {t('appShell.objects.sessions')}
+          </h2>
+          <button
+            type="button"
+            className="vk-sidebar-section-action"
+            aria-label={t('appShell.objects.newSession')}
+            title={
+              newSessionUnavailableReason ?? t('appShell.objects.newSession')
+            }
+            aria-disabled={newSessionUnavailableReason ? true : undefined}
+            aria-describedby={
+              newSessionUnavailableReason ? newSessionReasonId : undefined
+            }
+            onClick={() => activateShellModuleCapability(newSession)}
+          >
+            <Plus aria-hidden="true" size={16} />
+          </button>
+        </div>
+        {newSessionUnavailableReason && (
+          <p id={newSessionReasonId} className="vk-sidebar-section-hint">
+            {newSessionUnavailableReason}
+          </p>
+        )}
         <SectionState
           state={sessions}
           label={t('appShell.objects.sessions')}
@@ -616,6 +646,17 @@ function ObjectDrawer(props: ProductSidebarProps) {
         </div>
         <ObjectLists
           {...props}
+          newSession={
+            props.newSession.availability === 'available'
+              ? {
+                  availability: 'available',
+                  navigate: () => {
+                    dismiss(false);
+                    activateShellModuleCapability(props.newSession);
+                  },
+                }
+              : props.newSession
+          }
           onProject={(projectId) => {
             dismiss(false);
             props.onProject(projectId);

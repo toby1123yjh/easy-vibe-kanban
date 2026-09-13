@@ -826,6 +826,7 @@
     "objects": {
       "projects": "Proyectos",
       "sessions": "Sesiones",
+      "newSession": "Nueva sesión",
       "noProjects": "No hay proyectos",
       "noSessions": "No hay sesiones",
       "retry": "Reintentar",

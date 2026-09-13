@@ -265,6 +265,20 @@ function AppShellHarness() {
           activeSessionId={activeSessionId}
           projects={projectState}
           sessions={sessionState}
+          newSession={
+            new URLSearchParams(window.location.search).has('noHost')
+              ? {
+                  availability: 'unavailable',
+                  reason: 'Connect an online Host before starting a session.',
+                }
+              : {
+                  availability: 'available',
+                  navigate: () => {
+                    setActiveSessionId(null);
+                    navigate('/workspaces/create');
+                  },
+                }
+          }
           objectDrawerOpen={objectDrawerOpen}
           onObjectDrawerOpenChange={setObjectDrawerOpen}
           onSearch={openSearch}
@@ -335,6 +349,12 @@ function AppShellHarness() {
                       onClick={() => setProjectSourceMode('degraded')}
                     >
                       Set projects cached error
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSessionSourceMode('empty')}
+                    >
+                      Set sessions empty
                     </button>
                     <button
                       type="button"

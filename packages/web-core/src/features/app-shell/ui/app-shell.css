@@ -349,6 +349,58 @@ button:focus-visible > .vk-module-unavailable-reason {
     background var(--vk-duration-fast) var(--vk-ease-standard);
 }
 
+.vk-sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--vk-space-2);
+}
+
+.vk-sidebar-section-action {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--vk-radius-sm);
+  color: var(--vk-text-low);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color var(--vk-duration-fast) var(--vk-ease-standard),
+    background var(--vk-duration-fast) var(--vk-ease-standard);
+}
+
+.vk-sidebar-section-action:hover,
+.vk-sidebar-section-action:focus-visible {
+  color: var(--vk-text-high);
+  background: var(--vk-surface-hover);
+}
+
+.vk-sidebar-section-action:focus-visible {
+  outline: 2px solid var(--vk-focus-ring);
+  outline-offset: 2px;
+}
+
+.vk-sidebar-section-action[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.vk-sidebar-section-hint {
+  margin: 0;
+  padding: var(--vk-space-2) var(--vk-space-3);
+  color: var(--vk-text-low);
+  font-size: var(--vk-font-size-xs);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .vk-sidebar-section-action {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 .vk-object-link--session {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--vk-space-1);

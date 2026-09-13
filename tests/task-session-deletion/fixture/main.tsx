@@ -133,6 +133,7 @@ function Fixture() {
             activeSessionId={selection}
             projects={section([])}
             sessions={section(sessions)}
+            newSession={{ availability: 'available', navigate: () => {} }}
             objectDrawerOpen={false}
             onObjectDrawerOpenChange={() => {}}
             onSearch={() => {}}

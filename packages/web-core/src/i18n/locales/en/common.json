@@ -1908,6 +1908,7 @@
     "objects": {
       "projects": "Projects",
       "sessions": "Sessions",
+      "newSession": "New session",
       "noProjects": "No projects",
       "noSessions": "No sessions",
       "retry": "Retry",

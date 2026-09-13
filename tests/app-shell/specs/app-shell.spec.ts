@@ -113,9 +113,10 @@ test("highlights only the selected session when a workspace has multiple session
   await gotoFixture(page);
 
   const sidebar = page.locator(".vk-product-sidebar");
-  const sessions = sidebar
-    .getByRole("heading", { name: "Sessions" })
-    .locator("..");
+  const sessions = sidebar.getByRole("region", {
+    name: "Sessions",
+    exact: true,
+  });
   const selectedSession = sessions.getByRole("button", {
     name: "Session 02, Claude Code",
   });
@@ -144,8 +145,7 @@ test("session rows expose an explicit delete control", async ({ page }) => {
 
   const sessions = page
     .locator(".vk-product-sidebar")
-    .getByRole("heading", { name: "Sessions" })
-    .locator("..");
+    .getByRole("region", { name: "Sessions", exact: true });
 
   await expect(
     sessions.getByRole("button", { name: "Delete session" }),
@@ -280,9 +280,10 @@ test("project and session discovery states stay isolated and retry their own sou
   const projectSection = sidebar
     .getByRole("heading", { name: "Projects" })
     .locator("..");
-  const sessionSection = sidebar
-    .getByRole("heading", { name: "Sessions" })
-    .locator("..");
+  const sessionSection = sidebar.getByRole("region", {
+    name: "Sessions",
+    exact: true,
+  });
 
   await page.getByRole("button", { name: "Set projects loading" }).click();
   await expect(projectSection.locator('[data-state="loading"]')).toContainText(

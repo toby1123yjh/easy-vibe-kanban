@@ -1513,6 +1513,7 @@
     "objects": {
       "projects": "项目",
       "sessions": "会话",
+      "newSession": "新建会话",
       "noProjects": "暂无项目",
       "noSessions": "暂无会话",
       "retry": "重试",

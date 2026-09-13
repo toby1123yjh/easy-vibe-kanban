@@ -826,6 +826,7 @@
     "objects": {
       "projects": "プロジェクト",
       "sessions": "セッション",
+      "newSession": "新しいセッション",
       "noProjects": "プロジェクトはありません",
       "noSessions": "セッションはありません",
       "retry": "再試行",

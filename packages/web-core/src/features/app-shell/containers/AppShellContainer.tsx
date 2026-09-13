@@ -327,6 +327,17 @@ export function AppShellContainer({
               activeSessionId={activeSessionId}
               projects={projectState}
               sessions={sessionState}
+              newSession={
+                appNavigation.agentExecutionUnavailableReason
+                  ? {
+                      availability: 'unavailable',
+                      reason: appNavigation.agentExecutionUnavailableReason,
+                    }
+                  : {
+                      availability: 'available',
+                      navigate: () => appNavigation.goToWorkspacesCreate(),
+                    }
+              }
               objectDrawerOpen={objectDrawerOpen}
               onObjectDrawerOpenChange={setObjectDrawerOpen}
               onSearch={openSearch}

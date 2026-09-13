@@ -826,6 +826,7 @@
     "objects": {
       "projects": "프로젝트",
       "sessions": "세션",
+      "newSession": "새 세션",
       "noProjects": "프로젝트 없음",
       "noSessions": "세션 없음",
       "retry": "다시 시도",
