@@ -82,7 +82,7 @@ npx easy-vibe-kanban
 ```bash
 cargo install cargo-watch sqlx-cli
 pnpm i
-pnpm run dev   # starts backend + web app; a blank DB is seeded from dev_assets_seed
+pnpm run dev   # starts backend + web app with a fresh test database
 ```
 
 Useful commands:
@@ -94,6 +94,37 @@ Useful commands:
 | `pnpm run format` | Prettier + rustfmt |
 | `cargo test --workspace` | Rust tests |
 | `pnpm run generate-types` | Regenerate TS types from Rust (ts-rs) |
+| `pnpm run dev:fixture` | Rebuild the committed test database from migrations and sample data |
+| `pnpm run dev:fixture:check` | Validate the test database without changing it |
+
+### Disposable development database
+
+During the current testing phase, **every debug backend startup replaces
+`dev_assets/db.v2.sqlite` with `dev_assets_seed/db.v2.sqlite`**. Database changes
+from the previous run are discarded, including manually created projects and
+conversations. This also applies to cargo-watch restarts and the debug desktop
+app. Starting only the frontend does not reset the database.
+
+The committed snapshot contains synthetic sample data, not a copy of a personal
+database. To change the initial data, edit `dev_assets_seed/fixture.json`
+(or `scripts/prepare_dev_fixture.py` for structural changes), then run
+`pnpm run dev:fixture` and `pnpm run dev:fixture:check`.
+Generation uses Python 3 with SQLite 3.42 or newer;
+normal startup reads the snapshot directly and does not need Python. Rebuild the
+snapshot when adding migrations. Do not export real credentials, native agent
+sessions or live process records into it.
+
+The backend validates a staged copy before replacing the development database.
+Missing or invalid snapshots fail startup with an error instead of reusing old
+data. Close the other development backend and stop its agents before restarting;
+an in-use database must not be overwritten.
+
+All records in the development SQLite database are reset, including saved Git
+connections and their database-stored credentials. Settings files, external
+credential files, project files and existing workspace directories are not
+deleted. The portable sample workspace resolves to `dev_assets/fixture-workspace`; files created there
+also survive database resets. Release builds (including npm installations) keep
+their normal persistent user database and never load the development snapshot.
 
 ### Key environment variables
 

@@ -85,6 +85,7 @@ ed25519-dalek = "2.2.0"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 # The npm release cross-compiles Linux with zig; Wayland's pkg-config probe is not cross-safe.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Memory", "Win32_System_Threading"] }
@@ -94,9 +95,6 @@ libc = "0.2"
 
 [build-dependencies]
 dotenv = "0.15"
-
-[dev-dependencies]
-tempfile = "3"
 
 [features]
 default = []

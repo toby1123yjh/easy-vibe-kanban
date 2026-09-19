@@ -71,9 +71,12 @@ async function verifyPorts(ports) {
   const backendAvailable = await isPortAvailable(ports.backend);
   const previewProxyAvailable = await isPortAvailable(ports.preview_proxy);
 
-  if (process.argv[2] === "get" && (!frontendAvailable || !backendAvailable || !previewProxyAvailable)) {
+  if (
+    process.argv[2] === "get" &&
+    (!frontendAvailable || !backendAvailable || !previewProxyAvailable)
+  ) {
     console.log(
-      `Port availability check failed: frontend:${ports.frontend}=${frontendAvailable}, backend:${ports.backend}=${backendAvailable}, preview_proxy:${ports.preview_proxy}=${previewProxyAvailable}`
+      `Port availability check failed: frontend:${ports.frontend}=${frontendAvailable}, backend:${ports.backend}=${backendAvailable}, preview_proxy:${ports.preview_proxy}=${previewProxyAvailable}`,
     );
   }
 
@@ -123,7 +126,7 @@ async function allocatePorts() {
     } else {
       if (process.argv[2] === "get") {
         console.log(
-          "Existing ports are no longer available, finding new ones..."
+          "Existing ports are no longer available, finding new ones...",
         );
       }
     }
@@ -163,20 +166,19 @@ async function getPorts() {
 }
 
 /**
- * Copy dev_assets_seed to dev_assets
+ * Bootstrap config only. The debug backend owns database replacement under
+ * its lifetime lock; frontend-only startup must never copy/reset a database.
  */
-function copyDevAssets() {
+function copyDevAssets(seed = DEV_ASSETS_SEED, destination = DEV_ASSETS) {
+  fs.mkdirSync(destination, { recursive: true });
   try {
-    if (!fs.existsSync(DEV_ASSETS)) {
-      // Copy dev_assets_seed to dev_assets
-      fs.cpSync(DEV_ASSETS_SEED, DEV_ASSETS, { recursive: true });
-
-      if (process.argv[2] === "get") {
-        console.log("Copied dev_assets_seed to dev_assets");
-      }
-    }
+    fs.copyFileSync(
+      path.join(seed, "config.json"),
+      path.join(destination, "config.json"),
+      fs.constants.COPYFILE_EXCL,
+    );
   } catch (error) {
-    console.error("Failed to copy dev assets:", error.message);
+    if (error.code !== "EEXIST") throw error;
   }
 }
 
@@ -199,6 +201,10 @@ function clearPorts() {
 // CLI interface
 if (require.main === module) {
   const command = process.argv[2];
+  const fail = (error) => {
+    console.error(error);
+    process.exitCode = 1;
+  };
 
   switch (command) {
     case "get":
@@ -206,7 +212,7 @@ if (require.main === module) {
         .then((ports) => {
           console.log(JSON.stringify(ports));
         })
-        .catch(console.error);
+        .catch(fail);
       break;
 
     case "clear":
@@ -218,7 +224,7 @@ if (require.main === module) {
         .then((ports) => {
           console.log(JSON.stringify(ports.frontend, null, 2));
         })
-        .catch(console.error);
+        .catch(fail);
       break;
 
     case "backend":
@@ -226,7 +232,7 @@ if (require.main === module) {
         .then((ports) => {
           console.log(JSON.stringify(ports.backend, null, 2));
         })
-        .catch(console.error);
+        .catch(fail);
       break;
 
     case "preview_proxy":
@@ -234,28 +240,28 @@ if (require.main === module) {
         .then((ports) => {
           console.log(JSON.stringify(ports.preview_proxy, null, 2));
         })
-        .catch(console.error);
+        .catch(fail);
       break;
 
     default:
       console.log("Usage:");
       console.log(
-        "  node setup-dev-environment.js get           - Setup dev environment (ports + assets)"
+        "  node setup-dev-environment.js get           - Setup dev environment (ports + assets)",
       );
       console.log(
-        "  node setup-dev-environment.js frontend      - Get frontend port only"
+        "  node setup-dev-environment.js frontend      - Get frontend port only",
       );
       console.log(
-        "  node setup-dev-environment.js backend       - Get backend port only"
+        "  node setup-dev-environment.js backend       - Get backend port only",
       );
       console.log(
-        "  node setup-dev-environment.js preview_proxy - Get preview proxy port only"
+        "  node setup-dev-environment.js preview_proxy - Get preview proxy port only",
       );
       console.log(
-        "  node setup-dev-environment.js clear         - Clear saved ports"
+        "  node setup-dev-environment.js clear         - Clear saved ports",
       );
       break;
   }
 }
 
-module.exports = { getPorts, clearPorts, findFreePort };
+module.exports = { getPorts, clearPorts, findFreePort, copyDevAssets };

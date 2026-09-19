@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+mod dev_database;
 pub mod error;
 pub mod middleware;
 pub mod relay_pairing;

@@ -38,6 +38,7 @@ pub struct ServerHandle {
     shutdown_token: CancellationToken,
     main_listener: tokio::net::TcpListener,
     proxy_listener: tokio::net::TcpListener,
+    _database_guard: DatabaseStartupGuard,
 }
 
 impl ServerHandle {
@@ -122,7 +123,7 @@ pub async fn start_with_bind(
     proxy_addr: &str,
     shutdown_token: CancellationToken,
 ) -> anyhow::Result<ServerHandle> {
-    let deployment = initialize_deployment(shutdown_token.clone()).await?;
+    let (deployment, database_guard) = initialize_deployment(shutdown_token.clone()).await?;
 
     let listener = tokio::net::TcpListener::bind(main_addr).await?;
     let port = listener.local_addr()?.port();
@@ -139,33 +140,54 @@ pub async fn start_with_bind(
         shutdown_token,
         main_listener: listener,
         proxy_listener,
+        _database_guard: database_guard,
     })
 }
 
-/// Initialize the deployment: create asset directory, run migrations, backfill data,
-/// and pre-warm caches. Shared between the standalone server and the Tauri app.
-pub async fn initialize_deployment(
-    shutdown: CancellationToken,
-) -> Result<DeploymentImpl, DeploymentError> {
-    // Create asset directory if it doesn't exist
-    if !asset_dir().exists() {
-        std::fs::create_dir_all(asset_dir()).map_err(|e| {
-            DeploymentError::Other(anyhow::anyhow!("Failed to create asset directory: {}", e))
-        })?;
+/// Retain this guard for the entire server lifetime. Debug instances sharing
+/// one data directory cannot replace a database underneath one another.
+#[derive(Debug)]
+pub struct DatabaseStartupGuard {
+    #[cfg(debug_assertions)]
+    _lock: crate::dev_database::DevelopmentDatabaseGuard,
+}
+
+/// Prepare storage before any DBService or runtime recovery is initialized.
+/// Release never reads the repository fixture and retains the legacy copy path.
+pub async fn prepare_database() -> anyhow::Result<DatabaseStartupGuard> {
+    #[cfg(debug_assertions)]
+    {
+        Ok(DatabaseStartupGuard {
+            _lock: crate::dev_database::reset().await?,
+        })
     }
 
-    // Copy old database to new location for safe downgrades
-    let old_db = asset_dir().join("db.sqlite");
-    let new_db = asset_dir().join("db.v2.sqlite");
-    if !new_db.exists() && old_db.exists() {
-        tracing::info!(
-            "Copying database to new location: {:?} -> {:?}",
-            old_db,
-            new_db
-        );
-        std::fs::copy(&old_db, &new_db).expect("Failed to copy database file");
-        tracing::info!("Database copy complete");
+    #[cfg(not(debug_assertions))]
+    {
+        std::fs::create_dir_all(asset_dir())?;
+
+        // Copy old database to new location for safe downgrades
+        let old_db = asset_dir().join("db.sqlite");
+        let new_db = asset_dir().join("db.v2.sqlite");
+        if !new_db.exists() && old_db.exists() {
+            tracing::info!(
+                "Copying database to new location: {:?} -> {:?}",
+                old_db,
+                new_db
+            );
+            std::fs::copy(&old_db, &new_db)?;
+            tracing::info!("Database copy complete");
+        }
+        Ok(DatabaseStartupGuard {})
     }
+}
+
+/// Initialize the deployment and return its storage lifetime guard. Callers
+/// must keep the guard until the deployment has stopped serving and cleaned up.
+pub async fn initialize_deployment(
+    shutdown: CancellationToken,
+) -> Result<(DeploymentImpl, DatabaseStartupGuard), DeploymentError> {
+    let database_guard = prepare_database().await.map_err(DeploymentError::Other)?;
 
     let deployment = DeploymentImpl::new(shutdown).await?;
     migrate_legacy_attachment_directories(&deployment).await?;
@@ -235,7 +257,7 @@ pub async fn initialize_deployment(
         executors::executors::utils::preload_global_executor_options_cache().await;
     });
 
-    Ok(deployment)
+    Ok((deployment, database_guard))
 }
 
 /// Gracefully shut down running execution processes.

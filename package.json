@@ -16,6 +16,8 @@
     "workflow:e2e": "playwright test -c tests/workflow/playwright.config.ts",
     "ui-foundations:e2e": "playwright test -c tests/ui-foundations/playwright.config.ts",
     "dev": "node scripts/dev.js",
+    "dev:fixture": "node scripts/prepare-dev-fixture.js",
+    "dev:fixture:check": "node scripts/prepare-dev-fixture.js --check",
     "share": "node scripts/tailscale-share.js",
     "share:off": "node scripts/tailscale-share.js --off",
     "test:npm": "./test-npm-package.sh",

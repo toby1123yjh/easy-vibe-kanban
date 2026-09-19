@@ -19,6 +19,8 @@ use deployment::Deployment;
 use sqlx::{FromRow, SqlitePool};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 pub use transport::worker_main;
+#[cfg(debug_assertions)]
+pub(crate) use transport::writer_absent;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
