@@ -86,8 +86,11 @@ def seed(connection, data):
         )
 
     # Migrations seed legacy templates with random UUIDs/current timestamps.
-    # Replace those public defaults so every generated fixture has stable data.
+    # Remove those defaults even for an empty startup snapshot.
     connection.execute("DELETE FROM tags")
+    if data.get("empty", False):
+        return
+
     insert("tags", id=identity("prompt-tag"), tag_name="demo", content="Review this development example.")
     statuses = [("Todo", "210 80% 52%"), ("In Progress", "38 92% 50%"),
                 ("In Review", "265 70% 62%"), ("Done", "145 63% 42%")]
@@ -271,13 +274,19 @@ def prepare(check=False):
     with tempfile.TemporaryDirectory(prefix=".fixture-", dir=str(SNAPSHOT.parent)) as temporary:
         staged = Path(temporary) / "db.v2.sqlite"
         build(staged)
+        connection = sqlite3.connect(str(staged))
+        try:
+            counts = [connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0]
+                      for table in ("projects", "local_issues", "tasks", "sessions")]
+        finally:
+            connection.close()
         if check:
             if not SNAPSHOT.is_file() or logical_snapshot(staged) != logical_snapshot(SNAPSHOT):
                 raise ValueError("Fixture differs from migrations/source; run pnpm dev:fixture")
         else:
             os.replace(str(staged), str(SNAPSHOT))
-    print("Development fixture {}: {} migrations; 2 projects, 4 issues, 2 tasks, 2 sessions; integrity/FKs OK".format(
-        "checked" if check else "generated", len(list(migration_sources()))))
+    print("Development fixture {}: {} migrations; {} projects, {} issues, {} tasks, {} sessions; integrity/FKs OK".format(
+        "checked" if check else "generated", len(list(migration_sources())), *counts))
 
 
 if __name__ == "__main__":

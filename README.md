@@ -94,7 +94,7 @@ Useful commands:
 | `pnpm run format` | Prettier + rustfmt |
 | `cargo test --workspace` | Rust tests |
 | `pnpm run generate-types` | Regenerate TS types from Rust (ts-rs) |
-| `pnpm run dev:fixture` | Rebuild the committed test database from migrations and sample data |
+| `pnpm run dev:fixture` | Rebuild the committed startup database (currently empty) |
 | `pnpm run dev:fixture:check` | Validate the test database without changing it |
 
 ### Disposable development database
@@ -105,8 +105,15 @@ from the previous run are discarded, including manually created projects and
 conversations. This also applies to cargo-watch restarts and the debug desktop
 app. Starting only the frontend does not reset the database.
 
-The committed snapshot contains synthetic sample data, not a copy of a personal
-database. To change the initial data, edit `dev_assets_seed/fixture.json`
+The committed snapshot currently has `empty: true` in
+`dev_assets_seed/fixture.json`: it contains the schema and migration history,
+but no preset projects, issues, tasks, sessions, workflows or demo tags. Create
+your own test data in the UI after starting. Refreshing the page preserves those
+records; restarting the backend discards them. UI-created data is not
+automatically saved back to the snapshot. Synthetic examples under
+`scripts/fixtures/` are used only by tests, not normal startup.
+
+To change the initial data, edit `dev_assets_seed/fixture.json`
 (or `scripts/prepare_dev_fixture.py` for structural changes), then run
 `pnpm run dev:fixture` and `pnpm run dev:fixture:check`.
 Generation uses Python 3 with SQLite 3.42 or newer;
@@ -122,8 +129,8 @@ an in-use database must not be overwritten.
 All records in the development SQLite database are reset, including saved Git
 connections and their database-stored credentials. Settings files, external
 credential files, project files and existing workspace directories are not
-deleted. The portable sample workspace resolves to `dev_assets/fixture-workspace`; files created there
-also survive database resets. Release builds (including npm installations) keep
+deleted. An empty snapshot does not create a sample workspace directory.
+Release builds (including npm installations) keep
 their normal persistent user database and never load the development snapshot.
 
 ### Key environment variables

@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import prepare_dev_fixture as fixture
 
+SAMPLE_SOURCE = Path(__file__).parent / "fixtures/dev-fixture-sample.json"
+
 
 class FixtureTests(unittest.TestCase):
     def setUp(self):
@@ -19,10 +21,29 @@ class FixtureTests(unittest.TestCase):
         self.snapshot = self.directory / "seed.sqlite"
         fixture.build(self.snapshot)
 
-    def test_rebuild_has_identical_schema_rows_and_fixed_ids(self):
-        second = self.directory / "second.sqlite"
+    def sample_snapshot(self):
+        sample = self.directory / "sample.sqlite"
+        fixture.build(sample, source=SAMPLE_SOURCE)
+        return sample
+
+    def test_default_snapshot_has_only_schema_and_migration_history(self):
+        second = self.directory / "empty-again.sqlite"
         fixture.build(second)
         self.assertEqual(fixture.logical_snapshot(self.snapshot), fixture.logical_snapshot(second))
+        with sqlite3.connect(str(self.snapshot)) as connection:
+            tables = [row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'"
+            )]
+            for table in tables:
+                with self.subTest(table=table):
+                    self.assertEqual(connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM _sqlx_migrations").fetchone()[0], len(list(fixture.migration_sources())))
+
+    def test_sample_rebuild_has_identical_schema_rows_and_fixed_ids(self):
+        sample = self.sample_snapshot()
+        second = self.directory / "second.sqlite"
+        fixture.build(second, source=SAMPLE_SOURCE)
+        self.assertEqual(fixture.logical_snapshot(sample), fixture.logical_snapshot(second))
         with sqlite3.connect(str(second)) as connection:
             counts = {table: connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0]
                       for table in ("projects", "local_issues", "tasks", "sessions", "workflows",
@@ -33,7 +54,7 @@ class FixtureTests(unittest.TestCase):
             fixture.validate(connection)
 
     def test_runtime_envelopes_have_consistent_identity_and_final_event(self):
-        with sqlite3.connect(str(self.snapshot)) as connection:
+        with sqlite3.connect(str(self.sample_snapshot())) as connection:
             request = json.loads(connection.execute("SELECT request_envelope FROM agent_runs").fetchone()[0])
             attempt = json.loads(connection.execute("SELECT request_envelope FROM agent_run_attempts").fetchone()[0])
             state = json.loads(connection.execute("SELECT state_json FROM agent_run_state").fetchone()[0])
@@ -53,7 +74,7 @@ class FixtureTests(unittest.TestCase):
             self.assertTrue(all(not event.get("native_refs") for event in events))
 
     def test_workflow_graph_and_execution_history_are_consistent(self):
-        with sqlite3.connect(str(self.snapshot)) as connection:
+        with sqlite3.connect(str(self.sample_snapshot())) as connection:
             graphs = [json.loads(row[0]) for row in connection.execute("SELECT graph_json FROM workflows")]
             self.assertEqual(graphs[0], graphs[1])
             graph = graphs[0]
@@ -80,12 +101,13 @@ class FixtureTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT checksum FROM _sqlx_migrations").fetchone()[0], hashlib.sha384(text.encode()).digest())
 
     def test_invalid_binding_active_status_and_real_path_are_rejected(self):
+        sample = self.sample_snapshot()
         for sql in (
             "DELETE FROM agent_task_bindings",
             "UPDATE agent_runs SET status='running'",
             "UPDATE workspaces SET container_ref='C:/Users/example/private'",
         ):
-            with self.subTest(sql=sql), sqlite3.connect(str(self.snapshot)) as connection:
+            with self.subTest(sql=sql), sqlite3.connect(str(sample)) as connection:
                 connection.execute(sql)
                 with self.assertRaises(ValueError):
                     fixture.validate(connection)
@@ -103,7 +125,7 @@ class FixtureTests(unittest.TestCase):
         with patch.object(fixture, "SNAPSHOT", self.snapshot):
             fixture.prepare(check=True)
             with sqlite3.connect(str(self.snapshot)) as connection:
-                connection.execute("UPDATE projects SET name='modified'")
+                connection.execute("INSERT INTO projects (id, name) VALUES (zeroblob(16), 'manual project')")
             before = self.snapshot.read_bytes()
             with self.assertRaisesRegex(ValueError, "differs"):
                 fixture.prepare(check=True)

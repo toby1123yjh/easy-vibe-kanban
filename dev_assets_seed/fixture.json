@@ -1,39 +1,5 @@
 {
   "version": 1,
   "timestamp": "2026-09-19T00:00:00.000Z",
-  "projects": ["Demo project", "Empty project"],
-  "issues": [
-    {
-      "title": "Plan the next feature",
-      "description": "An unstarted issue for testing the board.",
-      "priority": "high"
-    },
-    {
-      "title": "Review the sample agent conversation",
-      "description": "Contains a synthetic completed conversation. No agent was launched.",
-      "priority": "medium"
-    },
-    {
-      "title": "Inspect the sample workflow",
-      "description": "A completed, local-only text transformation example.",
-      "priority": "low"
-    },
-    {
-      "title": "Verify a completed issue",
-      "description": "Drag this card to test status changes; restart to restore the fixture.",
-      "priority": null
-    }
-  ],
-  "conversation": {
-    "title": "Sample agent task",
-    "input": "Show me what this development fixture contains.",
-    "output": "This is synthetic demo history, not a real agent response. Explore the projects, issues, sessions and workflow; restarting the debug backend restores this data."
-  },
-  "standalone_session": "New conversation example",
-  "workflow": {
-    "name": "Sample text workflow",
-    "description": "A safe completed example: Start, transform text, End. It never starts an agent on boot.",
-    "input": "Hello fixture",
-    "output": "Demo: Hello fixture"
-  }
+  "empty": true
 }

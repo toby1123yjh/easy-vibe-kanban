@@ -268,6 +268,14 @@ async fn materialize_workspace(
     connection: &mut SqliteConnection,
     assets: &Path,
 ) -> anyhow::Result<()> {
+    let has_workspace: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workspaces WHERE container_ref = '@fixture-workspace@')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if !has_workspace {
+        return Ok(());
+    }
     let workspace = assets.join("fixture-workspace");
     ensure_directory(&workspace)?;
     let workspace = workspace.canonicalize()?;
@@ -465,9 +473,6 @@ fn is_link(metadata: &fs::Metadata) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use db::models::task::Task;
-    use executors::runtime::{AgentRunRequestEnvelope, RunAttemptRequest, RunState};
-    use sqlx::sqlite::SqlitePoolOptions;
     use tempfile::TempDir;
     use uuid::Uuid;
 
@@ -486,6 +491,36 @@ mod tests {
         (temp, seed, assets)
     }
 
+    // Test-only rows for runtime guards; never part of the startup snapshot.
+    async fn insert_runtime_test_rows(connection: &mut SqliteConnection) {
+        sqlx::raw_sql(
+            "INSERT INTO projects (id, name) VALUES (zeroblob(16), 'Test project');
+             INSERT INTO local_project_statuses (id, project_id, name, color, sort_order)
+                 VALUES (zeroblob(16), zeroblob(16), 'Todo', 'blue', 0);
+             INSERT INTO local_issues (id, project_id, issue_number, simple_id, title, status_id, sort_order)
+                 VALUES (zeroblob(16), zeroblob(16), 1, 'TEST-1', 'Test issue', zeroblob(16), 0);
+             INSERT INTO tasks (id, project_id, issue_id, title, execution_kind)
+                 VALUES (zeroblob(16), zeroblob(16), zeroblob(16), 'Test workflow', 'workflow');
+             INSERT INTO workflows (id, source, project_id, name, graph_json)
+                 VALUES (zeroblob(16), 'project', zeroblob(16), 'Test workflow', '{}');
+             INSERT INTO workspaces (id, container_ref, workspace_kind, container_ownership, branch)
+                 VALUES (zeroblob(16), '@fixture-workspace@', 'direct_folder', 'external', 'direct-folder');
+             INSERT INTO sessions (id, workspace_id, executor)
+                 VALUES (zeroblob(16), zeroblob(16), 'CODEX');
+             INSERT INTO workflow_attempts (id, task_id, workflow_id, workspace_id, status)
+                 VALUES (zeroblob(16), zeroblob(16), zeroblob(16), zeroblob(16), 'succeeded');
+             INSERT INTO agent_runs (id, session_id, workspace_id, request_id, idempotency_key,
+                 correlation_id, schema_version, payload_version, runtime_profile_id, provider_id,
+                 workspace_mode, workspace_path, status, request_envelope)
+                 VALUES (zeroblob(16), zeroblob(16), zeroblob(16), zeroblob(16), 'test-run',
+                 zeroblob(16), 1, 1, 'CODEX', 'codex', 'shared_workspace', '@fixture-workspace@',
+                 'succeeded', '{}');",
+        )
+        .execute(connection)
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn repeated_start_restores_fixture_and_preserves_non_database_files() {
         let (_temp, seed, assets) = fixture();
@@ -493,6 +528,7 @@ mod tests {
         fs::write(assets.join("config.json"), b"keep config").unwrap();
         let guard = reset_from(&seed, &assets).await.unwrap();
         let workspace_file = assets.join("fixture-workspace/keep.txt");
+        fs::create_dir(assets.join("fixture-workspace")).unwrap();
         fs::write(&workspace_file, b"keep work").unwrap();
         let target = assets.join(DATABASE);
         let mut connection = connect(&target, false).await.unwrap();
@@ -501,11 +537,13 @@ mod tests {
                 .fetch_all(&mut connection)
                 .await
                 .unwrap();
-        assert!(!before.is_empty());
-        sqlx::query("UPDATE projects SET name = 'Changed during development'")
-            .execute(&mut connection)
-            .await
-            .unwrap();
+        assert!(before.is_empty());
+        sqlx::query(
+            "INSERT INTO projects (id, name) VALUES (zeroblob(16), 'Created during development')",
+        )
+        .execute(&mut connection)
+        .await
+        .unwrap();
         sqlx::query("CREATE TABLE manual_test_data (id INTEGER)")
             .execute(&mut connection)
             .await
@@ -541,51 +579,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn snapshot_roundtrips_through_real_task_and_runtime_contracts() {
+    async fn default_snapshot_has_no_business_data_or_sample_directory() {
         let (_temp, seed, assets) = fixture();
         let _guard = reset_from(&seed, &assets).await.unwrap();
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(SqliteConnectOptions::new().filename(assets.join(DATABASE)))
-            .await
-            .unwrap();
-        let task_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM tasks")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-        assert!(task_ids.len() >= 2);
-        for id in task_ids {
-            assert!(Task::summary_by_id(&pool, id).await.unwrap().is_some());
-        }
-        let graphs: Vec<String> = sqlx::query_scalar("SELECT graph_json FROM workflows")
-            .fetch_all(&pool)
-            .await
-            .unwrap();
-        assert!(!graphs.is_empty());
-        for graph in graphs {
-            serde_json::from_str::<workflow::graph::WorkflowGraph>(&graph).unwrap();
-        }
-        let envelopes: Vec<(String, String)> = sqlx::query_as(
-            "SELECT run.request_envelope, attempt.request_envelope FROM agent_runs run JOIN agent_run_attempts attempt ON attempt.agent_run_id = run.id",
+        assert!(!assets.join("fixture-workspace").exists());
+        let mut connection = connect(&assets.join(DATABASE), true).await.unwrap();
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations'",
         )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert!(!envelopes.is_empty());
-        for (run, attempt) in envelopes {
-            let run: AgentRunRequestEnvelope = serde_json::from_str(&run).unwrap();
-            let attempt: RunAttemptRequest = serde_json::from_str(&attempt).unwrap();
-            attempt.validate_for_run(&run).unwrap();
-            assert!(Path::new(&run.workspace.path).is_dir());
-        }
-        let states: Vec<String> = sqlx::query_scalar("SELECT state_json FROM agent_run_state")
-            .fetch_all(&pool)
+            .fetch_all(&mut connection)
             .await
             .unwrap();
-        for state in states {
-            serde_json::from_str::<RunState>(&state).unwrap();
+        assert!(!tables.is_empty());
+        for table in tables {
+            let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"{table}\""))
+                .fetch_one(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(count, 0, "Unexpected preset data in {table}");
         }
-        pool.close().await;
+        let migrations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(migrations as usize, MIGRATOR.iter().count());
+        connection.close().await.unwrap();
     }
 
     #[tokio::test]
@@ -611,6 +629,7 @@ mod tests {
         let target = assets.join(DATABASE);
         fs::write(&target, b"preserve").unwrap();
         let mut connection = connect(&seed, false).await.unwrap();
+        insert_runtime_test_rows(&mut connection).await;
         sqlx::query("UPDATE workflow_attempts SET status = 'running'")
             .execute(&mut connection)
             .await
@@ -698,7 +717,7 @@ mod tests {
             .execute(&mut connection)
             .await
             .unwrap();
-        sqlx::query("UPDATE sessions SET workspace_id = zeroblob(16)")
+        sqlx::query("INSERT INTO sessions (id, workspace_id) VALUES (zeroblob(16), zeroblob(16))")
             .execute(&mut connection)
             .await
             .unwrap();
