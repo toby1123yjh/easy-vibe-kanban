@@ -1,34 +1,49 @@
-import React, { useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import NiceModal from '@ebay/nice-modal-react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HotkeysProvider } from 'react-hotkeys-hook';
-import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
-import { GitConnectionsEditor } from '@/shared/dialogs/settings/settings/GitConnectionsSettings';
-import { GitProjectImportPanel } from '@/shared/components/GitProjectImportPanel';
-import { SettingsDirtyProvider } from '@/shared/dialogs/settings/settings/SettingsDirtyContext';
-import i18n from '@/i18n/config';
-import '@vibe/ui/styles/tokens.css';
-void i18n.changeLanguage('en');
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+import NiceModal from "@ebay/nice-modal-react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { HotkeysProvider } from "react-hotkeys-hook";
+import { CreateRemoteProjectDialog } from "@/shared/dialogs/org/CreateRemoteProjectDialog";
+import { GitConnectionsEditor } from "@/shared/dialogs/settings/settings/GitConnectionsSettings";
+import { GitProjectImportPanel } from "@/shared/components/GitProjectImportPanel";
+import { SettingsDirtyProvider } from "@/shared/dialogs/settings/settings/SettingsDirtyContext";
+import { AppRuntimeProvider } from "@/shared/hooks/useAppRuntime";
+import { FolderPickerDialog } from "@/shared/dialogs/shared/FolderPickerDialog";
+import i18n from "@/i18n/config";
+import "@vibe/ui/styles/tokens.css";
+void i18n.changeLanguage("en");
 function Fixture() {
   const [host, setHost] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(true);
+  const [directory, setDirectory] = useState("/previous");
   return (
     <>
       <button
+        onClick={async () => {
+          const selected = await FolderPickerDialog.show({
+            value: directory,
+            hostId: host,
+          });
+          if (selected !== null) setDirectory(selected);
+        }}
+      >
+        Choose directory
+      </button>
+      <output aria-label="Selected directory">{directory}</output>
+      <button
         onClick={() =>
-          void CreateRemoteProjectDialog.show({ organizationId: 'org-fixture' })
+          void CreateRemoteProjectDialog.show({ organizationId: "org-fixture" })
         }
       >
         Open create project
       </button>
-      <button onClick={() => setHost(host ? null : 'remote-1')}>
+      <button onClick={() => setHost(host ? null : "remote-1")}>
         Switch host
       </button>
       <button onClick={() => setEnabled((v) => !v)}>Toggle availability</button>
-      {new URLSearchParams(location.search).has('panel') && (
+      {new URLSearchParams(location.search).has("panel") && (
         <GitProjectImportPanel
-          key={host ?? 'local'}
+          key={host ?? "local"}
           hostId={host}
           recoveryScope="fixture"
           enabled={enabled}
@@ -38,10 +53,10 @@ function Fixture() {
           }}
         />
       )}
-      {new URLSearchParams(location.search).has('settings') && (
+      {new URLSearchParams(location.search).has("settings") && (
         <SettingsDirtyProvider>
           <GitConnectionsEditor
-            key={host ?? 'local'}
+            key={host ?? "local"}
             hostId={host}
             enabled={enabled}
           />
@@ -50,14 +65,16 @@ function Fixture() {
     </>
   );
 }
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <QueryClientProvider
     client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
   >
-    <HotkeysProvider>
-      <NiceModal.Provider>
-        <Fixture />
-      </NiceModal.Provider>
-    </HotkeysProvider>
+    <AppRuntimeProvider runtime="local">
+      <HotkeysProvider>
+        <NiceModal.Provider>
+          <Fixture />
+        </NiceModal.Provider>
+      </HotkeysProvider>
+    </AppRuntimeProvider>
   </QueryClientProvider>,
 );

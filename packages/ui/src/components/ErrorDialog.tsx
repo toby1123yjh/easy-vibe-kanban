@@ -1,14 +1,6 @@
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
-import { WarningIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from './Dialog';
-import { Button } from './Button';
+import { ConfirmDialogView } from './ConfirmDialog';
 import { defineModal } from '../lib/modals';
 
 export interface ErrorDialogProps {
@@ -24,33 +16,21 @@ const ErrorDialogImpl = NiceModal.create<ErrorDialogProps>((props) => {
 
   const handleDismiss = () => {
     modal.resolve();
-    modal.hide();
+    void modal.hide();
   };
 
   return (
-    <Dialog
+    <ConfirmDialogView
       open={modal.visible}
-      onOpenChange={(open) => !open && handleDismiss()}
-    >
-      <DialogContent
-        className="sm:max-w-[425px] p-double"
-        style={{ zIndex: 10001 }}
-      >
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <WarningIcon className="h-6 w-6 text-destructive" />
-            <DialogTitle>{title}</DialogTitle>
-          </div>
-          <DialogDescription className="text-left pt-2">
-            {message}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex w-full justify-end">
-          <Button onClick={handleDismiss}>{buttonText}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+      title={title}
+      message={message}
+      variant="destructive"
+      confirmVariant="default"
+      confirmText={buttonText}
+      showCancelButton={false}
+      onConfirm={handleDismiss}
+      onCancel={handleDismiss}
+    />
   );
 });
 

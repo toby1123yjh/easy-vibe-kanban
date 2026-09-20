@@ -1,4 +1,33 @@
 {
+  "projectSessions": {
+    "column": "讨论",
+    "create": "新建讨论",
+    "empty": "暂无讨论。"
+  },
+  "sessionProject": {
+    "label": "项目",
+    "failed": "无法加载项目工作空间，请重试。",
+    "missingWorkspace": "这个项目还没有工作空间，配置后即可开始会话。",
+    "configure": "配置项目工作空间"
+  },
+  "defaultProject": {
+    "name": "默认项目",
+    "description": "内置项目用于收纳未指定项目的会话，不可删除或修改。新会话在默认目录下使用独立子目录；修改默认目录只影响之后创建的会话。",
+    "settings": "前往设置配置默认目录",
+    "notConfigured": "尚未配置默认目录。选择目录前，新会话会使用本机内置的兜底目录。",
+    "empty": "还没有独立会话。",
+    "loadFailed": "无法加载项目会话或配置。",
+    "offline": "请连接主机后查看会话。",
+    "more": "加载更多"
+  },
+  "folderPicker": {
+    "title": "选择目录",
+    "nativeWaiting": "请在系统目录窗口中选择或取消。",
+    "remotePath": "请输入所选远程主机上的目录路径。",
+    "manualFallback": "无法打开系统选择窗口，请输入目录路径。",
+    "path": "目录路径",
+    "select": "使用此目录"
+  },
   "editorNames": {
     "custom": "自定义"
   },
@@ -1406,8 +1435,8 @@
   },
   "createMode": {
     "managedDirectory": {
-      "label": "自动工作目录",
-      "description": "将为此会话创建独立目录。点击可自行选择。"
+      "label": "选择目录",
+      "description": "可选，不选择也能直接开始对话。"
     },
     "workspaceDialog": {
       "title": "选择工作目录",

@@ -41,6 +41,9 @@ interface FixtureState {
   hostId: string;
 }
 export const fixture = {
+  targetFailure: false,
+  targetDeferred: false,
+  resolveTarget: () => {},
   state: {
     repos: params.has("repo") ? [repo] : [],
     targetBranches: { "repo-1": "main" } as Record<string, string>,
@@ -113,6 +116,7 @@ export function useCreateMode() {
   useFixture();
   return {
     ...fixture.state,
+    initialProjectId: params.has('initialProject') ? 'project-1' : undefined,
     ...actions,
     attachments: [],
     executorConfig: null,
@@ -177,7 +181,25 @@ export const useCreateAttachments = () => ({
 });
 export const saveProjectWorkspaceDefault = async (...args: unknown[]) => {
   fixture.savedDefaults.push(args);
+  savedWorkspace = args[1];
 };
+let savedWorkspace: unknown = undefined;
+export const getProjectWorkspaceDefaultOrThrow = async () => {
+  if (fixture.targetDeferred) await new Promise<void>((resolve) => { fixture.resolveTarget = resolve; });
+  if (fixture.targetFailure) throw new Error('workspace lookup failed');
+  if (savedWorkspace !== undefined) return savedWorkspace;
+  if (params.has('repo')) return { kind: 'git', repo: { repo_id: 'repo-1', target_branch: 'main' } };
+  if (params.has('path')) return { kind: 'direct_folder', path: params.get('path') };
+  return null;
+};
+export const useAppShellProjects = () => ({ deployment: 'remote', hostId: fixture.state.hostId });
+export const executionDataApi = {
+  listProjects: async () => ({ projects: [
+    { id: '00000000-0000-0000-0000-000000000003', name: 'Default project' },
+    { id: 'project-1', name: 'My project' },
+  ], next_cursor: null }),
+};
+export const repoApi = { getById: async () => repo };
 export const useSettingsNavigation = () => ({ openAgentCenter() {} });
 export const WorkspaceTargetDialog = {
   show: async (options: unknown) => {
@@ -215,13 +237,12 @@ export function CreateChatBox(props: ChatProps) {
         onChange={(event) => props.editor.onChange(event.target.value)}
       />
       <button
-        disabled={props.disabled || props.isSending}
+        disabled={props.disabled || props.isSending || props.sendDisabled}
         onClick={() => void props.onSend()}
       >
         Send
       </button>
-      <button onClick={props.onEditRepos}>Choose directory</button>
-      <span data-testid="summary">{props.repoSummaryLabel}</span>
+      {props.projectSelector}
       <output data-testid="error">{props.error}</output>
     </section>
   );

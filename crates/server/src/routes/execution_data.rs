@@ -84,6 +84,23 @@ fn cursor_parts(
     }
 }
 
+async fn default_project_directory(
+    State(deployment): State<DeploymentImpl>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let root = deployment
+        .config()
+        .read()
+        .await
+        .managed_workspace_root
+        .clone();
+    let configured_path = root
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty());
+    Json(ApiResponse::success(
+        serde_json::json!({ "directory_path": configured_path }),
+    ))
+}
+
 async fn capabilities() -> Json<ApiResponse<ExecutionDataCapabilities>> {
     Json(ApiResponse::success(ExecutionDataCapabilities {
         owner: ExecutionDataOwner::LocalHost,
@@ -206,6 +223,10 @@ pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/execution-data/capabilities", get(capabilities))
         .route("/projects", get(list_projects))
+        .route(
+            "/projects/default-directory",
+            get(default_project_directory),
+        )
         .route("/sessions/recent", get(list_sessions))
         .route("/tasks", get(list_tasks))
         .route("/tasks/{task_id}", get(get_task).delete(delete_task))

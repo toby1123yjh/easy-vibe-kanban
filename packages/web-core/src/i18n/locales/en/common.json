@@ -1,4 +1,33 @@
 {
+  "projectSessions": {
+    "column": "Discussions",
+    "create": "New discussion",
+    "empty": "No discussions yet."
+  },
+  "sessionProject": {
+    "label": "Project",
+    "failed": "Could not load the project workspace. Please retry.",
+    "missingWorkspace": "Set up this project's workspace before starting a session.",
+    "configure": "Set up project workspace"
+  },
+  "defaultProject": {
+    "name": "Default project",
+    "description": "Built-in project for unassigned sessions. Its identity is protected. Each new session gets its own subdirectory under the default directory; changing Settings only affects future sessions.",
+    "settings": "Configure default directory in Settings",
+    "notConfigured": "No default directory is configured yet. New sessions use the built-in local fallback until you choose one.",
+    "empty": "No independent sessions yet.",
+    "loadFailed": "Unable to load project sessions or configuration.",
+    "offline": "Connect a host to view sessions.",
+    "more": "Load more"
+  },
+  "folderPicker": {
+    "title": "Choose directory",
+    "nativeWaiting": "Choose or cancel in the system directory window.",
+    "remotePath": "Enter a directory path on the selected remote host.",
+    "manualFallback": "The system picker could not be opened. Enter a directory path instead.",
+    "path": "Directory path",
+    "select": "Use this directory"
+  },
   "editorNames": {
     "custom": "Custom"
   },
@@ -1420,8 +1449,8 @@
   },
   "createMode": {
     "managedDirectory": {
-      "label": "Automatic directory",
-      "description": "A separate directory will be created for this session. Click to choose your own."
+      "label": "Choose directory",
+      "description": "Optional. You can start chatting without choosing a directory."
     },
     "workspaceDialog": {
       "title": "Choose working directory",

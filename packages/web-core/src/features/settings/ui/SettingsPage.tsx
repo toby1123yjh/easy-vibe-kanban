@@ -73,7 +73,7 @@ const TAB_ICONS = {
 } as const;
 
 const TAB_LABELS = {
-  general: 'General',
+  general: 'Application settings',
   host: 'Current Host',
   cloud: 'Cloud',
 } as const;
@@ -290,7 +290,7 @@ export function SettingsPage({ search, onSearchChange }: SettingsPageProps) {
         </nav>
       )}
 
-      {!isProjectSettings && (
+      {!isProjectSettings && route.tab !== 'general' && (
         <nav
           className="vk-settings-page__sections"
           aria-label={t('settings.page.sectionsLabel', 'Settings sections')}

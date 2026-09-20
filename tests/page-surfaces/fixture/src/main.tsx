@@ -32,6 +32,10 @@ import { configureAuthRuntime } from "../../../../packages/web-core/src/shared/l
 import { setLocalRemoteApiEnabled } from "../../../../packages/web-core/src/shared/lib/remoteApi";
 import { useAppUpdateStore } from "../../../../packages/web-core/src/shared/stores/useAppUpdateStore";
 import { ProjectDirectoryPage } from "../../../../packages/web-core/src/features/projects/ui/ProjectDirectoryPage";
+import {
+  DefaultProjectPage,
+  ProjectSessions,
+} from "../../../../packages/web-core/src/features/projects/ui/ProjectSessions";
 import { ProjectKanbanView } from "../../../../packages/web-core/src/features/projects/ui/ProjectKanbanView";
 import { ProjectBoardActions } from "../../../../packages/web-core/src/features/projects/ui/ProjectBoardActions";
 import { useFixtureProjects } from "./projectSettingsMock";
@@ -96,7 +100,8 @@ function navigation() {
     goToProjectIssueWorkspace: () => record("project-issue-workspace"),
     goToProjectIssueWorkspaceCreate: () =>
       record("project-issue-workspace-create"),
-    goToProjectWorkspaceCreate: () => record("project-workspace-create"),
+    goToProjectWorkspaceCreate: (projectId: string) =>
+      record(`project-workspace-create:${projectId}`),
   };
 }
 
@@ -133,7 +138,9 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
   return (
     <AppShellProjectsProvider value={projectsState}>
       <section data-testid="project-directory-surface" className="fixture-page">
-        {board ? (
+        {new URLSearchParams(location.search).has("defaultProject") ? (
+          <DefaultProjectPage />
+        ) : board ? (
           <ProjectKanbanView
             projectName="Project 2"
             projectActions={
@@ -145,7 +152,24 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
                 />
               ) : null
             }
-            columns={[]}
+            sessionColumn={
+              new URLSearchParams(location.search).has("sessionColumn") ? (
+                <ProjectSessions projectId="project-2" variant="column" />
+              ) : undefined
+            }
+            columns={
+              new URLSearchParams(location.search).has("sessionColumn")
+                ? ["Todo", "In Progress", "In Review", "Done"].map(
+                    (name, index) => ({
+                      id: `status-${index}`,
+                      name,
+                      color: "210 80% 52%",
+                      sortOrder: index,
+                      issues: [],
+                    }),
+                  )
+                : []
+            }
             issueCount={0}
             query=""
             selectedIssueId={null}

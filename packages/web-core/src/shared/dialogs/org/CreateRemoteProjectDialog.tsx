@@ -110,6 +110,9 @@ function CreateRemoteProjectForm({
     scopeRef.current.visible &&
     scopeRef.current.epoch === epoch;
   const canChoose = canUseProjectCreationHost(selectedHost);
+  const hasValidLocation =
+    !!location?.selection.path.trim() &&
+    canUseProjectCreationHost(selectedHost, location.hostId);
   const busy = isCreating || isChoosing || importBusy;
   const onImported = useCallback(
     (selection: WorkspaceTargetSelection, jobId: string) => {
@@ -127,7 +130,11 @@ function CreateRemoteProjectForm({
     [organizationId]
   );
 
-  const { insert, error: syncError } = useShape(PROJECTS_SHAPE, params, {
+  const {
+    insert,
+    remove,
+    error: syncError,
+  } = useShape(PROJECTS_SHAPE, params, {
     mutation: PROJECT_MUTATION,
   });
 
@@ -208,7 +215,7 @@ function CreateRemoteProjectForm({
           ? err.message
           : t(
               'createProjectDialog.machineUnavailable',
-              'Connect a machine to choose a working directory, or set it up later.'
+              'Connect an available machine to choose a working directory.'
             )
       );
     } finally {
@@ -231,8 +238,16 @@ function CreateRemoteProjectForm({
 
   const handleCreate = async () => {
     const epoch = scopeRef.current.epoch;
-    if (busyRef.current || importBusy || (source === 'git' && !location))
+    if (busyRef.current || importBusy) return;
+    if (!location?.selection.path.trim()) {
+      setError(
+        t(
+          'createProjectDialog.workspaceRequired',
+          'Choose a working directory before creating the project.'
+        )
+      );
       return;
+    }
     const nameError = validateName(name);
     if (nameError) {
       setError(nameError);
@@ -296,7 +311,7 @@ function CreateRemoteProjectForm({
         savedProject
           ? t(
               'createProjectDialog.workspaceSaveFailed',
-              'The project was created, but its working directory could not be saved. Retry or finish and set it up later.'
+              'The working directory could not be saved. Retry, or cancel to discard this unfinished project. Directory files will be kept.'
             )
           : err instanceof Error
             ? err.message
@@ -310,11 +325,33 @@ function CreateRemoteProjectForm({
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (busyRef.current || importBusy) return;
     if (createdProject) {
-      finish(createdProject);
-      return;
+      const epoch = scopeRef.current.epoch;
+      busyRef.current = true;
+      setIsCreating(true);
+      setError(null);
+      try {
+        await remove(createdProject.id).persisted;
+        if (!ownsScope(epoch)) return;
+        setCreatedProject(null);
+      } catch {
+        if (ownsScope(epoch)) {
+          setError(
+            t(
+              'createProjectDialog.cancelFailed',
+              'Could not discard the unfinished project. Retry canceling or save its directory.'
+            )
+          );
+        }
+        return;
+      } finally {
+        if (ownsScope(epoch)) {
+          busyRef.current = false;
+          setIsCreating(false);
+        }
+      }
     }
     modal.resolve({ action: 'canceled' } as CreateRemoteProjectResult);
     modal.hide();
@@ -324,7 +361,7 @@ function CreateRemoteProjectForm({
     if (busyRef.current || importBusy) return;
 
     if (!open) {
-      handleCancel();
+      void handleCancel();
     }
   };
 
@@ -343,7 +380,7 @@ function CreateRemoteProjectForm({
   return (
     <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-md max-h-[90dvh] overflow-y-auto"
+        className="max-h-[90dvh] overflow-y-auto"
         role="dialog"
         aria-labelledby="create-project-title"
         aria-describedby="create-project-description"
@@ -446,7 +483,7 @@ function CreateRemoteProjectForm({
                   ? t('gitImport.remote', 'Git repository')
                   : t(
                       'createProjectDialog.workspaceLabel',
-                      'Working directory (optional)'
+                      'Working directory (required)'
                     )}
               </h3>
               {source === 'local' && (
@@ -522,7 +559,7 @@ function CreateRemoteProjectForm({
                 <p className="text-xs text-low">
                   {t(
                     'createProjectDialog.workspaceEmpty',
-                    'Choose a local folder or Git repository. You can also set this up later.'
+                    'Choose a directory to create the project.'
                   )}
                 </p>
               ))}
@@ -530,7 +567,7 @@ function CreateRemoteProjectForm({
               <p className="text-xs text-low" role="status">
                 {t(
                   'createProjectDialog.machineUnavailable',
-                  'Connect a machine to choose a working directory, or set it up later.'
+                  'Connect an available machine to choose a working directory.'
                 )}
               </p>
             )}
@@ -552,19 +589,6 @@ function CreateRemoteProjectForm({
                         'Choose directory'
                       )}
                 </Button>
-                {location && (
-                  <Button
-                    variant="ghost"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setLocation(null);
-                      setError(null);
-                    }}
-                  >
-                    {t('createProjectDialog.later', 'Set up later')}
-                  </Button>
-                )}
               </div>
             )}
           </section>
@@ -577,14 +601,16 @@ function CreateRemoteProjectForm({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel} disabled={busy}>
-            {createdProject
-              ? t('createProjectDialog.finishLater', 'Finish; set up later')
-              : t('common:buttons.cancel', 'Cancel')}
+          <Button
+            variant="outline"
+            onClick={() => void handleCancel()}
+            disabled={busy}
+          >
+            {t('common:buttons.cancel', 'Cancel')}
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={!name.trim() || busy || (source === 'git' && !location)}
+            disabled={!name.trim() || busy || !hasValidLocation}
           >
             {isCreating
               ? createdProject
@@ -594,9 +620,7 @@ function CreateRemoteProjectForm({
                   )
                 : t('createProjectDialog.creating', 'Creating...')
               : createdProject
-                ? location
-                  ? t('createProjectDialog.retrySave', 'Save directory')
-                  : t('createProjectDialog.finishLater', 'Finish; set up later')
+                ? t('createProjectDialog.retrySave', 'Save directory')
                 : t('createProjectDialog.createButton', 'Create Project')}
           </Button>
         </DialogFooter>

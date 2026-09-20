@@ -335,7 +335,7 @@ async fn running_process_session_deletion_is_rejected_without_removing_session()
 #[tokio::test]
 async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
     let pool = migrated_pool().await;
-    let project_ids = [uuid(1), uuid(2), uuid(3), uuid(4)];
+    let project_ids = [uuid(11), uuid(12), uuid(13), uuid(14)];
     for (index, id) in project_ids.into_iter().enumerate() {
         insert_project(&pool, id, &format!("Project {index}"), BASELINE).await;
     }
@@ -353,7 +353,14 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
             .collect::<Vec<_>>(),
         project_ids
     );
-    assert!(second_projects.next_cursor.is_none());
+    let system_page = Project::list_recent(&pool, second_projects.next_cursor, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        system_page.projects[0].id,
+        db::models::project::DEFAULT_PROJECT_ID
+    );
+    assert!(system_page.next_cursor.is_none());
 
     let project_id = project_ids[0];
     let issue_id = uuid(100);
@@ -608,7 +615,10 @@ async fn recent_sessions_include_unbound_workspaces_and_title_fallbacks() {
         .find(|session| session.id == session_named_id)
         .unwrap();
     assert_eq!(session_named.task_id, None);
-    assert_eq!(session_named.project_id, None);
+    assert_eq!(
+        session_named.project_id,
+        Some(db::models::project::DEFAULT_PROJECT_ID)
+    );
     assert_eq!(session_named.issue_id, None);
     assert_eq!(session_named.title, "Session title");
 
@@ -666,7 +676,14 @@ async fn recent_cursors_order_mixed_sqlite_and_rfc3339_timestamps_chronologicall
 
     assert_eq!(first_page.projects[0].id, newer_project_id);
     assert_eq!(second_page.projects[0].id, older_project_id);
-    assert!(second_page.next_cursor.is_none());
+    let system_page = Project::list_recent(&pool, second_page.next_cursor, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        system_page.projects[0].id,
+        db::models::project::DEFAULT_PROJECT_ID
+    );
+    assert!(system_page.next_cursor.is_none());
 }
 
 #[tokio::test]

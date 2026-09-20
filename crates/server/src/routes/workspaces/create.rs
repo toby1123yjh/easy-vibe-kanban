@@ -405,6 +405,7 @@ pub async fn create_and_start_workspace(
     Json(payload): Json<CreateAndStartWorkspaceRequest>,
 ) -> Result<ResponseJson<ApiResponse<CreateAndStartWorkspaceResponse>>, ApiError> {
     let CreateAndStartWorkspaceRequest {
+        project_id,
         mode,
         name,
         repos,
@@ -417,6 +418,24 @@ pub async fn create_and_start_workspace(
         resume_scope_path,
         attachment_ids,
     } = payload;
+
+    if let Some(project_id) = project_id {
+        if linked_issue
+            .as_ref()
+            .is_some_and(|issue| issue.remote_project_id != project_id)
+        {
+            return Err(ApiError::BadRequest(
+                "Session project must match its Issue".into(),
+            ));
+        }
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)")
+            .bind(project_id)
+            .fetch_one(&deployment.db().pool)
+            .await?;
+        if !exists {
+            return Err(ApiError::BadRequest("Project not found".into()));
+        }
+    }
 
     let mut workspace_prompt = normalize_prompt(&prompt).ok_or_else(|| {
         ApiError::BadRequest(
@@ -573,6 +592,17 @@ pub async fn create_and_start_workspace(
             )
             .await?
         };
+        if linked_issue.is_none() {
+            if let Some(project_id) = project_id {
+                sqlx::query(
+                    "UPDATE session_project_memberships SET project_id = ? WHERE session_id = ?",
+                )
+                .bind(project_id)
+                .bind(session.id)
+                .execute(&deployment.db().pool)
+                .await?;
+            }
+        }
         let workspace_repos =
             WorkspaceRepo::find_repos_for_workspace(&deployment.db().pool, workspace.id).await?;
         let repos_with_setup = if workspace.is_direct_folder() {

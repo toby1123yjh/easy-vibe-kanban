@@ -71,6 +71,12 @@ async function get<T>(
 }
 
 export const executionDataApi = {
+  defaultProjectDirectory(
+    hostId: string | null
+  ): Promise<{ directory_path: string | null }> {
+    return get('/api/projects/default-directory', { hostId });
+  },
+
   capabilities(): Promise<ExecutionDataCapabilities> {
     return get('/api/execution-data/capabilities');
   },

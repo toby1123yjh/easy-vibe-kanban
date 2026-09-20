@@ -19,6 +19,7 @@ export interface TaskSessionDeleteTarget {
   title: string;
   /** Project actions require this exact Task; discovery rows resolve afresh. */
   taskId?: string;
+  projectId?: string | null;
 }
 
 interface DeleteTaskSessionOptions {
@@ -136,13 +137,18 @@ export function useDeleteTaskSession({
             }
             // Run the guarded selection update before refetch can select a sibling.
             try {
-              if (current()) live.current.onDeleted?.(target);
+              if (current()) {
+                live.current.onDeleted?.(target);
+              }
             } catch (cause) {
               // Deletion is durable; navigation cannot turn it into a retry.
               console.error('Unable to update selection after deletion', cause);
             }
             const hostKey = getHostRequestScopeQueryKey(hostId);
             await Promise.allSettled([
+              queryClient.invalidateQueries({
+                queryKey: ['project-sessions', discoveryScope],
+              }),
               queryClient.invalidateQueries({
                 queryKey: workspaceSessionKeys.byWorkspace(
                   target.workspaceId,

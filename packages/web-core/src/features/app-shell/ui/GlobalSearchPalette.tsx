@@ -75,7 +75,7 @@ export function GlobalSearchPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [present, setPresent] = useState(open);
   const [activeIndex, setActiveIndex] = useState(0);
   const listId = useId();
   const { t, i18n } = useTranslation('common');
@@ -138,24 +138,31 @@ export function GlobalSearchPalette({
 
   useEffect(() => {
     if (!open) {
-      setQuery('');
-      setDebouncedQuery('');
-      setActiveIndex(0);
-      return;
+      const timer = window.setTimeout(() => {
+        setPresent(false);
+        setQuery('');
+        setActiveIndex(0);
+      }, 120);
+      return () => window.clearTimeout(timer);
     }
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    setPresent(true);
+    setQuery('');
+    setActiveIndex(0);
+    const frame = requestAnimationFrame(() =>
+      inputRef.current?.focus({ preventScroll: true })
+    );
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {
     setQuery('');
-    setDebouncedQuery('');
     setActiveIndex(0);
   }, [scopeKey]);
 
   useEffect(() => {
     if (!open) return;
     const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
@@ -164,7 +171,7 @@ export function GlobalSearchPalette({
       }
       if (event.key !== 'Tab') return;
       const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-        'input, button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+        'input, button:not([disabled]):not([tabindex="-1"]), [href], [tabindex]:not([tabindex="-1"])'
       );
       if (!focusable || focusable.length === 0) return;
       const first = focusable[0];
@@ -184,17 +191,11 @@ export function GlobalSearchPalette({
       });
   }, [onClose, open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = window.setTimeout(() => setDebouncedQuery(query), 180);
-    return () => window.clearTimeout(timer);
-  }, [open, query]);
-
-  const queryPending = query !== debouncedQuery;
+  // Search is local and capped at 50 results; avoid clearing the list between keys.
   const results = useMemo(
     () =>
       buildSearchResults({
-        query: debouncedQuery,
+        query,
         projects,
         sessions,
         projectSourceState: sources.find((source) => source.id === 'projects')
@@ -204,30 +205,17 @@ export function GlobalSearchPalette({
         moduleCapabilities,
         copy: searchCopy,
       }),
-    [
-      debouncedQuery,
-      moduleCapabilities,
-      projects,
-      searchCopy,
-      sessions,
-      sources,
-    ]
-  );
-  const matchedResults = useMemo(
-    () => (queryPending ? [] : results),
-    [queryPending, results]
+    [query, moduleCapabilities, projects, searchCopy, sessions, sources]
   );
   const groupedResults = useMemo(
-    () => groupSearchResults(matchedResults, searchCopy.groups),
-    [matchedResults, searchCopy.groups]
+    () => groupSearchResults(results, searchCopy.groups),
+    [results, searchCopy.groups]
   );
   const orderedResults = useMemo(
     () => groupedResults.flatMap((group) => group.results),
     [groupedResults]
   );
   const sourceIssues = sources.filter((source) => source.state !== 'available');
-
-  useEffect(() => setActiveIndex(0), [debouncedQuery, query]);
 
   useEffect(() => {
     setActiveIndex((index) =>
@@ -237,20 +225,25 @@ export function GlobalSearchPalette({
     );
   }, [orderedResults.length]);
 
-  if (!open) return null;
+  if (!open && !present) return null;
 
   const selectResult = (index: number) => {
     const result = orderedResults[index];
-    if (!result) return;
+    if (!open || !result) return;
     if (!onNavigate(result.route)) return;
     onClose({ restoreFocus: false });
   };
 
   return (
     <div
+      ref={(element) => {
+        if (element) element.inert = !open;
+      }}
       className="vk-search-overlay"
+      data-state={open ? 'open' : 'closed'}
+      aria-hidden={!open || undefined}
       role="presentation"
-      onMouseDown={(event) => {
+      onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -266,25 +259,34 @@ export function GlobalSearchPalette({
           <input
             ref={inputRef}
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActiveIndex(0);
+            }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229)
+                return;
+              const moveSelection = (direction: number) => {
+                const index =
+                  orderedResults.length === 0
+                    ? 0
+                    : (activeIndex + direction + orderedResults.length) %
+                      orderedResults.length;
+                setActiveIndex(index);
+                const result = orderedResults[index];
+                if (result)
+                  document
+                    .getElementById(`${listId}-${result.id}`)
+                    ?.scrollIntoView({ block: 'nearest' });
+              };
               switch (event.key) {
                 case 'ArrowDown':
                   event.preventDefault();
-                  setActiveIndex((index) =>
-                    orderedResults.length === 0
-                      ? 0
-                      : (index + 1) % orderedResults.length
-                  );
+                  moveSelection(1);
                   break;
                 case 'ArrowUp':
                   event.preventDefault();
-                  setActiveIndex((index) =>
-                    orderedResults.length === 0
-                      ? 0
-                      : (index - 1 + orderedResults.length) %
-                        orderedResults.length
-                  );
+                  moveSelection(-1);
                   break;
                 case 'Enter':
                   event.preventDefault();
@@ -293,6 +295,8 @@ export function GlobalSearchPalette({
               }
             }}
             role="combobox"
+            aria-label={t('appShell.search.dialogLabel')}
+            aria-autocomplete="list"
             aria-expanded="true"
             aria-controls={listId}
             aria-activedescendant={
@@ -327,18 +331,9 @@ export function GlobalSearchPalette({
           </div>
         )}
 
-        <div
-          id={listId}
-          className="vk-search-results"
-          role="listbox"
-          aria-busy={queryPending}
-        >
-          {queryPending ? (
+        <div id={listId} className="vk-search-results" role="listbox">
+          {orderedResults.length === 0 ? (
             <p className="vk-search-results__empty" role="status">
-              {t('appShell.search.updating')}
-            </p>
-          ) : orderedResults.length === 0 ? (
-            <p className="vk-search-results__empty">
               {t('appShell.search.noMatches')}
             </p>
           ) : (
@@ -358,10 +353,14 @@ export function GlobalSearchPalette({
                       key={result.id}
                       id={`${listId}-${result.id}`}
                       role="option"
+                      tabIndex={-1}
                       aria-selected={index === activeIndex}
                       className="vk-search-result"
                       data-active={index === activeIndex}
-                      onMouseMove={() => setActiveIndex(index)}
+                      onMouseMove={(event) => {
+                        if (event.movementX || event.movementY)
+                          setActiveIndex(index);
+                      }}
                       onClick={() => selectResult(index)}
                     >
                       <span className="vk-search-result__copy">

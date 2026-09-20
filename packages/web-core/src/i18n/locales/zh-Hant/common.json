@@ -1,4 +1,33 @@
 {
+  "projectSessions": {
+    "column": "討論",
+    "create": "新增討論",
+    "empty": "暫無討論。"
+  },
+  "sessionProject": {
+    "label": "專案",
+    "failed": "無法載入專案工作空間，請重試。",
+    "missingWorkspace": "這個專案尚無工作空間，設定後即可開始工作階段。",
+    "configure": "設定專案工作空間"
+  },
+  "defaultProject": {
+    "name": "預設專案",
+    "description": "內建專案用於收納未指定專案的工作階段，不可刪除或修改。新工作階段在預設目錄下使用獨立子目錄；修改預設目錄只影響之後建立的工作階段。",
+    "settings": "前往設定配置預設目錄",
+    "notConfigured": "尚未配置預設目錄。選擇目錄前，新工作階段會使用本機內建的備援目錄。",
+    "empty": "尚無獨立工作階段。",
+    "loadFailed": "無法載入專案工作階段或設定。",
+    "offline": "請連線至主機後查看工作階段。",
+    "more": "載入更多"
+  },
+  "folderPicker": {
+    "title": "選擇目錄",
+    "nativeWaiting": "請在系統目錄視窗中選擇或取消。",
+    "remotePath": "請輸入所選遠端主機上的目錄路徑。",
+    "manualFallback": "無法開啟系統選擇視窗，請輸入目錄路徑。",
+    "path": "目錄路徑",
+    "select": "使用此目錄"
+  },
   "editorNames": {
     "custom": "自訂"
   },
@@ -1381,8 +1410,8 @@
   },
   "createMode": {
     "managedDirectory": {
-      "label": "自動工作目錄",
-      "description": "將為此會話建立獨立目錄。點擊可自行選擇。"
+      "label": "選擇目錄",
+      "description": "選填，不選擇也能直接開始對話。"
     },
     "workspaceDialog": {
       "title": "選擇工作目錄",

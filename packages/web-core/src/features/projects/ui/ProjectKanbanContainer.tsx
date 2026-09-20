@@ -26,6 +26,7 @@ import {
 import { IssueFloatingPanelContainer } from './IssueFloatingPanelContainer';
 import { ProjectKanbanView } from './ProjectKanbanView';
 import { ProjectBoardActions } from './ProjectBoardActions';
+import { ProjectSessions } from './ProjectSessions';
 
 interface ProjectKanbanContainerProps {
   projectName: string;
@@ -388,6 +389,7 @@ export function ProjectKanbanContainer({
         />
       }
       columns={columns}
+      sessionColumn={<ProjectSessions projectId={projectId} variant="column" />}
       issueCount={columns.reduce(
         (count, column) => count + column.issues.length,
         0

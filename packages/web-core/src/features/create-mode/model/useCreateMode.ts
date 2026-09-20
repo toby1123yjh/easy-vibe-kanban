@@ -14,6 +14,7 @@ interface LinkedIssue {
 }
 
 export interface CreateModeContextValue {
+  initialProjectId?: string;
   repos: Repo[];
   addRepo: (repo: Repo) => void;
   removeRepo: (repoId: string) => void;

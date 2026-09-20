@@ -177,6 +177,7 @@ impl McpServer {
         };
 
         let create_and_start_payload = CreateAndStartWorkspaceRequest {
+            project_id: None,
             mode: db::models::requests::CreateWorkspaceMode::Worktree,
             name: Some(name.clone()),
             repos: workspace_repos,

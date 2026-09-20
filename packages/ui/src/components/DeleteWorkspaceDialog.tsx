@@ -61,7 +61,7 @@ const DeleteWorkspaceDialogImpl = NiceModal.create<DeleteWorkspaceDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleCancel}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
             <div className="flex items-center gap-3">
               <WarningIcon className="h-6 w-6 text-destructive" />

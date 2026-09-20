@@ -55,7 +55,7 @@
       "currentHost": "当前主机",
       "tabsLabel": "设置分类",
       "tabs": {
-        "general": "通用",
+        "general": "应用设置",
         "host": "当前主机",
         "cloud": "Cloud"
       },

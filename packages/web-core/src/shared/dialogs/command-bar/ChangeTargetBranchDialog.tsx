@@ -53,7 +53,7 @@ const ChangeTargetBranchDialogImpl = create<ChangeTargetBranchDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('branches.changeTarget.dialog.title')}</DialogTitle>
             <DialogDescription>

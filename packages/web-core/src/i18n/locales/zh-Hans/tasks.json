@@ -1,5 +1,11 @@
 {
   "sessionDeletion": {
+    "taskSummary": "将删除此任务及其会话历史，无法撤销。",
+    "sessionSummary": "将删除此会话及其历史记录，无法撤销。",
+    "filesWillDelete": "将永久删除该目录及其中的全部文件。",
+    "filesWillKeep": "不勾选则保留本机文件。",
+    "directoryLabel": "工作目录",
+    "unaffected": "其他会话、项目和智能体原生历史不受影响。",
     "filesRetained": "会话已删除，部分文件仍保留：",
     "deleteManagedFiles": "同时删除此会话的工作目录和文件",
     "withFilesDescription": "删除“{{name}}”、会话历史以及下方托管工作目录？其他会话、项目和智能体原生历史不受影响。此操作无法撤销。",

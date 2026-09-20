@@ -137,6 +137,19 @@ describe('project workspace defaults', () => {
     consoleError.mockRestore();
   });
 
+  it('recognizes the scratch endpoint missing-record response without hiding other 400s', async () => {
+    mockScratchGet.mockRejectedValue(new ApiError('Scratch not found', 400));
+    await expect(
+      getProjectWorkspaceDefaultOrThrow('project-1')
+    ).resolves.toBeNull();
+
+    const failure = new ApiError('Invalid project identifier', 400);
+    mockScratchGet.mockRejectedValue(failure);
+    await expect(getProjectWorkspaceDefaultOrThrow('project-1')).rejects.toBe(
+      failure
+    );
+  });
+
   it('filters stale Git repos but keeps ordinary directories', async () => {
     mockScratchGet
       .mockResolvedValueOnce({

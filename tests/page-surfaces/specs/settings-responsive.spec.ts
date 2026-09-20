@@ -78,15 +78,13 @@ async function installSettingsApi(page: Page) {
     const count = (requestCount.get(path) ?? 0) + 1;
     requestCount.set(path, count);
 
-    if (
-      mode === 'degraded' &&
-      path.endsWith('/api/info') &&
-      count > 1
-    ) {
+    if (mode === 'degraded' && path.endsWith('/api/info') && count > 1) {
       await route.fulfill({
         status: 503,
         contentType: 'application/json',
-        body: JSON.stringify({ message: 'Host configuration temporarily failed' }),
+        body: JSON.stringify({
+          message: 'Host configuration temporarily failed',
+        }),
       });
       return;
     }
@@ -207,6 +205,15 @@ test.describe('P8-R1/A1 Settings, Host, and update surfaces', () => {
       const tabs = page.getByRole('navigation', {
         name: 'Settings categories',
       });
+      await expect(
+        tabs.getByRole('button', { name: 'Application settings', exact: true })
+      ).toHaveAttribute('aria-current', 'page');
+      await expect(
+        page.getByRole('navigation', { name: 'Settings sections' })
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('button', { name: 'Application', exact: true })
+      ).toHaveCount(0);
       const hostTab = tabs.getByRole('button', { name: 'Current Host' });
       await hostTab.focus();
       await expect(hostTab).toBeFocused();
@@ -225,6 +232,36 @@ test.describe('P8-R1/A1 Settings, Host, and update surfaces', () => {
       await expect(repositories).toHaveAttribute('aria-current', 'page');
     });
   }
+
+  test('application settings uses one navigation row while Cloud retains its sections', async ({
+    page,
+  }) => {
+    await openSettings(page);
+    const tabs = page.getByRole('navigation', { name: 'Settings categories' });
+    const sections = page.getByRole('navigation', {
+      name: 'Settings sections',
+    });
+    const application = tabs.getByRole('button', {
+      name: 'Application settings',
+      exact: true,
+    });
+    await expect(application).toHaveAttribute('aria-current', 'page');
+    await expect(sections).toHaveCount(0);
+
+    const cloud = tabs.getByRole('button', { name: 'Cloud', exact: true });
+    await cloud.click();
+    await expect(cloud).toHaveAttribute('aria-current', 'page');
+    await expect(sections).toBeVisible();
+    await expect(sections.getByRole('button')).not.toHaveCount(0);
+
+    await application.click();
+    await expect(application).toHaveAttribute('aria-current', 'page');
+    await expect(sections).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Application', exact: true })
+    ).toHaveCount(0);
+    await expect(page.getByLabel('Current host')).toBeVisible();
+  });
 
   test('375px keeps a restart-ready update action reachable', async ({
     page,

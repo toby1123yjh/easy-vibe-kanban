@@ -13,22 +13,21 @@ const data = (page: Page, key: string) =>
     .getAttribute(`data-${key}`)
     .then((value) => JSON.parse(value ?? "null"));
 
-test("skip default location creates once; cancel before creation writes nothing", async ({
+test("directory is required, including Enter; cancel writes nothing", async ({
   page,
 }) => {
   await open(page);
+  await expect(
+    page.getByRole("button", { name: "Create Project", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Project name").press("Enter");
+  await expect(page.getByRole("alert")).toContainText(
+    "Choose a working directory",
+  );
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(await data(page, "inserts")).toBeNull();
   expect(await data(page, "saves")).toBeNull();
-  await open(page);
-  await create(page);
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  expect(await data(page, "inserts")).toHaveLength(1);
-  expect(await data(page, "saves")).toBeNull();
-  expect(await data(page, "result")).toMatchObject({
-    action: "created",
-    project: { id: "created-project" },
-  });
+  expect(await data(page, "result")).toMatchObject({ action: "canceled" });
 });
 
 for (const mode of ["folder", "git"]) {
@@ -79,7 +78,7 @@ test("save failure retries without creating duplicate project", async ({
     .click();
   await create(page);
   await expect(page.getByRole("alert")).toContainText(
-    "The project was created",
+    "The working directory could not be saved",
   );
   await page
     .getByRole("button", { name: "Retry saving directory", exact: true })
@@ -89,7 +88,7 @@ test("save failure retries without creating duplicate project", async ({
   expect(await data(page, "saves")).toHaveLength(2);
 });
 
-test("finish later after failed save returns created project", async ({
+test("cancel after failed save discards unfinished project instead of reporting success", async ({
   page,
 }) => {
   await open(page, "?fail");
@@ -101,13 +100,14 @@ test("finish later after failed save returns created project", async ({
     .click();
   await create(page);
   await expect(page.getByRole("alert")).toContainText(
-    "The project was created",
+    "The working directory could not be saved",
   );
-  await page.getByRole("button", { name: "Finish and set up later" }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(await data(page, "result")).toMatchObject({
-    action: "created",
-    project: { id: "created-project" },
+    action: "canceled",
   });
+  expect(await data(page, "removes")).toEqual(["created-project"]);
   expect(await data(page, "inserts")).toHaveLength(1);
 });
 
@@ -124,7 +124,7 @@ test("pending save locks cancellation and machine selection", async ({
   await create(page);
   await expect(page.getByLabel("Machine", { exact: true })).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Finish and set up later" }),
+    page.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -133,4 +133,91 @@ test("pending save locks cancellation and machine selection", async ({
   );
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(await data(page, "inserts")).toHaveLength(1);
+});
+
+test("changing machine requires choosing its directory again", async ({
+  page,
+}) => {
+  await open(page);
+  await page
+    .getByRole("button", {
+      name: "Choose folder or Git repository",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Create Project", exact: true }),
+  ).toBeEnabled();
+  await page.getByLabel("Machine", { exact: true }).selectOption("remote-1");
+  await expect(
+    page.getByRole("button", { name: "Create Project", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Project name").press("Enter");
+  expect(await data(page, "inserts")).toBeNull();
+});
+
+test("failed cancellation stays open and retries removing the same project", async ({
+  page,
+}) => {
+  await open(page, "?fail&cancel-fail");
+  await page
+    .getByRole("button", {
+      name: "Choose folder or Git repository",
+      exact: true,
+    })
+    .click();
+  await create(page);
+  await expect(page.getByRole("alert")).toContainText(
+    "The working directory could not be saved",
+  );
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Could not discard");
+  expect(await data(page, "result")).toBeNull();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(await data(page, "removes")).toEqual([
+    "created-project",
+    "created-project",
+  ]);
+  expect(await data(page, "inserts")).toHaveLength(1);
+  expect(await data(page, "result")).toEqual({ action: "canceled" });
+});
+
+test("picker cancellation does not satisfy the required directory", async ({
+  page,
+}) => {
+  await open(page, "?picker-cancel");
+  await page
+    .getByRole("button", {
+      name: "Choose folder or Git repository",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Create Project", exact: true }),
+  ).toBeDisabled();
+  expect(await data(page, "inserts")).toBeNull();
+});
+
+test("host going offline prevents creation even by Enter", async ({ page }) => {
+  await open(page);
+  await page.getByLabel("Machine", { exact: true }).selectOption("remote-1");
+  await page
+    .getByRole("button", {
+      name: "Choose folder or Git repository",
+      exact: true,
+    })
+    .click();
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("fixture-host-offline")),
+  );
+  await expect(
+    page.getByRole("button", { name: "Create Project", exact: true }),
+  ).toBeDisabled();
+  await page.getByLabel("Project name").press("Enter");
+  await expect(page.getByRole("alert")).toContainText(
+    "Choose the working directory again",
+  );
+  expect(await data(page, "inserts")).toBeNull();
+  expect(await data(page, "saves")).toBeNull();
 });

@@ -49,6 +49,7 @@ import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { OAuthDialog } from '@/shared/dialogs/global/OAuthDialog';
 import { CreateRemoteProjectDialog } from '@/shared/dialogs/org/CreateRemoteProjectDialog';
 import { ProjectActionsMenu } from '@/shared/components/ProjectActionsMenu';
+import { isDefaultProject } from '@/shared/lib/defaultProject';
 import { useDeleteProject } from '@/shared/hooks/useDeleteProject';
 import { useShape } from '@/shared/integrations/electric/hooks';
 import { bulkUpdateProjectStatuses } from '@/shared/lib/remoteApi';
@@ -498,7 +499,7 @@ export function RemoteProjectsSettingsSection({
     update: updateProjectStatus,
     remove: removeProjectStatus,
   } = useShape(PROJECT_PROJECT_STATUSES_SHAPE, projectParams, {
-    enabled: !!selectedProjectId,
+    enabled: !!selectedProjectId && !isDefaultProject(selectedProjectId),
     mutation: PROJECT_STATUS_MUTATION,
   });
 
@@ -506,7 +507,7 @@ export function RemoteProjectsSettingsSection({
     PROJECT_ISSUES_SHAPE,
     projectParams,
     {
-      enabled: !!selectedProjectId,
+      enabled: !!selectedProjectId && !isDefaultProject(selectedProjectId),
     }
   );
 
@@ -559,7 +560,7 @@ export function RemoteProjectsSettingsSection({
 
   // Load default repos and registered repos when project changes
   useEffect(() => {
-    if (!selectedProjectId) {
+    if (!selectedProjectId || isDefaultProject(selectedProjectId)) {
       setWorkspaceDefault(null);
       setSavedWorkspaceDefault(null);
       setAllRepos([]);
@@ -1016,6 +1017,7 @@ export function RemoteProjectsSettingsSection({
   };
 
   const handleSave = async () => {
+    if (isDefaultProject(selectedProjectId)) return;
     if (!selectedProjectId || !formState) return;
     if (hasDefaultRepoChanges && !ownerRef.current.canMutate) return;
 
@@ -1227,6 +1229,7 @@ export function RemoteProjectsSettingsSection({
         headerAction={
           scoped && selectedProject ? (
             <ProjectActionsMenu
+              protectedProject={isDefaultProject(selectedProject.id)}
               projectName={selectedProject.name}
               className="inline-flex size-9 items-center justify-center rounded-sm border border-border bg-primary text-low hover:bg-secondary hover:text-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 [@media(pointer:coarse)]:size-11"
               disabled={isSaving || pendingProjectId !== null}
@@ -1301,6 +1304,7 @@ export function RemoteProjectsSettingsSection({
                     }
                     trailing={
                       <ProjectActionsMenu
+                        protectedProject={isDefaultProject(project.id)}
                         projectName={project.name}
                         className="p-half rounded-sm hover:bg-panel text-low hover:text-normal opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:ring-2 focus-visible:ring-brand [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:size-11"
                         disabled={isSaving || pendingProjectId !== null}
@@ -1331,46 +1335,53 @@ export function RemoteProjectsSettingsSection({
         )}
 
         {/* Edit form (when project selected) */}
-        {selectedProjectId && formState && (
-          <div className="bg-secondary/50 border border-border rounded-sm p-4 space-y-4">
-            <SettingsField
-              label={t(
-                'settings.remoteProjects.form.name.label',
-                'Project Name'
-              )}
-            >
-              <SettingsInput
-                value={formState.name}
-                onChange={(name) =>
-                  setFormState((s) => (s ? { ...s, name } : null))
-                }
-                placeholder={t(
-                  'settings.remoteProjects.form.name.placeholder',
-                  'Enter project name'
-                )}
-                disabled={isSaving}
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={t(
-                'settings.remoteProjects.form.color.label',
-                'Project Color'
-              )}
-            >
-              <InlineColorPicker
-                value={formState.color}
-                onChange={(color) =>
-                  setFormState((s) => (s ? { ...s, color } : null))
-                }
-                colors={PRESET_COLORS}
-                disabled={isSaving}
-              />
-            </SettingsField>
-          </div>
+        {isDefaultProject(selectedProjectId) && (
+          <p className="p-base text-sm text-low">
+            {t('common:defaultProject.description')}
+          </p>
         )}
+        {selectedProjectId &&
+          !isDefaultProject(selectedProjectId) &&
+          formState && (
+            <div className="bg-secondary/50 border border-border rounded-sm p-4 space-y-4">
+              <SettingsField
+                label={t(
+                  'settings.remoteProjects.form.name.label',
+                  'Project Name'
+                )}
+              >
+                <SettingsInput
+                  value={formState.name}
+                  onChange={(name) =>
+                    setFormState((s) => (s ? { ...s, name } : null))
+                  }
+                  placeholder={t(
+                    'settings.remoteProjects.form.name.placeholder',
+                    'Enter project name'
+                  )}
+                  disabled={isSaving}
+                />
+              </SettingsField>
 
-        {selectedProjectId && (
+              <SettingsField
+                label={t(
+                  'settings.remoteProjects.form.color.label',
+                  'Project Color'
+                )}
+              >
+                <InlineColorPicker
+                  value={formState.color}
+                  onChange={(color) =>
+                    setFormState((s) => (s ? { ...s, color } : null))
+                  }
+                  colors={PRESET_COLORS}
+                  disabled={isSaving}
+                />
+              </SettingsField>
+            </div>
+          )}
+
+        {selectedProjectId && !isDefaultProject(selectedProjectId) && (
           <fieldset
             disabled={!machineState.canMutate || isLoadingDefaults}
             className={cn(
@@ -1630,7 +1641,7 @@ export function RemoteProjectsSettingsSection({
         )}
 
         {/* Project status settings (kanban columns) */}
-        {selectedProjectId && (
+        {selectedProjectId && !isDefaultProject(selectedProjectId) && (
           <div
             className={cn(
               'bg-secondary/50 border border-border rounded-sm p-4 space-y-base',

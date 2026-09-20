@@ -1,5 +1,11 @@
 {
   "sessionDeletion": {
+    "taskSummary": "將刪除此任務及其工作階段歷史，無法復原。",
+    "sessionSummary": "將刪除此工作階段及其歷史記錄，無法復原。",
+    "filesWillDelete": "將永久刪除該目錄及其中的全部檔案。",
+    "filesWillKeep": "不勾選則保留本機檔案。",
+    "directoryLabel": "工作目錄",
+    "unaffected": "其他工作階段、專案和智慧體原生歷史不受影響。",
     "filesRetained": "會話已刪除，部分檔案仍保留：",
     "deleteManagedFiles": "同時刪除此會話的工作目錄和檔案",
     "withFilesDescription": "刪除「{{name}}」、會話歷史以及下方託管工作目錄？其他會話、專案和智慧體原生歷史不受影響。此操作無法復原。",

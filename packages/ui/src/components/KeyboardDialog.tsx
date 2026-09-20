@@ -4,6 +4,7 @@ import { useHotkeys, useHotkeysContext } from 'react-hotkeys-hook';
 import { createPortal } from 'react-dom';
 
 import { cn } from '../lib/cn';
+import '../styles/keyboard-dialog.css';
 
 const DIALOG_SCOPE = 'dialog';
 const KANBAN_SCOPE = 'kanban';
@@ -163,21 +164,21 @@ const Dialog = React.forwardRef<
       }}
       aria-hidden={!open || undefined}
       className={cn(
-        'fixed inset-0 z-[10000] flex items-start justify-center p-4 overflow-y-auto',
+        'fixed inset-0 z-[var(--vk-z-dialog)] flex items-start justify-center p-4 overflow-y-auto',
         !open && 'pointer-events-none'
       )}
     >
       <div
         data-tauri-drag-region
         data-state={open ? 'open' : 'closed'}
-        className="fixed inset-0 bg-black/50 vk-dialog-overlay-motion"
+        className="fixed inset-0 bg-[var(--vk-dialog-scrim)] backdrop-blur-[var(--vk-overlay-backdrop-blur)] vk-dialog-overlay-motion"
         onClick={() => (uncloseable ? {} : onOpenChange?.(false))}
       />
       <div
         ref={setDialogRef}
         data-state={open ? 'open' : 'closed'}
         className={cn(
-          'relative z-[10000] flex flex-col w-full max-w-xl gap-4 bg-primary p-6 shadow-lg sm:rounded-lg my-8 vk-dialog-content-motion',
+          'vk-keyboard-dialog relative flex flex-col w-full max-w-[var(--vk-dialog-width)] gap-4 bg-[var(--vk-dialog-surface)] text-[var(--vk-text-normal)] border border-[var(--vk-dialog-border)] p-6 shadow-[var(--vk-dialog-shadow)] rounded-[var(--vk-dialog-radius)] my-8 vk-dialog-content-motion',
           className
         )}
         {...props}
@@ -205,7 +206,7 @@ const DialogHeader = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      'flex flex-col space-y-1.5 text-center sm:text-left',
+      'vk-keyboard-dialog__header flex flex-col text-left',
       className
     )}
     {...props}
@@ -219,10 +220,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h3
     ref={ref}
-    className={cn(
-      'text-lg font-semibold leading-none tracking-tight',
-      className
-    )}
+    className={cn('vk-keyboard-dialog__title font-semibold', className)}
     {...props}
   />
 ));
@@ -234,7 +232,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn('text-sm text-muted-foreground', className)}
+    className={cn('vk-keyboard-dialog__description', className)}
     {...props}
   />
 ));
@@ -254,7 +252,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2',
+      'vk-keyboard-dialog__footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
       className
     )}
     {...props}

@@ -1,4 +1,5 @@
 import React from "react";
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot } from "react-dom/client";
 import { CreateChatBoxContainer } from "@/shared/components/CreateChatBoxContainer";
 import { fixture, useFixture } from "./mocks";
@@ -31,10 +32,14 @@ function App() {
     </>
   );
 }
+const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 createRoot(document.getElementById("root")!).render(
+  <QueryClientProvider client={client}>
+  {
   new URLSearchParams(location.search).has("settings") ? (
     <SettingsFixture />
   ) : (
     <App />
-  ),
+  )}
+  </QueryClientProvider>,
 );

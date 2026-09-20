@@ -13,14 +13,17 @@ export function ProjectActionsMenu({
   disabled,
   onSettings,
   onDelete,
+  protectedProject = false,
 }: {
   projectName: string;
   className: string;
   disabled?: boolean;
   onSettings?(): void;
   onDelete(): void;
+  protectedProject?: boolean;
 }) {
   const { t } = useTranslation('projects');
+  if (protectedProject) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

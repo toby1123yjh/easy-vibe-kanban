@@ -51,6 +51,9 @@ pub struct SessionDeletionResult {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CreateAndStartWorkspaceRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub project_id: Option<Uuid>,
     #[serde(default)]
     pub mode: CreateWorkspaceMode,
     pub name: Option<String>,

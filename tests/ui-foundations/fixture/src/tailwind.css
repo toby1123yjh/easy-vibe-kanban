@@ -1,0 +1,4 @@
+/* Build real shared component utilities with the production Tailwind config. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

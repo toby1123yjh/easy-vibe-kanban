@@ -79,7 +79,7 @@ const RenameSessionDialogImpl = NiceModal.create<RenameSessionDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('conversation.sessions.renameTitle')}</DialogTitle>
             <DialogDescription>

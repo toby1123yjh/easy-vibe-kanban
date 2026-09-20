@@ -41,16 +41,23 @@ function deferred() {
   return { promise, release };
 }
 
-async function setup(page: Page) {
+async function setup(
+  page: Page,
+  options: { standaloneTitle?: string; managedDirectoryPath?: string } = {}
+) {
   const state = {
     tasks: [task(1), task(2)],
-    sessions: [session(1), session(2), session(3)],
+    sessions: [
+      session(1),
+      session(2),
+      { ...session(3), title: options.standaloneTitle ?? 'Standalone' },
+    ],
     lookups: 0,
     lookupError: false,
     deleteError: false,
     requiresStop: false,
     stopRequests: 0,
-    managedDirectory: false,
+    managedDirectory: Boolean(options.managedDirectoryPath),
     cleanupWarning: null as string | null,
     fileDeleteRequests: 0,
     staleBinding: false,
@@ -82,7 +89,8 @@ async function setup(page: Page) {
       return success({
         can_delete_managed_files: state.managedDirectory,
         managed_directory_path: state.managedDirectory
-          ? 'C:/fixture/workspaces/owned-session'
+          ? (options.managedDirectoryPath ??
+            'C:/fixture/workspaces/owned-session')
           : null,
       });
     }
@@ -205,6 +213,81 @@ test('managed session keeps files by default', async ({ page }) => {
   expect(state.fileDeleteRequests).toBe(0);
 });
 
+test('managed directory is collapsed and file deletion requires explicit consent', async ({
+  page,
+}) => {
+  const path = String.raw`\\?\F:\workspaces\owned-session`;
+  const state = await setup(page, { managedDirectoryPath: path });
+  const dialog = await openDelete(page, 'sidebar', 'Standalone');
+  const checkbox = dialog.getByRole('checkbox', {
+    name: 'Also delete this session’s working directory and files',
+    exact: true,
+  });
+  const details = dialog.locator('details');
+  const directory = dialog.getByText(path, { exact: true });
+  await expect(checkbox).not.toBeChecked();
+  await expect(dialog).toContainText('Unchecked: files stay on this device.');
+  await expect(details).not.toHaveAttribute('open', '');
+  await expect(directory).not.toBeVisible();
+  await details.locator('summary').click();
+  await expect(directory).toBeVisible();
+  await expect(checkbox).not.toBeChecked();
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+  await expect(dialog).toContainText(
+    'The directory and all files inside will be permanently deleted.'
+  );
+  await checkbox.uncheck();
+  await expect(checkbox).not.toBeChecked();
+  await details.locator('summary').click();
+  await expect(directory).not.toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(state.writes).toEqual([]);
+});
+
+test('long session name and Windows path fit a 375px dialog', async ({
+  page,
+}, testInfo) => {
+  const title = 'VeryLongSessionTitle'.repeat(15);
+  const path = String.raw`\\?\F:\workspaces\${'long-directory-name'.repeat(25)}\session`;
+  const state = await setup(page, {
+    standaloneTitle: title,
+    managedDirectoryPath: path,
+  });
+  const dialog = await openDelete(page, 'sidebar', title);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(dialog.getByText(title, { exact: true })).toBeVisible();
+  await dialog.locator('details summary').click();
+  await expect(dialog.getByText(path, { exact: true })).toBeVisible();
+  const bounds = await dialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      width: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowingChildren: [...element.querySelectorAll('*')].filter(
+        (child) => {
+          const childRect = child.getBoundingClientRect();
+          return (
+            childRect.width > 0 &&
+            (childRect.left < rect.left - 1 || childRect.right > rect.right + 1)
+          );
+        }
+      ).length,
+    };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(375);
+  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width + 1);
+  expect(bounds.overflowingChildren).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('dialog-light-375.png') });
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await page.screenshot({ path: testInfo.outputPath('dialog-dark-375.png') });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(state.writes).toEqual([]);
+});
+
 test('managed file deletion consent survives stop confirmation', async ({
   page,
 }) => {
@@ -301,10 +384,13 @@ for (const surface of ['project', 'sidebar'] as const) {
   }) => {
     const state = await setup(page);
     const dialog = await openDelete(page, surface);
+    await expect(dialog.getByText('Task 1', { exact: true })).toBeVisible();
     await expect(dialog).toContainText(
-      'Delete "Task 1" and its bound session history'
+      'This Task and its session history will be deleted. This cannot be undone.'
     );
-    await expect(dialog).toContainText('working files');
+    await expect(dialog).toContainText(
+      'Other sessions, projects, and native agent history are not affected.'
+    );
     await expect(
       dialog.getByRole('button', { name: 'Cancel', exact: true })
     ).toBeFocused();
@@ -412,7 +498,7 @@ test('conflict keeps both records visible and offers retry', async ({
 test('standalone session uses Session deletion only', async ({ page }) => {
   const state = await setup(page);
   const dialog = await openDelete(page, 'sidebar', 'Standalone');
-  await expect(dialog).toContainText('Delete session "Standalone"');
+  await expect(dialog.getByText('Standalone', { exact: true })).toBeVisible();
   await dialog
     .getByRole('button', { name: 'Delete session', exact: true })
     .click();
@@ -436,7 +522,10 @@ test('lookup failure never defaults to standalone and can retry', async ({
   state.lookupError = false;
   await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(
-    dialog.getByRole('button', { name: 'Delete Task and session', exact: true })
+    dialog.getByRole('button', {
+      name: 'Delete Task and session',
+      exact: true,
+    })
   ).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
@@ -458,7 +547,10 @@ test('a repeated binding lookup failure clears the previously confirmed target',
   const state = await setup(page);
   const dialog = await openDelete(page, 'project');
   await expect(
-    dialog.getByRole('button', { name: 'Delete Task and session', exact: true })
+    dialog.getByRole('button', {
+      name: 'Delete Task and session',
+      exact: true,
+    })
   ).toBeEnabled();
   state.lookupError = true;
   await page

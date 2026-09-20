@@ -19,6 +19,7 @@ import { useDeleteProject } from '@/shared/hooks/useDeleteProject';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { deriveProjectDirectoryState } from '../model/projectDirectoryState';
 import './project-surfaces.css';
+import { isDefaultProject } from '@/shared/lib/defaultProject';
 
 const EMPTY_PROJECTS: readonly ProjectListItem[] = [];
 
@@ -71,6 +72,7 @@ function ProjectCard({
         </span>
       </button>
       <ProjectActionsMenu
+        protectedProject={isDefaultProject(project.id)}
         projectName={project.name}
         className="vk-project-card__menu-trigger"
         disabled={deleting}
@@ -215,8 +217,10 @@ export function ProjectDirectoryPage() {
     if (!organizationId) return;
     const result = await CreateRemoteProjectDialog.show({ organizationId });
     if (result.action === 'created' && result.project) {
-      await projectsState?.retry();
       navigation.goToProject(result.project.id);
+      // Discovery refresh must not hold the user on the directory after creation.
+      // Its source owns the error/retry state independently of navigation.
+      void projectsState?.retry().catch(() => undefined);
     }
   };
 

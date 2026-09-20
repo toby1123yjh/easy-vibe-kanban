@@ -1,0 +1,84 @@
+.vk-session-delete__target {
+  min-width: 0;
+  padding: var(--vk-space-3) var(--vk-space-4);
+  border-radius: var(--vk-radius-sm);
+  background: var(--vk-surface-secondary);
+  color: var(--vk-text-high);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.vk-session-delete__files {
+  min-width: 0;
+  padding: var(--vk-space-4);
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-md);
+}
+
+.vk-session-delete__files[data-selected='true'] {
+  border-color: var(--vk-status-error);
+  background: var(--vk-status-error-subtle);
+}
+
+.vk-session-delete__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--vk-space-3);
+  min-height: 32px;
+  cursor: pointer;
+  color: var(--vk-text-high);
+  font-weight: 500;
+}
+
+.vk-session-delete__option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  accent-color: var(--vk-status-error);
+}
+
+.vk-session-delete__hint,
+.vk-session-delete__scope {
+  margin: 0;
+  color: var(--vk-text-normal);
+  font-size: 13px;
+}
+
+.vk-session-delete__files[data-selected='true'] .vk-session-delete__hint {
+  color: var(--vk-status-error-text);
+}
+
+.vk-session-delete__path {
+  margin-top: var(--vk-space-3);
+  border-top: 1px solid var(--vk-border-subtle);
+  padding-top: var(--vk-space-2);
+  font-size: 12px;
+}
+
+.vk-session-delete__path summary {
+  padding-block: var(--vk-space-2);
+  cursor: pointer;
+  color: var(--vk-text-normal);
+}
+
+.vk-session-delete__path code {
+  display: block;
+  padding-top: var(--vk-space-2);
+  overflow-wrap: anywhere;
+  user-select: text;
+  color: var(--vk-text-normal);
+}
+
+.vk-session-delete :is(input, summary):focus-visible {
+  outline: 2px solid var(--vk-focus-ring);
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .vk-session-delete__option {
+    min-height: 44px;
+  }
+}

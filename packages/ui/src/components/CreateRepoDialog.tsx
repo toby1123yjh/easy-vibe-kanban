@@ -80,7 +80,7 @@ const CreateRepoDialogImpl = NiceModal.create<CreateRepoDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleCancel}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('git.createRepo.dialog.title')}</DialogTitle>
             <DialogDescription>

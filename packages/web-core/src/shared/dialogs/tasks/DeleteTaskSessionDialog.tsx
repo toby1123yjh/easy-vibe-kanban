@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { create, useModal } from '@ebay/nice-modal-react';
 import { useTranslation } from 'react-i18next';
 import { LoaderCircle } from 'lucide-react';
@@ -10,6 +10,7 @@ import type {
 import { ConfirmDialogView } from '@vibe/ui/components/ConfirmDialog';
 import { defineModal, type DeleteResult } from '@/shared/lib/modals';
 import { ApiError } from '@/shared/lib/api';
+import './delete-task-session-dialog.css';
 
 export interface ResolvedTaskSessionDeleteTarget {
   title: string;
@@ -31,6 +32,7 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
     const modal = useModal();
     const { t } = useTranslation(['tasks', 'common']);
     const pendingRef = useRef(false);
+    const filesHintId = useId();
     const [target, setTarget] =
       useState<ResolvedTaskSessionDeleteTarget | null>(null);
     const [loading, setLoading] = useState(true);
@@ -129,6 +131,7 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
     const retryLookup = !target && !!error;
     return (
       <ConfirmDialogView
+        className="vk-session-delete"
         open={modal.visible}
         variant="destructive"
         icon={false}
@@ -149,20 +152,18 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
                   defaultValue:
                     'The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.',
                 })
-              : target && deleteManagedFiles
-                ? t('sessionDeletion.withFilesDescription', {
-                    name: target.title,
-                    defaultValue:
-                      'Delete “{{name}}”, its session history, and the managed working directory below? Other sessions, projects, and native agent history are preserved. This cannot be undone.',
-                  })
-                : target
-                  ? t(
-                      target.task
-                        ? 'sessionDeletion.taskDescription'
-                        : 'sessionDeletion.sessionDescription',
-                      { name: target.title }
-                    )
-                  : t('sessionDeletion.resolving')
+              : target
+                ? t(
+                    target.task
+                      ? 'sessionDeletion.taskSummary'
+                      : 'sessionDeletion.sessionSummary',
+                    {
+                      defaultValue: target.task
+                        ? 'This Task and its session history will be deleted. This cannot be undone.'
+                        : 'This session and its history will be deleted. This cannot be undone.',
+                    }
+                  )
+                : t('sessionDeletion.resolving')
         }
         showCancelButton={!completedWarning}
         cancelText={t('common:buttons.cancel', 'Cancel')}
@@ -203,29 +204,64 @@ const DeleteTaskSessionDialogImpl = create<DeleteTaskSessionDialogProps>(
           else void confirm();
         }}
       >
+        {target && !completedWarning && (
+          <div className="vk-session-delete__target">{target.title}</div>
+        )}
         {target?.deletionInfo?.can_delete_managed_files &&
           !completedWarning && (
-            <label className="flex items-start gap-2 text-sm text-normal">
-              <input
-                type="checkbox"
-                checked={deleteManagedFiles}
-                disabled={deleting}
-                onChange={(event) =>
-                  setDeleteManagedFiles(event.target.checked)
-                }
-                className="mt-1 accent-brand"
-              />
-              <span>
-                {t('sessionDeletion.deleteManagedFiles', {
-                  defaultValue:
-                    'Also delete this session’s working directory and files',
-                })}
-                <span className="mt-1 block break-all text-xs text-low">
-                  {target.deletionInfo.managed_directory_path}
+            <section
+              className="vk-session-delete__files"
+              data-selected={deleteManagedFiles}
+            >
+              <label className="vk-session-delete__option">
+                <input
+                  type="checkbox"
+                  checked={deleteManagedFiles}
+                  disabled={deleting}
+                  onChange={(event) =>
+                    setDeleteManagedFiles(event.target.checked)
+                  }
+                  aria-describedby={filesHintId}
+                />
+                <span>
+                  {t('sessionDeletion.deleteManagedFiles', {
+                    defaultValue:
+                      'Also delete this session’s working directory and files',
+                  })}
                 </span>
-              </span>
-            </label>
+              </label>
+              <p
+                id={filesHintId}
+                className="vk-session-delete__hint"
+                aria-live="polite"
+              >
+                {deleteManagedFiles
+                  ? t('sessionDeletion.filesWillDelete', {
+                      defaultValue:
+                        'The directory and all files inside will be permanently deleted.',
+                    })
+                  : t('sessionDeletion.filesWillKeep', {
+                      defaultValue: 'Unchecked: files stay on this device.',
+                    })}
+              </p>
+              <details className="vk-session-delete__path">
+                <summary>
+                  {t('sessionDeletion.directoryLabel', {
+                    defaultValue: 'Working directory',
+                  })}
+                </summary>
+                <code>{target.deletionInfo.managed_directory_path}</code>
+              </details>
+            </section>
           )}
+        {target && !completedWarning && (
+          <p className="vk-session-delete__scope">
+            {t('sessionDeletion.unaffected', {
+              defaultValue:
+                'Other sessions, projects, and native agent history are not affected.',
+            })}
+          </p>
+        )}
         {completedWarning && (
           <p role="status" className="break-words text-sm text-normal">
             {completedWarning}

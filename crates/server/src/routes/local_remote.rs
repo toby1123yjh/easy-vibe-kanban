@@ -469,6 +469,11 @@ async fn update_local_project(
     project_id: Uuid,
     changes: UpdateProjectRequest,
 ) -> Result<Project, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Err(ApiError::BadRequest(
+            "The default project is read-only".into(),
+        ));
+    }
     if let Some(name) = changes.name {
         sqlx::query(
             "UPDATE projects SET name = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
@@ -1559,10 +1564,38 @@ async fn delete_project(
     State(deployment): State<DeploymentImpl>,
     Path(project_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Err(ApiError::BadRequest(
+            "The default project cannot be deleted".into(),
+        ));
+    }
+    let has_sessions: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM session_project_memberships WHERE project_id = ?)",
+    )
+    .bind(project_id)
+    .fetch_one(&deployment.db().pool)
+    .await?;
+    if has_sessions {
+        return Err(ApiError::Conflict(
+            "This project contains sessions. Delete its sessions before deleting the project; session ownership cannot be changed.".into(),
+        ));
+    }
     sqlx::query("DELETE FROM projects WHERE id = ?")
         .bind(project_id)
         .execute(&deployment.db().pool)
-        .await?;
+        .await
+        .map_err(|error| {
+            // SQLite's ON DELETE RESTRICT can report trigger code 1811.
+            if error.as_database_error().is_some_and(|error| {
+                error.is_foreign_key_violation()
+                    || (error.code().as_deref() == Some("1811")
+                        && error.message() == "FOREIGN KEY constraint failed")
+            }) {
+                ApiError::Conflict("This project still contains sessions or tasks. Delete them before deleting the project.".into())
+            } else {
+                ApiError::from(error)
+            }
+        })?;
 
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }

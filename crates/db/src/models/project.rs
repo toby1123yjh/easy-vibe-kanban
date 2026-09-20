@@ -4,6 +4,8 @@ use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
+pub const DEFAULT_PROJECT_ID: Uuid = Uuid::from_u128(3);
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct Project {
     pub id: Uuid,

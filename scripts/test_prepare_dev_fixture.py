@@ -36,7 +36,8 @@ class FixtureTests(unittest.TestCase):
             )]
             for table in tables:
                 with self.subTest(table=table):
-                    self.assertEqual(connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0], 0)
+                    expected = 1 if table in ("projects", "local_project_metadata") else 0
+                    self.assertEqual(connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0], expected)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM _sqlx_migrations").fetchone()[0], len(list(fixture.migration_sources())))
 
     def test_sample_rebuild_has_identical_schema_rows_and_fixed_ids(self):
@@ -48,7 +49,7 @@ class FixtureTests(unittest.TestCase):
             counts = {table: connection.execute('SELECT COUNT(*) FROM "{}"'.format(table)).fetchone()[0]
                       for table in ("projects", "local_issues", "tasks", "sessions", "workflows",
                                     "workflow_runs", "agent_events", "node_executions")}
-            self.assertEqual(counts, dict(projects=2, local_issues=4, tasks=2, sessions=2,
+            self.assertEqual(counts, dict(projects=3, local_issues=4, tasks=2, sessions=2,
                                           workflows=2, workflow_runs=1, agent_events=3, node_executions=3))
             self.assertEqual(connection.execute("SELECT id FROM agent_runs").fetchone()[0], fixture.identity("run").bytes)
             fixture.validate(connection)

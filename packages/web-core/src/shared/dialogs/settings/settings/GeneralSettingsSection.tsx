@@ -80,6 +80,7 @@ function GeneralSettingsForm({
   const { t } = useTranslation(['settings', 'common']);
   const { setDirty: setContextDirty } = useSettingsDirty();
   const machineState = useSettingsMachineState();
+  const machineClient = useSettingsMachineClient();
 
   const isMobile = useIsMobile();
   const [mobileFontScale, setMobileFontScale] = useMobileFontScale();
@@ -149,7 +150,9 @@ function GeneralSettingsForm({
   );
 
   const handleBrowseWorkspaceDir = async () => {
+    if (!machineClient) return;
     const result = await FolderPickerDialog.show({
+      hostId: machineClient.target.apiHostId,
       value: draft?.workspace_dir ?? '',
       title: t('settings.general.git.workspaceDir.dialogTitle'),
       description: t('settings.general.git.workspaceDir.dialogDescription'),

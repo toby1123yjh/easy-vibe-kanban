@@ -62,7 +62,13 @@ async function readProjectWorkspaceDefault(
 }
 
 function isScratchNotFound(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 404;
+  return (
+    error instanceof ApiError &&
+    (error.status === 404 ||
+      // The current scratch GET endpoint reports an absent record as 400.
+      // Match only that exact response; other bad requests remain failures.
+      (error.status === 400 && error.message === 'Scratch not found'))
+  );
 }
 
 /**

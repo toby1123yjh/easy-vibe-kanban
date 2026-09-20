@@ -42,6 +42,7 @@ export function CreateModeProvider({
 
   const value = useMemo<CreateModeContextValue>(
     () => ({
+      initialProjectId: initialState?.project_id ?? undefined,
       repos: state.repos,
       addRepo: state.addRepo,
       removeRepo: state.removeRepo,
@@ -65,6 +66,7 @@ export function CreateModeProvider({
       setAttachments: state.setAttachments,
     }),
     [
+      initialState?.project_id,
       state.repos,
       state.addRepo,
       state.removeRepo,

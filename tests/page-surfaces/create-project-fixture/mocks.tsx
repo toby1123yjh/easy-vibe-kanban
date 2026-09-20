@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 
 function record(key: string, value: unknown) {
   const data = document.documentElement.dataset;
@@ -11,6 +17,17 @@ export function useShape() {
       record("inserts", input);
       const project = { id: "created-project", ...(input as object) };
       return { data: project, persisted: Promise.resolve(project) };
+    },
+    remove: (id: string) => {
+      record("removes", id);
+      const fails =
+        new URLSearchParams(location.search).has("cancel-fail") &&
+        JSON.parse(document.documentElement.dataset.removes!).length === 1;
+      return {
+        persisted: fails
+          ? Promise.reject(new Error("Simulated delete failure"))
+          : Promise.resolve(),
+      };
     },
     error: null,
   };
@@ -40,9 +57,19 @@ export function SettingsHostProvider({ children }: { children: ReactNode }) {
 }
 export function useSettingsHost() {
   const context = useContext(HostContext);
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    const onOffline = () => setOffline(true);
+    window.addEventListener("fixture-host-offline", onOffline);
+    return () => window.removeEventListener("fixture-host-offline", onOffline);
+  }, []);
+  const selectedHost = hosts.find((h) => h.id === context.selectedHostId);
   return {
     ...context,
-    selectedHost: hosts.find((h) => h.id === context.selectedHostId),
+    selectedHost:
+      offline && selectedHost?.kind === "remote"
+        ? { ...selectedHost, status: "offline" }
+        : selectedHost,
     availableHosts: hosts,
   };
 }
@@ -50,6 +77,8 @@ export function useSettingsHost() {
 export const WorkspaceTargetDialog = {
   async show(options: unknown) {
     record("picker", options);
+    if (new URLSearchParams(location.search).has("picker-cancel"))
+      return { kind: "canceled" };
     const git = new URLSearchParams(location.search).get("mode") === "git";
     return {
       kind: "confirmed",

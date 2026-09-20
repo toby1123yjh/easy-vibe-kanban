@@ -55,7 +55,7 @@
       "currentHost": "目前主機",
       "tabsLabel": "設定分類",
       "tabs": {
-        "general": "一般",
+        "general": "應用程式設定",
         "host": "目前主機",
         "cloud": "Cloud"
       },

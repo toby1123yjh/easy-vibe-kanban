@@ -16,6 +16,9 @@ export default defineConfig({
         "@/features/create-mode/model/useCreateMode",
         "@/shared/hooks/useUserSystem",
         "@/shared/hooks/useCreateWorkspace",
+        "@/shared/hooks/useAppShellProjects",
+        "@/shared/lib/executionDataApi",
+        "@/shared/lib/api",
         "@/shared/hooks/useCreateAttachments",
         "@/shared/hooks/useExecutorConfig",
         "@/shared/hooks/useProjectRepoDefaults",
@@ -34,7 +37,7 @@ export default defineConfig({
       { find: "@", replacement: `${root}/packages/web-core/src` },
       { find: "shared", replacement: `${root}/shared` },
       { find: "@vibe/ui", replacement: `${root}/packages/ui/src` },
-      ...["react", "react-dom"].map((find) => ({
+      ...["react", "react-dom", "@tanstack/react-query"].map((find) => ({
         find,
         replacement: `${root}/packages/web-core/node_modules/${find}`,
       })),

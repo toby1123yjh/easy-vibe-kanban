@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
-import { FolderOpenIcon } from '@phosphor-icons/react';
+import { useSessionProjectTarget } from '@/shared/hooks/useSessionProjectTarget';
 import { useCreateMode } from '@/features/create-mode/model/useCreateMode';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -21,35 +21,17 @@ import {
 } from '@/shared/lib/string';
 import type {
   BaseCodingAgent,
-  Repo,
   ResumableAgentSession,
   SelectedSkill,
 } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
-import {
-  WorkspaceTargetDialog,
-  type WorkspaceTargetMode,
-} from '@/shared/dialogs/shared/WorkspaceTargetDialog';
+import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import {
   AgentSessionResumeChip,
   AgentSessionResumePicker,
 } from '@/shared/components/AgentSessionResumePicker';
-
-function getRepoDisplayName(repo: Repo) {
-  return repo.display_name || repo.name;
-}
-
-const BRANCH_LABEL_MAX_CHARS = 15;
-
-type WorkspaceCreateMode = WorkspaceTargetMode | 'managed_directory';
-
-function truncateBranchLabel(branch: string) {
-  return branch.length > BRANCH_LABEL_MAX_CHARS
-    ? `${branch.slice(0, BRANCH_LABEL_MAX_CHARS)}...`
-    : branch;
-}
 
 interface CreateChatBoxContainerProps {
   onWorkspaceCreated: (workspaceId: string) => void;
@@ -62,18 +44,11 @@ export function CreateChatBoxContainer({
   const { openAgentCenter } = useSettingsNavigation();
   const { profiles, config } = useUserSystem();
   const {
-    repos,
-    targetBranches,
-    addRepo,
-    clearRepos,
-    setTargetBranch,
-    directFolderPath,
-    setDirectFolderPath,
+    initialProjectId,
     message,
     setMessage,
     clearDraft,
     hasInitialValue,
-    hasResolvedInitialWorkspaceDefaults,
     linkedIssue,
     clearLinkedIssue,
     preferredExecutorConfig,
@@ -89,10 +64,20 @@ export function CreateChatBoxContainer({
     () => getDestinationHostId(destination),
     [destination]
   );
-  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [isConfiguring, setIsConfiguring] = useState(false);
   const workspaceDialogOpenRef = useRef(false);
   const submitPendingRef = useRef(false);
-  const scopeIdentity = `${hostId ?? 'local'}:${linkedIssue?.issueId ?? 'standalone'}`;
+  const destinationProjectId =
+    destination && 'projectId' in destination
+      ? destination.projectId
+      : undefined;
+  const project = useSessionProjectTarget(
+    hostId,
+    destinationProjectId ?? initialProjectId,
+    linkedIssue?.remoteProjectId
+  );
+  const scopeIdentity = `${hostId ?? 'local'}:${project.projectId}:${linkedIssue?.issueId ?? 'standalone'}`;
   const scopeRef = useRef({
     identity: scopeIdentity,
     generation: 0,
@@ -112,41 +97,19 @@ export function CreateChatBoxContainer({
       scopeRef.current.generation += 1;
     };
   }, []);
-  const [hasInitializedWorkspaceTarget, setHasInitializedWorkspaceTarget] =
-    useState(false);
-  const [hasConfirmedWorkspaceTarget, setHasConfirmedWorkspaceTarget] =
-    useState(false);
-  const [confirmedScope, setConfirmedScope] = useState(scopeIdentity);
   useEffect(() => {
-    setHasInitializedWorkspaceTarget(false);
-    setHasConfirmedWorkspaceTarget(false);
-    setConfirmedScope(scopeIdentity);
-    setWorkspaceMode('managed_directory');
+    setTargetError(null);
+    setStagedResumeSession(null);
   }, [scopeIdentity]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const [stagedResumeSession, setStagedResumeSession] =
     useState<ResumableAgentSession | null>(null);
-  const [workspaceMode, setWorkspaceMode] =
-    useState<WorkspaceCreateMode>('managed_directory');
-
-  const selectedRepo = repos[0] ?? null;
-  const hasDirectFolderPath = directFolderPath.trim().length > 0;
-  const selectedTargetBranch = selectedRepo
-    ? targetBranches[selectedRepo.id]
-    : null;
-  const hasSelectedBranch = Boolean(selectedTargetBranch);
-  const hasValidWorkspaceTarget =
-    workspaceMode === 'managed_directory'
-      ? !linkedIssue
-      : workspaceMode === 'direct_folder'
-        ? hasDirectFolderPath
-        : selectedRepo !== null && hasSelectedBranch;
-  const hasWorkspaceTarget =
-    confirmedScope === scopeIdentity &&
-    hasConfirmedWorkspaceTarget &&
-    hasValidWorkspaceTarget;
-  const showTargetPickerStep = !hasWorkspaceTarget;
-  const showChatStep = hasWorkspaceTarget;
+  const target = project.target.data;
+  const workspaceMode = target?.mode ?? 'managed_directory';
+  const selectedRepo = target?.mode === 'worktree' ? target.repo : null;
+  const selectedTargetBranch =
+    target?.mode === 'worktree' ? target.branch : null;
+  const directFolderPath = target?.mode === 'direct_folder' ? target.path : '';
 
   // Attachment handling - insert markdown and track attachment IDs
   const handleInsertMarkdown = useCallback(
@@ -177,7 +140,7 @@ export function CreateChatBoxContainer({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    disabled: createWorkspace.isPending || !hasWorkspaceTarget,
+    disabled: createWorkspace.isPending,
     noClick: true,
     noKeyboard: true,
   });
@@ -209,146 +172,59 @@ export function CreateChatBoxContainer({
   }, [effectiveExecutor]);
 
   const repoId = selectedRepo?.id;
-  const repoSummaryLabel = useMemo(() => {
-    if (selectedRepo) {
-      const repo = selectedRepo;
-      const selectedBranch = targetBranches[repo.id];
-      const branch = selectedBranch
-        ? truncateBranchLabel(selectedBranch)
-        : 'Select branch';
-      return `${getRepoDisplayName(repo)} · ${branch}`;
-    }
-
-    return 'Choose workspace';
-  }, [selectedRepo, targetBranches]);
-
-  const repoSummaryTitle = useMemo(
-    () =>
-      repos
-        .map((repo) => {
-          const branch = targetBranches[repo.id] ?? 'Select branch';
-          return `${getRepoDisplayName(repo)} (${branch})`;
-        })
-        .join('\n'),
-    [repos, targetBranches]
-  );
-
-  // Determine if we can submit
   const canSubmit =
     hasInitialValue &&
-    hasResolvedInitialWorkspaceDefaults &&
-    hasWorkspaceTarget &&
+    project.ready &&
+    !isConfiguring &&
     !createWorkspace.isPending &&
     message.trim().length > 0 &&
     effectiveExecutor !== null;
 
-  const openWorkspaceTargetDialog = useCallback(async () => {
-    if (workspaceDialogOpenRef.current) return;
+  const configureProjectWorkspace = async () => {
+    if (workspaceDialogOpenRef.current || !project.enabled || !project.exists)
+      return;
     workspaceDialogOpenRef.current = true;
+    setIsConfiguring(true);
+    setTargetError(null);
     const generation = scopeRef.current.generation;
-
     try {
-      const hasPreferredDirectFolder = directFolderPath.trim().length > 0;
-      const initialPath = hasPreferredDirectFolder
-        ? directFolderPath
-        : selectedRepo?.path;
-      const initialMode = hasPreferredDirectFolder
-        ? 'direct_folder'
-        : workspaceMode === 'managed_directory'
-          ? 'worktree'
-          : workspaceMode;
-      const result = await WorkspaceTargetDialog.show({
-        initialPath,
-        initialMode,
-        initialBranch: selectedTargetBranch,
-        hostId,
-      });
-
+      const result = await WorkspaceTargetDialog.show({ hostId });
       if (
         result.kind !== 'confirmed' ||
         !scopeRef.current.mounted ||
         scopeRef.current.generation !== generation
       )
         return;
-
-      clearRepos();
-      if (result.selection.mode === 'worktree') {
-        setWorkspaceMode('worktree');
-        setDirectFolderPath('');
-        addRepo(result.selection.repo);
-        setTargetBranch(
-          result.selection.repo.id,
-          result.selection.targetBranch
-        );
-      } else {
-        setWorkspaceMode('direct_folder');
-        setDirectFolderPath(result.selection.path);
-      }
-
-      setHasAttemptedSubmit(false);
-      setStagedResumeSession(null);
-      setHasConfirmedWorkspaceTarget(true);
+      await saveProjectWorkspaceDefault(
+        project.projectId,
+        result.selection.mode === 'worktree'
+          ? {
+              kind: 'git',
+              repo: {
+                repo_id: result.selection.repo.id,
+                target_branch: result.selection.targetBranch,
+              },
+            }
+          : { kind: 'direct_folder', path: result.selection.path },
+        hostId
+      );
+      if (
+        !scopeRef.current.mounted ||
+        scopeRef.current.generation !== generation
+      )
+        return;
+      await project.target.refetch();
+    } catch (error) {
+      if (
+        scopeRef.current.mounted &&
+        scopeRef.current.generation === generation
+      )
+        setTargetError(error instanceof Error ? error.message : String(error));
     } finally {
       workspaceDialogOpenRef.current = false;
+      setIsConfiguring(false);
     }
-  }, [
-    addRepo,
-    clearRepos,
-    directFolderPath,
-    hostId,
-    selectedRepo,
-    selectedTargetBranch,
-    setDirectFolderPath,
-    setTargetBranch,
-    workspaceMode,
-  ]);
-
-  useEffect(() => {
-    if (!hasInitialValue || repos.length <= 1) return;
-
-    const firstRepo = repos[0];
-    if (!firstRepo) return;
-    const firstBranch = targetBranches[firstRepo.id];
-
-    clearRepos();
-    addRepo(firstRepo);
-    if (firstBranch) {
-      setTargetBranch(firstRepo.id, firstBranch);
-    }
-  }, [
-    addRepo,
-    clearRepos,
-    hasInitialValue,
-    repos,
-    setTargetBranch,
-    targetBranches,
-  ]);
-
-  useEffect(() => {
-    if (
-      !hasInitialValue ||
-      !hasResolvedInitialWorkspaceDefaults ||
-      hasInitializedWorkspaceTarget
-    ) {
-      return;
-    }
-
-    setHasInitializedWorkspaceTarget(true);
-    if (!linkedIssue && !hasDirectFolderPath && !selectedRepo) {
-      setWorkspaceMode('managed_directory');
-      setHasConfirmedWorkspaceTarget(true);
-    } else {
-      void openWorkspaceTargetDialog();
-    }
-  }, [
-    hasInitialValue,
-    hasResolvedInitialWorkspaceDefaults,
-    hasInitializedWorkspaceTarget,
-    openWorkspaceTargetDialog,
-    linkedIssue,
-    hasDirectFolderPath,
-    selectedRepo,
-  ]);
+  };
 
   const handlePresetSelect = (presetId: string | null) => {
     if (!effectiveExecutor) return;
@@ -449,7 +325,6 @@ export function CreateChatBoxContainer({
 
   // Handle submit
   const handleSubmit = useCallback(async () => {
-    setHasAttemptedSubmit(true);
     if (!canSubmit || !executorConfig || submitPendingRef.current) return;
     submitPendingRef.current = true;
     const generation = scopeRef.current.generation;
@@ -457,6 +332,7 @@ export function CreateChatBoxContainer({
       const { title } = splitMessageToTitleDescription(message);
       const { prompt, isSlashCommand } = buildAgentPrompt(message, []);
       const data = {
+        project_id: project.projectId,
         mode: workspaceMode,
         executor_config: executorConfig,
         name: title,
@@ -509,26 +385,6 @@ export function CreateChatBoxContainer({
         onWorkspaceCreated(result.workspace.id);
       }
 
-      if (linkedIssue?.remoteProjectId) {
-        const projectWorkspaceDefault =
-          workspaceMode === 'worktree' && data.repos[0]
-            ? { kind: 'git' as const, repo: data.repos[0] }
-            : workspaceMode === 'direct_folder' && data.directory_path
-              ? {
-                  kind: 'direct_folder' as const,
-                  path: data.directory_path,
-                }
-              : null;
-
-        saveProjectWorkspaceDefault(
-          linkedIssue.remoteProjectId,
-          projectWorkspaceDefault,
-          hostId
-        ).catch((err) =>
-          console.warn('Failed to save project workspace default:', err)
-        );
-      }
-
       clearAttachments();
       setSelectedSkills([]);
       setStagedResumeSession(null);
@@ -538,6 +394,7 @@ export function CreateChatBoxContainer({
     }
   }, [
     canSubmit,
+    project.projectId,
     executorConfig,
     message,
     selectedSkills,
@@ -553,28 +410,44 @@ export function CreateChatBoxContainer({
     clearAttachments,
     clearDraft,
     linkedIssue,
-    hostId,
   ]);
 
   // Determine error to display
   const displayError =
-    hasAttemptedSubmit &&
-    workspaceMode === 'direct_folder' &&
-    !hasDirectFolderPath
-      ? t('createMode.directFolder.errors.required', {
-          defaultValue: 'Select a folder before continuing',
-        })
-      : hasAttemptedSubmit && workspaceMode === 'worktree' && !selectedRepo
-        ? 'Choose a workspace before creating it'
-        : hasAttemptedSubmit &&
-            workspaceMode === 'worktree' &&
-            !hasSelectedBranch
-          ? 'Select a branch before creating a workspace'
-          : createWorkspace.error
-            ? createWorkspace.error instanceof Error
-              ? createWorkspace.error.message
-              : 'Failed to create workspace'
-            : null;
+    targetError ??
+    (createWorkspace.error
+      ? createWorkspace.error instanceof Error
+        ? createWorkspace.error.message
+        : t('sessionProject.failed')
+      : null);
+
+  const projectSelector = (
+    <label className="inline-flex min-w-0 max-w-[240px] items-center gap-half text-sm text-low">
+      <span>{t('sessionProject.label')}</span>
+      <select
+        aria-label={t('sessionProject.label')}
+        value={project.projectId}
+        disabled={
+          createWorkspace.isPending ||
+          isConfiguring ||
+          !!linkedIssue ||
+          !project.enabled ||
+          project.projects.isPending
+        }
+        onChange={(event) => project.selectProject(event.target.value)}
+        className="min-h-9 min-w-0 max-w-full rounded-sm bg-secondary px-half text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        {!project.exists && (
+          <option value={project.projectId}>{t('sessionProject.label')}</option>
+        )}
+        {project.projects.data?.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 
   // Wait for initial value to be applied before rendering
   // This ensures the editor mounts with content ready, so autoFocus works correctly
@@ -586,137 +459,127 @@ export function CreateChatBoxContainer({
     <div className="relative flex flex-1 flex-col bg-primary h-full">
       <div className="flex flex-1 items-center justify-center px-base">
         <div className="flex w-chat max-w-full flex-col gap-base">
-          {showTargetPickerStep && (
-            <>
-              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
-                {t('createMode.headings.repoStep')}
-              </h2>
-              <div className="mx-auto flex max-w-md flex-col items-center gap-base text-center">
-                <p className="text-sm text-low">
-                  {t('createMode.workspaceDialog.launchHint', {
-                    defaultValue:
-                      'Choose one directory, then decide whether to use an isolated worktree or work in place.',
-                  })}
-                </p>
+          {!project.enabled && (
+            <p role="alert">{t('defaultProject.offline')}</p>
+          )}
+          {project.enabled &&
+            (project.projects.isError ||
+              project.target.isError ||
+              (!project.projects.isPending && !project.exists)) && (
+              <div role="alert">
+                <p>{t('sessionProject.failed')}</p>
                 <button
                   type="button"
-                  onClick={() => void openWorkspaceTargetDialog()}
-                  className="inline-flex items-center gap-half rounded-sm bg-brand px-base py-half text-sm font-medium text-on-brand hover:bg-brand-hover"
+                  className="underline"
+                  onClick={() => {
+                    void project.projects.refetch();
+                    if (project.exists) void project.target.refetch();
+                  }}
                 >
-                  <FolderOpenIcon className="size-icon-xs" weight="bold" />
-                  <span>
-                    {t('createMode.workspaceDialog.open', {
-                      defaultValue: 'Choose workspace',
-                    })}
-                  </span>
+                  {t('buttons.retry')}
                 </button>
               </div>
-            </>
-          )}
-
-          {showChatStep && (
-            <>
-              <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
-                {t('createMode.headings.chatStep')}
-              </h2>
-
-              <div className="flex justify-center @container">
-                <CreateChatBox
-                  editor={{
-                    value: message,
-                    onChange: setMessage,
-                  }}
-                  renderEditor={({
-                    value,
-                    onChange,
-                    onCmdEnter,
-                    disabled,
-                    repoIds,
-                    repoId,
-                    executor,
-                    onPasteFiles,
-                    localAttachments,
-                  }) => (
-                    <WYSIWYGEditor
-                      placeholder="Describe the task..."
-                      value={value}
-                      onChange={onChange}
-                      onCmdEnter={onCmdEnter}
-                      disabled={disabled}
-                      className="min-h-double max-h-[50vh] overflow-y-auto"
-                      repoIds={repoIds}
-                      repoId={repoId}
-                      executor={executor}
-                      selectedSkills={selectedSkills}
-                      onSelectedSkillsChange={setSelectedSkills}
-                      autoFocus
-                      onPasteFiles={onPasteFiles}
-                      localAttachments={localAttachments}
-                      sendShortcut={config?.send_message_shortcut}
-                    />
-                  )}
-                  agentIcon={
-                    <AgentIcon
-                      agent={effectiveExecutor}
-                      className="size-icon-xl"
-                    />
-                  }
-                  onSend={handleSubmit}
-                  isSending={createWorkspace.isPending}
-                  disabled={!hasWorkspaceTarget}
-                  executor={{
-                    selected: effectiveExecutor,
-                    options: executorOptions,
-                    onChange: handleExecutorChange,
-                    afterSelector: resumePickerNode,
-                  }}
-                  formatExecutorLabel={toPrettyCase}
-                  error={displayError}
-                  repoIds={
-                    workspaceMode === 'worktree' && selectedRepo
-                      ? [selectedRepo.id]
-                      : []
-                  }
-                  repoId={workspaceMode === 'worktree' ? repoId : undefined}
-                  modelSelector={modelSelectorNode}
-                  onPasteFiles={uploadFiles}
-                  localAttachments={localAttachments}
-                  dropzone={{ getRootProps, getInputProps, isDragActive }}
-                  onEditRepos={() => void openWorkspaceTargetDialog()}
-                  repoSummaryLabel={
-                    workspaceMode === 'managed_directory'
-                      ? t('createMode.managedDirectory.label', {
-                          defaultValue: 'Automatic directory',
-                        })
-                      : workspaceMode === 'direct_folder'
-                        ? t('createMode.directFolder.summaryLabel', {
-                            defaultValue: 'Direct folder',
-                          })
-                        : repoSummaryLabel
-                  }
-                  repoSummaryTitle={
-                    workspaceMode === 'managed_directory'
-                      ? t('createMode.managedDirectory.description', {
-                          defaultValue:
-                            'A separate directory will be created for this session. Click to choose your own.',
-                        })
-                      : workspaceMode === 'direct_folder'
-                        ? directFolderPath
-                        : repoSummaryTitle
-                  }
-                  linkedIssue={
-                    linkedIssue?.simpleId
-                      ? {
-                          simpleId: linkedIssue.simpleId,
-                          title: linkedIssue.title ?? '',
-                          onRemove: clearLinkedIssue,
-                        }
-                      : null
-                  }
-                />
+            )}
+          {project.enabled &&
+            (project.projects.isPending ||
+              (project.exists && project.target.isFetching)) && (
+              <p role="status">{t('states.loading')}</p>
+            )}
+          {project.exists &&
+            project.target.isSuccess &&
+            project.target.data === null && (
+              <div className="text-sm text-low">
+                <p>{t('sessionProject.missingWorkspace')}</p>
+                <button
+                  type="button"
+                  disabled={isConfiguring}
+                  className="min-h-9 underline"
+                  onClick={() => void configureProjectWorkspace()}
+                >
+                  {t('sessionProject.configure')}
+                </button>
               </div>
-            </>
-          )}
+            )}
+          <>
+            <h2 className="mb-double text-center text-4xl font-medium tracking-tight text-high">
+              {t('createMode.headings.chatStep')}
+            </h2>
+
+            <div className="flex justify-center @container">
+              <CreateChatBox
+                editor={{
+                  value: message,
+                  onChange: setMessage,
+                }}
+                renderEditor={({
+                  value,
+                  onChange,
+                  onCmdEnter,
+                  disabled,
+                  repoIds,
+                  repoId,
+                  executor,
+                  onPasteFiles,
+                  localAttachments,
+                }) => (
+                  <WYSIWYGEditor
+                    placeholder="Describe the task..."
+                    value={value}
+                    onChange={onChange}
+                    onCmdEnter={onCmdEnter}
+                    disabled={disabled}
+                    className="min-h-double max-h-[50vh] overflow-y-auto"
+                    repoIds={repoIds}
+                    repoId={repoId}
+                    executor={executor}
+                    selectedSkills={selectedSkills}
+                    onSelectedSkillsChange={setSelectedSkills}
+                    autoFocus
+                    onPasteFiles={onPasteFiles}
+                    localAttachments={localAttachments}
+                    sendShortcut={config?.send_message_shortcut}
+                  />
+                )}
+                agentIcon={
+                  <AgentIcon
+                    agent={effectiveExecutor}
+                    className="size-icon-xl"
+                  />
+                }
+                onSend={handleSubmit}
+                isSending={createWorkspace.isPending}
+                sendDisabled={!canSubmit}
+                executor={{
+                  selected: effectiveExecutor,
+                  options: executorOptions,
+                  onChange: handleExecutorChange,
+                  afterSelector: resumePickerNode,
+                }}
+                formatExecutorLabel={toPrettyCase}
+                error={displayError}
+                repoIds={
+                  workspaceMode === 'worktree' && selectedRepo
+                    ? [selectedRepo.id]
+                    : []
+                }
+                repoId={workspaceMode === 'worktree' ? repoId : undefined}
+                modelSelector={modelSelectorNode}
+                onPasteFiles={uploadFiles}
+                localAttachments={localAttachments}
+                dropzone={{ getRootProps, getInputProps, isDragActive }}
+                projectSelector={projectSelector}
+                linkedIssue={
+                  linkedIssue?.simpleId
+                    ? {
+                        simpleId: linkedIssue.simpleId,
+                        title: linkedIssue.title ?? '',
+                        onRemove: clearLinkedIssue,
+                      }
+                    : null
+                }
+              />
+            </div>
+          </>
         </div>
       </div>
     </div>

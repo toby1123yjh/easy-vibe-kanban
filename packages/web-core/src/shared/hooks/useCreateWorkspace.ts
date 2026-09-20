@@ -45,9 +45,12 @@ export function useCreateWorkspace() {
       queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
       // Ensure create-mode defaults refetch the latest session/model selection.
       queryClient.invalidateQueries({ queryKey: ['workspaceCreateDefaults'] });
+      queryClient.invalidateQueries({ queryKey: ['project-sessions'] });
 
       const projectId =
-        data.linked_issue?.remote_project_id ?? linkToIssue?.remoteProjectId;
+        data.linked_issue?.remote_project_id ??
+        linkToIssue?.remoteProjectId ??
+        data.project_id;
       if (projectId) {
         refreshShapeFallback(PROJECT_WORKSPACES_SHAPE, {
           project_id: projectId,

@@ -55,7 +55,7 @@
       "currentHost": "Current host",
       "tabsLabel": "Settings categories",
       "tabs": {
-        "general": "General",
+        "general": "Application settings",
         "host": "Current Host",
         "cloud": "Cloud"
       },

@@ -1,5 +1,9 @@
 import { type ReactNode, useRef } from 'react';
-import { CheckIcon, PaperclipIcon, XIcon } from '@phosphor-icons/react';
+import {
+  CheckIcon,
+  PaperclipIcon,
+  XIcon,
+} from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from './Checkbox';
 import { ChatBoxBase, VisualVariant, type DropzoneProps } from './ChatBoxBase';
@@ -74,9 +78,8 @@ interface CreateChatBoxProps<TExecutor extends string = string> {
   onPasteFiles?: (files: File[]) => void;
   localAttachments?: LocalAttachmentMetadata[];
   dropzone?: DropzoneProps;
-  onEditRepos: () => void;
-  repoSummaryLabel: string;
-  repoSummaryTitle: string;
+  projectSelector: ReactNode;
+  sendDisabled?: boolean;
   linkedIssue?: LinkedIssueBadgeProps | null;
 }
 
@@ -109,15 +112,14 @@ export function CreateChatBox<TExecutor extends string = string>({
   onPasteFiles,
   localAttachments,
   dropzone,
-  onEditRepos,
-  repoSummaryLabel,
-  repoSummaryTitle,
+  projectSelector,
+  sendDisabled = false,
   linkedIssue,
 }: CreateChatBoxProps<TExecutor>) {
   const { t } = useTranslation(['common', 'tasks']);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDisabled = disabled || isSending;
-  const canSend = editor.value.trim().length > 0 && !isDisabled;
+  const canSend = editor.value.trim().length > 0 && !isDisabled && !sendDisabled;
 
   const handleCmdEnter = () => {
     if (canSend) {
@@ -192,11 +194,13 @@ export function CreateChatBox<TExecutor extends string = string>({
       footerLeft={
         <>
           <ToolbarIconButton
+            type="button"
             icon={PaperclipIcon}
             aria-label={t('tasks:taskFormDialog.attachFile')}
             title={t('tasks:taskFormDialog.attachFile')}
             onClick={handleAttachClick}
             disabled={isDisabled}
+            className="mr-half min-h-8 min-w-8 shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
           />
           <input
             ref={fileInputRef}
@@ -205,15 +209,7 @@ export function CreateChatBox<TExecutor extends string = string>({
             className="hidden"
             onChange={handleFileInputChange}
           />
-          <button
-            type="button"
-            onClick={onEditRepos}
-            title={repoSummaryTitle}
-            disabled={isDisabled}
-            className="max-w-[320px] truncate text-sm text-normal hover:text-high disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {repoSummaryLabel}
-          </button>
+          {projectSelector}
           {linkedIssue && (
             <>
               <div

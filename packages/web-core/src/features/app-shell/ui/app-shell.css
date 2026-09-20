@@ -35,7 +35,6 @@
   grid-template-columns: var(--vk-product-sidebar-width) minmax(0, 1fr);
   width: 100%;
   height: 100%;
-  transition: filter var(--vk-duration-fast) var(--vk-ease-standard);
 }
 
 .vk-app-shell__layout[data-search-open='true'] {
@@ -356,48 +355,9 @@ button:focus-visible > .vk-module-unavailable-reason {
   padding-right: var(--vk-space-2);
 }
 
-.vk-sidebar-section-action {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: var(--vk-radius-sm);
-  color: var(--vk-text-low);
-  background: transparent;
-  cursor: pointer;
-  transition:
-    color var(--vk-duration-fast) var(--vk-ease-standard),
-    background var(--vk-duration-fast) var(--vk-ease-standard);
-}
-
-.vk-sidebar-section-action:hover,
-.vk-sidebar-section-action:focus-visible {
-  color: var(--vk-text-high);
-  background: var(--vk-surface-hover);
-}
-
-.vk-sidebar-section-action:focus-visible {
-  outline: 2px solid var(--vk-focus-ring);
-  outline-offset: 2px;
-}
-
-.vk-sidebar-section-action[aria-disabled='true'] {
-  cursor: not-allowed;
-}
-
-.vk-sidebar-section-hint {
-  margin: 0;
-  padding: var(--vk-space-2) var(--vk-space-3);
-  color: var(--vk-text-low);
-  font-size: var(--vk-font-size-xs);
-}
-
 @media (hover: none), (pointer: coarse) {
-  .vk-sidebar-section-action {
-    width: 44px;
-    height: 44px;
+  .vk-primary-nav__item {
+    min-height: 44px;
   }
 }
 
@@ -700,10 +660,47 @@ button:focus-visible > .vk-module-unavailable-reason {
   justify-content: center;
   padding: max(10vh, var(--vk-space-10)) var(--vk-space-4);
   background: var(--vk-surface-scrim);
+  animation: vk-search-fade-in var(--vk-duration-normal) var(--vk-ease-standard);
+}
+
+.vk-search-overlay[data-state='closed'] {
+  pointer-events: none;
+  animation: vk-search-fade-out var(--vk-duration-fast) var(--vk-ease-exit)
+    forwards;
+}
+
+@keyframes vk-search-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vk-search-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vk-search-enter {
+  from {
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
 }
 
 .vk-search-palette {
+  display: flex;
+  flex-direction: column;
   width: min(680px, 100%);
+  height: min(600px, 70dvh);
   max-height: min(600px, 70vh);
   overflow: hidden;
   border: 1px solid var(--vk-dialog-border);
@@ -711,6 +708,7 @@ button:focus-visible > .vk-module-unavailable-reason {
   color: var(--vk-text-normal);
   background: var(--vk-dialog-surface);
   box-shadow: var(--vk-dialog-shadow);
+  animation: vk-search-enter var(--vk-duration-normal) var(--vk-ease-standard);
 }
 
 .vk-search-palette__input-row {
@@ -720,6 +718,7 @@ button:focus-visible > .vk-module-unavailable-reason {
   gap: var(--vk-space-3);
   padding: var(--vk-space-4);
   border-bottom: 1px solid var(--vk-border-subtle);
+  flex-shrink: 0;
 }
 
 .vk-search-palette__input-row input {
@@ -773,8 +772,12 @@ button:focus-visible > .vk-module-unavailable-reason {
 }
 
 .vk-search-results {
-  max-height: calc(min(600px, 70vh) - 94px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: var(--vk-space-2);
   padding: 0 var(--vk-space-2) var(--vk-space-2);
 }
 
@@ -853,11 +856,38 @@ button:focus-visible > .vk-module-unavailable-reason {
   color: var(--vk-text-normal);
   background: transparent;
   text-align: left;
+  transition:
+    background-color var(--vk-duration-fast) var(--vk-ease-standard),
+    color var(--vk-duration-fast) var(--vk-ease-standard);
 }
 
 .vk-search-result[data-active='true'] {
   color: var(--vk-text-high);
   background: var(--vk-surface-selection);
+}
+
+.vk-search-result:active {
+  background: var(--vk-surface-hover);
+}
+
+.vk-search-result > svg {
+  color: var(--vk-text-low);
+  opacity: 0;
+  transition: opacity var(--vk-duration-fast) var(--vk-ease-standard);
+}
+
+.vk-search-result[data-active='true'] > svg {
+  opacity: 1;
+}
+
+.vk-search-palette button:focus-visible {
+  outline: 2px solid var(--vk-brand);
+  outline-offset: -2px;
+}
+
+.vk-search-result__copy strong {
+  font-size: var(--vk-font-size-sm);
+  font-weight: var(--vk-font-weight-medium);
 }
 
 .vk-search-result__copy {
@@ -1355,6 +1385,7 @@ button.vk-dashboard-state {
 
   .vk-search-palette {
     width: 100%;
+    height: 100dvh;
     max-height: none;
     border: 0;
     border-radius: 0;

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@vibe/ui/components/Button';
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from '@vibe/ui/components/StateSurface';
+import { EmptyState, ErrorState } from '@vibe/ui/components/StateSurface';
 import { LoginRequiredPrompt } from '@/shared/dialogs/shared/LoginRequiredPrompt';
 import { ProjectKanbanContainer } from '@/features/projects/ui/ProjectKanbanContainer';
+import { ProjectKanbanSkeleton } from '@/features/projects/ui/ProjectKanbanSkeleton';
+import { DefaultProjectPage } from '@/features/projects/ui/ProjectSessions';
+import { isDefaultProject } from '@/shared/lib/defaultProject';
 import { useActions } from '@/shared/hooks/useActions';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useAuth } from '@/shared/hooks/auth/useAuth';
@@ -98,13 +97,10 @@ function ProjectKanbanInner({ projectId }: { projectId: string }) {
 
   const project = projects.find((candidate) => candidate.id === projectId);
 
+  if (project && isDefaultProject(projectId)) return <DefaultProjectPage />;
+
   if (isLoading && !project) {
-    return (
-      <LoadingState
-        className="h-full w-full bg-[var(--vk-surface-canvas)]"
-        title={t('states.loading')}
-      />
-    );
+    return <ProjectKanbanSkeleton />;
   }
 
   if (error && !project) {
@@ -163,13 +159,8 @@ function ProjectKanbanPageSurface({
   }
   usePageTitle(issue?.title, projectName);
 
-  if (isLoading) {
-    return (
-      <LoadingState
-        className="h-full w-full bg-[var(--vk-surface-canvas)]"
-        title="Loading project board…"
-      />
-    );
+  if (isLoading && !hasLoadedBoardRef.current) {
+    return <ProjectKanbanSkeleton projectName={projectName} />;
   }
 
   if (error && !hasLoadedBoardRef.current) {
@@ -202,10 +193,14 @@ function ProjectKanbanPageSurface({
       : undefined;
 
   return (
-    <ProjectKanbanContainer
-      projectName={projectName}
-      projectSource={projectSource}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <ProjectKanbanContainer
+          projectName={projectName}
+          projectSource={projectSource}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -315,12 +310,7 @@ export function ProjectKanban() {
 
   // Show loading while auth state is being determined
   if (accessState === 'loading') {
-    return (
-      <LoadingState
-        className="h-full w-full bg-[var(--vk-surface-canvas)]"
-        title={t('states.loading')}
-      />
-    );
+    return <ProjectKanbanSkeleton />;
   }
 
   // If not signed in, prompt user to log in

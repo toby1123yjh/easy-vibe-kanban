@@ -18,6 +18,7 @@ import {
   SpinnerIcon,
 } from '@phosphor-icons/react';
 import { defineModal, type ConfirmResult } from '../lib/modals';
+import '../styles/confirm-dialog.css';
 
 export interface ConfirmDialogProps {
   title: string;
@@ -30,6 +31,7 @@ export interface ConfirmDialogProps {
 }
 
 export interface ConfirmDialogViewProps extends ConfirmDialogProps {
+  className?: string;
   open: boolean;
   onConfirm(): void;
   onCancel(): void;
@@ -65,12 +67,13 @@ export function ConfirmDialogView(props: ConfirmDialogViewProps) {
     confirmVariant,
     restoreFocus = true,
     children,
+    className = '',
   } = props;
 
   const getIcon = () => {
     if (!icon) return null;
 
-    const iconClass = 'h-6 w-6';
+    const iconClass = 'h-6 w-6 shrink-0';
 
     switch (variant) {
       case 'destructive':
@@ -113,7 +116,7 @@ export function ConfirmDialogView(props: ConfirmDialogViewProps) {
   const confirmButton = (
     <Button
       ref={confirmButtonRef}
-      className={`${showCancelButton ? '' : 'ml-auto '}min-h-11 sm:min-h-[var(--vk-button-height)]`}
+      className="vk-confirm-dialog__action"
       variant={getConfirmButtonVariant()}
       disabled={confirmDisabled || confirmPending}
       onClick={onConfirm}
@@ -139,7 +142,7 @@ export function ConfirmDialogView(props: ConfirmDialogViewProps) {
         hideCloseButton
         role={variant === 'destructive' ? 'alertdialog' : 'dialog'}
         data-variant={variant}
-        className="bg-[var(--vk-dialog-surface)] text-[var(--vk-text-normal)] sm:max-w-[425px]"
+        className={`vk-confirm-dialog ${className}`}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const activeElement = document.activeElement;
@@ -162,32 +165,32 @@ export function ConfirmDialogView(props: ConfirmDialogViewProps) {
           }
         }}
       >
-        <DialogHeader>
-          <div className="flex items-center gap-3">
+        <DialogHeader className="vk-confirm-dialog__header">
+          <div className="vk-confirm-dialog__heading">
             {getIcon()}
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle className="vk-confirm-dialog__title">
+              {title}
+            </DialogTitle>
           </div>
-          <DialogDescription className="text-left pt-2">
+          <DialogDescription className="vk-confirm-dialog__description">
             {message}
           </DialogDescription>
         </DialogHeader>
         {children}
-        {showCancelButton ? (
-          <DialogFooter className="gap-2">
+        <DialogFooter className="vk-confirm-dialog__footer">
+          {showCancelButton && (
             <Button
               ref={cancelButtonRef}
-              className="min-h-11 sm:min-h-[var(--vk-button-height)]"
+              className="vk-confirm-dialog__action"
               variant="outline"
               disabled={cancelDisabled}
               onClick={onCancel}
             >
               {cancelText}
             </Button>
-            {confirmButton}
-          </DialogFooter>
-        ) : (
-          <div className="flex w-full">{confirmButton}</div>
-        )}
+          )}
+          {confirmButton}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -73,7 +73,7 @@ const DeleteRemoteProjectDialogImpl = create<DeleteRemoteProjectDialogProps>(
         aria-modal="true"
         aria-label={t('deleteProjectDialog.title', 'Delete Project?')}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {t('deleteProjectDialog.title', 'Delete Project?')}

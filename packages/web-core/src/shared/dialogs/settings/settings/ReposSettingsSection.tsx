@@ -409,6 +409,7 @@ export function ReposSettingsSection({
 
     try {
       const selectedPath = await FolderPickerDialog.show({
+        hostId: initiatingOwner.machineClient.target.apiHostId,
         title: t('settings.repos.addRepo.dialogTitle'),
         description: t('settings.repos.addRepo.dialogDescription'),
       });

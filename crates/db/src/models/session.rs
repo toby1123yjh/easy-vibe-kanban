@@ -575,7 +575,7 @@ impl Session {
             SELECT session.id,
                    session.workspace_id,
                    task.id AS task_id,
-                   task.project_id,
+                   COALESCE(task.project_id, membership.project_id) AS project_id,
                    task.issue_id,
                    COALESCE(
                        NULLIF(trim(task.title), ''),
@@ -588,6 +588,7 @@ impl Session {
                    session.updated_at
             FROM sessions session
             JOIN workspaces workspace ON workspace.id = session.workspace_id
+            JOIN session_project_memberships membership ON membership.session_id = session.id
             LEFT JOIN agent_task_bindings binding ON binding.session_id = session.id
             LEFT JOIN tasks task
                 ON task.id = binding.task_id AND task.execution_kind = 'agent'
@@ -595,7 +596,9 @@ impl Session {
             "#,
         );
         if let Some(project_id) = project_id {
-            query.push(" AND task.project_id = ").push_bind(project_id);
+            query
+                .push(" AND COALESCE(task.project_id, membership.project_id) = ")
+                .push_bind(project_id);
         }
         if let Some(cursor) = cursor {
             query

@@ -23,7 +23,7 @@ test("desktop keeps fixed shell zones and automatically pages the middle object 
   await expect(sidebar).toBeVisible();
   await expect(identity).toContainText("Vibe Kanban");
   await expect(identity).toContainText("Fixture / Local");
-  await expect(primary.getByRole("button")).toHaveCount(5);
+  await expect(primary.getByRole("button")).toHaveCount(6);
   const unavailableWorkflow = primary.getByRole("button", {
     name: "Workflows",
   });
@@ -231,7 +231,7 @@ test("search preserves the background route and provides grouped keyboard intera
 
   await searchTrigger.click();
   await input.fill("no destination has this phrase");
-  expect(await dialog.getByText("Updating results...").count()).toBe(1);
+  expect(await dialog.getByText("Updating results...").count()).toBe(0);
   expect(await dialog.getByRole("option").count()).toBe(0);
   await expect(dialog.getByText("No matching destination")).toBeVisible();
   await expect(page.getByTestId("current-route")).toHaveText(
@@ -242,7 +242,7 @@ test("search preserves the background route and provides grouped keyboard intera
   await expect(searchTrigger).toBeFocused();
 });
 
-test("search blocks stale debounce results and reopens without prior query state", async ({
+test("search immediately selects the current query and reopens without prior query state", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -256,12 +256,10 @@ test("search blocks stale debounce results and reopens without prior query state
   const input = dialog.getByRole("combobox");
 
   await input.fill("Project 01");
+  await expect(dialog.getByRole("option")).toHaveCount(1);
+  await expect(dialog.getByRole("option")).toContainText("Project 01");
   await input.press("Enter");
-  await expect(page.getByTestId("current-route")).toHaveText("/dashboard");
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("option")).toHaveCount(0);
-
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("current-route")).toHaveText(/\/projects\//);
   await expect(dialog).toBeHidden();
   await searchTrigger.click();
   await expect(input).toHaveValue("");
@@ -294,9 +292,8 @@ test("project and session discovery states stay isolated and retry their own sou
   ).toBeAttached();
 
   await page.getByRole("button", { name: "Set projects empty" }).click();
-  await expect(projectSection.locator('[data-state="empty"]')).toContainText(
-    "No projects",
-  );
+  await expect(projectSection.locator('[data-state="empty"]')).toHaveCount(0);
+  await expect(projectSection.getByText("No projects")).toHaveCount(0);
 
   await page
     .getByRole("button", { name: "Set projects initial error" })

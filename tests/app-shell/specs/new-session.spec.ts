@@ -17,6 +17,9 @@ for (const state of ["ready", "empty", "initial error"]) {
       name: "New session",
       exact: true,
     });
+    await expect(sidebar.locator('.vk-primary-nav').getByRole('button').first()).toHaveAccessibleName('New session');
+    await expect(sidebar.locator('.vk-sidebar-section-action')).toHaveCount(0);
+    await expect(sidebar.getByText('No sessions', { exact: true })).toHaveCount(0);
     await create.scrollIntoViewIfNeeded();
     await create.focus();
     await expect(create).toBeFocused();

@@ -3,6 +3,7 @@ import { ProjectActionsMenu } from '@/shared/components/ProjectActionsMenu';
 import { useAppShellProjects } from '@/shared/hooks/useAppShellProjects';
 import { useDeleteProject } from '@/shared/hooks/useDeleteProject';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
+import { isDefaultProject } from '@/shared/lib/defaultProject';
 
 export function ProjectBoardActions({
   projectId,
@@ -27,6 +28,7 @@ export function ProjectBoardActions({
   });
   return (
     <ProjectActionsMenu
+      protectedProject={isDefaultProject(projectId)}
       projectName={projectName}
       className="vk-project-actions-trigger"
       disabled={pendingProjectId !== null}

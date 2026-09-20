@@ -75,7 +75,7 @@ const ChangeTargetDialogImpl = NiceModal.create<ChangeTargetDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('branches.changeTarget.dialog.title')}</DialogTitle>
             <DialogDescription>

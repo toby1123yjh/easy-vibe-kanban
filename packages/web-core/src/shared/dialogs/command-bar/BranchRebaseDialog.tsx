@@ -82,7 +82,7 @@ const BranchRebaseDialogImpl = create<BranchRebaseDialogProps>(
 
     return (
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('rebase.dialog.title')}</DialogTitle>
             <DialogDescription>

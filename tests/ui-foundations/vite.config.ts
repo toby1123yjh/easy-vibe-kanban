@@ -1,8 +1,20 @@
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { getThemeBootstrapScript } from '../../packages/ui/src/lib/theme';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const require = createRequire(import.meta.url);
+const tailwind = require(
+  `${repoRoot}/packages/local-web/node_modules/tailwindcss`
+);
+const loadConfig = require(
+  `${repoRoot}/packages/local-web/node_modules/tailwindcss/loadConfig`
+);
+const tailwindConfig = loadConfig(
+  `${repoRoot}/packages/local-web/tailwind.new.config.js`
+);
 
 function themeBootstrapPlugin(): Plugin {
   return {
@@ -25,6 +37,18 @@ function themeBootstrapPlugin(): Plugin {
 export default defineConfig({
   root: `${repoRoot}/tests/ui-foundations/fixture`,
   plugins: [themeBootstrapPlugin()],
+  css: {
+    postcss: {
+      plugins: [
+        tailwind({
+          ...tailwindConfig,
+          content: tailwindConfig.content.map((entry: string) =>
+            resolve(repoRoot, 'packages/local-web', entry)
+          ),
+        }),
+      ],
+    },
+  },
   resolve: {
     alias: {
       '@': `${repoRoot}/packages/web-core/src`,

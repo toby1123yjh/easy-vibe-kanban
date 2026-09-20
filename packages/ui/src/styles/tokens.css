@@ -221,6 +221,8 @@
   --vk-menu-shadow: var(--vk-shadow-popover);
 
   --vk-dialog-surface: var(--vk-surface-elevated);
+  --vk-dialog-width: 35rem;
+  --vk-dialog-padding: var(--vk-space-6);
   --vk-dialog-border: var(--vk-border-subtle);
   --vk-dialog-radius: var(--vk-radius-lg);
   --vk-dialog-shadow: var(--vk-shadow-dialog);

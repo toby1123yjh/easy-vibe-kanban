@@ -1,0 +1,44 @@
+.vk-keyboard-dialog {
+  font-size: var(--vk-font-size-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.vk-keyboard-dialog__header {
+  gap: var(--vk-space-3);
+  padding-right: var(--vk-space-6);
+}
+
+.vk-keyboard-dialog__title {
+  margin: 0;
+  color: var(--vk-text-high);
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+
+.vk-keyboard-dialog__description {
+  margin: 0;
+  color: var(--vk-text-normal);
+  font-size: var(--vk-font-size-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.vk-keyboard-dialog__footer {
+  margin-top: var(--vk-space-2);
+  padding-top: var(--vk-space-4);
+  border-top: 1px solid var(--vk-border-subtle);
+}
+
+.vk-keyboard-dialog__footer > button {
+  min-height: 40px;
+}
+
+@media (max-width: 480px) {
+  .vk-keyboard-dialog {
+    padding: var(--vk-space-4);
+  }
+  .vk-keyboard-dialog__footer > button {
+    min-height: 44px;
+  }
+}

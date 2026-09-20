@@ -18,6 +18,7 @@ import type {
 } from 'shared/types';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
+import { useRenderedPathname } from '@/shared/hooks/useRenderedPathname';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
 import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
 import { getProjectDestination } from '@/shared/lib/routes/appNavigation';
@@ -57,6 +58,7 @@ export function AppShellContainer({
 }: AppShellContainerProps) {
   const { t } = useTranslation('common');
   const location = useLocation();
+  const renderedPathname = useRenderedPathname();
   const routeSearch = useSearch({ strict: false }) as {
     session_id?: string;
   };
@@ -322,7 +324,7 @@ export function AppShellContainer({
           <div className="vk-app-shell__layout" data-search-open={searchOpen}>
             <ProductSidebar
               adapter={adapter}
-              activeModule={deriveActiveShellModule(location.pathname)}
+              activeModule={deriveActiveShellModule(renderedPathname)}
               activeProjectId={activeProjectId}
               activeSessionId={activeSessionId}
               projects={projectState}
@@ -349,6 +351,7 @@ export function AppShellContainer({
                 void deleteSession({
                   sessionId: session.id,
                   workspaceId: session.workspace_id,
+                  projectId: session.project_id,
                   title: session.title,
                 })
               }
@@ -358,7 +361,7 @@ export function AppShellContainer({
               {banner}
               <PageCanvas
                 ref={mainContentRef}
-                mode={derivePageCanvasMode(location.pathname)}
+                mode={derivePageCanvasMode(renderedPathname)}
               >
                 {children}
               </PageCanvas>

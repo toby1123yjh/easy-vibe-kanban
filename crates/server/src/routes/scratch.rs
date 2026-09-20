@@ -24,6 +24,17 @@ pub struct ScratchPath {
     id: Uuid,
 }
 
+fn guard_default_project(scratch_type: &ScratchType, id: Uuid) -> Result<(), ApiError> {
+    if matches!(scratch_type, ScratchType::ProjectRepoDefaults)
+        && id == db::models::project::DEFAULT_PROJECT_ID
+    {
+        return Err(ApiError::BadRequest(
+            "The default project uses the default directory from Settings".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn list_scratch(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<Vec<Scratch>>>, ApiError> {
@@ -46,6 +57,7 @@ pub async fn create_scratch(
     Path(ScratchPath { scratch_type, id }): Path<ScratchPath>,
     Json(payload): Json<CreateScratch>,
 ) -> Result<ResponseJson<ApiResponse<Scratch>>, ApiError> {
+    guard_default_project(&scratch_type, id)?;
     // Reject edits to draft_follow_up if a message is queued for this workspace
     if matches!(scratch_type, ScratchType::DraftFollowUp)
         && deployment.queued_message_service().has_queued(id)
@@ -70,6 +82,7 @@ pub async fn update_scratch(
     Path(ScratchPath { scratch_type, id }): Path<ScratchPath>,
     Json(payload): Json<UpdateScratch>,
 ) -> Result<ResponseJson<ApiResponse<Scratch>>, ApiError> {
+    guard_default_project(&scratch_type, id)?;
     // Reject edits to draft_follow_up if a message is queued for this workspace
     if matches!(scratch_type, ScratchType::DraftFollowUp)
         && deployment.queued_message_service().has_queued(id)
@@ -94,6 +107,7 @@ pub async fn delete_scratch(
     State(deployment): State<DeploymentImpl>,
     Path(ScratchPath { scratch_type, id }): Path<ScratchPath>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    guard_default_project(&scratch_type, id)?;
     let rows = Scratch::delete(&deployment.db().pool, id, &scratch_type).await?;
     if rows == 0 {
         return Err(ApiError::BadRequest("Scratch not found".to_string()));

@@ -16,6 +16,7 @@ import {
   FloatingPanelTitle,
 } from '../../../../packages/ui/src/components/FloatingPanel';
 import { Button } from '../../../../packages/ui/src/components/Button';
+import { ConfirmDialogView } from '../../../../packages/ui/src/components/ConfirmDialog';
 import { Input } from '../../../../packages/ui/src/components/Input';
 import { SplitLayout } from '../../../../packages/ui/src/components/SplitLayout';
 import { CrashScreen } from '../../../../packages/ui/src/components/CrashScreen';
@@ -50,6 +51,15 @@ import {
 } from '../../../../packages/ui/src/lib/theme';
 import '../../../../packages/ui/src/styles/tokens.css';
 import './style.css';
+
+if (new URLSearchParams(window.location.search).has('confirmation')) {
+  await import('./tailwind.css');
+  // Match the application: generated base/utilities precede component CSS.
+  const utilities = document.querySelector(
+    'style[data-vite-dev-id$="/tailwind.css"]'
+  );
+  if (utilities) document.head.prepend(utilities);
+}
 
 const root = document.documentElement;
 const bootstrapSnapshot = {
@@ -441,9 +451,20 @@ function KeyboardMotionHarness() {
   const [open, setOpen] = React.useState(false);
   return (
     <HotkeysProvider initiallyActiveScopes={['kanban', 'projects']}>
-      <button data-testid="keyboard-motion-open" onClick={() => setOpen(true)}>Open keyboard dialog</button>
-      <KeyboardDialog open={open} onOpenChange={setOpen} data-testid="keyboard-motion-dialog">
-        <button data-testid="keyboard-motion-close" onClick={() => setOpen(false)}>Dismiss</button>
+      <button data-testid="keyboard-motion-open" onClick={() => setOpen(true)}>
+        Open keyboard dialog
+      </button>
+      <KeyboardDialog
+        open={open}
+        onOpenChange={setOpen}
+        data-testid="keyboard-motion-dialog"
+      >
+        <button
+          data-testid="keyboard-motion-close"
+          onClick={() => setOpen(false)}
+        >
+          Dismiss
+        </button>
       </KeyboardDialog>
     </HotkeysProvider>
   );
@@ -501,6 +522,53 @@ function ReleaseNotesHarness() {
   );
 }
 
+function ConfirmationHarness() {
+  const [mode, setMode] = React.useState<'confirm' | 'single' | null>(null);
+  const [pending, setPending] = React.useState(false);
+  const [result, setResult] = React.useState('none');
+  const close = (value: string) => {
+    setResult(value);
+    setPending(false);
+    setMode(null);
+  };
+  return (
+    <section aria-label="Confirmation contract">
+      <button
+        data-testid="confirmation-open"
+        onClick={() => setMode('confirm')}
+      >
+        Open confirmation
+      </button>
+      <button
+        data-testid="confirmation-single"
+        onClick={() => setMode('single')}
+      >
+        Open acknowledgement
+      </button>
+      <output data-testid="confirmation-result">{result}</output>
+      <ConfirmDialogView
+        open={mode !== null}
+        title="确认删除这个会话？"
+        message={
+          '删除会话和历史记录，其他项目不受影响。'.repeat(8) +
+          '\nF:\\workspaces\\' +
+          'very-long-directory-name-'.repeat(12)
+        }
+        variant={mode === 'confirm' ? 'destructive' : 'info'}
+        confirmText={pending ? '处理中' : '确定'}
+        cancelText="取消"
+        showCancelButton={mode !== 'single'}
+        confirmPending={pending}
+        cancelDisabled={pending}
+        onConfirm={() =>
+          mode === 'single' ? close('confirmed') : setPending(true)
+        }
+        onCancel={() => close('canceled')}
+      />
+    </section>
+  );
+}
+
 const componentRoot = document.getElementById('component-root');
 if (!componentRoot) {
   throw new Error('Component contract root is missing');
@@ -518,5 +586,6 @@ createRoot(componentRoot).render(
     <NotFoundHarness />
     <ReleaseNotesHarness />
     <KeyboardMotionHarness />
+    <ConfirmationHarness />
   </React.StrictMode>
 );

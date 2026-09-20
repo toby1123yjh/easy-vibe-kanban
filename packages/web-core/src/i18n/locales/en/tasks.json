@@ -1,5 +1,11 @@
 {
   "sessionDeletion": {
+    "taskSummary": "This Task and its session history will be deleted. This cannot be undone.",
+    "sessionSummary": "This session and its history will be deleted. This cannot be undone.",
+    "filesWillDelete": "The directory and all files inside will be permanently deleted.",
+    "filesWillKeep": "Unchecked: files stay on this device.",
+    "directoryLabel": "Working directory",
+    "unaffected": "Other sessions, projects, and native agent history are not affected.",
     "filesRetained": "Session deleted. Some files were kept:",
     "deleteManagedFiles": "Also delete this session’s working directory and files",
     "withFilesDescription": "Delete “{{name}}”, its session history, and the managed working directory below? Other sessions, projects, and native agent history are preserved. This cannot be undone.",
