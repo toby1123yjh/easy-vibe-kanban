@@ -15,6 +15,21 @@ pub const CODEX_DEFAULT_BASE_COMMAND: &str = "codex";
 pub const CLAUDE_DEFAULT_BASE_COMMAND: &str = "claude";
 pub const OH_MY_PI_DEFAULT_BASE_COMMAND: &str = "omp";
 
+/// Detect the same executable that launch will use, without running the CLI or
+/// interpreting configuration/authentication files as installation evidence.
+pub fn is_command_installed(default: &str, overrides: &CmdOverrides) -> bool {
+    let base = overrides
+        .base_command_override
+        .as_deref()
+        .unwrap_or(default);
+    CommandBuilder::new(base)
+        .build_initial()
+        .ok()
+        .is_some_and(|parts| {
+            workspace_utils::shell::resolve_executable_path_blocking(&parts.program).is_some()
+        })
+}
+
 #[derive(Debug, Error)]
 pub enum CommandBuildError {
     #[error("base command cannot be parsed: {0}")]
@@ -229,6 +244,20 @@ pub fn apply_overrides(
 mod tests {
     use super::*;
 
+    #[test]
+    fn installation_detection_preserves_quoted_explicit_override() {
+        let executable = std::env::current_exe().unwrap();
+        let overrides = super::CmdOverrides {
+            base_command_override: Some(format!("\"{}\" --unused", executable.display())),
+            ..Default::default()
+        };
+        assert!(super::is_command_installed("not-installed", &overrides));
+        let empty = super::CmdOverrides {
+            base_command_override: Some(String::new()),
+            ..Default::default()
+        };
+        assert!(!super::is_command_installed("codex", &empty));
+    }
     #[test]
     fn parses_builtin_local_executor_commands() {
         let cases: [(&str, &str, Vec<&str>); 4] = [

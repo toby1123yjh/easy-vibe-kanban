@@ -1631,6 +1631,19 @@
     }
   },
   "agentCenter": {
+    "install": {
+      "registryInvalid": "請輸入不含憑據、查詢參數或片段的 HTTP(S) 位址（最多 2048 個字元）。",
+      "title": "安裝 Agent",
+      "description": "使用預設安裝程式在 {{host}} 上安裝此 Agent 的 CLI。驗證仍在現有設定中配置。",
+      "registry": "npm 鏡像來源（選填）",
+      "registryHint": "留空使用此主機現有的 npm 設定。僅對本次安裝生效。",
+      "start": "開始安裝",
+      "running": "正在安裝…",
+      "succeeded": "安裝程式已完成，重新掃描以確認 Agent 是否可用。",
+      "failed": "安裝失敗，請查看輸出後重試。",
+      "requestError": "無法連線安裝程式。請重試或重新掃描檢查可用性。",
+      "logs": "安裝輸出"
+    },
     "eyebrow": "智能體執行階段",
     "title": "智能體中心",
     "description": "在同一頁面管理已安裝的智能體、原生設定、MCP、技能與執行階段命令。",

@@ -276,7 +276,13 @@ impl StandardCodingAgentExecutor for Gemini {
             .map(|home| home.join(".gemini").join("installation_id").exists())
             .unwrap_or(false);
 
-        if mcp_config_found || installation_indicator_found {
+        if mcp_config_found
+            || installation_indicator_found
+            || crate::command::is_command_installed(
+                crate::command::GEMINI_DEFAULT_BASE_COMMAND,
+                &self.cmd,
+            )
+        {
             AvailabilityInfo::InstallationFound
         } else {
             AvailabilityInfo::NotFound

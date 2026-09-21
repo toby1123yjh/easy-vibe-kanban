@@ -17,6 +17,12 @@ const params = new URLSearchParams(window.location.search);
 export class ApiError extends Error {}
 const calls = { relay: 0, paired: 0, garage: 0 };
 Object.assign(window, { agentCenterCalls: calls });
+const installProbe = {
+  starts: 0,
+  registry: null as string | null,
+  installed: false,
+};
+Object.assign(window, { agentInstallProbe: installProbe });
 export const useAppRuntime = () => params.get('runtime') ?? 'local';
 export const useAuth = () => ({
   isLoaded: true,
@@ -142,7 +148,7 @@ function settingsSnapshot(provider: AgentSettingsProvider) {
 
 const settingsInventory = {
   providers: providers.map((executor) =>
-    settingsSnapshot(settingsProviderFor(executor))
+    settingsSnapshot(settingsProviderFor(executor)),
   ),
   errors: [],
 };
@@ -159,7 +165,36 @@ export const machineClient = {
     calls.garage++;
     if (params.has('scanError') && calls.garage > 1)
       throw new Error('PRIVATE_SCAN_ERROR');
-    return garage;
+    return garage.map((entry) =>
+      params.get('missing') === entry.executor && !installProbe.installed
+        ? { ...entry, availability: { type: 'NOT_FOUND' as const } }
+        : entry,
+    );
+  },
+  startAgentInstall: async (request: {
+    executor: BaseCodingAgent;
+    npm_registry?: string | null;
+  }) => {
+    installProbe.starts++;
+    installProbe.registry = request.npm_registry ?? null;
+    return {
+      id: 'install-fixture',
+      executor: request.executor,
+      status: 'running',
+      logs: 'Downloading fixture installer',
+      error: null,
+    };
+  },
+  getAgentInstall: async () => {
+    const failed = params.has('installFails');
+    if (!failed) installProbe.installed = true;
+    return {
+      id: 'install-fixture',
+      executor: params.get('missing'),
+      status: failed ? 'failed' : 'succeeded',
+      logs: 'Fixture installation log',
+      error: failed ? 'Fixture download failed' : null,
+    };
   },
   listAgentTools: async () => ({ providers: toolProviders, errors: [] }),
   listAgentCommands: async () => ({ providers: commandProviders, errors: [] }),

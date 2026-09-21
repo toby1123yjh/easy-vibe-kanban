@@ -336,6 +336,10 @@ impl OhMyPi {
         if self
             .default_mcp_config_path()
             .is_some_and(|path| path.exists())
+            || crate::command::is_command_installed(
+                crate::command::OH_MY_PI_DEFAULT_BASE_COMMAND,
+                &self.cmd,
+            )
         {
             AvailabilityInfo::InstallationFound
         } else {

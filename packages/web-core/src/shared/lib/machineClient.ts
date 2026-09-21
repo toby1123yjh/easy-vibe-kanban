@@ -48,6 +48,7 @@ import type {
   UserSystemInfo,
 } from 'shared/types';
 import type { AppRuntime } from '@/shared/hooks/useAppRuntime';
+import type { AgentInstallJob, AgentInstallRequest } from './agentInstall';
 import { handleApiResponse } from './api';
 import {
   makeLocalApiRequest,
@@ -93,6 +94,8 @@ export interface MachineClient {
     projectPath?: string
   ) => Promise<AgentCommandInventoryView>;
   getAgentGarage: () => Promise<AgentGarageEntry[]>;
+  startAgentInstall: (data: AgentInstallRequest) => Promise<AgentInstallJob>;
+  getAgentInstall: (jobId: string) => Promise<AgentInstallJob>;
   createAgentTool: (data: CreateAgentToolRequest) => Promise<AgentToolView>;
   updateAgentTool: (data: UpdateAgentToolRequest) => Promise<AgentToolView>;
   removeAgentTool: (data: RemoveAgentToolRequest) => Promise<void>;
@@ -327,6 +330,24 @@ export function createMachineClient(
         await makeMachineRequest(runtime, target, '/api/agents/garage', {
           cache: 'no-store',
         })
+      ),
+    startAgentInstall: async (data) =>
+      handleApiResponse<AgentInstallJob>(
+        await makeMachineRequest(runtime, target, '/api/agents/install', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        })
+      ),
+    getAgentInstall: async (jobId) =>
+      handleApiResponse<AgentInstallJob>(
+        await makeMachineRequest(
+          runtime,
+          target,
+          `/api/agents/install/${encodeURIComponent(jobId)}`,
+          {
+            cache: 'no-store',
+          }
+        )
       ),
     createAgentTool: async (data) =>
       handleApiResponse<AgentToolView, AgentToolOperationError>(

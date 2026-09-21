@@ -726,7 +726,14 @@ impl StandardCodingAgentExecutor for ClaudeCode {
                 last_auth_timestamp: timestamp,
             };
         }
-        AvailabilityInfo::NotFound
+        if crate::command::is_command_installed(
+            &base_command(self.claude_code_router.unwrap_or(false)),
+            &self.cmd,
+        ) {
+            AvailabilityInfo::InstallationFound
+        } else {
+            AvailabilityInfo::NotFound
+        }
     }
 }
 

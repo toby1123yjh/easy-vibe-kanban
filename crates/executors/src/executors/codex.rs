@@ -398,7 +398,13 @@ impl StandardCodingAgentExecutor for Codex {
             .map(|home| home.join("version.json").exists())
             .unwrap_or(false);
 
-        if mcp_config_found || installation_indicator_found {
+        if mcp_config_found
+            || installation_indicator_found
+            || crate::command::is_command_installed(
+                crate::command::CODEX_DEFAULT_BASE_COMMAND,
+                &self.cmd,
+            )
+        {
             AvailabilityInfo::InstallationFound
         } else {
             AvailabilityInfo::NotFound

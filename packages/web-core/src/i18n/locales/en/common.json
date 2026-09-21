@@ -1546,6 +1546,19 @@
     "remoteAuthUnavailable": "Remote authentication is temporarily unavailable. Some remote features may not work until it recovers."
   },
   "agentCenter": {
+    "install": {
+      "registryInvalid": "Enter an HTTP(S) URL without credentials, query parameters or fragments (maximum 2048 characters).",
+      "title": "Install agent",
+      "description": "Install the provider’s CLI on {{host}} using its preset installer. Authentication remains in the existing settings.",
+      "registry": "npm registry (optional)",
+      "registryHint": "Leave empty to use this machine’s npm configuration. Applies only to this installation.",
+      "start": "Start installation",
+      "running": "Installing…",
+      "succeeded": "Installer finished. Rescan checks whether the agent is available.",
+      "failed": "Installation failed. Review the output and retry.",
+      "requestError": "Could not reach the installer. Retry or rescan to check availability.",
+      "logs": "Installation output"
+    },
     "eyebrow": "Agent runtime",
     "title": "Agent Center",
     "description": "Manage installed Agent providers, native configuration, MCP servers, Skills, and runtime Commands from one place.",

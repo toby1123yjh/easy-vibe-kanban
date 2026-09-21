@@ -1656,6 +1656,19 @@
     }
   },
   "agentCenter": {
+    "install": {
+      "registryInvalid": "请输入不含凭据、查询参数或片段的 HTTP(S) 地址（最多 2048 个字符）。",
+      "title": "安装 Agent",
+      "description": "使用预设安装程序在 {{host}} 上安装此 Agent 的 CLI。认证仍在现有设置中配置。",
+      "registry": "npm 镜像源（可选）",
+      "registryHint": "留空使用此主机现有的 npm 配置。仅对本次安装生效。",
+      "start": "开始安装",
+      "running": "正在安装…",
+      "succeeded": "安装程序已完成，重新扫描以确认 Agent 是否可用。",
+      "failed": "安装失败，请查看输出后重试。",
+      "requestError": "无法连接安装程序。请重试或重新扫描检查可用性。",
+      "logs": "安装输出"
+    },
     "eyebrow": "智能体运行时",
     "title": "智能体中心",
     "description": "在一个页面管理已安装的智能体、原生配置、MCP、技能与运行时命令。",

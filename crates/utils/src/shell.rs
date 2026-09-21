@@ -45,8 +45,10 @@ pub async fn get_interactive_shell() -> PathBuf {
 /// The search order is:
 /// 1. Explicit paths (absolute or containing a separator).
 /// 2. The current process PATH via `which`.
-/// 3. A platform-specific refresh of PATH (login shell on Unix, PowerShell on Windows),
+/// 3. A platform-specific refresh of PATH (login shell on Unix, registry on Windows),
 ///    after which we re-run the `which` lookup and update the process PATH for future calls.
+/// 4. Common current-user CLI installation directories, for installers that have
+///    not updated PATH yet. Explicit paths never fall back to a different binary.
 pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
     if executable.trim().is_empty() {
         return None;
@@ -67,7 +69,150 @@ pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
         return Some(found);
     }
 
-    None
+    // Do not reinterpret a missing explicit override as an installed command.
+    if path.components().count() != 1 || path.is_absolute() {
+        return None;
+    }
+    let directories = user_executable_directories(
+        dirs::home_dir().as_deref(),
+        std::env::var_os("APPDATA").as_deref(),
+        std::env::var_os("NPM_CONFIG_PREFIX")
+            .or_else(|| std::env::var_os("npm_config_prefix"))
+            .as_deref(),
+        std::env::var_os("BUN_INSTALL").as_deref(),
+    );
+    let executable = executable.to_owned();
+    tokio::task::spawn_blocking(move || find_user_executable(&executable, directories))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn find_user_executable(executable: &str, directories: Vec<PathBuf>) -> Option<PathBuf> {
+    let fallback = join_paths(directories.into_iter().filter(|p| p.is_dir())).ok()?;
+    which::which_in_global(executable, Some(fallback))
+        .ok()
+        .and_then(|mut paths| paths.next())
+}
+
+fn user_executable_directories(
+    home: Option<&Path>,
+    app_data: Option<&OsStr>,
+    npm_prefix: Option<&OsStr>,
+    bun_install: Option<&OsStr>,
+) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    if let Some(prefix) = npm_prefix.map(PathBuf::from).filter(|p| p.is_absolute()) {
+        directories.push(if cfg!(windows) {
+            prefix
+        } else {
+            prefix.join("bin")
+        });
+    }
+    if let Some(bun) = bun_install.map(PathBuf::from).filter(|p| p.is_absolute()) {
+        directories.push(bun.join("bin"));
+    }
+    if let Some(home) = home.filter(|p| p.is_absolute()) {
+        directories.extend([
+            home.join(".local/bin"),
+            home.join(".bun/bin"),
+            home.join(".npm-global/bin"),
+        ]);
+    }
+    if cfg!(windows)
+        && let Some(app_data) = app_data.map(PathBuf::from).filter(|p| p.is_absolute())
+    {
+        directories.push(app_data.join("npm"));
+    }
+    directories
+}
+
+#[cfg(test)]
+mod executable_discovery_tests {
+    use super::*;
+
+    #[test]
+    fn user_locations_are_absolute_and_keep_explicit_prefix_first() {
+        let root = std::env::temp_dir().join("vk-discovery-user");
+        let prefix = root.join("custom-npm");
+        let bun = root.join("custom-bun");
+        let app_data = root.join("AppData/Roaming");
+        let directories = user_executable_directories(
+            Some(&root),
+            Some(app_data.as_os_str()),
+            Some(prefix.as_os_str()),
+            Some(bun.as_os_str()),
+        );
+        assert_eq!(
+            directories[0],
+            if cfg!(windows) {
+                prefix
+            } else {
+                prefix.join("bin")
+            }
+        );
+        assert_eq!(directories[1], bun.join("bin"));
+        assert!(directories.contains(&root.join(".local/bin")));
+        assert!(directories.contains(&root.join(".bun/bin")));
+        assert!(directories.contains(&root.join(".npm-global/bin")));
+        if cfg!(windows) {
+            assert!(directories.contains(&app_data.join("npm")));
+        }
+        assert!(directories.iter().all(|p| p.is_absolute()));
+    }
+
+    #[test]
+    fn relative_prefixes_never_introduce_working_directory_search() {
+        assert!(
+            user_executable_directories(
+                Some(Path::new("relative")),
+                Some(OsStr::new("relative")),
+                Some(OsStr::new("relative")),
+                Some(OsStr::new("relative")),
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn finds_user_install_without_modifying_process_path() {
+        let root = std::env::temp_dir().join(format!("vk-cli-discovery-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let executable = root.join(if cfg!(windows) {
+            "vk-test-agent.cmd"
+        } else {
+            "vk-test-agent"
+        });
+        std::fs::write(&executable, "test only, never executed").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let before = std::env::var_os("PATH");
+        assert_eq!(
+            find_user_executable("vk-test-agent", vec![root.clone()]),
+            Some(executable)
+        );
+        assert_eq!(find_user_executable("not-installed", vec![root]), None);
+        assert_eq!(before, std::env::var_os("PATH"));
+    }
+
+    #[tokio::test]
+    async fn explicit_executable_is_preserved() {
+        let executable = std::env::current_exe().unwrap();
+        assert_eq!(
+            resolve_executable_path(executable.to_str().unwrap()).await,
+            Some(executable)
+        );
+    }
 }
 
 pub fn resolve_executable_path_blocking(executable: &str) -> Option<PathBuf> {

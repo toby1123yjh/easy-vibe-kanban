@@ -1,11 +1,56 @@
 import { expect, test } from '@playwright/test';
 import {
+  agentInstallRequest,
+  isValidInstallRegistry,
+} from '../../../shared/lib/agentInstall';
+import type { BaseCodingAgent } from 'shared/types';
+import {
   advanceAgentCenterScope,
   canPublishAgentCenterOperation,
   isAgentCenterScopeCurrent,
   projectAgentCenterSource,
 } from './agentCenterState';
 
+test('installer preserves npm defaults and never sends npm options to native installers', () => {
+  for (const executor of ['CODEX', 'GEMINI'] as BaseCodingAgent[]) {
+    expect(agentInstallRequest(executor, '  ')).toEqual({ executor });
+    expect(
+      agentInstallRequest(executor, ' https://registry.example.test/ ')
+    ).toEqual({ executor, npm_registry: 'https://registry.example.test/' });
+  }
+  expect(
+    agentInstallRequest(
+      'CLAUDE_CODE' as BaseCodingAgent,
+      'https://registry.example.test/'
+    )
+  ).toEqual({ executor: 'CLAUDE_CODE' });
+  expect(
+    agentInstallRequest(
+      'OH_MY_PI' as BaseCodingAgent,
+      'https://registry.example.test/'
+    )
+  ).toEqual({ executor: 'OH_MY_PI' });
+});
+
+test('installer registry validation rejects unsafe or malformed URLs', () => {
+  for (const registry of [
+    '',
+    ' https://registry.example.test/path ',
+    'http://localhost:4873',
+  ]) {
+    expect(isValidInstallRegistry(registry)).toBe(true);
+  }
+  for (const registry of [
+    'invalid',
+    'file:///tmp/npm',
+    'https://user:password@example.test',
+    'https://example.test/?token=value',
+    'https://example.test/#fragment',
+    `https://example.test/${'x'.repeat(2048)}`,
+  ]) {
+    expect(isValidInstallRegistry(registry)).toBe(false);
+  }
+});
 const baseFacts = {
   hasCanonicalData: false,
   isLoading: false,

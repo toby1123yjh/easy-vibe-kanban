@@ -6,6 +6,31 @@
   color: var(--vk-text-normal);
 }
 
+.vk-agent-center__installer > div,
+.vk-agent-center__installer label {
+  display: grid;
+  gap: var(--vk-space-2);
+  margin-top: var(--vk-space-3);
+}
+
+.vk-agent-center__installer input {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--vk-border-subtle);
+  border-radius: var(--vk-radius-sm);
+  background: var(--vk-surface-primary);
+  color: var(--vk-text-normal);
+  padding: var(--vk-space-2);
+}
+
+.vk-agent-center__installer pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--vk-font-size-xs);
+}
+
 .vk-agent-center__header,
 .vk-agent-center__provider-heading,
 .vk-agent-center__section-heading {

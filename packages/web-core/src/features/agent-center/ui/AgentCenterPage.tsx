@@ -49,6 +49,7 @@ import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { isAgentProviderReady } from '@/shared/lib/agentProviderOptions';
 import { effectiveStringSetting } from '@/shared/lib/agentSettingsModel';
 import './agent-center.css';
+import { AgentInstallPanel } from './AgentInstallPanel';
 
 type AgentCenterTab = 'providers' | 'mcp' | 'skills' | 'commands' | 'profiles';
 
@@ -915,51 +916,67 @@ export function AgentCenterPage() {
               </div>
             )}
             {activeTab === 'providers' && (
-              <ProviderOverview
-                provider={selectedProvider}
-                entry={selectedGarageEntry}
-                model={defaultModel.value}
-                modelSource={defaultModel.source}
-                apiAddress={apiAddress.value}
-                mcpEnabled={
-                  mcpItems.filter((item) => item.state === 'enabled').length
-                }
-                mcpTotal={mcpItems.length}
-                skillsEnabled={
-                  skillItems.filter((item) => item.state === 'enabled').length
-                }
-                skillsTotal={skillItems.length}
-                commandsEnabled={
-                  commandItems.filter((item) => item.state === 'enabled').length
-                }
-                commandsTotal={commandItems.length}
-                toolsState={toolsState}
-                commandsState={commandsState}
-                settingsState={settingsState}
-                toolsProjection={toolsProjection}
-                commandsProjection={commandsProjection}
-                settingsProjection={settingsProjection}
-                configProjection={configProjection}
-                garageProjection={garageProjection}
-                isDefault={isDefault}
-                canSetDefault={
-                  defaultOwnerRef.current.canMutate &&
-                  defaultMutationPendingRef.current === null
-                }
-                defaultSaving={defaultSaving}
-                onRetryGarage={() => void runRefresh(['garage'])}
-                onRetryTools={() => void runRefresh(['tools'])}
-                onRetryCommands={() => void runRefresh(['commands'])}
-                onRetrySettings={() => void runRefresh(['settings'])}
-                onRetryConfig={() => void runRefresh(['config'])}
-                onSetDefault={() => void setDefaultProvider()}
-                onOpenConfiguration={() =>
-                  void runAfterDirtyConfirmation(() => setActiveTab('profiles'))
-                }
-                onOpenTools={() =>
-                  void runAfterDirtyConfirmation(() => setActiveTab('mcp'))
-                }
-              />
+              <>
+                {hostAvailable &&
+                  machineClient &&
+                  garageProjection.canMutate &&
+                  selectedGarageEntry?.availability.type === 'NOT_FOUND' && (
+                    <AgentInstallPanel
+                      key={`${scopeIdentity}:${activeScopeRef.current.epoch}`}
+                      client={machineClient}
+                      executor={selectedExecutor}
+                      onRescan={() => runRefresh(['garage'])}
+                    />
+                  )}
+                <ProviderOverview
+                  provider={selectedProvider}
+                  entry={selectedGarageEntry}
+                  model={defaultModel.value}
+                  modelSource={defaultModel.source}
+                  apiAddress={apiAddress.value}
+                  mcpEnabled={
+                    mcpItems.filter((item) => item.state === 'enabled').length
+                  }
+                  mcpTotal={mcpItems.length}
+                  skillsEnabled={
+                    skillItems.filter((item) => item.state === 'enabled').length
+                  }
+                  skillsTotal={skillItems.length}
+                  commandsEnabled={
+                    commandItems.filter((item) => item.state === 'enabled')
+                      .length
+                  }
+                  commandsTotal={commandItems.length}
+                  toolsState={toolsState}
+                  commandsState={commandsState}
+                  settingsState={settingsState}
+                  toolsProjection={toolsProjection}
+                  commandsProjection={commandsProjection}
+                  settingsProjection={settingsProjection}
+                  configProjection={configProjection}
+                  garageProjection={garageProjection}
+                  isDefault={isDefault}
+                  canSetDefault={
+                    defaultOwnerRef.current.canMutate &&
+                    defaultMutationPendingRef.current === null
+                  }
+                  defaultSaving={defaultSaving}
+                  onRetryGarage={() => void runRefresh(['garage'])}
+                  onRetryTools={() => void runRefresh(['tools'])}
+                  onRetryCommands={() => void runRefresh(['commands'])}
+                  onRetrySettings={() => void runRefresh(['settings'])}
+                  onRetryConfig={() => void runRefresh(['config'])}
+                  onSetDefault={() => void setDefaultProvider()}
+                  onOpenConfiguration={() =>
+                    void runAfterDirtyConfirmation(() =>
+                      setActiveTab('profiles')
+                    )
+                  }
+                  onOpenTools={() =>
+                    void runAfterDirtyConfirmation(() => setActiveTab('mcp'))
+                  }
+                />
+              </>
             )}
             {activeTab === 'mcp' && (
               <AgentToolsSettingsSection
