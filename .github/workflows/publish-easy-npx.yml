@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "npm version to publish, for example 0.1.44-easy.1"
+        description: "npm version to publish, for example 2.0.0, 2.0.0-beta.1, or 0.1.44-easy.1"
         required: true
         type: string
       npm_tag:
@@ -62,8 +62,8 @@ jobs:
           set -euo pipefail
           node -e "
             const version = process.env.VERSION;
-            if (!/^[0-9]+\.[0-9]+\.[0-9]+-easy\.[0-9]+$/.test(version)) {
-              throw new Error('Version must look like 0.1.44-easy.1');
+            if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(beta|easy)\.(0|[1-9][0-9]*))?$/.test(version) || version !== version.trim()) {
+              throw new Error('Version must be X.Y.Z, X.Y.Z-beta.N, or X.Y.Z-easy.N (numeric components without leading zeros)');
             }
           "
           if npm view "easy-vibe-kanban@$VERSION" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
