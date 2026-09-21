@@ -1,10 +1,30 @@
 {
+  "hostStatus": {
+    "online": "Online",
+    "offline": "Offline",
+    "pairedOn": "Paired {{date}}"
+  },
+  "releaseNotes": {
+    "title": "Release notes",
+    "description": "What's new in Vibe Kanban.",
+    "loading": "Loading release notes",
+    "loadingDescription": "Fetching the latest updates...",
+    "failed": "Could not load release notes",
+    "retryDescription": "Please try again or view releases on GitHub.",
+    "retrying": "Retrying...",
+    "empty": "No release notes yet",
+    "emptyDescription": "Updates will appear here when available.",
+    "openGitHub": "View on GitHub"
+  },
   "projectSessions": {
-    "column": "Discussions",
+    "column": "Discuss",
     "create": "New discussion",
     "empty": "No discussions yet."
   },
   "sessionProject": {
+    "messagePlaceholder": "Describe the task...",
+    "createFailed": "Could not start this session. Please try again.",
+    "configureFailed": "Could not save the project directory.",
     "label": "Project",
     "failed": "Could not load the project workspace. Please retry.",
     "missingWorkspace": "Set up this project's workspace before starting a session.",
@@ -61,6 +81,7 @@
   "ok": "OK",
   "error": "Error",
   "errors": {
+    "details": "Error details",
     "generic": "An unexpected error occurred"
   },
   "language": {

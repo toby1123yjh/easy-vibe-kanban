@@ -1,4 +1,10 @@
-import { ReactNode, useCallback, useEffect, useMemo } from 'react';
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+} from 'react';
 import type { Config, LoginStatus } from 'shared/types';
 import { configApi } from '@/shared/lib/api';
 import { updateLanguageFromConfig } from '@/i18n/config';
@@ -124,8 +130,8 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
   setLocalRemoteApiEnabled(true);
   setRemoteApiBase(userSystemInfo?.shared_api_base);
 
-  // Sync language with i18n when config changes
-  useEffect(() => {
+  // Apply the loaded preference before painting the configured application.
+  useLayoutEffect(() => {
     if (value.config?.language) {
       updateLanguageFromConfig(value.config.language);
     }

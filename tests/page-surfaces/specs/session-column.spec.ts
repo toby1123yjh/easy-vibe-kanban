@@ -17,17 +17,27 @@ for (const width of [375, 1440]) {
     const columns = page.locator(".vk-kanban-columns > .vk-kanban-column");
     await expect(columns).toHaveCount(5);
     await expect(
-      columns.first().getByRole("heading", { name: "Discussions", exact: true }),
+      columns.first().getByRole("heading", { name: "Discuss", exact: true }),
     ).toBeVisible();
     await expect(
       columns.nth(1).getByRole("heading", { name: "Todo", exact: true }),
     ).toHaveCount(1);
-    await expect(columns.first()).toContainText("No discussions yet.");
+    await expect(columns.first().locator(".vk-kanban-column__cards")).toBeEmpty();
+    await expect(columns.first()).not.toContainText("No discussions yet.");
+    await expect(columns.first().locator(".vk-kanban-column__count")).toHaveText("0");
     const sessionBox = await columns.first().boundingBox();
     const todoBox = await columns.nth(1).boundingBox();
     expect(sessionBox?.y).toBe(todoBox?.y);
     expect(sessionBox?.width).toBe(todoBox?.width);
     expect(sessionBox?.height).toBe(todoBox?.height);
+    const discussDot = columns.first().locator(".vk-kanban-column__dot");
+    const todoDot = columns.nth(1).locator(".vk-kanban-column__dot");
+    await expect(discussDot).toBeVisible();
+    await expect(discussDot).toHaveAttribute("aria-hidden", "true");
+    const discussDotBox = await discussDot.boundingBox();
+    const todoDotBox = await todoDot.boundingBox();
+    expect(discussDotBox?.width).toBe(todoDotBox?.width);
+    expect(discussDotBox?.height).toBe(todoDotBox?.height);
     await page.evaluate(() =>
       window.addEventListener("fixture-navigation", (event) => {
         document.documentElement.dataset.navigation = (
@@ -74,7 +84,7 @@ test("sessions stay out of Issue columns and open the existing session", async (
     }),
   );
   await page.goto("/?surface=board&sessionColumn");
-  const column = page.getByRole("region", { name: "Discussions", exact: true });
+  const column = page.getByRole("region", { name: "Discuss", exact: true });
   await expect(
     column.getByRole("button", {
       name: "Independent conversation",
@@ -110,7 +120,7 @@ test("session-column failure preserves the board and retries in place", async ({
         }),
   );
   await page.goto("/?surface=board&sessionColumn");
-  const column = page.getByRole("region", { name: "Discussions", exact: true });
+  const column = page.getByRole("region", { name: "Discuss", exact: true });
   await expect(column.getByRole("alert")).toBeVisible();
   await expect(
     page.locator(".vk-kanban-columns > .vk-kanban-column"),
@@ -118,5 +128,6 @@ test("session-column failure preserves the board and retries in place", async ({
   fail = false;
   await column.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(column.getByRole("alert")).toHaveCount(0);
-  await expect(column).toContainText("No discussions yet.");
+  await expect(column.locator(".vk-kanban-column__cards")).toBeEmpty();
+  await expect(column).not.toContainText("No discussions yet.");
 });

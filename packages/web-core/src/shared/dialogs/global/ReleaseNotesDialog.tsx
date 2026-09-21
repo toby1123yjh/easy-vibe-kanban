@@ -18,12 +18,14 @@ import { create, useModal } from '@ebay/nice-modal-react';
 import { defineModal, type NoProps } from '@/shared/lib/modals';
 import { useReleases } from '@/shared/hooks/useReleases';
 import { SimpleMarkdown } from '@/shared/components/SimpleMarkdown';
+import { useTranslation } from 'react-i18next';
+import { formatLocalizedDateTime } from '@/shared/lib/date';
 
 const GITHUB_RELEASES_URL = 'https://github.com/BloopAI/vibe-kanban/releases';
 
 function formatDate(dateStr: string): string {
   try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
+    return formatLocalizedDateTime(dateStr, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -38,6 +40,7 @@ function extractVersion(tagName: string): string {
 }
 
 const ReleaseNotesDialogImpl = create<NoProps>(() => {
+  const { t } = useTranslation('common');
   const modal = useModal();
   const {
     data: releases,
@@ -64,10 +67,10 @@ const ReleaseNotesDialogImpl = create<NoProps>(() => {
       <DialogContent className="flex h-[min(720px,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden p-0">
         <DialogHeader className="flex-shrink-0 border-b px-6 pb-4 pt-5">
           <DialogTitle className="text-lg font-semibold text-high">
-            What&apos;s New
+            {t('releaseNotes.title')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Release notes for recent Vibe Kanban versions.
+            {t('releaseNotes.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -75,28 +78,28 @@ const ReleaseNotesDialogImpl = create<NoProps>(() => {
           {isLoading && (
             <LoadingState
               className="min-h-64"
-              title="Loading release notes"
-              description="Checking GitHub for recent releases."
+              title={t('releaseNotes.loading')}
+              description={t('releaseNotes.loadingDescription')}
             />
           )}
 
           {isError && (
             <ErrorState
               className="min-h-64"
-              title="Unable to load release notes"
-              description="Check your connection, then try again."
+              title={t('releaseNotes.failed')}
+              description={t('releaseNotes.retryDescription')}
               action={
                 <Button
                   className="min-h-11 sm:min-h-8"
                   variant="outline"
                   size="sm"
                   loading={isFetching}
-                  loadingLabel="Retrying release notes"
+                  loadingLabel={t('releaseNotes.retrying')}
                   onClick={() => {
                     void refetch();
                   }}
                 >
-                  Try again
+                  {t('buttons.retry')}
                 </Button>
               }
             />
@@ -105,8 +108,8 @@ const ReleaseNotesDialogImpl = create<NoProps>(() => {
           {!isLoading && !isError && releases?.length === 0 && (
             <EmptyState
               className="min-h-64"
-              title="No release notes available"
-              description="Published releases will appear here when they are available."
+              title={t('releaseNotes.empty')}
+              description={t('releaseNotes.emptyDescription')}
             />
           )}
 
@@ -135,7 +138,7 @@ const ReleaseNotesDialogImpl = create<NoProps>(() => {
         <DialogFooter className="flex-shrink-0 border-t px-6 py-3">
           <DialogClose asChild>
             <Button className="min-h-11 sm:min-h-8" variant="ghost" size="sm">
-              Close
+              {t('buttons.close')}
             </Button>
           </DialogClose>
           <Button
@@ -145,7 +148,7 @@ const ReleaseNotesDialogImpl = create<NoProps>(() => {
             onClick={handleOpenInBrowser}
           >
             <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-            Open on GitHub
+            {t('releaseNotes.openGitHub')}
           </Button>
         </DialogFooter>
       </DialogContent>

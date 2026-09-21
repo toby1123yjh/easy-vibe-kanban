@@ -33,7 +33,7 @@ export interface WorkflowTemplateListPageProps {
 export function WorkflowTemplateListPage({
   projectId,
 }: WorkflowTemplateListPageProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const { data, isLoading, isFetching, error, refetch } =
     useWorkflowTemplates(projectId);
   const { data: scheduledTaskData } = useScheduledTasks(projectId, {
@@ -234,7 +234,9 @@ export function WorkflowTemplateListPage({
                 <div className="flex items-center justify-between border-t border-secondary/50 pt-3 text-xs text-low">
                   <span>
                     {t('workflow.templates.updated', {
-                      date: new Date(template.updated_at).toLocaleDateString(),
+                      date: new Date(template.updated_at).toLocaleDateString(
+                        i18n.resolvedLanguage || 'en'
+                      ),
                     })}
                   </span>
                   <span className="text-brand">

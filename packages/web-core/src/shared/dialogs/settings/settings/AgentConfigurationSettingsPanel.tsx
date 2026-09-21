@@ -100,6 +100,20 @@ type RevealedSetting = {
   value: string;
 };
 
+type ConfigurationNotice =
+  | 'noChanges'
+  | 'applied'
+  | 'profileSaved'
+  | 'profileUpdated'
+  | 'profileDuplicated'
+  | 'profileDeleted'
+  | 'copyUpdated'
+  | 'copySaved';
+
+type ConfigurationError =
+  | string
+  | { key: 'invalidSettings' | 'invalidEnvironment' };
+
 type ProfileEditorDraft = {
   id: string;
   name: string;
@@ -167,8 +181,8 @@ function executorForProvider(provider: AgentSettingsProvider): BaseCodingAgent {
   }
 }
 
-function displayJson(value: JsonValue | undefined): string {
-  if (value === undefined) return 'Inherited / not set';
+function displayJson(value: JsonValue | undefined, unsetLabel: string): string {
+  if (value === undefined) return unsetLabel;
   return JSON.stringify(value, null, 2);
 }
 
@@ -207,10 +221,11 @@ export function AgentConfigurationSettingsPanel({
   includeTools?: boolean;
 }) {
   const { t } = useTranslation('common');
+  const { t: tc, i18n } = useTranslation('agent-config');
   const sourceLabel = (kind: ReturnType<typeof sourceLabelKind>): string => {
     switch (kind) {
       case 'modified':
-        return 'Modified';
+        return tc('modified');
       case 'inherit':
         return t('agentCenter.inheritedOrUnset');
       case 'native_user':
@@ -243,8 +258,8 @@ export function AgentConfigurationSettingsPanel({
   const [loading, setLoading] = useState(false);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<ConfigurationError | null>(null);
+  const [notice, setNotice] = useState<ConfigurationNotice | null>(null);
   const [diff, setDiff] = useState<SettingsDiff | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [scopedCopyPreview, setScopedCopyPreview] =
@@ -620,11 +635,11 @@ export function AgentConfigurationSettingsPanel({
   const previewSettings = async () => {
     if (!machineClient || !patch || !snapshot) return;
     if (hasDraftErrors(draft)) {
-      setError('Fix the invalid setting values before previewing the diff.');
+      setError({ key: 'invalidSettings' });
       return;
     }
     if (patch.operations.length === 0) {
-      setNotice('No setting changes to apply.');
+      setNotice('noChanges');
       return;
     }
     const operation = beginOperation();
@@ -679,9 +694,7 @@ export function AgentConfigurationSettingsPanel({
       applySnapshot(nextSnapshot);
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
-      setNotice(
-        'Agent settings applied. Changes marked for a new session take effect on the next launch.'
-      );
+      setNotice('applied');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -829,7 +842,7 @@ export function AgentConfigurationSettingsPanel({
   const saveProfile = async (name: string) => {
     if (!machineClient || !snapshot) return;
     if (!profileEnvironment.value) {
-      setError(profileEnvironment.error ?? 'Invalid profile environment.');
+      setError(profileEnvironment.error ?? { key: 'invalidEnvironment' });
       return;
     }
     if (!name.trim()) return;
@@ -876,9 +889,7 @@ export function AgentConfigurationSettingsPanel({
       if (!operationIsCurrent(operation)) return;
       setProfileFieldsDirty(false);
       setProfileAction(null);
-      setNotice(
-        'Profile saved locally. It remains inactive until explicitly applied.'
-      );
+      setNotice('profileSaved');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -912,9 +923,7 @@ export function AgentConfigurationSettingsPanel({
       return;
     }
     if (!profileEditorEnvironment.value) {
-      setError(
-        profileEditorEnvironment.error ?? 'Invalid profile environment.'
-      );
+      setError(profileEditorEnvironment.error ?? { key: 'invalidEnvironment' });
       return;
     }
     const operation = beginOperation();
@@ -932,7 +941,7 @@ export function AgentConfigurationSettingsPanel({
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
       setProfileEditor(null);
-      setNotice('Profile updated.');
+      setNotice('profileUpdated');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -958,7 +967,7 @@ export function AgentConfigurationSettingsPanel({
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
       setProfileAction(null);
-      setNotice('Profile duplicated.');
+      setNotice('profileDuplicated');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -972,9 +981,9 @@ export function AgentConfigurationSettingsPanel({
     if (!machineClient) return;
     const confirmationContext = { ...activeRequestContext.current };
     const result = await ConfirmDialog.show({
-      title: 'Delete profile?',
-      message: `Delete profile "${profile.name}"? This cannot be undone.`,
-      confirmText: 'Delete',
+      title: tc('deleteTitle'),
+      message: tc('deleteMessage', { name: profile.name }),
+      confirmText: tc('delete'),
       cancelText: t('buttons.cancel'),
       variant: 'destructive',
     });
@@ -996,7 +1005,7 @@ export function AgentConfigurationSettingsPanel({
       if (!operationIsCurrent(operation)) return;
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
-      setNotice('Profile deleted.');
+      setNotice('profileDeleted');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -1105,11 +1114,7 @@ export function AgentConfigurationSettingsPanel({
       await loadProfiles();
       if (!operationIsCurrent(operation)) return;
       setScopedCopyPreview(null);
-      setNotice(
-        copyPreview.target_updated_at
-          ? t('agentCenter.profileEditor.copy.updateNotice')
-          : t('agentCenter.profileEditor.copy.createNotice')
-      );
+      setNotice(copyPreview.target_updated_at ? 'copyUpdated' : 'copySaved');
     } catch (nextError) {
       if (operationIsCurrent(operation)) {
         setError(formatAgentSettingOperationError(nextError));
@@ -1162,8 +1167,8 @@ export function AgentConfigurationSettingsPanel({
   const requestCloseProfileEditor = async () => {
     if (profileEditorDirty) {
       const result = await ConfirmDialog.show({
-        title: 'Discard profile changes?',
-        message: 'This profile contains unsaved changes.',
+        title: tc('discardTitle'),
+        message: tc('discardMessage'),
         confirmText: t('agentCenter.unsaved.discard'),
         cancelText: t('agentCenter.unsaved.cancel'),
         variant: 'destructive',
@@ -1176,8 +1181,8 @@ export function AgentConfigurationSettingsPanel({
   const requestCloseProfileAction = async () => {
     if (profileActionDirty) {
       const result = await ConfirmDialog.show({
-        title: 'Discard profile changes?',
-        message: 'The profile dialog contains unsaved changes.',
+        title: tc('discardTitle'),
+        message: tc('discardDialogMessage'),
         confirmText: t('agentCenter.unsaved.discard'),
         cancelText: t('agentCenter.unsaved.cancel'),
         variant: 'destructive',
@@ -1208,12 +1213,12 @@ export function AgentConfigurationSettingsPanel({
 
   const renderOverview = () => (
     <SettingsCard
-      title={`${PROVIDER_LABELS[provider]} settings`}
-      description="Native provider files remain authoritative. Discovery is read-only until you preview and confirm an Apply action."
+      title={tc('overviewTitle', { provider: PROVIDER_LABELS[provider] })}
+      description={tc('overviewDescription')}
       headerAction={
         <PrimaryButton
           variant="tertiary"
-          value="Refresh"
+          value={tc('refresh')}
           onClick={() => void refreshSettings()}
           disabled={loading || !machineClient}
           actionIcon={loading ? 'spinner' : undefined}
@@ -1222,17 +1227,17 @@ export function AgentConfigurationSettingsPanel({
     >
       <div className="grid gap-3 md:grid-cols-2">
         <InfoTile
-          label="Installed"
-          value={snapshot?.installed ? 'Yes' : 'Not detected'}
+          label={tc('installed')}
+          value={snapshot?.installed ? tc('yes') : tc('notDetected')}
         />
         <InfoTile
-          label="Version"
-          value={snapshot?.provider_version ?? 'Unknown'}
+          label={tc('version')}
+          value={snapshot?.provider_version ?? tc('unknown')}
         />
       </div>
       <SettingsField
-        label="Project path (optional)"
-        description="Provide an absolute project path to discover project-scoped native settings."
+        label={tc('projectPath')}
+        description={tc('projectPathHelp')}
       >
         <div className="flex gap-2">
           <SettingsInput
@@ -1244,7 +1249,7 @@ export function AgentConfigurationSettingsPanel({
           <button
             type="button"
             className="rounded-sm border border-border px-3 text-low hover:text-normal disabled:opacity-40"
-            aria-label="Discover project settings"
+            aria-label={tc('discoverProject')}
             disabled={busy || loading}
             onClick={() => void discoverProjectPath()}
           >
@@ -1252,10 +1257,7 @@ export function AgentConfigurationSettingsPanel({
           </button>
         </div>
       </SettingsField>
-      <SettingsField
-        label="Apply scope"
-        description="Typed changes and profile applications target this native scope."
-      >
+      <SettingsField label={tc('scope')} description={tc('scopeHelp')}>
         <select
           value={scope}
           onChange={(event) =>
@@ -1264,24 +1266,24 @@ export function AgentConfigurationSettingsPanel({
           disabled={busy}
           className="w-full rounded-sm border border-border bg-secondary px-base py-half text-sm text-high focus:outline-none focus:ring-1 focus:ring-brand"
         >
-          <option value={SettingScope.user}>User configuration</option>
+          <option value={SettingScope.user}>{tc('userScope')}</option>
           <option
             value={SettingScope.project}
             disabled={!projectPath.trim() || !projectScopeSupported}
           >
-            Project configuration
+            {tc('projectScope')}
           </option>
         </select>
       </SettingsField>
-      <div className="flex flex-wrap gap-2" aria-label="Settings capabilities">
+      <div className="flex flex-wrap gap-2" aria-label={tc('capabilities')}>
         {snapshot &&
           Object.entries(snapshot.capabilities).map(([key, enabled]) => (
             <span
               key={key}
               className="rounded bg-secondary px-2 py-1 text-xs text-low"
             >
-              {key.replaceAll('_', ' ')}:{' '}
-              {enabled ? 'available' : 'unsupported'}
+              {tc(`capability.${key}`, { defaultValue: key })}:{' '}
+              {enabled ? tc('available') : tc('unsupported')}
             </span>
           ))}
       </div>
@@ -1291,8 +1293,7 @@ export function AgentConfigurationSettingsPanel({
             className="mt-0.5 size-icon-sm shrink-0"
             aria-hidden="true"
           />
-          This provider is not installed on the selected machine. Settings are
-          shown only when the Adapter can discover them.
+          {tc('notInstalled')}
         </div>
       )}
       {snapshot?.limitations.map((limitation) => (
@@ -1317,11 +1318,8 @@ export function AgentConfigurationSettingsPanel({
 
   const renderSettings = (descriptors: SettingDescriptor[]) => (
     <SettingsCard
-      title={
-        sections.find((section) => section.id === activeSection)?.label ??
-        'Settings'
-      }
-      description="Fields are generated from the installed provider Adapter. Unsupported controls are omitted."
+      title={tc(`sections.${activeSection}`, { defaultValue: tc('settings') })}
+      description={tc('settingsHelp')}
     >
       <div className="space-y-5">
         {descriptors.map((descriptor) => {
@@ -1464,7 +1462,7 @@ export function AgentConfigurationSettingsPanel({
                     {sourceLabel(sourceLabelKind(snapshot!, descriptor, entry))}
                   </span>
                   <span className="ml-2">
-                    {descriptor.activation.replaceAll('_', ' ')}
+                    {tc(`activation.${descriptor.activation}`)}
                   </span>
                 </span>
                 {resettable && (
@@ -1474,13 +1472,17 @@ export function AgentConfigurationSettingsPanel({
                     disabled={disabled}
                     onClick={() => resetDraft(descriptor)}
                   >
-                    Restore inheritance
+                    {tc('restore')}
                   </button>
                 )}
               </div>
               {!scopeSupported && (
                 <div className="text-xs text-low">
-                  This setting is not available in the {scope} scope.
+                  {tc('scopeUnavailable', {
+                    scope: tc(
+                      scope === SettingScope.user ? 'userScope' : 'projectScope'
+                    ),
+                  })}
                 </div>
               )}
               {descriptor.control === 'toggle' ? (
@@ -1496,7 +1498,7 @@ export function AgentConfigurationSettingsPanel({
                     }
                   />
                   <span className="text-sm text-normal">
-                    {entry.value ? 'Enabled' : 'Disabled'}
+                    {entry.value ? tc('enabled') : tc('disabled')}
                   </span>
                 </div>
               ) : descriptor.control === 'select' ? (
@@ -1507,7 +1509,7 @@ export function AgentConfigurationSettingsPanel({
                   onChange={(event) => update(event.target.value)}
                   className="w-full rounded-sm border border-border bg-secondary px-base py-half text-sm text-high focus:outline-none focus:ring-1 focus:ring-brand"
                 >
-                  <option value="">Follow native config</option>
+                  <option value="">{tc('followNative')}</option>
                   {descriptor.options.map((option) => (
                     <option
                       key={JSON.stringify(option.value)}
@@ -1562,17 +1564,17 @@ export function AgentConfigurationSettingsPanel({
 
   const renderEffective = () => (
     <SettingsCard
-      title="Effective Config"
-      description="The Adapter resolves precedence and reports observed sources. The UI does not recompute provider precedence."
+      title={tc('effectiveTitle')}
+      description={tc('effectiveHelp')}
     >
       <div className="overflow-x-auto rounded-sm border border-border">
         <table className="w-full text-left text-xs">
           <thead className="bg-secondary/50 text-low">
             <tr>
-              <th className="px-3 py-2">Setting</th>
-              <th className="px-3 py-2">Effective</th>
-              <th className="px-3 py-2">Source</th>
-              <th className="px-3 py-2">Observed sources</th>
+              <th className="px-3 py-2">{tc('setting')}</th>
+              <th className="px-3 py-2">{tc('effective')}</th>
+              <th className="px-3 py-2">{tc('source')}</th>
+              <th className="px-3 py-2">{tc('observedSources')}</th>
             </tr>
           </thead>
           <tbody>
@@ -1591,7 +1593,10 @@ export function AgentConfigurationSettingsPanel({
                       descriptor.sensitive
                   )
                     ? t('agentCenter.security.effectiveValueHidden')
-                    : displayJson(setting.effective_value)}
+                    : displayJson(
+                        setting.effective_value,
+                        t('agentCenter.inheritedOrUnset')
+                      )}
                 </td>
                 <td className="px-3 py-2 text-low">
                   {sourceLabel(
@@ -1616,7 +1621,9 @@ export function AgentConfigurationSettingsPanel({
       {snapshot?.unknown_native_nodes.length ? (
         <details className="rounded-sm border border-border bg-secondary/20 p-3">
           <summary className="cursor-pointer text-sm text-normal">
-            Unknown native nodes ({snapshot.unknown_native_nodes.length})
+            {tc('unknownNodes', {
+              count: snapshot.unknown_native_nodes.length,
+            })}
           </summary>
           <div className="mt-3 space-y-2">
             {snapshot.unknown_native_nodes.map((node) => (
@@ -1807,11 +1814,11 @@ export function AgentConfigurationSettingsPanel({
 
   const renderProfiles = () => (
     <SettingsCard
-      title="Configuration Profiles"
-      description="Profiles are versioned local definitions. Applying one is explicit and previews its native diff first."
+      title={tc('profilesTitle')}
+      description={tc('profilesHelp')}
       headerAction={
         <PrimaryButton
-          value="Save current"
+          value={tc('saveCurrent')}
           onClick={() =>
             setProfileAction({ kind: 'create', name: '', initialName: '' })
           }
@@ -1915,12 +1922,12 @@ export function AgentConfigurationSettingsPanel({
           role="status"
           aria-live="polite"
         >
-          <SpinnerIcon className="size-icon-xs animate-spin" /> Loading
-          profiles…
+          <SpinnerIcon className="size-icon-xs animate-spin" />{' '}
+          {tc('loadingProfiles')}
         </div>
       ) : profiles.length === 0 ? (
         <div className="rounded-sm border border-dashed border-border p-4 text-sm text-low">
-          No saved profiles for this provider yet.
+          {tc('noProfiles')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -1937,23 +1944,28 @@ export function AgentConfigurationSettingsPanel({
                       {profile.name}
                     </div>
                     <div className="text-xs text-low">
-                      {Object.keys(profile.setting_overrides).length +
-                        profile.configured_credential_keys.length}{' '}
-                      managed settings ·{' '}
-                      {Object.keys(profile.environment).length} environment
-                      values · {profile.custom_args.length} custom args ·
-                      updated {new Date(profile.updated_at).toLocaleString()}
+                      {tc('profileSummary', {
+                        settings:
+                          Object.keys(profile.setting_overrides).length +
+                          profile.configured_credential_keys.length,
+                        environment: Object.keys(profile.environment).length,
+                        args: profile.custom_args.length,
+                        date: new Intl.DateTimeFormat(
+                          i18n.resolvedLanguage ?? 'en',
+                          { dateStyle: 'medium', timeStyle: 'short' }
+                        ).format(new Date(profile.updated_at)),
+                      })}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <ToolAction
-                      label="Apply"
+                      label={tc('apply')}
                       icon={CheckCircleIcon}
                       disabled={busy || !snapshot || profileEditor !== null}
                       onClick={() => void previewProfileApply(profile)}
                     />
                     <ToolAction
-                      label="Copy"
+                      label={tc('copy')}
                       icon={CopyIcon}
                       disabled={busy || profileEditor !== null}
                       onClick={() => {
@@ -1978,11 +1990,11 @@ export function AgentConfigurationSettingsPanel({
                       }}
                     />
                     <ToolAction
-                      label="Duplicate"
+                      label={tc('duplicate')}
                       icon={PlusIcon}
                       disabled={busy || profileEditor !== null}
                       onClick={() => {
-                        const name = `${profile.name} copy`;
+                        const name = tc('copyName', { name: profile.name });
                         setProfileAction({
                           kind: 'duplicate',
                           sourceId: profile.id,
@@ -1999,7 +2011,7 @@ export function AgentConfigurationSettingsPanel({
                       onClick={() => editProfile(profile)}
                     />
                     <ToolAction
-                      label="Delete"
+                      label={tc('delete')}
                       icon={TrashIcon}
                       danger
                       disabled={busy || profileEditor !== null}
@@ -2091,11 +2103,7 @@ export function AgentConfigurationSettingsPanel({
   );
 
   if (!machineClient)
-    return (
-      <div className="py-4 text-sm text-low">
-        Select a machine to discover Agent settings.
-      </div>
-    );
+    return <div className="py-4 text-sm text-low">{tc('selectMachine')}</div>;
   if (loading && !snapshot)
     return (
       <div
@@ -2103,8 +2111,8 @@ export function AgentConfigurationSettingsPanel({
         role="status"
         aria-live="polite"
       >
-        <SpinnerIcon className="size-icon-sm animate-spin" /> Discovering{' '}
-        {PROVIDER_LABELS[provider]} settings…
+        <SpinnerIcon className="size-icon-sm animate-spin" />
+        {tc('discovering', { provider: PROVIDER_LABELS[provider] })}
       </div>
     );
 
@@ -2118,7 +2126,7 @@ export function AgentConfigurationSettingsPanel({
         <div className="flex items-center gap-2">
           <CodeIcon className="size-icon-sm text-brand" aria-hidden="true" />
           <h3 className="text-base font-medium text-high">
-            Installed Agent settings
+            {tc('installedSettings')}
           </h3>
         </div>
         {error && (
@@ -2127,7 +2135,15 @@ export function AgentConfigurationSettingsPanel({
             role="alert"
           >
             <WarningCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
-            {error}
+            <div className="min-w-0 space-y-2">
+              <p>{tc('operationFailed')}</p>
+              <details>
+                <summary className="cursor-pointer">{tc('details')}</summary>
+                <p className="mt-2 whitespace-pre-wrap break-words">
+                  {typeof error === 'string' ? error : tc(error.key)}
+                </p>
+              </details>
+            </div>
           </div>
         )}
         {notice && (
@@ -2136,19 +2152,23 @@ export function AgentConfigurationSettingsPanel({
             role="status"
           >
             <CheckCircleIcon className="mt-0.5 size-icon-sm shrink-0" />
-            {notice}
+            {notice === 'copyUpdated'
+              ? t('agentCenter.profileEditor.copy.updateNotice')
+              : notice === 'copySaved'
+                ? t('agentCenter.profileEditor.copy.createNotice')
+                : tc(notice)}
           </div>
         )}
         {!snapshot ? (
           <div className="rounded-sm border border-border p-4 text-sm text-low">
-            No settings snapshot available.
+            {tc('noSnapshot')}
           </div>
         ) : (
           <>
             <div
               className="flex flex-wrap gap-1 border-b border-border"
               role="tablist"
-              aria-label="Agent settings sections"
+              aria-label={tc('sectionsLabel')}
             >
               {sections.map((section) => (
                 <button
@@ -2166,7 +2186,9 @@ export function AgentConfigurationSettingsPanel({
                 >
                   {section.id === 'native_config'
                     ? t('agentCenter.nativeConfig.sectionLabel')
-                    : section.label}
+                    : tc(`sections.${section.id}`, {
+                        defaultValue: section.label,
+                      })}
                 </button>
               ))}
             </div>
@@ -2219,15 +2241,15 @@ export function AgentConfigurationSettingsPanel({
               <DialogHeader>
                 <DialogTitle>
                   {profileAction.kind === 'create'
-                    ? 'Save configuration profile'
+                    ? tc('saveProfileTitle')
                     : profileAction.kind === 'duplicate'
-                      ? 'Duplicate configuration profile'
-                      : 'Copy configuration profile'}
+                      ? tc('duplicateProfileTitle')
+                      : tc('copyProfileTitle')}
                 </DialogTitle>
                 <DialogDescription className="text-left">
                   {profileAction.kind === 'create'
-                    ? 'Save the current typed settings and profile runtime fields. The profile remains inactive until applied.'
-                    : `Source profile: ${profileAction.sourceName}`}
+                    ? tc('saveProfileHelp')
+                    : tc('sourceProfile', { name: profileAction.sourceName })}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">

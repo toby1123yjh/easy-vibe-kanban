@@ -413,13 +413,18 @@ export function CreateChatBoxContainer({
   ]);
 
   // Determine error to display
-  const displayError =
+  const errorDetails =
     targetError ??
     (createWorkspace.error
       ? createWorkspace.error instanceof Error
         ? createWorkspace.error.message
         : t('sessionProject.failed')
       : null);
+  const displayError = targetError
+    ? t('sessionProject.configureFailed')
+    : createWorkspace.error
+      ? t('sessionProject.createFailed')
+      : null;
 
   const projectSelector = (
     <label className="inline-flex min-w-0 max-w-[240px] items-center gap-half text-sm text-low">
@@ -523,7 +528,7 @@ export function CreateChatBoxContainer({
                   localAttachments,
                 }) => (
                   <WYSIWYGEditor
-                    placeholder="Describe the task..."
+                    placeholder={t('sessionProject.messagePlaceholder')}
                     value={value}
                     onChange={onChange}
                     onCmdEnter={onCmdEnter}
@@ -579,6 +584,16 @@ export function CreateChatBoxContainer({
                 }
               />
             </div>
+            {errorDetails && (
+              <details className="text-sm text-low">
+                <summary className="cursor-pointer">
+                  {t('errors.details')}
+                </summary>
+                <pre className="mt-half whitespace-pre-wrap break-words">
+                  {errorDetails}
+                </pre>
+              </details>
+            )}
           </>
         </div>
       </div>

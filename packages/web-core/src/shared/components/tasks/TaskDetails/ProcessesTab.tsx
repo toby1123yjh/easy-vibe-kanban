@@ -28,7 +28,7 @@ interface ProcessesTabProps {
 }
 
 function ProcessesTab({ sessionId }: ProcessesTabProps) {
-  const { t } = useTranslation('tasks');
+  const { t, i18n } = useTranslation('tasks');
   const {
     executionProcesses,
     executionProcessesById,
@@ -104,7 +104,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleString();
+    return date.toLocaleString(i18n.resolvedLanguage || 'en');
   };
 
   const fetchProcessDetails = useCallback(async (processId: string) => {

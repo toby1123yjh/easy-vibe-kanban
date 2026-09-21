@@ -55,7 +55,7 @@ export function RemoteCloudHostsSettingsCardContent({
   mode?: 'local' | 'remote';
   onClose?: () => void;
 }) {
-  const { t } = useTranslation(['settings', 'common']);
+  const { t, i18n } = useTranslation(['settings', 'common']);
   const navigate = useNavigate();
   const { hostId: routeHostId } = useParams({ strict: false });
   const [hostName, setHostName] = useState('');
@@ -595,7 +595,24 @@ export function RemoteCloudHostsSettingsCardContent({
                     </p>
                     <p className="truncate text-xs text-low">
                       {isRemoteMode && host.status
-                        ? `${host.status === 'online' ? 'Online' : 'Offline'}${host.pairedAt ? ` · Paired ${new Date(host.pairedAt).toLocaleDateString()}` : ''}`
+                        ? [
+                            t(
+                              host.status === 'online'
+                                ? 'common:hostStatus.online'
+                                : 'common:hostStatus.offline'
+                            ),
+                            host.pairedAt
+                              ? t('common:hostStatus.pairedOn', {
+                                  date: new Date(
+                                    host.pairedAt
+                                  ).toLocaleDateString(
+                                    i18n.resolvedLanguage || 'en'
+                                  ),
+                                })
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')
                         : host.id}
                     </p>
                   </button>

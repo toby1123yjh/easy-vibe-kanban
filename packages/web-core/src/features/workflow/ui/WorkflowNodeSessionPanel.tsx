@@ -382,11 +382,14 @@ function CockpitChip({
   );
 }
 
-function formatWorkflowTimestamp(value: string | null): string | null {
+function formatWorkflowTimestamp(
+  value: string | null,
+  locale: string
+): string | null {
   if (!value) return null;
   const time = new Date(value);
   if (Number.isNaN(time.getTime())) return value;
-  return time.toLocaleString();
+  return time.toLocaleString(locale);
 }
 
 function formatElapsedMs(value: number): string {
@@ -411,8 +414,15 @@ function WorkflowNodeRunSummary({
   const statusTone = runtimeWork?.active_slow
     ? 'warning'
     : getNodeStatusTone(execution.status);
-  const startedLabel = formatWorkflowTimestamp(execution.started_at);
-  const finishedLabel = formatWorkflowTimestamp(execution.finished_at);
+  const { i18n } = useTranslation();
+  const startedLabel = formatWorkflowTimestamp(
+    execution.started_at,
+    i18n.resolvedLanguage || 'en'
+  );
+  const finishedLabel = formatWorkflowTimestamp(
+    execution.finished_at,
+    i18n.resolvedLanguage || 'en'
+  );
   const durationLabel = formatWorkflowDuration(
     execution.started_at,
     execution.finished_at
@@ -639,7 +649,7 @@ function CanonicalTimelineItemView({
 }: {
   item: CanonicalAgentTimelineItem;
 }) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const label =
     item.kind === 'status' && item.status
       ? `${item.kind}: ${item.status}`
@@ -648,7 +658,12 @@ function CanonicalTimelineItemView({
     <div className="rounded border border-secondary bg-panel/60 p-half text-xs">
       <div className="flex items-center justify-between gap-half text-[10px] uppercase text-low">
         <span>{label}</span>
-        <time>{formatWorkflowTimestamp(item.timestamp) ?? item.timestamp}</time>
+        <time>
+          {formatWorkflowTimestamp(
+            item.timestamp,
+            i18n.resolvedLanguage || 'en'
+          ) ?? item.timestamp}
+        </time>
       </div>
       {item.content ? (
         <p className="mt-1 whitespace-pre-wrap text-high">{item.content}</p>

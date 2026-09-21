@@ -1,10 +1,30 @@
 {
+  "hostStatus": {
+    "online": "已連線",
+    "offline": "離線",
+    "pairedOn": "配對於 {{date}}"
+  },
+  "releaseNotes": {
+    "title": "更新日誌",
+    "description": "了解 Vibe Kanban 的最新變更。",
+    "loading": "正在載入更新日誌",
+    "loadingDescription": "正在取得最新更新...",
+    "failed": "無法載入更新日誌",
+    "retryDescription": "請重試，或前往 GitHub 查看發佈記錄。",
+    "retrying": "正在重試...",
+    "empty": "尚無更新日誌",
+    "emptyDescription": "有可用更新時會顯示在這裡。",
+    "openGitHub": "在 GitHub 查看"
+  },
   "projectSessions": {
-    "column": "討論",
+    "column": "Discuss",
     "create": "新增討論",
     "empty": "暫無討論。"
   },
   "sessionProject": {
+    "messagePlaceholder": "描述你想做的事…",
+    "createFailed": "無法啟動工作階段，請重試。",
+    "configureFailed": "無法儲存專案工作目錄。",
     "label": "專案",
     "failed": "無法載入專案工作空間，請重試。",
     "missingWorkspace": "這個專案尚無工作空間，設定後即可開始工作階段。",
@@ -70,84 +90,84 @@
     "headerSummaryWithMemos": "{{running}} 個執行中 / {{promoted}} 個已採用 / {{archived}} 個已封存 / {{memos}} 份備忘錄",
     "comparison": {
       "title": "Arena · {{prompt}}",
-      "summary": "{{count}} candidates · {{completed}} completed",
-      "winner": "Winning result",
-      "candidate": "Candidate",
-      "selectWinner": "Select winning result",
-      "empty": "No Arena candidates are available yet.",
-      "unknownExecutor": "Unknown Agent",
-      "openSession": "Open session",
+      "summary": "{{count}} 個候選 · {{completed}} 個已完成",
+      "winner": "勝出結果",
+      "candidate": "候選",
+      "selectWinner": "選擇勝出結果",
+      "empty": "尚無 Arena 候選結果。",
+      "unknownExecutor": "未知智能體",
+      "openSession": "開啟工作階段",
       "openDiff": "Diff"
     },
     "purpose": {
-      "attempt": "Attempt",
-      "synthesis": "Synthesis"
+      "attempt": "嘗試",
+      "synthesis": "綜合"
     },
     "agentStatus": {
-      "not_started": "Not started",
-      "pending": "Pending",
-      "starting": "Starting",
-      "running": "Running",
-      "awaiting_input": "Waiting for input",
-      "awaiting_approval": "Waiting for approval",
-      "cancelling": "Cancelling",
-      "succeeded": "Completed",
-      "failed": "Failed",
-      "cancelled": "Cancelled",
-      "crashed": "Crashed",
-      "audit_failed": "Audit failed"
+      "not_started": "尚未開始",
+      "pending": "等待中",
+      "starting": "啟動中",
+      "running": "執行中",
+      "awaiting_input": "等待輸入",
+      "awaiting_approval": "等待核准",
+      "cancelling": "取消中",
+      "succeeded": "已完成",
+      "failed": "失敗",
+      "cancelled": "已取消",
+      "crashed": "已崩潰",
+      "audit_failed": "稽核失敗"
     },
-    "moreActions": "More Arena actions",
+    "moreActions": "更多 Arena 操作",
     "lifecycleActions": {
-      "closeRound": "Close round",
-      "dissolveAndArchive": "Dissolve and archive",
-      "dissolveTitle": "Dissolve and archive this Arena?",
-      "dissolveMessage": "This will archive all {{count}} candidate workspaces and delete the Arena. This cannot be undone.",
-      "closedFeedback": "The Arena round is closed. Results and workspaces were preserved."
+      "closeRound": "結束本輪",
+      "dissolveAndArchive": "解散並封存",
+      "dissolveTitle": "解散並封存此 Arena？",
+      "dissolveMessage": "這將封存全部 {{count}} 個候選工作空間並刪除 Arena，且無法復原。",
+      "closedFeedback": "本輪 Arena 已結束，結果和工作空間均已保留。"
     },
     "selector": {
-      "label": "Candidate result",
-      "fixedSummary": "{{attempts}} attempts · {{synthesis}} synthesis · {{active}} active"
+      "label": "候選結果",
+      "fixedSummary": "{{attempts}} 個嘗試 · {{synthesis}} 個綜合 · {{active}} 個進行中"
     },
     "resultSummary": {
-      "title": "Result summary",
-      "loading": "Loading the latest result...",
-      "loadFailed": "The latest result could not be loaded.",
-      "running": "The Agent is still working. Its final result will appear here.",
-      "empty": "No final result was reported."
+      "title": "結果摘要",
+      "loading": "正在載入最新結果...",
+      "loadFailed": "無法載入最新結果。",
+      "running": "智能體仍在執行，最終結果將顯示在此處。",
+      "empty": "尚未回報最終結果。"
     },
     "diff": {
       "title": "Diff",
-      "unavailable": "Diff summary unavailable",
-      "summary": "{{count}} changed files"
+      "unavailable": "無法取得差異摘要",
+      "summary": "{{count}} 個變更檔案"
     },
     "tests": {
-      "title": "Tests",
-      "running": "Waiting for the Agent's final test result.",
-      "empty": "No structured test result was reported."
+      "title": "測試",
+      "running": "正在等待智能體的最終測試結果。",
+      "empty": "尚未回報結構化測試結果。"
     },
     "stopAll": {
-      "action": "Stop all",
-      "stopping": "Stopping all candidates",
-      "retry": "Retry stop",
-      "requested": "Cancellation requested for {{count}} Agent runs.",
-      "partialFailure": "Stop All completed with {{failed}} failures out of {{total}} requests. Retry is available.",
-      "failed": "Stop All failed. Retry is available."
+      "action": "全部停止",
+      "stopping": "正在停止全部候選",
+      "retry": "重試停止",
+      "requested": "已請求取消 {{count}} 個智能體執行。",
+      "partialFailure": "已完成全部停止請求，{{total}} 個請求中有 {{failed}} 個失敗，可重試。",
+      "failed": "全部停止失敗，可重試。"
     },
     "winnerConfirm": {
-      "title": "Use {{candidate}} as the winning result?",
-      "description": "Review the candidate and its impact before continuing.",
-      "changedFiles": "Changed files",
-      "unavailable": "Unavailable",
-      "archivedCandidates": "Candidates to archive",
-      "otherCandidates": "Other candidates",
-      "remainAvailable": "Remain available",
-      "workflowImpact": "The candidate changes will be applied and the Workflow will continue.",
-      "implementationImpact": "This result becomes the implementation starting point. Other candidate results remain available.",
-      "applying": "Applying winning result",
-      "applyAndContinue": "Apply and continue",
-      "startImplementation": "Start implementation",
-      "adopt": "Use result"
+      "title": "使用 {{candidate}} 作為勝出結果？",
+      "description": "繼續前，請確認此候選結果及其影響。",
+      "changedFiles": "變更檔案",
+      "unavailable": "無法取得",
+      "archivedCandidates": "即將封存的候選",
+      "otherCandidates": "其他候選",
+      "remainAvailable": "仍可使用",
+      "workflowImpact": "將套用此候選的變更並繼續工作流。",
+      "implementationImpact": "此結果將作為實作起點，其他候選結果仍可使用。",
+      "applying": "正在套用勝出結果",
+      "applyAndContinue": "套用並繼續",
+      "startImplementation": "開始實作",
+      "adopt": "使用結果"
     },
     "modes": {
       "design": "抽卡模式",
@@ -244,10 +264,10 @@
     "create": {
       "titleDesign": "啟動設計 Arena / {{count}} 個執行",
       "titleImplementation": "啟動實作 Arena / {{count}} 個執行",
-      "descriptionDesign": "讓多個 agent 進行設計對話並相互比較。工作區彼此隔離，預設不會建立提交。",
+      "descriptionDesign": "讓多個智能體進行設計對話並相互比較。工作空間彼此隔離，預設不會建立提交。",
       "descriptionImplementation": "執行多個實作執行，並比較它們的程式碼改動。",
       "prompt": "提示詞",
-      "promptPlaceholder": "描述每個 agent 應該做什麼...",
+      "promptPlaceholder": "描述每個智能體應該做什麼...",
       "mode": "模式",
       "modeDesign": "設計",
       "modeImplementation": "實作",
@@ -270,8 +290,8 @@
       }
     },
     "workspace": {
-      "workspace": "工作區",
-      "agent": "Agent",
+      "workspace": "工作空間",
+      "agent": "智能體",
       "attemptName": "執行 {{index}}",
       "loadingArena": "正在載入 Arena...",
       "loadingConversation": "正在載入對話...",
@@ -305,7 +325,7 @@
       "todoOperation": "{{operation}} 待辦事項"
     },
     "subagent": {
-      "defaultType": "子代理"
+      "defaultType": "子智能體"
     },
     "loadingEarlierMessages": "正在載入先前的訊息"
   },
@@ -351,30 +371,30 @@
     "label": "標籤"
   },
   "workspaces": {
-    "title": "工作區",
+    "title": "工作空間",
     "searchPlaceholder": "搜尋...",
     "active": "活躍",
     "archived": "已封存",
     "loading": "載入中...",
-    "loadingTitle": "正在載入工作區",
-    "openingTitle": "正在開啟新工作區",
-    "errorTitle": "無法載入工作區",
+    "loadingTitle": "正在載入工作空間",
+    "openingTitle": "正在開啟新工作空間",
+    "errorTitle": "無法載入工作空間",
     "errorDescription": "請檢查連線後再試一次。",
-    "degradedTitle": "工作區資料可能不是最新的",
-    "degradedDescription": "連線恢復期間，仍可使用上次載入的工作區。",
-    "emptyTitle": "尚無工作區",
-    "emptyDescription": "啟動工作區以執行智能體任務。",
-    "retrying": "正在重新載入工作區",
+    "degradedTitle": "工作空間資料可能不是最新的",
+    "degradedDescription": "連線恢復期間，仍可使用上次載入的工作空間。",
+    "emptyTitle": "尚無工作空間",
+    "emptyDescription": "啟動工作空間以執行智能體任務。",
+    "retrying": "正在重新載入工作空間",
     "actionsFor": "{{name}} 的操作",
-    "toggleLayout": "切換工作區版面配置",
-    "notFound": "找不到工作區",
-    "selectToStart": "選擇一個工作區開始",
+    "toggleLayout": "切換工作空間版面配置",
+    "notFound": "找不到工作空間",
+    "selectToStart": "選擇一個工作空間開始",
     "draft": "草稿",
     "viewArchive": "檢視封存",
     "backToActive": "返回活躍",
-    "noArchived": "沒有已封存的工作區",
-    "noWorkspaces": "沒有工作區",
-    "newWorkspace": "新工作區",
+    "noArchived": "沒有已封存的工作空間",
+    "noWorkspaces": "沒有工作空間",
+    "newWorkspace": "新工作空間",
     "needsAttention": "需要關注",
     "idle": "閒置",
     "running": "執行中",
@@ -383,48 +403,48 @@
     "archive": "封存",
     "more": "更多操作",
     "rename": {
-      "title": "重新命名工作區",
-      "description": "輸入此工作區的新名稱。",
+      "title": "重新命名工作空間",
+      "description": "輸入此工作空間的新名稱。",
       "nameLabel": "名稱",
-      "placeholder": "輸入工作區名稱",
+      "placeholder": "輸入工作空間名稱",
       "action": "重新命名",
       "renaming": "正在重新命名..."
     },
     "unlinkFromIssue": "從問題取消關聯",
-    "deleteWorkspace": "刪除工作區",
+    "deleteWorkspace": "刪除工作空間",
     "unlink": "取消關聯",
     "delete": "刪除",
-    "unlinkConfirmMessage": "確定要將此工作區與問題取消關聯嗎？工作區仍將存在，但不再與此問題關聯。",
-    "deleteConfirmMessage": "確定要刪除此工作區嗎？這將取消與問題的關聯並刪除本地工作區。此操作無法復原。",
-    "unlinkError": "取消關聯工作區失敗",
-    "deleteError": "刪除工作區失敗",
+    "unlinkConfirmMessage": "確定要將此工作空間與問題取消關聯嗎？工作空間仍將存在，但不再與此問題關聯。",
+    "deleteConfirmMessage": "確定要刪除此工作空間嗎？這將取消與問題的關聯並刪除本地工作空間。此操作無法復原。",
+    "unlinkError": "取消關聯工作空間失敗",
+    "deleteError": "刪除工作空間失敗",
     "filesChanged": "{{count}} 個檔案",
     "deleteDialog": {
-      "title": "刪除工作區",
-      "description": "確定要刪除此工作區嗎？此操作無法復原。",
+      "title": "刪除工作空間",
+      "description": "確定要刪除此工作空間嗎？此操作無法復原。",
       "deleteBranchLabel": "刪除分支",
       "cannotDeleteOpenPr": "PR 開啟時無法刪除分支",
       "unlinkFromIssueLabel": "同時取消與議題的關聯"
     },
-    "linkError": "關聯工作區失敗"
+    "linkError": "關聯工作空間失敗"
   },
   "attempts": {
     "title": "任務執行",
     "loading": "正在載入任務執行...",
     "empty": "暫無任務執行。",
     "newWorkflow": "新增工作流執行",
-    "newSingleAgent": "新增單一智慧體執行",
+    "newSingleAgent": "新增單一智能體執行",
     "templatePicker": {
       "title": "選擇工作流範本",
       "blank": "空白工作流",
       "blankDescription": "從空白畫布開始。"
     },
     "workflowFallbackTitle": "工作流執行",
-    "singleAgentFallbackTitle": "單一智慧體執行",
+    "singleAgentFallbackTitle": "單一智能體執行",
     "draftWorkflow": "工作流執行草稿",
     "workflowRun": "執行 {{id}}",
-    "workspace": "工作區 {{id}}",
-    "remoteWorkspace": "遠端工作區",
+    "workspace": "工作空間 {{id}}",
+    "remoteWorkspace": "遠端工作空間",
     "openCanvas": "開啟工作流",
     "openSession": "開啟會話",
     "runWorkflow": "執行工作流執行",
@@ -449,7 +469,7 @@
   "workflow": {
     "entry": {
       "title": "工作流執行",
-      "subtitle": "先設計任務執行，再執行智慧體",
+      "subtitle": "先設計任務執行，再執行智能體",
       "openCanvas": "開啟工作流",
       "openCanvasAria": "開啟工作流執行"
     },
@@ -465,7 +485,7 @@
       "noteTitle": "筆記",
       "noteContent": "記錄這個階段的目標、約束或注意事項。",
       "newStageTitle": "新階段",
-      "newStageDescription": "把相關智慧體放在同一階段內。"
+      "newStageDescription": "把相關智能體放在同一階段內。"
     },
     "nodes": {
       "start": {
@@ -477,7 +497,7 @@
         "summary": "工作流出口"
       },
       "agent": {
-        "label": "智慧體節點",
+        "label": "智能體節點",
         "summary": "角色：{{role}}"
       },
       "condition": {
@@ -503,11 +523,11 @@
       "addNode": "新增節點",
       "chooseNodeType": "選擇節點類型",
       "descriptions": {
-        "agent": "執行任務的 AI 智慧體",
+        "agent": "執行任務的 AI 智能體",
         "condition": "在已連接的分支之間路由任務",
         "human_gate": "等待人工審批",
         "transform": "轉換節點之間的資料",
-        "arena": "並行執行多個候選智慧體"
+        "arena": "並行執行多個候選智能體"
       }
     },
     "authoringErrors": {
@@ -520,7 +540,7 @@
       "duplicateConnection": "這條路由已連接到目標節點。",
       "nodeTitleRequired": "請為此節點填寫標題。",
       "taskPromptRequired": "請新增任務提示詞。",
-      "agentRequired": "請選擇智慧體。",
+      "agentRequired": "請選擇智能體。",
       "branchesRequired": "請補全每個條件分支。",
       "unconnectedBranch": "請將每個條件分支連接到目標節點。",
       "approvalRequestRequired": "請新增審批請求。",
@@ -605,14 +625,14 @@
       "runInputRequired": "請先填寫執行輸入，再啟動工作流。",
       "draftMissing": "這個本機工作流草稿已不存在，請重新新增工作流執行。",
       "saveBeforeRun": "請先儲存工作流執行，再開始執行。",
-      "saveBeforeSession": "請先儲存工作流執行，再開啟智慧體節點會話。",
+      "saveBeforeSession": "請先儲存工作流執行，再開啟智能體節點會話。",
       "startFailed": "啟動工作流執行失敗。",
       "revisionConflict": "此工作流已在其他位置更新（目前版本 {{currentRevision}}）。再次儲存前請重新載入；畫布上的本機修改仍會保留。",
       "invalidGraph": "工作流 JSON 不包含有效工作流。",
       "parseGraphFailed": "無法解析工作流 JSON。"
     },
     "workspaceDialog": {
-      "title": "選擇工作流工作區",
+      "title": "選擇工作流工作空間",
       "description": "可以直接使用目錄，也可以選擇 Git 儲存庫和基準分支建立隔離 worktree。"
     },
     "repositoryDialog": {
@@ -625,11 +645,11 @@
     "runDialog": {
       "title": "執行工作流執行",
       "description": "啟動這個關聯議題的工作流執行。",
-      "mainWorkspace": "主工作區",
-      "createWorkflowWorkspace": "建立工作流工作區",
-      "usesExistingWorkspace": "使用現有工作區。",
-      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的現有工作區。",
-      "createWorkspaceHint": "為本次執行選擇目錄或 Git worktree，工作流節點共用所選工作區。",
+      "mainWorkspace": "主工作空間",
+      "createWorkflowWorkspace": "建立工作流工作空間",
+      "usesExistingWorkspace": "使用現有工作空間。",
+      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的現有工作空間。",
+      "createWorkspaceHint": "為本次執行選擇目錄或 Git worktree，工作流節點共用所選工作空間。",
       "runInput": "執行輸入",
       "startRun": "開始執行"
     },
@@ -644,7 +664,7 @@
       "systemTemplateReadOnly": "系統範本（唯讀）",
       "addStep": "新增節點",
       "addWorkflowStep": "新增工作流節點",
-      "addAgentStep": "新增智慧體節點",
+      "addAgentStep": "新增智能體節點",
       "nodePalette": "節點庫",
       "nodePaletteReadOnly": "複製此範本後即可新增或拖曳節點。",
       "searchSteps": "搜尋節點...",
@@ -666,9 +686,9 @@
       "copyToProject": "複製到專案",
       "copyName": "{{name}}（副本）",
       "copySuffix": "副本",
-      "deleteAgentStepTitle": "刪除智慧體節點",
+      "deleteAgentStepTitle": "刪除智能體節點",
       "deleteAgentStepMessage": "這會從工作流中移除此節點。既有會話歷史不會複製到其他節點。",
-      "agentStepActions": "智慧體節點操作",
+      "agentStepActions": "智能體節點操作",
       "nodeActions": "節點操作",
       "openSession": "開啟會話",
       "duplicate": "複製",
@@ -693,10 +713,10 @@
       "nodesSelected": "已選擇 {{count}} 個節點",
       "deletedObjects": "已刪除 {{count}} 項",
       "deletedObjects_other": "已刪除 {{count}} 項",
-      "saveAsTemplate": "Save as template",
-      "savedTemplateName": "{{name}} template",
-      "templateSavedTitle": "Template saved",
-      "templateSavedMessage": "\"{{name}}\" is now available when creating workflow attempts."
+      "saveAsTemplate": "另存為範本",
+      "savedTemplateName": "{{name}} 範本",
+      "templateSavedTitle": "範本已儲存",
+      "templateSavedMessage": "建立工作流執行時即可使用「{{name}}」。"
     },
     "canvas": {
       "needsConfiguration": "需要設定",
@@ -724,28 +744,28 @@
       }
     },
     "agentEdit": {
-      "title": "編輯智慧體節點",
+      "title": "編輯智能體節點",
       "description": "設定此節點的會話提示詞與執行器。",
       "close": "關閉編輯器",
-      "runningHint": "此節點正在執行。提示詞與智慧體設定可在執行結束後編輯。",
+      "runningHint": "此節點正在執行。提示詞與智能體設定可在執行結束後編輯。",
       "nextRunHint": "改動會在下一次工作流執行或下一次觸發此節點時生效。",
       "stepTitle": "節點標題",
-      "defaultTitle": "智慧體節點",
+      "defaultTitle": "智能體節點",
       "defaultPrompt": "預設提示詞",
-      "promptPlaceholder": "描述這個智慧體節點要做什麼...",
+      "promptPlaceholder": "描述這個智能體節點要做什麼...",
       "executor": "執行器",
       "selectExecutor": "選擇執行器",
-      "agent": "智慧體",
+      "agent": "智能體",
       "saveStep": "儲存節點"
     },
     "router": {
       "toolbar": "路由器",
-      "title": "路由智慧體",
-      "description": "選擇用於評估此工作流條件分支的智慧體。",
+      "title": "路由智能體",
+      "description": "選擇用於評估此工作流條件分支的智能體。",
       "close": "關閉路由設定",
-      "executor": "智慧體",
-      "selectExecutor": "選擇智慧體",
-      "agent": "智慧體",
+      "executor": "智能體",
+      "selectExecutor": "選擇智能體",
+      "agent": "智能體",
       "save": "儲存路由器"
     },
     "inspector": {
@@ -782,7 +802,7 @@
       "deleteNodeDescription": "從草稿中移除此節點及其關聯連線。"
     },
     "agentDraft": {
-      "defaultStepName": "智慧體節點",
+      "defaultStepName": "智能體節點",
       "promptPlaceholder": "描述這個工作流節點...",
       "selectExecutor": "選擇執行器",
       "startRun": "開始執行",
@@ -823,7 +843,7 @@
       "reviewNodeToProceed": "請檢查此節點以繼續。",
       "approving": "正在核准...",
       "rejecting": "正在拒絕...",
-      "conversationAgentOnly": "智慧體和條件節點支援會話。",
+      "conversationAgentOnly": "智能體和條件節點支援會話。",
       "conditionBranchFailed": "選擇條件分支失敗。",
       "conditionRouterBranches": "可選分支",
       "continueSelectedBranches": "繼續所選分支",
@@ -831,8 +851,8 @@
       "nodeId": "節點 ID",
       "nodeType": "節點類型",
       "noConditionBranches": "沒有可用的已連接條件分支。",
-      "workspaceId": "工作區 ID",
-      "noWorkspace": "無工作區",
+      "workspaceId": "工作空間 ID",
+      "noWorkspace": "無工作空間",
       "started": "開始時間",
       "finished": "完成時間",
       "notFinished": "尚未完成",
@@ -914,7 +934,7 @@
       "session": "會話",
       "retryStep": "重試節點",
       "codeChanges": "程式碼改動",
-      "openWorkflowWorkspace": "開啟工作流工作區",
+      "openWorkflowWorkspace": "開啟工作流工作空間",
       "inspectFiles": "檢視檔案",
       "noCodeChanges": "本次執行沒有關聯的程式碼改動。",
       "selectedStep": "節點：{{nodeId}}",
@@ -934,28 +954,28 @@
       "arenaGroup": "Arena 群組",
       "pickWinner": "選擇勝出項",
       "winner": "勝出項",
-      "agentContribution": "智慧體貢獻",
+      "agentContribution": "智能體貢獻",
       "totalTokens": "Token 總數",
       "estimatedCost": "預估成本",
-      "agentSteps": "智慧體節點",
+      "agentSteps": "智能體節點",
       "controlSteps": "控制節點",
       "notStarted": "未開始",
       "notAvailable": "不適用"
     },
     "agentSessions": {
-      "title": "智慧體節點會話",
-      "none": "這個智慧體節點在本次執行中還沒有建立會話。",
+      "title": "智能體節點會話",
+      "none": "這個智能體節點在本次執行中還沒有建立會話。",
       "session": "會話 {{id}}",
       "run": "執行 {{id}}",
       "process": "處理程序 {{id}}",
       "open": "開啟",
       "noOutputYet": "還沒有輸出",
-      "agentRun": "AgentRun {{id}}",
-      "projection": "Projection: {{status}}"
+      "agentRun": "智能體執行 {{id}}",
+      "projection": "同步狀態：{{status}}"
     },
     "arenaWinner": {
       "title": "需要選擇 Arena 結果",
-      "description": "選擇一個已完成的執行，將它的差異套用回工作流工作區。",
+      "description": "選擇一個已完成的執行，將它的差異套用回工作流工作空間。",
       "selectFailed": "選擇 Arena 獲勝結果失敗。",
       "noGroupLink": "Arena 分組連結不可用。",
       "loadingAttempts": "正在載入執行...",
@@ -966,7 +986,7 @@
       "changes": "有變更",
       "noChanges": "無變更",
       "changesUnknown": "變更未知",
-      "openWorkspace": "開啟 {{label}} 工作區",
+      "openWorkspace": "開啟 {{label}} 工作空間",
       "selected": "已選擇",
       "applying": "正在套用...",
       "selectWinner": "選擇獲勝結果",
@@ -982,7 +1002,7 @@
       }
     },
     "nodeSession": {
-      "agentStepSession": "智慧體節點會話",
+      "agentStepSession": "智能體節點會話",
       "conditionRouterSession": "條件路由會話",
       "nodeSession": "節點會話",
       "sessionNotStarted": "會話尚未開始",
@@ -990,12 +1010,12 @@
       "runThisStep": "執行此節點",
       "editConfig": "編輯設定",
       "inspectFiles": "檢視檔案",
-      "openWorkspace": "開啟工作區",
+      "openWorkspace": "開啟工作空間",
       "lastRunFailed": "上次執行失敗",
-      "failedWithoutMessage": "智慧體失敗，但沒有擷取到錯誤訊息。",
+      "failedWithoutMessage": "智能體失敗，但沒有擷取到錯誤訊息。",
       "runningNow": "正在執行",
       "startedDuration": "開始於 {{started}} / {{duration}}",
-      "agentWorking": "智慧體正在此會話中工作。",
+      "agentWorking": "智能體正在此會話中工作。",
       "waitingForDecision": "此節點正在等待決策，之後工作流才會繼續。",
       "lastRunSucceeded": "上次執行成功",
       "finishedDuration": "完成於 {{finished}} / {{duration}}",
@@ -1007,82 +1027,82 @@
       "processId": "處理程序 ID",
       "conversation": "會話",
       "session": "會話：{{id}}",
-      "noAgentResponse": "尚未擷取到智慧體回應。",
+      "noAgentResponse": "尚未擷取到智能體回應。",
       "nodePrompt": "節點提示詞",
       "noPrompt": "尚未擷取到提示詞。",
       "rawRouterOutput": "原始路由輸出",
-      "orchestrationNodeExecutionId": "Orchestration node execution ID",
-      "agentRunId": "AgentRun ID",
-      "projection": "Projection status",
-      "projectionUnavailable": "Canonical AgentRun projection is unavailable; actions are disabled.",
-      "runtimeConnection": "Runtime connection",
-      "connected": "Connected",
-      "disconnected": "Disconnected",
-      "nativeConfigLoaded": "Native executor configuration loaded.",
-      "nativeConfigUnavailable": "Native executor configuration is unavailable.",
-      "eventRecorded": "Canonical event recorded."
+      "orchestrationNodeExecutionId": "Node 編排執行 ID",
+      "agentRunId": "智能體執行 ID",
+      "projection": "同步狀態",
+      "projectionUnavailable": "無法取得智能體執行狀態，暫不可操作。",
+      "runtimeConnection": "執行連線",
+      "connected": "已連線",
+      "disconnected": "已中斷",
+      "nativeConfigLoaded": "已載入智能體原生設定。",
+      "nativeConfigUnavailable": "無法取得智能體原生設定。",
+      "eventRecorded": "已記錄執行事件。"
     },
     "schedule": {
-      "button": "Scheduled task",
-      "title": "Set scheduled task",
-      "description": "Run this workflow automatically on a daily or weekly schedule.",
-      "summaryPrefix": "Scheduled task: {{summary}}",
-      "summaryUnset": "Not set",
-      "summaryPaused": "Paused",
-      "summaryDaily": "Daily {{time}}",
-      "summaryWeekly": "Every {{weekday}} {{time}}",
-      "summaryFailed": "Last run failed",
-      "enabled": "Enabled",
-      "paused": "Paused",
-      "frequency": "Frequency",
-      "daily": "Daily",
-      "weekly": "Weekly",
-      "time": "Time",
-      "weekday": "Weekday",
-      "timezone": "Timezone",
-      "contextIssue": "Context issue",
-      "inputText": "Run input",
-      "inputPlaceholder": "Describe what this run should do.",
-      "save": "Save",
-      "runNow": "Run now",
-      "delete": "Delete",
-      "nextRun": "Next run",
-      "lastTriggered": "Last triggered",
-      "lastStatus": "Last status",
-      "target": "Target",
-      "noIssue": "No issues available",
-      "none": "None",
-      "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
-      "deleteTitle": "Delete scheduled task?",
-      "deleteMessage": "This removes the schedule for this workflow. Existing workflow runs are kept.",
+      "button": "排程任務",
+      "title": "設定排程任務",
+      "description": "每天或每週自動執行此工作流。",
+      "summaryPrefix": "排程任務：{{summary}}",
+      "summaryUnset": "尚未設定",
+      "summaryPaused": "已暫停",
+      "summaryDaily": "每天 {{time}}",
+      "summaryWeekly": "每{{weekday}} {{time}}",
+      "summaryFailed": "上次執行失敗",
+      "enabled": "已啟用",
+      "paused": "已暫停",
+      "frequency": "頻率",
+      "daily": "每天",
+      "weekly": "每週",
+      "time": "時間",
+      "weekday": "星期",
+      "timezone": "時區",
+      "contextIssue": "關聯議題",
+      "inputText": "執行輸入",
+      "inputPlaceholder": "描述本次執行需要完成的工作。",
+      "save": "儲存",
+      "runNow": "立即執行",
+      "delete": "刪除",
+      "nextRun": "下次執行",
+      "lastTriggered": "上次觸發",
+      "lastStatus": "上次狀態",
+      "target": "目標",
+      "noIssue": "無可用議題",
+      "none": "無",
+      "saveBeforeSchedule": "新增排程任務前，請先儲存此工作流。",
+      "deleteTitle": "刪除排程任務？",
+      "deleteMessage": "這會移除此工作流的排程，已有執行記錄會保留。",
       "status": {
-        "idle": "Idle",
-        "running": "Running",
-        "awaitingHuman": "Waiting for human",
-        "awaitingArena": "Waiting for arena",
-        "succeeded": "Succeeded",
-        "failed": "Failed",
-        "skipped": "Skipped",
-        "canceled": "Canceled"
+        "idle": "閒置",
+        "running": "執行中",
+        "awaitingHuman": "等待人工處理",
+        "awaitingArena": "等待 Arena",
+        "succeeded": "已完成",
+        "failed": "失敗",
+        "skipped": "已略過",
+        "canceled": "已取消"
       },
       "weekdays": {
-        "monday": "Monday",
-        "tuesday": "Tuesday",
-        "wednesday": "Wednesday",
-        "thursday": "Thursday",
-        "friday": "Friday",
-        "saturday": "Saturday",
-        "sunday": "Sunday"
+        "monday": "星期一",
+        "tuesday": "星期二",
+        "wednesday": "星期三",
+        "thursday": "星期四",
+        "friday": "星期五",
+        "saturday": "星期六",
+        "sunday": "星期日"
       },
       "errors": {
-        "issueRequired": "Choose a context issue.",
-        "timeRequired": "Choose a valid time.",
-        "weekdayRequired": "Choose a weekday.",
-        "inputRequired": "Add run input before saving the scheduled task.",
-        "saveFailed": "Failed to save scheduled task.",
-        "runFailed": "Failed to run scheduled task.",
-        "runSkipped": "This run was skipped because the previous scheduled run is still active.",
-        "deleteFailed": "Failed to delete scheduled task."
+        "issueRequired": "請選擇關聯議題。",
+        "timeRequired": "請選擇有效時間。",
+        "weekdayRequired": "請選擇星期。",
+        "inputRequired": "儲存排程任務前，請填寫執行輸入。",
+        "saveFailed": "無法儲存排程任務。",
+        "runFailed": "無法執行排程任務。",
+        "runSkipped": "上次排程執行仍在進行，本次已略過。",
+        "deleteFailed": "無法刪除排程任務。"
       }
     }
   },
@@ -1111,8 +1131,8 @@
     "notes": "筆記"
   },
   "notes": {
-    "placeholder": "新增關於此工作區的筆記...",
-    "selectWorkspace": "選擇一個工作區以查看筆記"
+    "placeholder": "新增關於此工作空間的筆記...",
+    "selectWorkspace": "選擇一個工作空間以查看筆記"
   },
   "actions": {
     "copyPath": "複製路徑",
@@ -1152,23 +1172,23 @@
     },
     "commandBar": {
       "title": "命令列",
-      "content": "命令列是您的導覽中心。使用 CMD+K 開啟它，可以搜尋和存取工作區中的所有可用操作。"
+      "content": "命令列是您的導覽中心。使用 CMD+K 開啟它，可以搜尋和存取工作空間中的所有可用操作。"
     },
     "contextBar": {
       "title": "上下文列",
       "content": "上下文列讓您可以快速切換不同面板。將它拖曳到最適合您的位置。"
     },
     "sidebar": {
-      "title": "工作區側邊欄",
-      "content": "一目了然地檢視所有工作區的狀態。通知會醒目提示需要關注的工作區。封存已合併的工作區以保持側邊欄整潔。"
+      "title": "工作空間側邊欄",
+      "content": "一目了然地檢視所有工作空間的狀態。通知會醒目提示需要關注的工作空間。封存已合併的工作空間以保持側邊欄整潔。"
     },
     "multiRepo": {
       "title": "多儲存庫支援",
-      "content": "將多個儲存庫新增到單一工作區。在處理一個儲存庫時可以參考另一個儲存庫的程式碼，或者同時在多個儲存庫中實作變更。"
+      "content": "將多個儲存庫新增到單一工作空間。在處理一個儲存庫時可以參考另一個儲存庫的程式碼，或者同時在多個儲存庫中實作變更。"
     },
     "sessions": {
       "title": "多工作階段",
-      "content": "在單一工作區內建立多個代理對話工作階段，包括與不同代理的工作階段。這可以幫助您繞過對話限制，或在單獨的執行緒中啟動審查代理。"
+      "content": "在單一工作空間內建立多個智能體對話工作階段，包括與不同智能體的工作階段。這可以幫助您繞過對話限制，或在單獨的執行緒中啟動審查智能體。"
     },
     "preview": {
       "title": "預覽變更",
@@ -1176,7 +1196,7 @@
     },
     "diffs": {
       "title": "差異和評論",
-      "content": "重新設計的差異面板包含變更的檔案樹。直接在差異上評論以向代理提供回饋，當您的工作區連結到 PR 時還可以檢視 GitHub 評論。"
+      "content": "重新設計的差異面板包含變更的檔案樹。直接在差異上評論以向智能體提供回饋，當您的工作空間連結到 PR 時還可以檢視 GitHub 評論。"
     }
   },
   "logs": {
@@ -1199,7 +1219,7 @@
   },
   "shortcuts": {
     "title": "鍵盤快捷鍵",
-    "inWorkspace": "(在工作區中)",
+    "inWorkspace": "(在工作空間中)",
     "sequentialHint": "組合快捷鍵：先按第一個鍵，然後在500毫秒內按第二個鍵。",
     "configurableHint": "可在 設定 → 一般 → 訊息輸入 中設定",
     "groups": {
@@ -1207,7 +1227,7 @@
       "navigation": "導覽",
       "modifiers": "修飾鍵",
       "goTo": "前往 (G ...)",
-      "workspace": "工作區 (W ...)",
+      "workspace": "工作空間 (W ...)",
       "view": "檢視 (V ...)",
       "issues": "問題 (I ...)",
       "git": "Git (X ...)",
@@ -1229,12 +1249,12 @@
       "formatInlineCode": "格式化行內程式碼",
       "sendMessage": "傳送訊息",
       "settings": "前往設定",
-      "new-workspace": "前往新工作區",
-      "duplicate-workspace": "複製工作區",
-      "rename-workspace": "重新命名工作區",
-      "pin-workspace": "釘選/取消釘選工作區",
-      "archive-workspace": "封存工作區",
-      "delete-workspace": "刪除工作區",
+      "new-workspace": "前往新工作空間",
+      "duplicate-workspace": "複製工作空間",
+      "rename-workspace": "重新命名工作空間",
+      "pin-workspace": "釘選/取消釘選工作空間",
+      "archive-workspace": "封存工作空間",
+      "delete-workspace": "刪除工作空間",
       "toggle-changes-mode": "切換變更面板",
       "toggle-logs-mode": "切換日誌面板",
       "toggle-preview-mode": "切換預覽面板",
@@ -1247,7 +1267,7 @@
       "make-sub-issue-of": "設為子問題",
       "add-sub-issue": "新增子問題",
       "remove-parent-issue": "移除父級",
-      "link-workspace": "關聯工作區",
+      "link-workspace": "關聯工作空間",
       "duplicate-issue": "複製問題",
       "delete-issue": "刪除問題",
       "git-create-pr": "建立 Pull Request",
@@ -1272,7 +1292,7 @@
     "missingRepo": "所選儲存庫已無法使用。",
     "noTagsOrFiles": "找不到標籤或檔案",
     "createTag": "建立新標籤",
-    "noCommands": "此代理沒有可用的指令。"
+    "noCommands": "此智能體沒有可用的指令。"
   },
   "kanban": {
     "noVisibleStatuses": "所有狀態已隱藏。請使用顯示設定或切換到其他標籤頁查看問題。",
@@ -1300,8 +1320,8 @@
     "copyLink": "複製連結",
     "issueTitlePlaceholder": "問題標題...",
     "issueDescriptionPlaceholder": "輸入任務描述...",
-    "createDraftWorkspaceImmediately": "立即建立草稿工作區",
-    "createDraftWorkspaceDescription": "建立議題後，開啟預填了議題詳情的工作區建立表單",
+    "createDraftWorkspaceImmediately": "立即建立草稿工作空間",
+    "createDraftWorkspaceDescription": "建立議題後，開啟預填了議題詳情的工作空間建立表單",
     "createIssue": "建立任務",
     "newIssue": "新問題",
     "previewCodeBlock": "[程式碼區塊]",
@@ -1341,22 +1361,22 @@
     "tags": "標籤",
     "sortBy": "排序",
     "workspaceSidebar": {
-      "sortDialogTitle": "排序工作區",
-      "sortDialogDescription": "選擇側邊欄中工作區的排序方式。",
+      "sortDialogTitle": "排序工作空間",
+      "sortDialogDescription": "選擇側邊欄中工作空間的排序方式。",
       "sortByLabel": "排序依據",
       "sortOrderLabel": "排序順序",
       "sortUpdatedAt": "更新時間",
       "sortCreatedAt": "建立時間",
-      "filterDialogTitle": "篩選工作區",
-      "filterDialogDescription": "依專案和 PR 狀態縮小工作區範圍。",
+      "filterDialogTitle": "篩選工作空間",
+      "filterDialogDescription": "依專案和 PR 狀態縮小工作空間範圍。",
       "projectFilterLabel": "專案",
       "prFilterLabel": "PR",
       "prFilterAll": "全部",
       "prFilterHasPr": "有 PR",
       "prFilterNoPr": "無 PR",
       "noProject": "無專案",
-      "sortButtonTitle": "排序工作區",
-      "filterButtonTitle": "篩選工作區"
+      "sortButtonTitle": "排序工作空間",
+      "filterButtonTitle": "篩選工作空間"
     },
     "sortAscending": "升序",
     "sortDescending": "降序",
@@ -1364,15 +1384,15 @@
     "self": "我",
     "priority": "優先級",
     "subIssuesFilterLabel": "子議題",
-    "workspacesFilterLabel": "工作區",
+    "workspacesFilterLabel": "工作空間",
     "selectAssignees": "選擇負責人...",
     "relationships": "關係",
     "noRelationships": "無關係",
     "openProjectsGuide": "專案指南",
     "editProjectSettings": "編輯專案設定",
-    "linkWorkspace": "關聯工作區...",
-    "createNewWorkspace": "新增工作區",
-    "workspaces": "工作區",
+    "linkWorkspace": "關聯工作空間...",
+    "createNewWorkspace": "新增工作空間",
+    "workspaces": "工作空間",
     "showingWorkspaces": "顯示 {{total}} 個中的 {{count}} 個",
     "changeColor": "變更顏色",
     "editName": "編輯名稱",
@@ -1399,8 +1419,8 @@
         "content": "每個議題代表一個要實作的功能或要解決的問題。議題可以包含狀態、優先級、負責人、標籤、關係、留言、子議題等資訊。"
       },
       "workspaces": {
-        "title": "工作區",
-        "content": "開始處理議題時，請建立一個工作區。一個議題可以有多個工作區。議題描述要完成的工作，工作區承載實際執行過程。"
+        "title": "工作空間",
+        "content": "開始處理議題時，請建立一個工作空間。一個議題可以有多個工作空間。議題描述要完成的工作，工作空間承載實際執行過程。"
       },
       "organizations": {
         "title": "邀請你的團隊",
@@ -1421,12 +1441,12 @@
       "directTitle": "直接編輯",
       "worktreeTitle": "獨立 Worktree",
       "worktreeUnavailable": "需要 Git 倉庫",
-      "directDescription": "智慧體將直接修改此目錄中的檔案。",
+      "directDescription": "智能體將直接修改此目錄中的檔案。",
       "worktreeDescription": "建立獨立工作副本，不修改原目錄。",
       "branchLabel": "基礎分支",
       "branchPlaceholder": "選擇分支",
       "useDirectory": "使用此目錄",
-      "useWorkspace": "使用此工作區",
+      "useWorkspace": "使用此工作空間",
       "useProjectLocation": "使用此位置",
       "inspecting": "正在檢查目錄…",
       "loadingBranches": "正在載入分支…"
@@ -1466,7 +1486,7 @@
     "permissionAuto": "自動",
     "permissionAsk": "詢問",
     "permissionPlan": "計畫",
-    "agent": "代理",
+    "agent": "智能體",
     "default": "預設",
     "model": "模型"
   },
@@ -1496,6 +1516,7 @@
     "no": "否"
   },
   "errors": {
+    "details": "錯誤詳情",
     "generic": "發生了意外錯誤"
   },
   "personal": "個人",
@@ -1506,7 +1527,7 @@
       "search": "搜尋",
       "projects": "專案",
       "workflows": "工作流程",
-      "agents": "智慧體"
+      "agents": "智能體"
     },
     "navigation": {
       "primary": "主導覽",
@@ -1531,7 +1552,7 @@
       "browse": "瀏覽",
       "browseTitle": "瀏覽專案與工作階段",
       "closeBrowse": "關閉專案與工作階段",
-      "agent": "智慧體"
+      "agent": "智能體"
     },
     "system": {
       "user": "使用者",
@@ -1543,7 +1564,7 @@
     },
     "search": {
       "dialogLabel": "全域搜尋",
-      "placeholder": "搜尋功能、設定、智慧體與物件",
+      "placeholder": "搜尋功能、設定、智能體與物件",
       "close": "關閉搜尋",
       "suggested": "建議前往",
       "results": "搜尋結果",
@@ -1555,19 +1576,19 @@
       "sourceUnavailable": "{{label}}結果無法使用",
       "otherSourcesAvailable": "其他搜尋來源仍可使用。",
       "groups": {
-        "agents": "智慧體",
+        "agents": "智能體",
         "configuration": "設定",
         "tools": "工具",
         "featuresAndObjects": "功能與物件"
       },
       "destinations": {
         "appearance": "外觀",
-        "agentTools": "智慧體工具",
+        "agentTools": "智能體工具",
         "agentToolTypes": "MCP、技能與命令"
       },
       "paths": {
         "features": "功能 / {{name}}",
-        "agents": "智慧體 / {{name}}",
+        "agents": "智能體 / {{name}}",
         "settings": "設定 / {{name}}",
         "sessions": "工作階段 / {{name}}"
       },
@@ -1580,7 +1601,7 @@
         "command": "命令",
         "project": "專案",
         "session": "工作階段",
-        "issue": "Issue",
+        "issue": "議題",
         "workflow": "工作流程",
         "run": "執行"
       }
@@ -1589,7 +1610,7 @@
       "eyebrow": "產品模組",
       "projectsDescription": "從側邊欄選取專案，開啟現有的看板檢視。",
       "workflowsDescription": "工作流程編排歸屬於專案。請先開啟專案，再進入對應的工作流程介面。",
-      "agentsDescription": "智慧體可用性來自目前連線的主機，設定頁面使用相同的適配器能力。"
+      "agentsDescription": "智能體可用性來自目前連線的主機，設定頁面使用相同的適配器能力。"
     },
     "dashboard": {
       "eyebrow": "概覽",
@@ -1599,10 +1620,10 @@
         "globalStatistics": "全域統計",
         "attention": "需要注意",
         "activeRuns": "使用中的執行",
-        "agentConfiguration": "智慧體設定"
+        "agentConfiguration": "智能體設定"
       },
       "unavailable": {
-        "globalStatistics": "專案、Issue 與智慧體執行的規範總數尚未提供。側邊欄分頁資料不會作為全域統計顯示。",
+        "globalStatistics": "專案、Issue 與智能體執行的規範總數尚未提供。側邊欄分頁資料不會作為全域統計顯示。",
         "attention": "規範的注意事項投影尚未提供。此區域保持獨立，不會從記錄文字推斷警示。",
         "activeRuns": "工作階段清單不包含執行階段狀態。規範執行階段投影提供後，這裡才會顯示使用中的執行。",
         "agentConfiguration": "連線、預設模型、API 位址和執行數量的規範摘要尚未提供。執行階段 API 能力不會取代設定資料。"
@@ -1612,16 +1633,16 @@
   "agentCenter": {
     "eyebrow": "智能體執行階段",
     "title": "智能體中心",
-    "description": "在同一頁面管理已安裝的智能體、原生設定、MCP、Skills 與執行階段 Commands。",
+    "description": "在同一頁面管理已安裝的智能體、原生設定、MCP、技能與執行階段命令。",
     "host": "目前主機",
     "rescan": "重新掃描主機",
     "rescanning": "正在掃描...",
     "tabsLabel": "智能體中心分區",
     "tabs": {
-      "providers": "Providers",
+      "providers": "智能體",
       "mcp": "MCP",
-      "skills": "Skills",
-      "commands": "Commands",
+      "skills": "技能",
+      "commands": "命令",
       "profiles": "設定檔案"
     },
     "readiness": {
@@ -1650,16 +1671,16 @@
       "workflow_agent_step": "工作流程智能體 Node",
       "team_slot": "團隊席位"
     },
-    "providerListTitle": "Provider",
-    "providerListLabel": "智能體 Provider",
-    "selectedProvider": "目前 Provider",
+    "providerListTitle": "智能體",
+    "providerListLabel": "智能體",
+    "selectedProvider": "目前智能體",
     "bundledVersion": "內建版本 {{version}}",
     "versionUnavailable": "未回報版本",
-    "defaultProvider": "預設 Provider",
+    "defaultProvider": "預設智能體",
     "setDefault": "設為預設",
     "openConfiguration": "開啟原生設定",
     "capabilities": "能力",
-    "noCapabilities": "此 Provider 尚未回報任何能力。",
+    "noCapabilities": "此智能體尚未回報任何能力。",
     "enabledTools": "已啟用工具",
     "manageTools": "管理工具",
     "runtimeManaged": "執行階段管理",
@@ -1691,7 +1712,7 @@
     "nativeConfig": {
       "sectionLabel": "原生設定",
       "title": "原生設定",
-      "description": "透過 Adapter 管理的安全中繼資料檢視 Provider 原生檔案，並在型別化編輯器開啟已知欄位。",
+      "description": "透過 Adapter 管理的安全中繼資料檢視智能體原生檔案，並在型別化編輯器開啟已知欄位。",
       "scopeLabel": "原生設定作用域",
       "userScope": "使用者設定",
       "projectScope": "專案設定",
@@ -1726,7 +1747,7 @@
     "profileEditor": {
       "nameLabel": "設定檔名稱",
       "environmentLabel": "環境變數",
-      "environmentHelp": "Agent Adapter 支援時會套用到原生設定；否則僅保存在設定檔案/執行設定中。",
+      "environmentHelp": "智能體適配器支援時會套用到原生設定；否則僅保存在設定檔案/執行設定中。",
       "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
       "customArgsLabel": "自訂參數",
       "customArgsHelp": "每行填寫一個智能體 CLI 參數。僅保存在設定檔案/執行設定中，不寫入原生設定。",
@@ -1743,20 +1764,20 @@
         "updateAction": "更新目標設定檔",
         "createAction": "建立目標設定檔",
         "updateNotice": "目標設定檔已更新，目標專有欄位已保留。",
-        "createNotice": "已儲存複製的設定檔，未轉移 Provider 專屬欄位。",
-        "providerNotice": "不會複製 Provider 專屬設定和憑證。",
-        "targetProviderLabel": "目標 Provider",
+        "createNotice": "已儲存複製的設定檔，未轉移智能體專屬欄位。",
+        "providerNotice": "不會複製智能體專屬設定和憑證。",
+        "targetProviderLabel": "目標智能體",
         "destinationLabel": "複製目標",
         "createDestination": "建立新的目標設定檔",
         "updateDestination": "更新現有設定檔：{{name}}",
-        "existingTargetHelp": "現有目標會保留其憑證、未知欄位、Provider 擴充和目標專屬設定。預覽會優先列出來源端將覆寫的內容。",
+        "existingTargetHelp": "現有目標會保留其憑證、未知欄位、智能體擴充和目標專屬設定。預覽會優先列出來源端將覆寫的內容。",
         "previewAction": "預覽複製"
       }
     },
     "commands": {
       "manager": {
         "title": "原生命令",
-        "description": "探索並管理目前智能體的 Provider 原生提示詞命令。Vibe Kanban 只使用適配器核准的欄位。"
+        "description": "探索並管理目前智能體的原生提示詞命令。Vibe Kanban 只使用適配器核准的欄位。"
       },
       "actions": {
         "refresh": "重新整理",
@@ -1779,9 +1800,9 @@
       "states": {
         "loading": "正在探索命令…",
         "unavailable": "命令清單無法使用。",
-        "unsupportedProvider": "此 Provider 未回傳 Command 適配器。",
-        "installed": "已偵測到 Provider",
-        "notDetected": "未偵測到 Provider",
+        "unsupportedProvider": "此智能體未回傳命令適配器。",
+        "installed": "已偵測到智能體",
+        "notDetected": "未偵測到智能體",
         "readOnly": "唯讀",
         "updating": "正在更新 {{name}}"
       },
@@ -1806,7 +1827,7 @@
       "editor": {
         "addTitle": "新增命令",
         "editTitle": "編輯 {{name}}",
-        "description": "適配器負責寫入 Provider 原生格式，並保留不屬於此表單的原生欄位。",
+        "description": "適配器負責寫入智能體原生格式，並保留不屬於此表單的原生欄位。",
         "scope": "範圍",
         "name": "命令名稱",
         "nameHelp": "可使用字母、數字、連字號和底線；Claude 與 Gemini 也支援以冒號分隔的命名空間。",
@@ -1819,13 +1840,13 @@
       },
       "validation": {
         "nameRequired": "請輸入命令名稱。",
-        "invalidName": "請輸入符合 Provider 原生規則的命令名稱。",
+        "invalidName": "請輸入符合智能體原生規則的命令名稱。",
         "projectPathRequired": "建立專案層級命令前，請先載入絕對專案路徑。",
         "bodyRequired": "請輸入命令提示詞。"
       },
       "remove": {
         "title": "刪除 {{name}}？",
-        "message": "這會刪除 Provider 原生命令，而且無法復原。"
+        "message": "這會刪除智能體原生命令，而且無法復原。"
       },
       "unsaved": {
         "title": "放棄命令變更？",
@@ -1841,11 +1862,11 @@
         "saved": "命令清單已更新。"
       },
       "empty": {
-        "commands": "目前 Provider 與範圍內沒有探索到命令。",
+        "commands": "目前智能體與範圍內沒有探索到命令。",
         "search": "沒有符合搜尋條件的命令。"
       },
       "limitations": {
-        "codex": "Codex 自訂提示詞已棄用且僅支援使用者層級。新的可重用指令應優先使用 Skills；變更需要新工作階段或重新啟動才會生效。",
+        "codex": "Codex 自訂提示詞已棄用且僅支援使用者層級。新的可重用指令應優先使用技能；變更需要新工作階段或重新啟動才會生效。",
         "claude_code": "外掛提供的命令仍由對應外掛管理。",
         "gemini": "擴充功能提供的命令仍由對應擴充功能管理。",
         "oh_my_pi": "提示詞命令可編輯；可執行 TypeScript 命令僅供探索和唯讀顯示，其原始碼不會載入瀏覽器。"
@@ -1859,7 +1880,7 @@
     },
     "states": {
       "loadingHosts": "正在取得可用主機...",
-      "loadingProvider": "正在載入 Provider 詳情...",
+      "loadingProvider": "正在載入智能體詳情...",
       "noHost": "目前沒有可管理的主機。",
       "offline": "離線",
       "hostOfflineTitle": "主機已離線",
@@ -1872,8 +1893,8 @@
     "errors": {
       "rescan": "無法重新掃描目前主機。",
       "loadRemoteHosts": "無法載入遠端主機清單，請重試。本機掃描不受影響。",
-      "setDefault": "無法更新預設 Provider。",
-      "loadProviders": "無法載入 Provider 能力資料。",
+      "setDefault": "無法更新預設智能體。",
+      "loadProviders": "無法載入智能體能力資料。",
       "loadTools": "無法重新整理智能體工具摘要。"
     },
     "unsaved": {
@@ -1886,7 +1907,7 @@
       "hostUnavailable": "目前沒有可管理的主機。",
       "configLoading": "應用程式設定仍在載入。",
       "configUnavailable": "應用程式設定無法使用。",
-      "providerUnavailable": "此 Provider 尚未就緒。"
+      "providerUnavailable": "此智能體尚未就緒。"
     },
     "tools": {
       "titles": {
@@ -1895,9 +1916,9 @@
         "skills": "技能"
       },
       "descriptions": {
-        "all": "管理原生 MCP 伺服器和技能。各 Provider 檔案始終是真實資料來源。",
-        "mcp": "管理原生 MCP 伺服器。各 Provider 檔案始終是真實資料來源。",
-        "skills": "管理原生技能。各 Provider 檔案始終是真實資料來源。"
+        "all": "管理原生 MCP 伺服器和技能。各智能體檔案始終是真實資料來源。",
+        "mcp": "管理原生 MCP 伺服器。各智能體檔案始終是真實資料來源。",
+        "skills": "管理原生技能。各智能體檔案始終是真實資料來源。"
       },
       "actions": {
         "refresh": "重新整理",
@@ -1944,8 +1965,8 @@
         "project": "專案層級"
       },
       "errors": {
-        "noInstalledProvider": "未安裝支援的智能體 Provider。",
-        "noCopyTarget": "沒有其他已安裝且支援的智能體 Provider。",
+        "noInstalledProvider": "未安裝支援的智能體。",
+        "noCopyTarget": "沒有其他已安裝且支援的智能體。",
         "operationFailed": "智能體工具操作失敗。"
       },
       "notices": {
@@ -1964,8 +1985,8 @@
       "editor": {
         "addTitle": "新增智能體工具",
         "editTitle": "編輯 {{name}}",
-        "description": "編輯可攜式定義。Provider Adapter 會將它寫入對應的原生格式。",
-        "provider": "Provider",
+        "description": "編輯可攜式定義。智能體適配器會將它寫入對應的原生格式。",
+        "provider": "智能體",
         "scope": "範圍",
         "name": "安裝名稱",
         "mcpDefinition": "可攜式 MCP 定義（JSON）",
@@ -1975,29 +1996,29 @@
       },
       "copy": {
         "title": "複製 {{name}}",
-        "description": "將 {{provider}} 的可攜式定義複製到另一個已安裝的 Provider。",
-        "target": "目標 Provider",
+        "description": "將 {{provider}} 的可攜式定義複製到另一個已安裝的智能體。",
+        "target": "目標智能體",
         "adapterNotice": "目標 Adapter 會將可攜式定義轉換為其原生格式。轉換警告會在複製後顯示。",
         "replaceWarning": "{{provider}} 的相同範圍中已有 {{name}}。繼續操作會取代該安裝。"
       },
       "security": {
-        "configured": "Configured",
-        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
-        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
+        "configured": "已設定",
+        "writeOnlyMcpHelp": "原生 MCP 設定值保持隱藏。選擇保留會保留現有值；僅對需要修改的欄位選擇取代或清除。",
+        "writeOnlySkillHelp": "現有 SKILL.md 保持隱藏。編輯器留空可保留原內容，輸入內容則會取代；其他技能檔案不變。"
       },
       "disabled": {
         "operationPending": "另一個工具操作正在進行。",
-        "notEditable": "此 Provider 不允許編輯此安裝。",
+        "notEditable": "此智能體不允許編輯此安裝。",
         "copyRequiresEnabled": "只能複製已啟用的安裝。",
-        "notExportable": "此 Provider 無法匯出此安裝。",
-        "noCopyTarget": "沒有其他已安裝的 Provider 可用。",
-        "notRemovable": "此 Provider 不允許移除此安裝。",
-        "sensitiveMcpEditUnavailable": "此 MCP 定義包含憑證或需無損保留的 Provider 原生欄位，因此暫不可編輯；需要 Tool Adapter 提供脫敏的唯寫契約。"
+        "notExportable": "此智能體無法匯出此安裝。",
+        "noCopyTarget": "沒有其他已安裝的智能體可用。",
+        "notRemovable": "此智能體不允許移除此安裝。",
+        "sensitiveMcpEditUnavailable": "此 MCP 定義包含憑證或需無損保留的智能體原生欄位，因此暫不可編輯；需要 Tool Adapter 提供脫敏的唯寫契約。"
       }
     }
   },
   "askQuestion": {
-    "title": "代理正在提問",
+    "title": "智能體正在提問",
     "selectMultiple": "多選",
     "confirmSelection": "確認選擇",
     "submitting": "正在提交回答...",
@@ -2005,28 +2026,28 @@
     "answeredCount_other": "已回答{{count}}個問題"
   },
   "projectWorkspaceDefault": {
-    "label": "Project default working location",
-    "loading": "Loading project working location",
-    "loadFailed": "Unable to load",
-    "loadFailedDescription": "The saved working location could not be resolved. Open project settings to review it.",
-    "empty": "Not configured",
-    "description": "This working location will prefill new executions. Git locations also include a base branch. You still confirm the actual workspace before an agent starts.",
-    "emptyDescription": "No hidden fallback will be used. Choose a working directory when starting an execution, or configure a project default.",
-    "configure": "Configure project working location",
-    "configureShort": "Configure"
+    "label": "專案預設工作目錄",
+    "loading": "正在載入專案工作目錄",
+    "loadFailed": "無法載入",
+    "loadFailedDescription": "無法解析已儲存的工作目錄，請開啟專案設定檢查。",
+    "empty": "尚未設定",
+    "description": "此工作目錄會預填於新執行；Git 目錄還包含基礎分支。智能體啟動前仍需確認實際工作空間。",
+    "emptyDescription": "不會使用隱藏的歷史工作空間。啟動執行時選擇工作目錄，或先設定專案預設值。",
+    "configure": "設定專案工作目錄",
+    "configureShort": "設定"
   },
   "agentSessionResume": {
-    "open": "Recent agent sessions",
-    "recentLabel": "Last 3 days",
-    "extendedLabel": "Last 30 days",
-    "sourceHint": "Loaded from the agent's native resume history",
-    "loading": "Loading sessions...",
-    "error": "Failed to load sessions",
-    "degraded": "Recent sessions may be out of date",
-    "degradedHint": "The last loaded sessions remain available while native history is retried.",
-    "empty": "No recent sessions",
-    "more": "Show last 30 days",
-    "pending": "Will resume: {{title}} · {{time}}",
-    "clear": "Clear resume session"
+    "open": "最近的智能體工作階段",
+    "recentLabel": "最近 3 天",
+    "extendedLabel": "最近 30 天",
+    "sourceHint": "載自智能體的原生工作階段歷史",
+    "loading": "正在載入工作階段...",
+    "error": "無法載入工作階段",
+    "degraded": "最近的工作階段可能不是最新的",
+    "degradedHint": "重新載入原生歷史期間，仍可使用上次載入的工作階段。",
+    "empty": "尚無最近的工作階段",
+    "more": "顯示最近 30 天",
+    "pending": "即將繼續：{{title}} · {{time}}",
+    "clear": "取消繼續此工作階段"
   }
 }

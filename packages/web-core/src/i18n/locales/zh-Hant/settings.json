@@ -57,7 +57,7 @@
       "tabs": {
         "general": "應用程式設定",
         "host": "目前主機",
-        "cloud": "Cloud"
+        "cloud": "雲端"
       },
       "sectionsLabel": "設定分區",
       "sections": {
@@ -113,11 +113,11 @@
         "projectsDesc": "專案儲存庫與設定",
         "repos": "儲存庫",
         "reposDesc": "儲存庫腳本與設定",
-        "agents": "代理",
-        "agentsDesc": "編碼代理設定",
+        "agents": "智能體",
+        "agentsDesc": "編碼智能體設定",
         "mcp": "MCP 伺服器",
         "mcpDesc": "模型上下文協議伺服器",
-        "agent-tools": "Agent 工具",
+        "agent-tools": "智能體工具",
         "agent-toolsDesc": "原生 MCP 伺服器和技能",
         "organizations": "組織設定",
         "organizationsDesc": "管理組織成員與權限",
@@ -164,12 +164,12 @@
         }
       },
       "taskExecution": {
-        "title": "預設編碼代理",
-        "description": "選擇任務的預設編碼代理。",
+        "title": "預設編碼智能體",
+        "description": "選擇任務的預設編碼智能體。",
         "executor": {
-          "label": "預設代理設定檔",
+          "label": "預設智能體設定檔",
           "placeholder": "選擇設定檔",
-          "helper": "選擇建立任務執行時要使用的預設代理設定檔。"
+          "helper": "選擇建立任務執行時要使用的預設智能體設定檔。"
         },
         "variant": "預設",
         "defaultLabel": "預設"
@@ -263,12 +263,12 @@
           }
         },
         "workspaceDir": {
-          "label": "工作區目錄",
+          "label": "工作空間目錄",
           "placeholder": "~/",
-          "helper": "工作區將在此路徑內的 .vibe-kanban-workspaces 子目錄中建立。留空以使用系統預設值。變更需要重新啟動應用程式。",
+          "helper": "工作空間將在此路徑內的 .vibe-kanban-workspaces 子目錄中建立。留空以使用系統預設值。變更需要重新啟動應用程式。",
           "browse": "瀏覽",
-          "dialogTitle": "選擇工作區目錄",
-          "dialogDescription": "選擇一個目錄。工作區將在其中的 .vibe-kanban-workspaces 子目錄中建立。"
+          "dialogTitle": "選擇工作空間目錄",
+          "dialogDescription": "選擇一個目錄。工作空間將在其中的 .vibe-kanban-workspaces 子目錄中建立。"
         }
       },
       "pullRequests": {
@@ -276,11 +276,11 @@
         "description": "設定 PR 建立行為",
         "autoDescription": {
           "label": "預設自動產生 PR 描述",
-          "helper": "啟用後，AI 代理會在建立 PR 後自動更新標題與描述。"
+          "helper": "啟用後，AI 智能體會在建立 PR 後自動更新標題與描述。"
         },
         "customPrompt": {
           "useCustom": "使用自訂提示",
-          "helper": "產生 PR 描述時 AI 代理使用的自訂提示。使用 {pr_number} 與 {pr_url} 作為佔位符。"
+          "helper": "產生 PR 描述時 AI 智能體使用的自訂提示。使用 {pr_number} 與 {pr_url} 作為佔位符。"
         }
       },
       "commits": {
@@ -288,7 +288,7 @@
         "description": "設定任務執行的提交行為",
         "reminder": {
           "label": "提交提醒",
-          "helper": "提示支援的代理在停止前提交變更。"
+          "helper": "提示支援的智能體在停止前提交變更。"
         },
         "customPrompt": {
           "useCustom": "使用自訂提示",
@@ -392,34 +392,34 @@
         "title": "Beta 功能",
         "description": "在正式發布前試用實驗性功能。",
         "workspaces": {
-          "label": "啟用工作區 Beta",
-          "helper": "查看任務執行時使用新的工作區介面。任務將首先在任務檢視中開啟，執行將在新的工作區檢視中開啟。"
+          "label": "啟用工作空間 Beta",
+          "helper": "查看任務執行時使用新的工作空間介面。任務將首先在任務檢視中開啟，執行將在新的工作空間檢視中開啟。"
         }
       }
     },
     "agents": {
-      "title": "編碼代理設定",
-      "description": "使用不同設定自訂編碼代理的行為。",
-      "loading": "載入代理設定中...",
-      "selectAgent": "選擇代理",
+      "title": "編碼智能體設定",
+      "description": "使用不同設定自訂編碼智能體的行為。",
+      "loading": "載入智能體設定中...",
+      "selectAgent": "選擇智能體",
       "save": {
-        "button": "儲存代理設定",
+        "button": "儲存智能體設定",
         "success": "✓ 執行器設定儲存成功！",
         "unsavedChanges": "• 您有未儲存的變更"
       },
       "availability": {
         "checking": "檢查中...",
         "checkingAvailability": "正在檢查可用性...",
-        "available": "代理可用",
-        "notFoundSimple": "找不到代理",
+        "available": "智能體可用",
+        "notFoundSimple": "找不到智能體",
         "loginDetected": "偵測到最近使用",
-        "loginDetectedTooltip": "找到此代理的最近驗證憑證",
+        "loginDetectedTooltip": "找到此智能體的最近驗證憑證",
         "installationFound": "偵測到曾使用",
-        "installationFoundTooltip": "找到代理設定。您可能需要登入才能使用。"
+        "installationFoundTooltip": "找到智能體設定。您可能需要登入才能使用。"
       },
       "editor": {
         "formLabel": "編輯 JSON",
-        "agentLabel": "代理",
+        "agentLabel": "智能體",
         "agentPlaceholder": "選擇執行器類型",
         "configLabel": "設定",
         "configPlaceholder": "選擇設定",
@@ -440,16 +440,16 @@
         "advancedConfig": "進階配置",
         "advancedConfigCount_one": "{{count}} 個欄位",
         "advancedConfigCount_other": "{{count}} 個欄位",
-        "jsonLabel": "代理設定（JSON）",
+        "jsonLabel": "智能體設定（JSON）",
         "jsonPlaceholder": "載入設定檔中...",
         "jsonLoading": "載入中...",
         "pathLabel": "設定檔位置："
       },
       "errors": {
         "deleteFailed": "刪除設定失敗。請重試。",
-        "saveFailed": "儲存代理設定失敗。請重試。",
+        "saveFailed": "儲存智能體設定失敗。請重試。",
         "saveConfigFailed": "儲存設定失敗。請重試。",
-        "visibilitySaveFailed": "更新代理可見性失敗。請重試。",
+        "visibilitySaveFailed": "更新智能體可見性失敗。請重試。",
         "schemaNotFound": "找不到執行器類型 {{executor}} 的結構描述"
       },
       "tree": {
@@ -467,13 +467,13 @@
     },
     "mcp": {
       "title": "MCP 伺服器設定",
-      "description": "設定模型上下文協議伺服器，使用自訂工具與資源擴充編碼代理功能。",
+      "description": "設定模型上下文協議伺服器，使用自訂工具與資源擴充編碼智能體功能。",
       "loading": "載入 MCP 設定中...",
       "applying": "套用設定中...",
       "labels": {
-        "agent": "代理",
+        "agent": "智能體",
         "agentPlaceholder": "選擇執行器",
-        "agentHelper": "選擇要設定 MCP 伺服器的代理。",
+        "agentHelper": "選擇要設定 MCP 伺服器的智能體。",
         "serverConfig": "伺服器設定（JSON）",
         "popularServers": "熱門伺服器",
         "serverHelper": "點擊卡片將該 MCP 伺服器插入到上方 JSON 中。",
@@ -545,7 +545,7 @@
     },
     "repos": {
       "title": "儲存庫設定",
-      "description": "設定此儲存庫在工作區中使用時執行的腳本。",
+      "description": "設定此儲存庫在工作空間中使用時執行的腳本。",
       "loading": "載入儲存庫中...",
       "loadError": "載入儲存庫失敗。",
       "addRepo": {
@@ -574,12 +574,12 @@
         "defaultWorkingDir": {
           "label": "預設工作目錄",
           "placeholder": "例如：packages/frontend",
-          "helper": "單儲存庫工作區中程式碼代理執行的子目錄。在建立工作區時設定。留空則使用儲存庫根目錄。"
+          "helper": "單儲存庫工作空間中程式碼智能體執行的子目錄。在建立工作空間時設定。留空則使用儲存庫根目錄。"
         },
         "defaultTargetBranch": {
           "label": "預設目標分支",
           "placeholder": "選擇分支",
-          "helper": "新工作區的預設基礎分支。工作樹從此分支建立，PR 將以此分支為目標。",
+          "helper": "新工作空間的預設基礎分支。工作樹從此分支建立，PR 將以此分支為目標。",
           "search": "搜尋分支",
           "noBranches": "找不到分支",
           "loading": "正在載入分支...",
@@ -588,20 +588,20 @@
       },
       "scripts": {
         "title": "腳本與設定",
-        "description": "設定此儲存庫的設定腳本、清理腳本與要複製的檔案。這些腳本在儲存庫用於任何工作區時執行。",
+        "description": "設定此儲存庫的設定腳本、清理腳本與要複製的檔案。這些腳本在儲存庫用於任何工作空間時執行。",
         "setup": {
           "label": "設定腳本",
-          "helper": "此腳本在工作樹內執行，於建立後、編碼代理啟動前執行。用於安裝相依套件或準備環境等設定工作。",
-          "parallelLabel": "與編碼代理平行執行設定腳本",
-          "parallelHelper": "啟用後，設定腳本將與編碼代理同時執行，而不是等待設定完成後再啟動。"
+          "helper": "此腳本在工作樹內執行，於建立後、編碼智能體啟動前執行。用於安裝相依套件或準備環境等設定工作。",
+          "parallelLabel": "與編碼智能體平行執行設定腳本",
+          "parallelHelper": "啟用後，設定腳本將與編碼智能體同時執行，而不是等待設定完成後再啟動。"
         },
         "cleanup": {
           "label": "清理腳本",
-          "helper": "此腳本在工作樹內執行，於編碼代理執行後（僅在有變更時）執行。用於品質保證工作，如執行 linter、格式化工具、測試或其他驗證步驟。"
+          "helper": "此腳本在工作樹內執行，於編碼智能體執行後（僅在有變更時）執行。用於品質保證工作，如執行 linter、格式化工具、測試或其他驗證步驟。"
         },
         "archive": {
           "label": "歸檔腳本",
-          "helper": "當工作區被歸檔時，此腳本在工作樹內執行。用於清理工作，如停止服務、釋放資源或儲存狀態。"
+          "helper": "當工作空間被歸檔時，此腳本在工作樹內執行。用於清理工作，如停止服務、釋放資源或儲存狀態。"
         },
         "copyFiles": {
           "label": "複製檔案",
@@ -615,7 +615,7 @@
       },
       "linkedProjects": {
         "title": "關聯專案",
-        "description": "在預設工作區設定中使用此儲存庫的專案。",
+        "description": "在預設工作空間設定中使用此儲存庫的專案。",
         "loading": "正在檢查專案…",
         "none": "沒有關聯的專案"
       },
@@ -638,9 +638,9 @@
         "confirmSwitch": "您有未儲存的變更。確定要切換儲存庫嗎？您的變更將會遺失。"
       },
       "projectWorkspace": {
-        "title": "Agent working directory",
-        "description": "Configure the subdirectory where agents run after entering the code directory above. Choose the project's base branch in the workspace.",
-        "unavailable": "The local repository referenced by this workspace is unavailable. Choose the working folder again."
+        "title": "智能體工作目錄",
+        "description": "設定智能體在上述程式碼目錄中使用的子目錄。專案基礎分支在工作空間中選擇。",
+        "unavailable": "此工作空間關聯的本機儲存庫無法使用，請重新選擇工作目錄。"
       }
     },
     "relay": {
@@ -701,7 +701,7 @@
         },
         "defaultRepos": {
           "label": "目前裝置工作空間",
-          "description": "專案在 {{host}} 上使用的本機工作目錄。Git 儲存庫還會保存基礎分支。新建執行時會預填這些資訊，啟動智慧體前仍需確認。",
+          "description": "專案在 {{host}} 上使用的本機工作目錄。Git 儲存庫還會保存基礎分支。新建執行時會預填這些資訊，啟動智能體前仍需確認。",
           "empty": "目前裝置尚未設定工作空間",
           "addButton": "選擇或變更",
           "addNew": "選擇專案工作空間",

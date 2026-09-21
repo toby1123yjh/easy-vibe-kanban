@@ -23,6 +23,7 @@ import {
 } from '@vibe/ui/components/StateSurface';
 import { cn } from '@/shared/lib/utils';
 import { sessionsApi, type NativeAgentSessionPreview } from '@/shared/lib/api';
+import { formatLocalizedDateTime } from '@/shared/lib/date';
 
 interface AgentSessionResumePickerProps {
   scopePath?: string;
@@ -43,10 +44,7 @@ const RECENT_LIMIT = 10;
 const PREVIEW_TURNS = 20;
 
 function formatResumeTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleString(undefined, {
+  return formatLocalizedDateTime(value, {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',

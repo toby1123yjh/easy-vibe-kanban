@@ -1,14 +1,14 @@
 {
   "createDialog": {
-    "title": "Create New Organization",
-    "description": "Create a new organization to collaborate with your team.",
-    "nameLabel": "Organization Name",
-    "namePlaceholder": "e.g., Acme Corporation",
-    "slugLabel": "Slug",
-    "slugPlaceholder": "e.g., acme-corporation",
-    "slugHelper": "Used in URLs. Lowercase letters, numbers, and hyphens only.",
-    "creating": "Creating...",
-    "createButton": "Create Organization"
+    "title": "建立組織",
+    "description": "建立組織，與團隊一起協作。",
+    "nameLabel": "組織名稱",
+    "namePlaceholder": "例如：Acme 公司",
+    "slugLabel": "網址識別名稱",
+    "slugPlaceholder": "例如：acme-corporation",
+    "slugHelper": "用於網址，僅支援小寫字母、數字和連字號。",
+    "creating": "正在建立...",
+    "createButton": "建立組織"
   },
   "inviteDialog": {
     "title": "邀請成員",
@@ -71,7 +71,7 @@
   },
   "personalOrg": {
     "cannotInvite": "個人組織不能新增其他成員。",
-    "createOrgPrompt": "Create an organization to collaborate with others.",
-    "createOrgButton": "Create Organization"
+    "createOrgPrompt": "建立組織，與他人協作。",
+    "createOrgButton": "建立組織"
   }
 }

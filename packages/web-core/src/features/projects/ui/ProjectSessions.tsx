@@ -1,7 +1,8 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { MessagesSquare, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+import type { CSSProperties } from 'react';
 import type { SessionCursor } from 'shared/types';
 import { Button } from '@vibe/ui/components/Button';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
@@ -89,16 +90,11 @@ function ProjectSessionsContent({ projectId, variant }: ProjectSessionsProps) {
         </div>
       )}
       {enabled &&
+        !isColumn &&
         !query.isPending &&
         !query.isError &&
         sessions.length === 0 && (
-          <p className="text-low">
-            {isColumn
-              ? t('projectSessions.empty', {
-                  defaultValue: 'No discussions yet.',
-                })
-              : t('defaultProject.empty')}
-          </p>
+          <p className="text-low">{t('defaultProject.empty')}</p>
         )}
       {sessions.map((session) => (
         <article
@@ -166,11 +162,15 @@ function ProjectSessionsContent({ projectId, variant }: ProjectSessionsProps) {
   return (
     <section
       className="vk-kanban-column vk-session-column"
-      aria-label={t('projectSessions.column', { defaultValue: 'Discussions' })}
+      aria-label={t('projectSessions.column', { defaultValue: 'Discuss' })}
     >
       <header className="vk-kanban-column__header">
-        <MessagesSquare size={14} aria-hidden="true" />
-        <h2>{t('projectSessions.column', { defaultValue: 'Discussions' })}</h2>
+        <span
+          className="vk-kanban-column__dot"
+          style={{ '--vk-status-color': 'hsl(215 12% 55%)' } as CSSProperties}
+          aria-hidden="true"
+        />
+        <h2>{t('projectSessions.column', { defaultValue: 'Discuss' })}</h2>
         <span className="vk-kanban-column__count">
           {sessions.length}
           {query.hasNextPage ? '+' : ''}

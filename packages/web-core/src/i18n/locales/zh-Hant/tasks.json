@@ -5,26 +5,26 @@
     "filesWillDelete": "將永久刪除該目錄及其中的全部檔案。",
     "filesWillKeep": "不勾選則保留本機檔案。",
     "directoryLabel": "工作目錄",
-    "unaffected": "其他工作階段、專案和智慧體原生歷史不受影響。",
+    "unaffected": "其他工作階段、專案和智能體原生歷史不受影響。",
     "filesRetained": "會話已刪除，部分檔案仍保留：",
     "deleteManagedFiles": "同時刪除此會話的工作目錄和檔案",
-    "withFilesDescription": "刪除「{{name}}」、會話歷史以及下方託管工作目錄？其他會話、專案和智慧體原生歷史不受影響。此操作無法復原。",
-    "stopDescription": "「{{name}}」的智慧體仍在執行，或暫時無法確認已退出。是否安全停止後刪除？若停止失敗，將保留任務和工作階段。",
+    "withFilesDescription": "刪除「{{name}}」、會話歷史以及下方託管工作目錄？其他會話、專案和智能體原生歷史不受影響。此操作無法復原。",
+    "stopDescription": "「{{name}}」的智能體仍在執行，或暫時無法確認已退出。是否安全停止後刪除？若停止失敗，將保留任務和工作階段。",
     "stopAndDelete": "停止並刪除",
     "stopping": "正在停止並刪除…",
-    "stopFailed": "智慧體尚未停止，任務和工作階段已保留，請稍後重試。",
-    "taskTitle": "刪除 Task 和工作階段？",
+    "stopFailed": "智能體尚未停止，任務和工作階段已保留，請稍後重試。",
+    "taskTitle": "刪除 任務 和工作階段？",
     "sessionTitle": "刪除工作階段？",
-    "taskDescription": "從 Vibe Kanban 刪除「{{name}}」及其綁定工作階段的歷史記錄？Issue、Project、Workspace、其他 Task 和工作階段、工作檔案及 Agent 原生歷史記錄均會保留。此操作無法復原。",
-    "sessionDescription": "從 Vibe Kanban 刪除工作階段「{{name}}」及其歷史記錄？Workspace、其他工作階段、工作檔案及 Agent 原生歷史記錄均會保留。此操作無法復原。",
-    "resolving": "正在檢查目前 Task 與工作階段的綁定關係…",
-    "deleteTask": "刪除 Task 和工作階段",
+    "taskDescription": "從 Vibe Kanban 刪除「{{name}}」及其綁定工作階段的歷史記錄？議題、專案、工作空間、其他 任務 和工作階段、工作檔案及 智能體 原生歷史記錄均會保留。此操作無法復原。",
+    "sessionDescription": "從 Vibe Kanban 刪除工作階段「{{name}}」及其歷史記錄？工作空間、其他工作階段、工作檔案及 智能體 原生歷史記錄均會保留。此操作無法復原。",
+    "resolving": "正在檢查目前 任務 與工作階段的綁定關係…",
+    "deleteTask": "刪除 任務 和工作階段",
     "deleteSession": "刪除工作階段",
     "action": "刪除 {{name}}",
     "deleting": "正在刪除…",
     "failed": "無法刪除，請重試。",
     "scopeChanged": "目前 Host 或選取內容已變更。請取消，然後從目標項目重新發起刪除。",
-    "bindingChanged": "此 Task 已不再綁定所選工作階段。請重新整理清單後再試。"
+    "bindingChanged": "此 任務 已不再綁定所選工作階段。請重新整理清單後再試。"
   },
   "dropzone": {
     "dropImagesHere": "將圖片拖放到這裡",
@@ -253,11 +253,11 @@
   },
   "startReviewDialog": {
     "title": "開始審查",
-    "description": "請求編碼代理審查您的變更並提供反饋。",
+    "description": "請求編碼智能體審查您的變更並提供反饋。",
     "additionalInstructions": "附加說明（可選）",
     "reviewComments": "審查評論（{{count}}）",
     "includeGitContext": "包含 Git 上下文",
-    "includeGitContextDescription": "告訴代理如何查看此分支上的所有變更",
+    "includeGitContextDescription": "告訴智能體如何查看此分支上的所有變更",
     "newSession": "新工作階段",
     "sessionName": "審查"
   },
@@ -268,7 +268,7 @@
   "resolveConflicts": {
     "dialog": {
       "title": "解決衝突",
-      "description": "偵測到衝突。選擇您希望代理如何解決它們。",
+      "description": "偵測到衝突。選擇您希望智能體如何解決它們。",
       "newSession": "新工作階段",
       "resolve": "解決衝突",
       "resolving": "開始中...",
@@ -302,7 +302,7 @@
     "loadingBranches": "載入分支中...",
     "selectBaseBranch": "選擇基底分支",
     "draftLabel": "建立為草稿",
-    "autoGenerateLabel": "請求 AI 代理產生更好的 PR 描述",
+    "autoGenerateLabel": "請求 AI 智能體產生更好的 PR 描述",
     "creating": "建立中...",
     "createButton": "建立 PR",
     "errors": {
@@ -428,7 +428,7 @@
       "viewApproval": "查看",
       "clearReviewComments": "清除審查評論",
       "edit": "編輯訊息",
-      "scrollToPreviousMessage": "Go to previous message",
+      "scrollToPreviousMessage": "前往上一則訊息",
       "reset": "重設",
       "resetTooltip": "重設到此時點"
     },
@@ -447,9 +447,9 @@
     },
     "scriptPlaceholder": {
       "setupTitle": "設定腳本",
-      "setupDescription": "未配置設定腳本。設定腳本在程式碼代理啟動前執行。",
+      "setupDescription": "未配置設定腳本。設定腳本在程式碼智能體啟動前執行。",
       "cleanupTitle": "清理腳本",
-      "cleanupDescription": "未配置清理腳本。清理腳本在程式碼代理完成後執行。",
+      "cleanupDescription": "未配置清理腳本。清理腳本在程式碼智能體完成後執行。",
       "configure": "設定"
     },
     "unableToRenderDiff": "無法顯示差異。",
@@ -521,7 +521,7 @@
       "renaming": "正在重新命名...",
       "delete": "刪除工作階段",
       "deleteTitle": "刪除工作階段？",
-      "deleteDescription": "這會刪除 Vibe Kanban 中的工作階段歷史，不會影響工作區檔案或智慧體原生歷史。",
+      "deleteDescription": "這會刪除 Vibe Kanban 中的工作階段歷史，不會影響工作空間檔案或智能體原生歷史。",
       "deleteFailed": "無法刪除工作階段",
       "deleteFailedDescription": "工作階段刪除失敗。"
     },
@@ -558,8 +558,8 @@
     "statusKilled": "程序已被終止"
   },
   "createWorkspaceFromPr": {
-    "title": "從 PR 建立工作區",
-    "description": "選擇一個開啟的拉取請求來建立工作區。將使用 PR 標題自動建立任務。",
+    "title": "從 PR 建立工作空間",
+    "description": "選擇一個開啟的拉取請求來建立工作空間。將使用 PR 標題自動建立任務。",
     "repositoryLabel": "儲存庫",
     "remoteLabel": "遠端儲存庫",
     "pullRequestLabel": "拉取請求",
@@ -571,7 +571,7 @@
     "noPullRequestsFound": "找不到開啟的拉取請求",
     "runSetupScript": "執行設定腳本",
     "creating": "建立中...",
-    "createWorkspace": "建立工作區",
+    "createWorkspace": "建立工作空間",
     "selectRepository": "選擇儲存庫",
     "selectRemote": "選擇遠端儲存庫",
     "selectPullRequest": "選擇拉取請求",
@@ -584,14 +584,14 @@
       "unsupportedProvider": "不支援的 Git 提供者",
       "failedToLoadPrs": "載入拉取請求失敗",
       "prNotFound": "找不到拉取請求",
-      "failedToCreateWorkspace": "建立工作區失敗"
+      "failedToCreateWorkspace": "建立工作空間失敗"
     }
   },
   "shareDialog": {
     "loginRequired": {
-      "title": "Sign in required",
-      "description": "Sign in to access this feature.",
-      "action": "Sign in"
+      "title": "請先登入",
+      "description": "登入後即可使用此功能。",
+      "action": "登入"
     }
   },
   "linkPrToIssue": {

@@ -13,18 +13,18 @@
     "stopAndDelete": "停止并删除",
     "stopping": "正在停止并删除…",
     "stopFailed": "智能体尚未停止，任务和会话已保留，请稍后重试。",
-    "taskTitle": "删除 Task 和会话？",
+    "taskTitle": "删除 任务 和会话？",
     "sessionTitle": "删除会话？",
-    "taskDescription": "从 Vibe Kanban 中删除“{{name}}”及其绑定会话的历史记录？Issue、Project、Workspace、其他 Task 和会话、工作文件及 Agent 原生历史记录均会保留。此操作无法撤销。",
-    "sessionDescription": "从 Vibe Kanban 中删除会话“{{name}}”及其历史记录？Workspace、其他会话、工作文件及 Agent 原生历史记录均会保留。此操作无法撤销。",
-    "resolving": "正在检查当前 Task 与会话的绑定关系…",
-    "deleteTask": "删除 Task 和会话",
+    "taskDescription": "从 Vibe Kanban 中删除“{{name}}”及其绑定会话的历史记录？议题、项目、工作空间、其他 任务 和会话、工作文件及 智能体 原生历史记录均会保留。此操作无法撤销。",
+    "sessionDescription": "从 Vibe Kanban 中删除会话“{{name}}”及其历史记录？工作空间、其他会话、工作文件及 智能体 原生历史记录均会保留。此操作无法撤销。",
+    "resolving": "正在检查当前 任务 与会话的绑定关系…",
+    "deleteTask": "删除 任务 和会话",
     "deleteSession": "删除会话",
     "action": "删除 {{name}}",
     "deleting": "正在删除…",
     "failed": "无法删除，请重试。",
     "scopeChanged": "当前 Host 或所选内容已更改。请取消，然后从目标条目重新发起删除。",
-    "bindingChanged": "此 Task 已不再绑定所选会话。请刷新列表后重试。"
+    "bindingChanged": "此 任务 已不再绑定所选会话。请刷新列表后重试。"
   },
   "dropzone": {
     "dropImagesHere": "将图片拖放到这里",
@@ -253,11 +253,11 @@
   },
   "startReviewDialog": {
     "title": "开始审查",
-    "description": "请求编码代理审查您的更改并提供反馈。",
+    "description": "请求编码智能体审查您的更改并提供反馈。",
     "additionalInstructions": "附加说明（可选）",
     "reviewComments": "审查评论（{{count}}）",
     "includeGitContext": "包含 Git 上下文",
-    "includeGitContextDescription": "告诉代理如何查看此分支上的所有更改",
+    "includeGitContextDescription": "告诉智能体如何查看此分支上的所有更改",
     "newSession": "新会话",
     "sessionName": "审查"
   },
@@ -268,7 +268,7 @@
   "resolveConflicts": {
     "dialog": {
       "title": "解决冲突",
-      "description": "检测到冲突。选择您希望代理如何解决它们。",
+      "description": "检测到冲突。选择您希望智能体如何解决它们。",
       "newSession": "新会话",
       "resolve": "解决冲突",
       "resolving": "开始中...",
@@ -302,7 +302,7 @@
     "loadingBranches": "加载分支中...",
     "selectBaseBranch": "选择基础分支",
     "draftLabel": "创建为草稿",
-    "autoGenerateLabel": "请求AI代理生成更好的PR描述",
+    "autoGenerateLabel": "请求AI智能体生成更好的PR描述",
     "creating": "创建中...",
     "createButton": "创建 PR",
     "errors": {
@@ -428,7 +428,7 @@
       "viewApproval": "查看",
       "clearReviewComments": "清除审查评论",
       "edit": "编辑消息",
-      "scrollToPreviousMessage": "Go to previous message",
+      "scrollToPreviousMessage": "跳转到上一条消息",
       "reset": "重置",
       "resetTooltip": "重置到此时点"
     },
@@ -450,7 +450,7 @@
       "renaming": "正在重命名...",
       "delete": "删除会话",
       "deleteTitle": "删除会话？",
-      "deleteDescription": "这会删除 Vibe Kanban 中的会话历史，不会影响工作区文件或智能体原生历史。",
+      "deleteDescription": "这会删除 Vibe Kanban 中的会话历史，不会影响工作空间文件或智能体原生历史。",
       "deleteFailed": "无法删除会话",
       "deleteFailedDescription": "会话删除失败。"
     },
@@ -476,9 +476,9 @@
     },
     "scriptPlaceholder": {
       "setupTitle": "设置脚本",
-      "setupDescription": "未配置设置脚本。设置脚本在编码代理启动前运行。",
+      "setupDescription": "未配置设置脚本。设置脚本在编码智能体启动前运行。",
       "cleanupTitle": "清理脚本",
-      "cleanupDescription": "未配置清理脚本。清理脚本在编码代理完成后运行。",
+      "cleanupDescription": "未配置清理脚本。清理脚本在编码智能体完成后运行。",
       "configure": "配置"
     },
     "executors": "执行器",
@@ -558,8 +558,8 @@
     "statusKilled": "进程已被终止"
   },
   "createWorkspaceFromPr": {
-    "title": "从 PR 创建工作区",
-    "description": "选择一个打开的拉取请求来创建工作区。将使用 PR 标题自动创建任务。",
+    "title": "从 PR 创建工作空间",
+    "description": "选择一个打开的拉取请求来创建工作空间。将使用 PR 标题自动创建任务。",
     "repositoryLabel": "仓库",
     "remoteLabel": "远程仓库",
     "pullRequestLabel": "拉取请求",
@@ -571,7 +571,7 @@
     "noPullRequestsFound": "未找到打开的拉取请求",
     "runSetupScript": "运行设置脚本",
     "creating": "创建中...",
-    "createWorkspace": "创建工作区",
+    "createWorkspace": "创建工作空间",
     "selectRepository": "选择仓库",
     "selectRemote": "选择远程仓库",
     "selectPullRequest": "选择拉取请求",
@@ -584,14 +584,14 @@
       "unsupportedProvider": "不支持的 Git 提供商",
       "failedToLoadPrs": "加载拉取请求失败",
       "prNotFound": "未找到拉取请求",
-      "failedToCreateWorkspace": "创建工作区失败"
+      "failedToCreateWorkspace": "创建工作空间失败"
     }
   },
   "shareDialog": {
     "loginRequired": {
-      "title": "Sign in required",
-      "description": "Sign in to access this feature.",
-      "action": "Sign in"
+      "title": "请先登录",
+      "description": "登录后即可使用此功能。",
+      "action": "登录"
     }
   },
   "linkPrToIssue": {

@@ -26,6 +26,25 @@ const SUPPORTED_UI_LANGUAGES = [
 ] as const;
 export const SUPPORTED_I18N_CODES = Object.values(UI_TO_I18N);
 
+/** Resolve browser region/script variants to an actual bundled language. */
+export function resolveBrowserLanguage(languages: readonly string[]): string {
+  for (const language of languages) {
+    const parts = language.replaceAll('_', '-').toLowerCase().split('-');
+    if (parts[0] === 'zh') {
+      if (parts.includes('hant')) return 'zh-Hant';
+      if (parts.includes('hans')) return 'zh-Hans';
+      return parts.some((part) => ['tw', 'hk', 'mo'].includes(part))
+        ? 'zh-Hant'
+        : 'zh-Hans';
+    }
+    const supported = SUPPORTED_I18N_CODES.find(
+      (code) => code.toLowerCase() === parts[0]
+    );
+    if (supported) return supported;
+  }
+  return 'en';
+}
+
 const FALLBACK_ENDONYMS = {
   en: 'English',
   fr: 'Français',

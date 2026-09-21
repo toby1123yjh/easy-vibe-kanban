@@ -1,10 +1,30 @@
 {
+  "hostStatus": {
+    "online": "在线",
+    "offline": "离线",
+    "pairedOn": "配对于 {{date}}"
+  },
+  "releaseNotes": {
+    "title": "更新日志",
+    "description": "了解 Vibe Kanban 的最新变化。",
+    "loading": "正在加载更新日志",
+    "loadingDescription": "正在获取最新更新...",
+    "failed": "无法加载更新日志",
+    "retryDescription": "请重试，或前往 GitHub 查看发布记录。",
+    "retrying": "正在重试...",
+    "empty": "暂无更新日志",
+    "emptyDescription": "有可用更新时会显示在这里。",
+    "openGitHub": "在 GitHub 查看"
+  },
   "projectSessions": {
-    "column": "讨论",
+    "column": "Discuss",
     "create": "新建讨论",
     "empty": "暂无讨论。"
   },
   "sessionProject": {
+    "messagePlaceholder": "描述你想做的事…",
+    "createFailed": "无法启动会话，请重试。",
+    "configureFailed": "无法保存项目工作目录。",
     "label": "项目",
     "failed": "无法加载项目工作空间，请重试。",
     "missingWorkspace": "这个项目还没有工作空间，配置后即可开始会话。",
@@ -102,8 +122,8 @@
       "closeRound": "关闭本轮",
       "dissolveAndArchive": "解散并归档",
       "dissolveTitle": "解散并归档这个 Arena？",
-      "dissolveMessage": "这将归档全部 {{count}} 个候选工作区并删除 Arena，且无法撤销。",
-      "closedFeedback": "本轮 Arena 已关闭，结果和工作区均已保留。"
+      "dissolveMessage": "这将归档全部 {{count}} 个候选工作空间并删除 Arena，且无法撤销。",
+      "closedFeedback": "本轮 Arena 已关闭，结果和工作空间均已保留。"
     },
     "selector": {
       "label": "候选结果",
@@ -244,10 +264,10 @@
     "create": {
       "titleDesign": "启动设计 Arena / {{count}} 个执行",
       "titleImplementation": "启动实现 Arena / {{count}} 个执行",
-      "descriptionDesign": "让多个 agent 进行设计对话并相互比较。工作区彼此隔离，默认不会创建提交。",
+      "descriptionDesign": "让多个智能体进行设计对话并相互比较。工作空间彼此隔离，默认不会创建提交。",
       "descriptionImplementation": "运行多个实现执行，并比较它们的代码改动。",
       "prompt": "提示词",
-      "promptPlaceholder": "描述每个 agent 应该做什么...",
+      "promptPlaceholder": "描述每个智能体应该做什么...",
       "mode": "模式",
       "modeDesign": "设计",
       "modeImplementation": "实现",
@@ -270,8 +290,8 @@
       }
     },
     "workspace": {
-      "workspace": "工作区",
-      "agent": "Agent",
+      "workspace": "工作空间",
+      "agent": "智能体",
       "attemptName": "执行 {{index}}",
       "loadingArena": "正在加载 Arena...",
       "loadingConversation": "正在加载对话...",
@@ -305,7 +325,7 @@
       "todoOperation": "{{operation}} 待办事项"
     },
     "subagent": {
-      "defaultType": "子代理"
+      "defaultType": "子智能体"
     },
     "loadingEarlierMessages": "正在加载早期消息"
   },
@@ -351,30 +371,30 @@
     "label": "标签"
   },
   "workspaces": {
-    "title": "工作区",
+    "title": "工作空间",
     "searchPlaceholder": "搜索...",
     "active": "活跃",
     "archived": "已归档",
     "loading": "加载中...",
-    "loadingTitle": "正在加载工作区",
-    "openingTitle": "正在打开新工作区",
-    "errorTitle": "无法加载工作区",
+    "loadingTitle": "正在加载工作空间",
+    "openingTitle": "正在打开新工作空间",
+    "errorTitle": "无法加载工作空间",
     "errorDescription": "请检查连接后重试。",
-    "degradedTitle": "工作区数据可能不是最新的",
-    "degradedDescription": "连接恢复期间，仍可使用上次加载的工作区。",
-    "emptyTitle": "还没有工作区",
-    "emptyDescription": "启动一个工作区来运行智能体任务。",
-    "retrying": "正在重新加载工作区",
+    "degradedTitle": "工作空间数据可能不是最新的",
+    "degradedDescription": "连接恢复期间，仍可使用上次加载的工作空间。",
+    "emptyTitle": "还没有工作空间",
+    "emptyDescription": "启动一个工作空间来运行智能体任务。",
+    "retrying": "正在重新加载工作空间",
     "actionsFor": "{{name}} 的操作",
-    "toggleLayout": "切换工作区布局",
-    "notFound": "未找到工作区",
-    "selectToStart": "选择一个工作区开始",
+    "toggleLayout": "切换工作空间布局",
+    "notFound": "未找到工作空间",
+    "selectToStart": "选择一个工作空间开始",
     "draft": "草稿",
     "viewArchive": "查看归档",
     "backToActive": "返回活跃",
-    "noArchived": "没有已归档的工作区",
-    "noWorkspaces": "没有工作区",
-    "newWorkspace": "新工作区",
+    "noArchived": "没有已归档的工作空间",
+    "noWorkspaces": "没有工作空间",
+    "newWorkspace": "新工作空间",
     "needsAttention": "需要注意",
     "idle": "空闲",
     "running": "运行中",
@@ -383,30 +403,30 @@
     "archive": "归档",
     "more": "更多操作",
     "rename": {
-      "title": "重命名工作区",
-      "description": "输入此工作区的新名称。",
+      "title": "重命名工作空间",
+      "description": "输入此工作空间的新名称。",
       "nameLabel": "名称",
-      "placeholder": "输入工作区名称",
+      "placeholder": "输入工作空间名称",
       "action": "重命名",
       "renaming": "正在重命名..."
     },
     "unlinkFromIssue": "从问题取消关联",
-    "deleteWorkspace": "删除工作区",
+    "deleteWorkspace": "删除工作空间",
     "unlink": "取消关联",
     "delete": "删除",
-    "unlinkConfirmMessage": "确定要将此工作区与问题取消关联吗？工作区仍将存在，但不再与此问题关联。",
-    "deleteConfirmMessage": "确定要删除此工作区吗？这将取消与问题的关联并删除本地工作区。此操作无法撤销。",
-    "unlinkError": "取消关联工作区失败",
-    "deleteError": "删除工作区失败",
+    "unlinkConfirmMessage": "确定要将此工作空间与问题取消关联吗？工作空间仍将存在，但不再与此问题关联。",
+    "deleteConfirmMessage": "确定要删除此工作空间吗？这将取消与问题的关联并删除本地工作空间。此操作无法撤销。",
+    "unlinkError": "取消关联工作空间失败",
+    "deleteError": "删除工作空间失败",
     "filesChanged": "{{count}} 个文件",
     "deleteDialog": {
-      "title": "删除工作区",
-      "description": "确定要删除此工作区吗？此操作无法撤销。",
+      "title": "删除工作空间",
+      "description": "确定要删除此工作空间吗？此操作无法撤销。",
       "deleteBranchLabel": "删除分支",
       "cannotDeleteOpenPr": "PR 开启时无法删除分支",
       "unlinkFromIssueLabel": "同时取消与议题的关联"
     },
-    "linkError": "关联工作区失败"
+    "linkError": "关联工作空间失败"
   },
   "projectWorkspaceDefault": {
     "label": "项目默认工作位置",
@@ -414,8 +434,8 @@
     "loadFailed": "无法加载",
     "loadFailedDescription": "无法解析已保存的工作位置，请打开项目设置检查。",
     "empty": "尚未配置",
-    "description": "该工作位置会用于预填新执行；Git 位置还会包含基础分支。启动智能体前仍需确认实际工作区。",
-    "emptyDescription": "系统不会使用隐藏的历史工作区兜底。你可以在启动执行时选择工作目录，或先配置项目默认值。",
+    "description": "该工作位置会用于预填新执行；Git 位置还会包含基础分支。启动智能体前仍需确认实际工作空间。",
+    "emptyDescription": "系统不会使用隐藏的历史工作空间兜底。你可以在启动执行时选择工作目录，或先配置项目默认值。",
     "configure": "配置项目默认工作位置",
     "configureShort": "配置"
   },
@@ -434,8 +454,8 @@
     "singleAgentFallbackTitle": "单智能体执行",
     "draftWorkflow": "工作流执行草稿",
     "workflowRun": "运行 {{id}}",
-    "workspace": "工作区 {{id}}",
-    "remoteWorkspace": "远程工作区",
+    "workspace": "工作空间 {{id}}",
+    "remoteWorkspace": "远程工作空间",
     "openCanvas": "打开工作流",
     "openSession": "打开会话",
     "runWorkflow": "运行工作流执行",
@@ -623,7 +643,7 @@
       "parseGraphFailed": "无法解析工作流 JSON。"
     },
     "workspaceDialog": {
-      "title": "选择工作流工作区",
+      "title": "选择工作流工作空间",
       "description": "可以直接使用目录，也可以选择 Git 仓库和基准分支创建隔离 worktree。"
     },
     "repositoryDialog": {
@@ -636,11 +656,11 @@
     "runDialog": {
       "title": "运行工作流执行",
       "description": "启动这个关联议题的工作流执行。",
-      "mainWorkspace": "主工作区",
-      "createWorkflowWorkspace": "创建工作流工作区",
-      "usesExistingWorkspace": "使用现有工作区。",
-      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的现有工作区。",
-      "createWorkspaceHint": "为本次运行选择目录或 Git worktree，工作流节点共用所选工作区。",
+      "mainWorkspace": "主工作空间",
+      "createWorkflowWorkspace": "创建工作流工作空间",
+      "usesExistingWorkspace": "使用现有工作空间。",
+      "usesExistingWorkspaceWithBranch": "使用 {{branch}} 分支上的现有工作空间。",
+      "createWorkspaceHint": "为本次运行选择目录或 Git worktree，工作流节点共用所选工作空间。",
       "runInput": "运行输入",
       "startRun": "开始运行"
     },
@@ -905,8 +925,8 @@
       "nodeId": "节点 ID",
       "nodeType": "节点类型",
       "noConditionBranches": "没有可用的已连接条件分支。",
-      "workspaceId": "工作区 ID",
-      "noWorkspace": "无工作区",
+      "workspaceId": "工作空间 ID",
+      "noWorkspace": "无工作空间",
       "started": "开始时间",
       "finished": "完成时间",
       "notFinished": "尚未完成",
@@ -988,7 +1008,7 @@
       "session": "会话",
       "retryStep": "重试节点",
       "codeChanges": "代码改动",
-      "openWorkflowWorkspace": "打开工作流工作区",
+      "openWorkflowWorkspace": "打开工作流工作空间",
       "inspectFiles": "查看文件",
       "noCodeChanges": "本次运行没有关联的代码改动。",
       "selectedStep": "节点：{{nodeId}}",
@@ -1024,12 +1044,12 @@
       "process": "进程 {{id}}",
       "open": "打开",
       "noOutputYet": "还没有输出",
-      "agentRun": "AgentRun {{id}}",
-      "projection": "Projection: {{status}}"
+      "agentRun": "智能体运行 {{id}}",
+      "projection": "同步状态：{{status}}"
     },
     "arenaWinner": {
       "title": "需要选择 Arena 结果",
-      "description": "选择一个已完成的执行，将它的差异应用回工作流工作区。",
+      "description": "选择一个已完成的执行，将它的差异应用回工作流工作空间。",
       "selectFailed": "选择 Arena 获胜结果失败。",
       "noGroupLink": "Arena 分组链接不可用。",
       "loadingAttempts": "正在加载执行...",
@@ -1040,7 +1060,7 @@
       "changes": "有变更",
       "noChanges": "无变更",
       "changesUnknown": "变更未知",
-      "openWorkspace": "打开 {{label}} 工作区",
+      "openWorkspace": "打开 {{label}} 工作空间",
       "selected": "已选择",
       "applying": "正在应用...",
       "selectWinner": "选择获胜结果",
@@ -1064,7 +1084,7 @@
       "runThisStep": "运行此节点",
       "editConfig": "编辑配置",
       "inspectFiles": "查看文件",
-      "openWorkspace": "打开工作区",
+      "openWorkspace": "打开工作空间",
       "lastRunFailed": "上次运行失败",
       "failedWithoutMessage": "智能体失败，但没有捕获到错误消息。",
       "runningNow": "正在运行",
@@ -1085,16 +1105,16 @@
       "nodePrompt": "节点提示词",
       "noPrompt": "尚未捕获到提示词。",
       "rawRouterOutput": "原始路由输出",
-      "orchestrationNodeExecutionId": "Orchestration node execution ID",
-      "agentRunId": "AgentRun ID",
-      "projection": "Projection status",
-      "projectionUnavailable": "Canonical AgentRun projection is unavailable; actions are disabled.",
-      "runtimeConnection": "Runtime connection",
-      "connected": "Connected",
-      "disconnected": "Disconnected",
-      "nativeConfigLoaded": "Native executor configuration loaded.",
-      "nativeConfigUnavailable": "Native executor configuration is unavailable.",
-      "eventRecorded": "Canonical event recorded."
+      "orchestrationNodeExecutionId": "Node 编排执行 ID",
+      "agentRunId": "智能体运行 ID",
+      "projection": "同步状态",
+      "projectionUnavailable": "无法获取智能体运行状态，暂不可操作。",
+      "runtimeConnection": "运行连接",
+      "connected": "已连接",
+      "disconnected": "已断开",
+      "nativeConfigLoaded": "已加载智能体原生配置。",
+      "nativeConfigUnavailable": "无法获取智能体原生配置。",
+      "eventRecorded": "已记录运行事件。"
     }
   },
   "fileTree": {
@@ -1122,8 +1142,8 @@
     "notes": "笔记"
   },
   "notes": {
-    "placeholder": "添加关于此工作区的笔记...",
-    "selectWorkspace": "选择一个工作区以查看笔记"
+    "placeholder": "添加关于此工作空间的笔记...",
+    "selectWorkspace": "选择一个工作空间以查看笔记"
   },
   "actions": {
     "copyPath": "复制路径",
@@ -1177,23 +1197,23 @@
     },
     "commandBar": {
       "title": "命令栏",
-      "content": "命令栏是您的导航中心。使用 CMD+K 打开它，可以搜索和访问工作区中的所有可用操作。"
+      "content": "命令栏是您的导航中心。使用 CMD+K 打开它，可以搜索和访问工作空间中的所有可用操作。"
     },
     "contextBar": {
       "title": "上下文栏",
       "content": "上下文栏让您可以快速切换不同面板。将它拖动到最适合您的位置。"
     },
     "sidebar": {
-      "title": "工作区侧边栏",
-      "content": "一目了然地查看所有工作区的状态。通知会突出显示需要关注的工作区。归档已合并的工作区以保持侧边栏整洁。"
+      "title": "工作空间侧边栏",
+      "content": "一目了然地查看所有工作空间的状态。通知会突出显示需要关注的工作空间。归档已合并的工作空间以保持侧边栏整洁。"
     },
     "multiRepo": {
       "title": "多仓库支持",
-      "content": "将多个仓库添加到单个工作区。在处理一个仓库时可以引用另一个仓库的代码，或者同时在多个仓库中实现更改。"
+      "content": "将多个仓库添加到单个工作空间。在处理一个仓库时可以引用另一个仓库的代码，或者同时在多个仓库中实现更改。"
     },
     "sessions": {
       "title": "多会话",
-      "content": "在单个工作区内创建多个代理对话会话，包括与不同代理的会话。这可以帮助您绕过对话限制，或在单独的线程中启动审查代理。"
+      "content": "在单个工作空间内创建多个智能体对话会话，包括与不同智能体的会话。这可以帮助您绕过对话限制，或在单独的线程中启动审查智能体。"
     },
     "preview": {
       "title": "预览更改",
@@ -1201,7 +1221,7 @@
     },
     "diffs": {
       "title": "差异和评论",
-      "content": "重新设计的差异面板包含更改的文件树。直接在差异上评论以向代理提供反馈，当您的工作区链接到 PR 时还可以查看 GitHub 评论。"
+      "content": "重新设计的差异面板包含更改的文件树。直接在差异上评论以向智能体提供反馈，当您的工作空间链接到 PR 时还可以查看 GitHub 评论。"
     }
   },
   "logs": {
@@ -1224,7 +1244,7 @@
   },
   "shortcuts": {
     "title": "键盘快捷键",
-    "inWorkspace": "(在工作区中)",
+    "inWorkspace": "(在工作空间中)",
     "sequentialHint": "组合快捷键：先按第一个键，然后在500毫秒内按第二个键。",
     "configurableHint": "可在 设置 → 常规 → 消息输入 中配置",
     "groups": {
@@ -1232,7 +1252,7 @@
       "navigation": "导航",
       "modifiers": "修饰键",
       "goTo": "前往 (G ...)",
-      "workspace": "工作区 (W ...)",
+      "workspace": "工作空间 (W ...)",
       "view": "视图 (V ...)",
       "issues": "问题 (I ...)",
       "git": "Git (X ...)",
@@ -1254,12 +1274,12 @@
       "formatInlineCode": "格式化行内代码",
       "sendMessage": "发送消息",
       "settings": "前往设置",
-      "new-workspace": "前往新工作区",
-      "duplicate-workspace": "复制工作区",
-      "rename-workspace": "重命名工作区",
-      "pin-workspace": "置顶/取消置顶工作区",
-      "archive-workspace": "归档工作区",
-      "delete-workspace": "删除工作区",
+      "new-workspace": "前往新工作空间",
+      "duplicate-workspace": "复制工作空间",
+      "rename-workspace": "重命名工作空间",
+      "pin-workspace": "置顶/取消置顶工作空间",
+      "archive-workspace": "归档工作空间",
+      "delete-workspace": "删除工作空间",
       "toggle-changes-mode": "切换更改面板",
       "toggle-logs-mode": "切换日志面板",
       "toggle-preview-mode": "切换预览面板",
@@ -1272,7 +1292,7 @@
       "make-sub-issue-of": "设为子问题",
       "add-sub-issue": "添加子问题",
       "remove-parent-issue": "移除父级",
-      "link-workspace": "关联工作区",
+      "link-workspace": "关联工作空间",
       "duplicate-issue": "复制问题",
       "delete-issue": "删除问题",
       "git-create-pr": "创建 Pull Request",
@@ -1297,7 +1317,7 @@
     "missingRepo": "所选仓库已不可用。",
     "noTagsOrFiles": "未找到标签或文件",
     "createTag": "创建新标签",
-    "noCommands": "此代理没有可用的命令。"
+    "noCommands": "此智能体没有可用的命令。"
   },
   "kanban": {
     "noVisibleStatuses": "所有状态已隐藏。请使用显示设置或切换到其他标签页查看问题。",
@@ -1325,8 +1345,8 @@
     "copyLink": "复制链接",
     "issueTitlePlaceholder": "问题标题...",
     "issueDescriptionPlaceholder": "输入任务描述...",
-    "createDraftWorkspaceImmediately": "立即创建草稿工作区",
-    "createDraftWorkspaceDescription": "创建议题后，打开预填了议题详情的工作区创建表单",
+    "createDraftWorkspaceImmediately": "立即创建草稿工作空间",
+    "createDraftWorkspaceDescription": "创建议题后，打开预填了议题详情的工作空间创建表单",
     "createIssue": "创建任务",
     "newIssue": "新问题",
     "previewCodeBlock": "[代码块]",
@@ -1366,22 +1386,22 @@
     "tags": "标签",
     "sortBy": "排序",
     "workspaceSidebar": {
-      "sortDialogTitle": "排序工作区",
-      "sortDialogDescription": "选择侧边栏中工作区的排序方式。",
+      "sortDialogTitle": "排序工作空间",
+      "sortDialogDescription": "选择侧边栏中工作空间的排序方式。",
       "sortByLabel": "排序依据",
       "sortOrderLabel": "排序顺序",
       "sortUpdatedAt": "更新时间",
       "sortCreatedAt": "创建时间",
-      "filterDialogTitle": "筛选工作区",
-      "filterDialogDescription": "按项目和 PR 状态缩小工作区范围。",
+      "filterDialogTitle": "筛选工作空间",
+      "filterDialogDescription": "按项目和 PR 状态缩小工作空间范围。",
       "projectFilterLabel": "项目",
       "prFilterLabel": "PR",
       "prFilterAll": "全部",
       "prFilterHasPr": "有 PR",
       "prFilterNoPr": "无 PR",
       "noProject": "无项目",
-      "sortButtonTitle": "排序工作区",
-      "filterButtonTitle": "筛选工作区"
+      "sortButtonTitle": "排序工作空间",
+      "filterButtonTitle": "筛选工作空间"
     },
     "sortAscending": "升序",
     "sortDescending": "降序",
@@ -1389,15 +1409,15 @@
     "self": "我",
     "priority": "优先级",
     "subIssuesFilterLabel": "子问题",
-    "workspacesFilterLabel": "工作区",
+    "workspacesFilterLabel": "工作空间",
     "selectAssignees": "选择负责人...",
     "relationships": "关系",
     "noRelationships": "无关系",
     "openProjectsGuide": "项目指南",
     "editProjectSettings": "编辑项目设置",
-    "linkWorkspace": "关联工作区...",
-    "createNewWorkspace": "新建工作区",
-    "workspaces": "工作区",
+    "linkWorkspace": "关联工作空间...",
+    "createNewWorkspace": "新建工作空间",
+    "workspaces": "工作空间",
     "showingWorkspaces": "显示 {{total}} 个中的 {{count}} 个",
     "changeColor": "更改颜色",
     "editName": "编辑名称",
@@ -1424,8 +1444,8 @@
         "content": "每个问题代表一个要实现的功能或要解决的问题。问题可以包含状态、优先级、负责人、标签、关系、评论、子问题等信息。"
       },
       "workspaces": {
-        "title": "工作区",
-        "content": "开始处理问题时，请创建一个工作区。一个问题可以有多个工作区。问题描述要完成的工作，工作区承载实际执行过程。"
+        "title": "工作空间",
+        "content": "开始处理问题时，请创建一个工作空间。一个问题可以有多个工作空间。问题描述要完成的工作，工作空间承载实际执行过程。"
       },
       "organizations": {
         "title": "邀请你的团队",
@@ -1451,7 +1471,7 @@
       "branchLabel": "基础分支",
       "branchPlaceholder": "选择分支",
       "useDirectory": "使用此目录",
-      "useWorkspace": "使用此工作区",
+      "useWorkspace": "使用此工作空间",
       "useProjectLocation": "使用此位置",
       "inspecting": "正在检查目录…",
       "loadingBranches": "正在加载分支…"
@@ -1491,7 +1511,7 @@
     "permissionAuto": "自动",
     "permissionAsk": "询问",
     "permissionPlan": "计划",
-    "agent": "代理",
+    "agent": "智能体",
     "default": "默认",
     "model": "模型"
   },
@@ -1521,6 +1541,7 @@
     "no": "否"
   },
   "errors": {
+    "details": "错误详情",
     "generic": "发生了意外错误"
   },
   "personal": "个人",
@@ -1605,7 +1626,7 @@
         "command": "命令",
         "project": "项目",
         "session": "会话",
-        "issue": "Issue",
+        "issue": "议题",
         "workflow": "工作流",
         "run": "执行"
       }
@@ -1637,16 +1658,16 @@
   "agentCenter": {
     "eyebrow": "智能体运行时",
     "title": "智能体中心",
-    "description": "在一个页面管理已安装的智能体、原生配置、MCP、Skills 与运行时 Commands。",
+    "description": "在一个页面管理已安装的智能体、原生配置、MCP、技能与运行时命令。",
     "host": "当前主机",
     "rescan": "重新扫描本机",
     "rescanning": "正在扫描...",
     "tabsLabel": "智能体中心分区",
     "tabs": {
-      "providers": "Providers",
+      "providers": "智能体",
       "mcp": "MCP",
-      "skills": "Skills",
-      "commands": "Commands",
+      "skills": "技能",
+      "commands": "命令",
       "profiles": "配置档案"
     },
     "readiness": {
@@ -1675,16 +1696,16 @@
       "workflow_agent_step": "工作流智能体 Node",
       "team_slot": "团队席位"
     },
-    "providerListTitle": "Provider",
-    "providerListLabel": "智能体 Provider",
-    "selectedProvider": "当前 Provider",
+    "providerListTitle": "智能体",
+    "providerListLabel": "智能体",
+    "selectedProvider": "当前智能体",
     "bundledVersion": "内置版本 {{version}}",
     "versionUnavailable": "未报告版本",
-    "defaultProvider": "默认 Provider",
+    "defaultProvider": "默认智能体",
     "setDefault": "设为默认",
     "openConfiguration": "打开原生配置",
     "capabilities": "能力",
-    "noCapabilities": "该 Provider 尚未报告任何能力。",
+    "noCapabilities": "该智能体尚未报告任何能力。",
     "enabledTools": "已启用工具",
     "manageTools": "管理工具",
     "runtimeManaged": "运行时管理",
@@ -1716,7 +1737,7 @@
     "nativeConfig": {
       "sectionLabel": "原生配置",
       "title": "原生配置",
-      "description": "通过 Adapter 管理的安全元数据查看 Provider 原生文件，并在类型化编辑器中打开已知字段。",
+      "description": "通过 Adapter 管理的安全元数据查看智能体原生文件，并在类型化编辑器中打开已知字段。",
       "scopeLabel": "原生配置作用域",
       "userScope": "用户配置",
       "projectScope": "项目配置",
@@ -1751,7 +1772,7 @@
     "profileEditor": {
       "nameLabel": "配置档案名称",
       "environmentLabel": "环境变量",
-      "environmentHelp": "Agent Adapter 支持时会应用到原生设置；否则仅保存在配置档案/运行配置中。",
+      "environmentHelp": "智能体适配器支持时会应用到原生设置；否则仅保存在配置档案/运行配置中。",
       "environmentPlaceholder": "{\n  \"NAME\": \"value\"\n}",
       "customArgsLabel": "自定义参数",
       "customArgsHelp": "每行填写一个智能体 CLI 参数。仅保存在配置档案/运行配置中，不写入原生设置。",
@@ -1768,20 +1789,20 @@
         "updateAction": "更新目标配置档案",
         "createAction": "创建目标配置档案",
         "updateNotice": "目标配置档案已更新，目标独有字段已保留。",
-        "createNotice": "已保存复制的配置档案，未迁移 Provider 专属字段。",
-        "providerNotice": "不会复制 Provider 专属设置和凭据。",
-        "targetProviderLabel": "目标 Provider",
+        "createNotice": "已保存复制的配置档案，未迁移智能体专属字段。",
+        "providerNotice": "不会复制智能体专属设置和凭据。",
+        "targetProviderLabel": "目标智能体",
         "destinationLabel": "复制目标",
         "createDestination": "创建新的目标配置档案",
         "updateDestination": "更新现有配置档案：{{name}}",
-        "existingTargetHelp": "现有目标会保留其凭据、未知字段、Provider 扩展和目标专属设置。预览会优先列出来源侧将覆盖的内容。",
+        "existingTargetHelp": "现有目标会保留其凭据、未知字段、智能体扩展和目标专属设置。预览会优先列出来源侧将覆盖的内容。",
         "previewAction": "预览复制"
       }
     },
     "commands": {
       "manager": {
         "title": "原生命令",
-        "description": "发现并管理当前智能体的 Provider 原生提示词命令。Vibe Kanban 只使用适配器批准的字段。"
+        "description": "发现并管理当前智能体的原生提示词命令。Vibe Kanban 只使用适配器批准的字段。"
       },
       "actions": {
         "refresh": "刷新",
@@ -1804,9 +1825,9 @@
       "states": {
         "loading": "正在发现命令…",
         "unavailable": "命令清单不可用。",
-        "unsupportedProvider": "此 Provider 未返回 Command 适配器。",
-        "installed": "已检测到 Provider",
-        "notDetected": "未检测到 Provider",
+        "unsupportedProvider": "此智能体未返回命令适配器。",
+        "installed": "已检测到智能体",
+        "notDetected": "未检测到智能体",
         "readOnly": "只读",
         "updating": "正在更新 {{name}}"
       },
@@ -1831,7 +1852,7 @@
       "editor": {
         "addTitle": "添加命令",
         "editTitle": "编辑 {{name}}",
-        "description": "适配器负责写入 Provider 原生格式，并保留不属于此表单的原生字段。",
+        "description": "适配器负责写入智能体原生格式，并保留不属于此表单的原生字段。",
         "scope": "范围",
         "name": "命令名称",
         "nameHelp": "可使用字母、数字、连字符和下划线；Claude 与 Gemini 还支持冒号分隔的命名空间。",
@@ -1844,13 +1865,13 @@
       },
       "validation": {
         "nameRequired": "请输入命令名称。",
-        "invalidName": "请输入符合 Provider 原生规则的命令名称。",
+        "invalidName": "请输入符合智能体原生规则的命令名称。",
         "projectPathRequired": "创建项目级命令前，请先加载绝对项目路径。",
         "bodyRequired": "请输入命令提示词。"
       },
       "remove": {
         "title": "删除 {{name}}？",
-        "message": "这会删除 Provider 原生命令，且无法撤销。"
+        "message": "这会删除智能体原生命令，且无法撤销。"
       },
       "unsaved": {
         "title": "放弃命令改动？",
@@ -1866,11 +1887,11 @@
         "saved": "命令清单已更新。"
       },
       "empty": {
-        "commands": "当前 Provider 和范围内没有发现命令。",
+        "commands": "当前智能体和范围内没有发现命令。",
         "search": "没有与搜索条件匹配的命令。"
       },
       "limitations": {
-        "codex": "Codex 自定义提示词已弃用且仅支持用户级。新建可复用指令应优先使用 Skills；改动需要新会话或重启后生效。",
+        "codex": "Codex 自定义提示词已弃用且仅支持用户级。新建可复用指令应优先使用技能；改动需要新会话或重启后生效。",
         "claude_code": "插件提供的命令仍由对应插件管理。",
         "gemini": "扩展提供的命令仍由对应扩展管理。",
         "oh_my_pi": "提示词命令可以编辑；可执行 TypeScript 命令仅供发现和只读展示，其源码不会加载到浏览器。"
@@ -1884,7 +1905,7 @@
     },
     "states": {
       "loadingHosts": "正在获取可用主机...",
-      "loadingProvider": "正在加载 Provider 详情...",
+      "loadingProvider": "正在加载智能体详情...",
       "noHost": "当前没有可管理的主机。",
       "offline": "离线",
       "hostOfflineTitle": "主机已离线",
@@ -1897,8 +1918,8 @@
     "errors": {
       "rescan": "无法重新扫描当前主机。",
       "loadRemoteHosts": "无法加载远程主机列表，请重试。本机扫描不受影响。",
-      "setDefault": "无法更新默认 Provider。",
-      "loadProviders": "无法加载 Provider 能力数据。",
+      "setDefault": "无法更新默认智能体。",
+      "loadProviders": "无法加载智能体能力数据。",
       "loadTools": "无法刷新智能体工具摘要。"
     },
     "unsaved": {
@@ -1911,7 +1932,7 @@
       "hostUnavailable": "当前没有可管理的主机。",
       "configLoading": "应用配置仍在加载。",
       "configUnavailable": "应用配置不可用。",
-      "providerUnavailable": "该 Provider 尚未就绪。"
+      "providerUnavailable": "该智能体尚未就绪。"
     },
     "tools": {
       "titles": {
@@ -1920,9 +1941,9 @@
         "skills": "技能"
       },
       "descriptions": {
-        "all": "管理原生 MCP 服务器和技能。各 Provider 的文件始终是真实数据源。",
-        "mcp": "管理原生 MCP 服务器。各 Provider 的文件始终是真实数据源。",
-        "skills": "管理原生技能。各 Provider 的文件始终是真实数据源。"
+        "all": "管理原生 MCP 服务器和技能。各智能体的文件始终是真实数据源。",
+        "mcp": "管理原生 MCP 服务器。各智能体的文件始终是真实数据源。",
+        "skills": "管理原生技能。各智能体的文件始终是真实数据源。"
       },
       "actions": {
         "refresh": "刷新",
@@ -1969,8 +1990,8 @@
         "project": "项目级"
       },
       "errors": {
-        "noInstalledProvider": "未安装受支持的智能体 Provider。",
-        "noCopyTarget": "没有其他已安装且受支持的智能体 Provider。",
+        "noInstalledProvider": "未安装受支持的智能体。",
+        "noCopyTarget": "没有其他已安装且受支持的智能体。",
         "operationFailed": "智能体工具操作失败。"
       },
       "notices": {
@@ -1989,8 +2010,8 @@
       "editor": {
         "addTitle": "添加智能体工具",
         "editTitle": "编辑 {{name}}",
-        "description": "编辑可移植定义。Provider Adapter 会将它写入对应的原生格式。",
-        "provider": "Provider",
+        "description": "编辑可移植定义。智能体适配器会将它写入对应的原生格式。",
+        "provider": "智能体",
         "scope": "作用域",
         "name": "安装名称",
         "mcpDefinition": "可移植 MCP 定义（JSON）",
@@ -2000,29 +2021,29 @@
       },
       "copy": {
         "title": "复制 {{name}}",
-        "description": "将 {{provider}} 的可移植定义复制到另一个已安装的 Provider。",
-        "target": "目标 Provider",
+        "description": "将 {{provider}} 的可移植定义复制到另一个已安装的智能体。",
+        "target": "目标智能体",
         "adapterNotice": "目标 Adapter 会将可移植定义转换为其原生格式。转换警告会在复制后显示。",
         "replaceWarning": "{{provider}} 的相同作用域中已有 {{name}}。继续操作会替换该安装。"
       },
       "security": {
-        "configured": "Configured",
-        "writeOnlyMcpHelp": "Native MCP values stay hidden. Preserve actions keep existing values; use replace or clear only for fields you intend to change.",
-        "writeOnlySkillHelp": "The existing SKILL.md stays hidden. Leave this editor empty to preserve it, or enter replacement content. Other Skill files remain unchanged."
+        "configured": "已配置",
+        "writeOnlyMcpHelp": "原生 MCP 配置值保持隐藏。选择保留会保留现有值；仅对需要修改的字段选择替换或清除。",
+        "writeOnlySkillHelp": "现有 SKILL.md 保持隐藏。编辑器留空可保留原内容，输入内容则会替换；其他技能文件不变。"
       },
       "disabled": {
         "operationPending": "另一个工具操作正在进行。",
-        "notEditable": "该 Provider 不允许编辑此安装。",
+        "notEditable": "该智能体不允许编辑此安装。",
         "copyRequiresEnabled": "只能复制已启用的安装。",
-        "notExportable": "该 Provider 无法导出此安装。",
-        "noCopyTarget": "没有其他已安装的 Provider 可用。",
-        "notRemovable": "该 Provider 不允许移除此安装。",
-        "sensitiveMcpEditUnavailable": "该 MCP 定义包含凭据或需无损保留的 Provider 原生字段，因此暂不可编辑；需要 Tool Adapter 提供脱敏的只写契约。"
+        "notExportable": "该智能体无法导出此安装。",
+        "noCopyTarget": "没有其他已安装的智能体可用。",
+        "notRemovable": "该智能体不允许移除此安装。",
+        "sensitiveMcpEditUnavailable": "该 MCP 定义包含凭据或需无损保留的智能体原生字段，因此暂不可编辑；需要 Tool Adapter 提供脱敏的只写契约。"
       }
     }
   },
   "askQuestion": {
-    "title": "代理正在提问",
+    "title": "智能体正在提问",
     "selectMultiple": "多选",
     "confirmSelection": "确认选择",
     "submitting": "正在提交回答...",

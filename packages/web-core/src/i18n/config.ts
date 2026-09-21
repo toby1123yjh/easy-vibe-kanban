@@ -1,7 +1,10 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
-import { SUPPORTED_I18N_CODES, uiLanguageToI18nCode } from './languages';
+import {
+  SUPPORTED_I18N_CODES,
+  uiLanguageToI18nCode,
+  resolveBrowserLanguage,
+} from './languages';
 
 // Import translation files
 import enCommon from './locales/en/common.json';
@@ -39,9 +42,13 @@ import zhHantSettings from './locales/zh-Hant/settings.json';
 import zhHantProjects from './locales/zh-Hant/projects.json';
 import zhHantTasks from './locales/zh-Hant/tasks.json';
 import zhHantOrganization from './locales/zh-Hant/organization.json';
+import enAgentConfig from './locales/en/agent-config.json';
+import zhHansAgentConfig from './locales/zh-Hans/agent-config.json';
+import zhHantAgentConfig from './locales/zh-Hant/agent-config.json';
 
 const resources = {
   en: {
+    'agent-config': enAgentConfig,
     common: enCommon,
     settings: enSettings,
     projects: enProjects,
@@ -77,6 +84,7 @@ const resources = {
     organization: koOrganization,
   },
   'zh-Hans': {
+    'agent-config': zhHansAgentConfig,
     common: zhHansCommon,
     settings: zhHansSettings,
     projects: zhHansProjects,
@@ -84,6 +92,7 @@ const resources = {
     organization: zhHansOrganization,
   },
   'zh-Hant': {
+    'agent-config': zhHantAgentConfig,
     common: zhHantCommon,
     settings: zhHantSettings,
     projects: zhHantProjects,
@@ -92,38 +101,33 @@ const resources = {
   },
 };
 
-i18n
-  .use(LanguageDetector)
-  .use(initReactI18next)
-  .init({
-    resources,
-    fallbackLng: {
-      'zh-TW': ['zh-Hant'],
-      'zh-HK': ['zh-Hant'],
-      'zh-MO': ['zh-Hant'],
-      zh: ['zh-Hans'], // Map generic Chinese to Simplified Chinese
-      default: ['en'],
-    },
-    defaultNS: 'common',
-    debug: import.meta.env.DEV,
-    // Include 'zh' + Traditional Chinese locales for browser detection
-    supportedLngs: [...SUPPORTED_I18N_CODES, 'zh', 'zh-TW', 'zh-HK', 'zh-MO'],
-    nonExplicitSupportedLngs: true, // Accept zh -> zh-Hans mapping
-    load: 'currentOnly', // Load exact language code
+function browserLanguage(): string {
+  return resolveBrowserLanguage(
+    typeof navigator === 'undefined'
+      ? []
+      : navigator.languages.length
+        ? navigator.languages
+        : [navigator.language]
+  );
+}
 
-    interpolation: {
-      escapeValue: false, // React already escapes
-    },
+i18n.use(initReactI18next).init({
+  resources,
+  lng: browserLanguage(),
+  fallbackLng: 'en',
+  defaultNS: 'common',
+  debug: import.meta.env.DEV,
+  supportedLngs: [...SUPPORTED_I18N_CODES],
+  load: 'currentOnly', // Load exact language code
 
-    react: {
-      useSuspense: false, // Avoid suspense for now to simplify initial setup
-    },
+  interpolation: {
+    escapeValue: false, // React already escapes
+  },
 
-    detection: {
-      order: ['navigator', 'htmlTag'],
-      caches: [], // Disable localStorage cache - we'll handle this via config
-    },
-  });
+  react: {
+    useSuspense: false, // Avoid suspense for now to simplify initial setup
+  },
+});
 
 // Debug logging in development
 if (import.meta.env.DEV) {
@@ -136,10 +140,8 @@ if (import.meta.env.DEV) {
 // Function to update language from config
 export const updateLanguageFromConfig = (configLanguage: string) => {
   if (configLanguage === 'BROWSER') {
-    // Use browser detection
-    const detected = i18n.services.languageDetector?.detect();
-    const detectedLang = Array.isArray(detected) ? detected[0] : detected;
-    i18n.changeLanguage(detectedLang || 'en');
+    // Do not read html.lang: it reflects the previous selection, not the browser.
+    void i18n.changeLanguage(browserLanguage());
   } else {
     // Use explicit language selection with proper mapping
     const langCode = uiLanguageToI18nCode(configLanguage);
@@ -153,5 +155,18 @@ export const updateLanguageFromConfig = (configLanguage: string) => {
     }
   }
 };
+
+const updateDocumentLanguage = () => {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = i18n.resolvedLanguage || 'en';
+  }
+};
+i18n.on('languageChanged', updateDocumentLanguage);
+updateDocumentLanguage();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() =>
+    i18n.off('languageChanged', updateDocumentLanguage)
+  );
+}
 
 export default i18n;

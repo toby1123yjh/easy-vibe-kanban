@@ -35,7 +35,7 @@
   },
   "createProjectDialog": {
     "workspaceLabel": "工作目录（必选）",
-    "workspaceHint": "为后续任务设置默认位置。不会创建执行工作区，也不会启动智能体。",
+    "workspaceHint": "为后续任务设置默认位置。不会创建执行工作空间，也不会启动智能体。",
     "chooseWorkspace": "选择文件夹或 Git 仓库",
     "changeWorkspace": "更改位置",
     "machineLabel": "所属机器",
@@ -56,9 +56,9 @@
     "createButton": "创建项目"
   },
   "deleteProjectDialog": {
-    "title": "Delete Project?",
-    "description": "This will permanently delete \"{{name}}\" and all its issues. This action cannot be undone.",
-    "error": "Failed to delete project. Please try again."
+    "title": "删除项目？",
+    "description": "这将永久删除“{{name}}”及其所有议题。此操作无法撤销。",
+    "error": "删除项目失败，请重试。"
   },
   "scoped": {
     "description": "仅设置当前项目。",
@@ -71,7 +71,7 @@
   },
   "directory": {
     "projectSettings": "项目设置",
-    "eyebrow": "工作区",
+    "eyebrow": "工作空间",
     "title": "项目",
     "newProject": "新建项目",
     "noOrganization": "没有可用组织",

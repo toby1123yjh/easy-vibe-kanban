@@ -16,7 +16,7 @@ export function PendingInvitationItem({
   onRevoke,
   isRevoking,
 }: PendingInvitationItemProps) {
-  const { t } = useTranslation('organization');
+  const { t, i18n } = useTranslation('organization');
 
   const handleRevoke = () => {
     const confirmed = window.confirm(
@@ -34,7 +34,9 @@ export function PendingInvitationItem({
           <div className="font-medium text-sm">{invitation.email}</div>
           <div className="text-xs text-muted-foreground">
             {t('invitationList.invited', {
-              date: new Date(invitation.created_at).toLocaleDateString(),
+              date: new Date(invitation.created_at).toLocaleDateString(
+                i18n.resolvedLanguage || 'en'
+              ),
             })}
           </div>
         </div>
