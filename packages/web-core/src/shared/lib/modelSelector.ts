@@ -11,6 +11,20 @@ function toPrettyCase(value: string): string {
     .join(' ');
 }
 
+// Display only: an explicit null still follows CLI configuration at execution.
+// Keep runtime-owned identifiers intact, including provider segments and aliases.
+export function resolveModelDisplayId(
+  configuredModel: string | null | undefined,
+  presetModel: string | null | undefined,
+  discoveredDefault: string | null | undefined
+): string | null {
+  const value =
+    configuredModel !== undefined
+      ? (configuredModel ?? discoveredDefault)
+      : (presetModel ?? discoveredDefault);
+  return value?.trim() ? value : null;
+}
+
 export function getSelectedModel(
   models: ModelInfo[],
   selectedProviderId: string | null,
@@ -48,6 +62,26 @@ export function getReasoningLabel(
     options.find((option) => option.id === selectedId)?.label ??
     toPrettyCase(selectedId)
   );
+}
+
+export function getReasoningDisplayLabel(
+  options: ReasoningOption[],
+  configuredReasoningId: string | null | undefined,
+  hasConfiguredReasoning: boolean,
+  followCliLabel: string
+): string | null {
+  if (options.length === 0) return null;
+  const { selectedReasoningId } = resolveReasoningOverrideState(
+    options,
+    configuredReasoningId,
+    hasConfiguredReasoning
+  );
+  const explicitLabel = getReasoningLabel(options, selectedReasoningId);
+  if (explicitLabel) return explicitLabel;
+
+  // With no per-session override, show the effective provider default. This
+  // is display-only; the outgoing executor config remains unset/null.
+  return options.find((option) => option.is_default)?.label ?? followCliLabel;
 }
 
 export function escapeAttributeValue(value: string): string {

@@ -94,6 +94,64 @@ test("Issue launch locks project and inherits Git branch without prompting", asy
   );
 });
 
+for (const draft of ["missing", "stale"]) {
+  test(`route Issue overrides ${draft} draft and cannot become standalone`, async ({
+    page,
+  }) => {
+    await open(
+      page,
+      `?requiredIssue&repo=1${draft === "stale" ? "&project=1" : ""}`,
+    );
+    await expect(selector(page)).toHaveValue("project-1");
+    await expect(selector(page)).toBeDisabled();
+    await expect(page.getByTestId("linked-issue")).toHaveText("P-ROUTE");
+    await expect(
+      page.getByRole("button", { name: "Remove Issue link", exact: true }),
+    ).toHaveCount(0);
+    expect(await calls(page)).toEqual([]);
+
+    // Even a later draft update cannot remove the route-owned association.
+    await page.evaluate(() =>
+      window.managedFixture.update({ linkedIssue: null }),
+    );
+    await expect(page.getByTestId("linked-issue")).toHaveText("P-ROUTE");
+    await send(page).click();
+    expect(await calls(page)).toEqual([
+      expect.objectContaining({
+        data: expect.objectContaining({
+          project_id: "project-1",
+          linked_issue: {
+            remote_project_id: "project-1",
+            issue_id: "route-issue",
+          },
+        }),
+        linkToIssue: { remoteProjectId: "project-1", issueId: "route-issue" },
+      }),
+    ]);
+  });
+}
+
+test("standalone entry retains optional Issue linking and plain session creation", async ({
+  page,
+}) => {
+  await open(page, "?project=1&repo=1");
+  await expect(page.getByTestId("linked-issue")).toHaveText(
+    "P-1Remove Issue link",
+  );
+  await page
+    .getByRole("button", { name: "Remove Issue link", exact: true })
+    .click();
+  await expect(page.getByTestId("linked-issue")).toHaveCount(0);
+  await expect(selector(page)).toBeEnabled();
+  await selector(page).selectOption(DEFAULT);
+  await send(page).click();
+  expect((await calls(page))[0].data).toMatchObject({
+    project_id: DEFAULT,
+    linked_issue: null,
+  });
+  expect((await calls(page))[0].linkToIssue).toBeUndefined();
+});
+
 test("missing workspace blocks send and explicit setup saves project on original Host", async ({
   page,
 }) => {

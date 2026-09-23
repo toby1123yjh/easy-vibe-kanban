@@ -1504,7 +1504,8 @@
     }
   },
   "modelSelector": {
-    "followCliConfig": "跟随 CLI 配置",
+    "unspecified": "未指定模型",
+    "followCliConfig": "跟随智能体配置",
     "preset": "预设",
     "custom": "自定义",
     "permissions": "权限",

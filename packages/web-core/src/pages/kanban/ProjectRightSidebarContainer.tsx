@@ -32,6 +32,7 @@ import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRoute
 import {
   buildKanbanIssueComposerKey,
   closeKanbanIssueComposer,
+  openKanbanIssueComposer,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
 
@@ -380,6 +381,20 @@ export function ProjectRightSidebarContainer() {
   }, [hostId, projectId]);
   const issueComposer = useKanbanIssueComposer(issueComposerKey);
   const isCreateMode = issueComposer !== null;
+  // Kanban creation always starts with an Issue. Standalone creation belongs
+  // to the workspace entrypoint, even when it selects this same project.
+  useEffect(() => {
+    if (!isWorkspaceCreateMode || issueId || !issueComposerKey) return;
+    if (!issueComposer) openKanbanIssueComposer(issueComposerKey);
+    appNavigation.goToProject(projectId, { replace: true });
+  }, [
+    isWorkspaceCreateMode,
+    issueId,
+    issueComposerKey,
+    issueComposer,
+    appNavigation,
+    projectId,
+  ]);
   const openIssue = useCallback(
     (targetIssueId: string) => {
       if (!projectId) {
@@ -533,6 +548,7 @@ export function ProjectRightSidebarContainer() {
 
   if (rightPanelState.kind === 'workspace-create') {
     const linkedIssueId = rightPanelState.issueId;
+    if (!linkedIssueId) return null;
     const linkedIssueSimpleId = linkedIssueId
       ? (getIssue(linkedIssueId)?.simple_id ?? null)
       : null;
@@ -548,7 +564,15 @@ export function ProjectRightSidebarContainer() {
           key={rightPanelState.draftId}
           draftId={rightPanelState.draftId}
         >
-          <CreateChatBoxContainer onWorkspaceCreated={handleWorkspaceCreated} />
+          <CreateChatBoxContainer
+            onWorkspaceCreated={handleWorkspaceCreated}
+            requiredLinkedIssue={{
+              issueId: linkedIssueId,
+              remoteProjectId: projectId,
+              simpleId: linkedIssueSimpleId ?? linkedIssueId,
+              title: getIssue(linkedIssueId)?.title,
+            }}
+          />
         </CreateModeProvider>
       </WorkspaceCreatePanel>
     );

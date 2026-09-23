@@ -1326,7 +1326,7 @@ function ProviderOverview({
             label={t('agentCenter.defaultModel')}
             value={summaryValue(
               settingsState,
-              model ?? t('agentCenter.inheritedOrUnset')
+              model?.trim() ? model : t('modelSelector.unspecified')
             )}
             state={settingsState}
           />

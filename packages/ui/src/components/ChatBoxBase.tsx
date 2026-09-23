@@ -127,8 +127,8 @@ export function ChatBoxBase({
         {editor}
 
         {/* Footer - Controls */}
-        <div className="flex items-end justify-between gap-base">
-          <Toolbar className="flex-1 min-w-0 flex-wrap !gap-half">
+        <div className="flex items-center justify-between gap-base">
+          <Toolbar className="min-w-0 flex-1 flex-wrap !gap-half">
             {modelSelector}
             {footerLeft}
           </Toolbar>

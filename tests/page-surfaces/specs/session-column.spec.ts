@@ -22,9 +22,13 @@ for (const width of [375, 1440]) {
     await expect(
       columns.nth(1).getByRole("heading", { name: "Todo", exact: true }),
     ).toHaveCount(1);
-    await expect(columns.first().locator(".vk-kanban-column__cards")).toBeEmpty();
+    await expect(
+      columns.first().locator(".vk-kanban-column__cards"),
+    ).toBeEmpty();
     await expect(columns.first()).not.toContainText("No discussions yet.");
-    await expect(columns.first().locator(".vk-kanban-column__count")).toHaveText("0");
+    await expect(
+      columns.first().locator(".vk-kanban-column__count"),
+    ).toHaveText("0");
     const sessionBox = await columns.first().boundingBox();
     const todoBox = await columns.nth(1).boundingBox();
     expect(sessionBox?.y).toBe(todoBox?.y);
@@ -49,12 +53,55 @@ for (const width of [375, 1440]) {
       .first()
       .getByRole("button", { name: "New discussion", exact: true })
       .click();
-    await expect(page.locator("html")).toHaveAttribute(
-      "data-navigation",
-      "project-workspace-create:project-2",
-    );
+    await expect(page.getByTestId("issue-composer-requests")).toHaveText("1");
+    await expect(page.locator("html")).not.toHaveAttribute("data-navigation");
   });
 }
+
+test("Discuss and Issue column actions request the same composer without creating an execution", async ({
+  page,
+}) => {
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.url().includes("/api/") &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method())
+    ) {
+      writes.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.route("**/api/sessions/recent?*", (route) =>
+    route.fulfill({
+      json: { success: true, data: { sessions: [], next_cursor: null } },
+    }),
+  );
+  await page.goto("/?surface=board&sessionColumn");
+  await page
+    .getByRole("button", { name: "New discussion", exact: true })
+    .click();
+  await expect(page.getByTestId("issue-composer-requests")).toHaveText("1");
+  await page
+    .getByRole("button", { name: "Create issue in Todo", exact: true })
+    .click();
+  await expect(page.getByTestId("issue-composer-requests")).toHaveText("2");
+  await expect(page.locator("html")).toHaveAttribute("data-fixture-route", "/");
+  expect(writes).toEqual([]);
+});
+
+test("a missing Issue composer cannot fall back to standalone session creation", async ({
+  page,
+}) => {
+  await page.route("**/api/sessions/recent?*", (route) =>
+    route.fulfill({
+      json: { success: true, data: { sessions: [], next_cursor: null } },
+    }),
+  );
+  await page.goto("/?surface=board&sessionColumn&noIssueComposer");
+  await expect(
+    page.getByRole("button", { name: "New discussion", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByTestId("issue-composer-requests")).toHaveText("0");
+});
 
 test("sessions stay out of Issue columns and open the existing session", async ({
   page,

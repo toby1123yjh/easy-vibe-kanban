@@ -116,7 +116,7 @@ export function useCreateMode() {
   useFixture();
   return {
     ...fixture.state,
-    initialProjectId: params.has('initialProject') ? 'project-1' : undefined,
+    initialProjectId: params.has("initialProject") ? "project-1" : undefined,
     ...actions,
     attachments: [],
     executorConfig: null,
@@ -185,19 +185,30 @@ export const saveProjectWorkspaceDefault = async (...args: unknown[]) => {
 };
 let savedWorkspace: unknown = undefined;
 export const getProjectWorkspaceDefaultOrThrow = async () => {
-  if (fixture.targetDeferred) await new Promise<void>((resolve) => { fixture.resolveTarget = resolve; });
-  if (fixture.targetFailure) throw new Error('workspace lookup failed');
+  if (fixture.targetDeferred)
+    await new Promise<void>((resolve) => {
+      fixture.resolveTarget = resolve;
+    });
+  if (fixture.targetFailure) throw new Error("workspace lookup failed");
   if (savedWorkspace !== undefined) return savedWorkspace;
-  if (params.has('repo')) return { kind: 'git', repo: { repo_id: 'repo-1', target_branch: 'main' } };
-  if (params.has('path')) return { kind: 'direct_folder', path: params.get('path') };
+  if (params.has("repo"))
+    return { kind: "git", repo: { repo_id: "repo-1", target_branch: "main" } };
+  if (params.has("path"))
+    return { kind: "direct_folder", path: params.get("path") };
   return null;
 };
-export const useAppShellProjects = () => ({ deployment: 'remote', hostId: fixture.state.hostId });
+export const useAppShellProjects = () => ({
+  deployment: "remote",
+  hostId: fixture.state.hostId,
+});
 export const executionDataApi = {
-  listProjects: async () => ({ projects: [
-    { id: '00000000-0000-0000-0000-000000000003', name: 'Default project' },
-    { id: 'project-1', name: 'My project' },
-  ], next_cursor: null }),
+  listProjects: async () => ({
+    projects: [
+      { id: "00000000-0000-0000-0000-000000000003", name: "Default project" },
+      { id: "project-1", name: "My project" },
+    ],
+    next_cursor: null,
+  }),
 };
 export const repoApi = { getById: async () => repo };
 export const useSettingsNavigation = () => ({ openAgentCenter() {} });
@@ -243,6 +254,16 @@ export function CreateChatBox(props: ChatProps) {
         Send
       </button>
       {props.projectSelector}
+      {props.linkedIssue && (
+        <div data-testid="linked-issue">
+          {props.linkedIssue.simpleId}
+          {props.linkedIssue.onRemove && (
+            <button onClick={props.linkedIssue.onRemove}>
+              Remove Issue link
+            </button>
+          )}
+        </div>
+      )}
       <output data-testid="error">{props.error}</output>
     </section>
   );

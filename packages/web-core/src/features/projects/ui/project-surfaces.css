@@ -913,6 +913,14 @@
   box-shadow: var(--vk-floating-panel-shadow);
 }
 
+@media (min-width: 601px) {
+  .vk-issue-floating-panel[data-workspace-create='true'] {
+    width: calc(var(--vk-floating-panel-width) * 4 / 3);
+    max-width: calc(100% - var(--vk-floating-panel-offset) * 2);
+    min-width: 0;
+  }
+}
+
 .vk-issue-panel__layout {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

@@ -28,6 +28,7 @@ interface DropdownMenuTriggerButtonProps
   extends React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger> {
   icon?: Icon;
   label?: string;
+  wrapLabel?: boolean;
   showCaret?: boolean;
   size?: 'default' | 'sm';
 }
@@ -51,6 +52,7 @@ const DropdownMenuTriggerButton = React.forwardRef<
       className,
       icon: IconComponent,
       label,
+      wrapLabel = false,
       showCaret = true,
       size = 'default',
       children,
@@ -63,6 +65,7 @@ const DropdownMenuTriggerButton = React.forwardRef<
       className={cn(
         dropdownMenuTriggerButtonClassName,
         sizeClasses[size],
+        wrapLabel && 'h-auto min-h-cta max-w-full',
         className
       )}
       {...props}
@@ -73,7 +76,10 @@ const DropdownMenuTriggerButton = React.forwardRef<
       {label && (
         <span
           className={cn(
-            'text-normal truncate flex-1 text-left',
+            'text-normal flex-1 text-left',
+            wrapLabel
+              ? 'min-w-0 whitespace-normal [overflow-wrap:anywhere]'
+              : 'truncate',
             size === 'default' && 'text-sm'
           )}
         >

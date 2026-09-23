@@ -76,7 +76,12 @@ function ReasoningDropdown({
           )}
         >
           <BrainIcon className="size-icon-xs" weight="fill" />
-          <span className="truncate max-w-[90px]">{selectedLabel}</span>
+          <span
+            className="max-w-[90px] whitespace-normal [overflow-wrap:anywhere]"
+            title={selectedLabel}
+          >
+            {selectedLabel}
+          </span>
           <CaretDownIcon className="size-icon-2xs" />
         </button>
       </DropdownMenuTrigger>
@@ -171,11 +176,11 @@ export function ModelList({
       >
         <span
           className={cn(
-            'block text-sm truncate',
+            'block text-sm whitespace-normal [overflow-wrap:anywhere]',
             isDefaultSelected && 'font-semibold'
           )}
         >
-          {t('modelSelector.default')}
+          {t('modelSelector.unspecified')}
         </span>
       </button>
     </div>
@@ -238,12 +243,12 @@ export function ModelList({
                 >
                   <span
                     className={cn(
-                      'block text-sm truncate',
+                      'block text-sm whitespace-normal [overflow-wrap:anywhere]',
                       isSelected && 'font-semibold'
                     )}
-                    title={model.name}
+                    title={modelKey}
                   >
-                    {model.name}
+                    {modelKey}
                   </span>
                 </button>
                 <div className="flex items-center justify-end gap-half pr-base">

@@ -771,6 +771,7 @@
     }
   },
   "modelSelector": {
+    "unspecified": "Modelo no especificado",
     "followCliConfig": "Follow CLI config",
     "preset": "Preajuste",
     "custom": "Personalizar",

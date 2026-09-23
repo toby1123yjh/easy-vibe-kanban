@@ -264,11 +264,11 @@ function ProviderAccordion({
             >
               <span
                 className={cn(
-                  'block text-sm truncate',
+                  'block text-sm whitespace-normal [overflow-wrap:anywhere]',
                   isDefaultSelected && 'font-semibold'
                 )}
               >
-                {t('modelSelector.default')}
+                {t('modelSelector.unspecified')}
               </span>
             </button>
           </div>

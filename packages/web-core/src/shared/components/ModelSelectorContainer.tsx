@@ -20,7 +20,7 @@ import {
   setRecentReasoning,
 } from '@/shared/lib/recentModels';
 import {
-  getReasoningLabel,
+  getReasoningDisplayLabel,
   getSelectedModel,
   escapeAttributeValue,
   parseModelId,
@@ -30,6 +30,7 @@ import {
   buildModelSelectionOverride,
   findModelForSelection,
   resolveReasoningOverrideState,
+  resolveModelDisplayId,
 } from '@/shared/lib/modelSelector';
 import { profilesApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -84,6 +85,7 @@ export function ModelSelectorContainer({
   const [expandedProviderId, setExpandedProviderId] = useState('');
   const { profiles, setProfiles, reloadSystem } = useUserSystem();
   const defaultLabel = t('modelSelector.default');
+  const unspecifiedModelLabel = t('modelSelector.unspecified');
   const loadingLabel = t('states.loading');
 
   const permissionMetaByPolicy: Record<
@@ -411,11 +413,26 @@ export function ModelSelectorContainer({
     ? toPrettyCase(resolvedPreset)
     : defaultLabel;
 
+  const displayModelId = resolveModelDisplayId(
+    executorConfig?.model_id,
+    presetOptions?.model_id,
+    config?.default_model
+  );
+
   if (!config) {
     return (
       <>
         <DropdownMenu>
-          <DropdownMenuTriggerButton size="sm" label={loadingLabel} disabled />
+          <DropdownMenuTriggerButton
+            size="sm"
+            label={
+              loadingModels
+                ? loadingLabel
+                : (displayModelId ?? unspecifiedModelLabel)
+            }
+            wrapLabel
+            disabled
+          />
         </DropdownMenu>
       </>
     );
@@ -423,18 +440,33 @@ export function ModelSelectorContainer({
 
   const showModelSelector = loadingModels || config.models.length > 0;
   const showDefaultOption = !config.default_model && config.models.length > 0;
-  const displaySelectedModel = showModelSelector
-    ? getSelectedModel(config.models, selectedProviderId, selectedModelId)
-    : null;
-  const reasoningLabel = displaySelectedModel
-    ? getReasoningLabel(
-        displaySelectedModel.reasoning_options,
-        selectedReasoningId
-      )
-    : null;
+  const displaySelection = parseModelId(displayModelId, hasProviders);
+  const displayProviderId = displaySelection.providerId ?? selectedProviderId;
+  const displayModelAmbiguous =
+    !displayProviderId &&
+    config.models.filter(
+      (model) =>
+        model.id.toLowerCase() === displaySelection.modelId?.toLowerCase()
+    ).length > 1;
+  const displaySelectedModel =
+    showModelSelector && !displayModelAmbiguous
+      ? getSelectedModel(
+          config.models,
+          displayProviderId,
+          displaySelection.modelId
+        )
+      : null;
+  const reasoningLabel = loadingModels
+    ? null
+    : getReasoningDisplayLabel(
+        displaySelectedModel?.reasoning_options ?? EMPTY_REASONING_OPTIONS,
+        configuredReasoningId,
+        hasConfiguredReasoning,
+        t('modelSelector.followCliConfig')
+      );
   const modelLabelBase = loadingModels
     ? loadingLabel
-    : (displaySelectedModel?.name ?? selectedModelId ?? defaultLabel);
+    : (displayModelId ?? unspecifiedModelLabel);
   const modelLabel = reasoningLabel
     ? `${modelLabelBase} · ${reasoningLabel}`
     : modelLabelBase;
@@ -492,6 +524,8 @@ export function ModelSelectorContainer({
             <DropdownMenuTriggerButton
               size="sm"
               label={modelLabel}
+              title={modelLabel}
+              wrapLabel
               disabled={loadingModels}
             />
           }
@@ -512,6 +546,18 @@ export function ModelSelectorContainer({
           onExpandedProviderIdChange={setExpandedProviderId}
           resolvedTheme={resolvedTheme}
         />
+      )}
+
+      {!showModelSelector && (
+        <DropdownMenu>
+          <DropdownMenuTriggerButton
+            size="sm"
+            label={modelLabel}
+            title={modelLabel}
+            wrapLabel
+            disabled
+          />
+        </DropdownMenu>
       )}
 
       {permissionPolicy && config.permissions.length > 0 && (

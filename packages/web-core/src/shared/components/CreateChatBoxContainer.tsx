@@ -25,6 +25,7 @@ import type {
   SelectedSkill,
 } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
+import type { LinkedIssue } from '@/shared/types/createMode';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
@@ -35,10 +36,12 @@ import {
 
 interface CreateChatBoxContainerProps {
   onWorkspaceCreated: (workspaceId: string) => void;
+  requiredLinkedIssue?: LinkedIssue;
 }
 
 export function CreateChatBoxContainer({
   onWorkspaceCreated,
+  requiredLinkedIssue,
 }: CreateChatBoxContainerProps) {
   const { t } = useTranslation('common');
   const { openAgentCenter } = useSettingsNavigation();
@@ -49,7 +52,7 @@ export function CreateChatBoxContainer({
     setMessage,
     clearDraft,
     hasInitialValue,
-    linkedIssue,
+    linkedIssue: draftLinkedIssue,
     clearLinkedIssue,
     preferredExecutorConfig,
     executorConfig: draftConfig,
@@ -57,6 +60,7 @@ export function CreateChatBoxContainer({
     attachments: draftAttachments,
     setAttachments: setDraftAttachments,
   } = useCreateMode();
+  const linkedIssue = requiredLinkedIssue ?? draftLinkedIssue;
 
   const { createWorkspace } = useCreateWorkspace();
   const destination = useCurrentAppDestination();
@@ -578,7 +582,9 @@ export function CreateChatBoxContainer({
                     ? {
                         simpleId: linkedIssue.simpleId,
                         title: linkedIssue.title ?? '',
-                        onRemove: clearLinkedIssue,
+                        onRemove: requiredLinkedIssue
+                          ? undefined
+                          : clearLinkedIssue,
                       }
                     : null
                 }

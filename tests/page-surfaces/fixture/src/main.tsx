@@ -107,6 +107,9 @@ function navigation() {
 
 function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
   const projects = useFixtureProjects();
+  const [issueComposerRequests, setIssueComposerRequests] = React.useState(0);
+  const openIssueComposer = () =>
+    setIssueComposerRequests((count) => count + 1);
   const [scope, setScope] = React.useState("fixture");
   React.useEffect(() => {
     const changeScope = () => setScope((previous) => `${previous}-changed`);
@@ -138,6 +141,9 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
   return (
     <AppShellProjectsProvider value={projectsState}>
       <section data-testid="project-directory-surface" className="fixture-page">
+        <output data-testid="issue-composer-requests" hidden>
+          {issueComposerRequests}
+        </output>
         {new URLSearchParams(location.search).has("defaultProject") ? (
           <DefaultProjectPage />
         ) : board ? (
@@ -154,7 +160,15 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
             }
             sessionColumn={
               new URLSearchParams(location.search).has("sessionColumn") ? (
-                <ProjectSessions projectId="project-2" variant="column" />
+                <ProjectSessions
+                  projectId="project-2"
+                  variant="column"
+                  onCreateIssue={
+                    new URLSearchParams(location.search).has("noIssueComposer")
+                      ? undefined
+                      : openIssueComposer
+                  }
+                />
               ) : undefined
             }
             columns={
@@ -177,7 +191,7 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
             taskSource={{ state: "ready" }}
             panel={null}
             onQueryChange={() => undefined}
-            onCreateIssue={() => undefined}
+            onCreateIssue={openIssueComposer}
             onOpenIssue={() => undefined}
             onOpenTask={() => undefined}
             onDeleteIssue={async () => undefined}

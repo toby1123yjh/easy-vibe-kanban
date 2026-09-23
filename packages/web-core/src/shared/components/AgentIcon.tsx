@@ -32,7 +32,6 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
     return null;
   }
 
-  const agentName = getAgentName(agent);
   let iconPath = '';
 
   switch (agent) {
@@ -52,5 +51,7 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
       return null;
   }
 
-  return <img src={iconPath} alt={agentName} className={className} />;
+  // The adjacent executor selector supplies the accessible agent name.
+  // Keep this decorative icon from rendering a duplicate fallback label.
+  return <img src={iconPath} alt="" aria-hidden="true" className={className} />;
 }

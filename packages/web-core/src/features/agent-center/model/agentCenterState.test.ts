@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
+  resolveModelDisplayId,
+  getReasoningDisplayLabel,
+} from '../../../shared/lib/modelSelector';
+import {
   agentInstallRequest,
   isValidInstallRegistry,
 } from '../../../shared/lib/agentInstall';
@@ -11,6 +15,58 @@ import {
   projectAgentCenterSource,
 } from './agentCenterState';
 
+test('model display preserves full provider IDs and runtime punctuation', () => {
+  expect(
+    resolveModelDisplayId(
+      'custom/model/family:Latest (Fast)',
+      'preset',
+      'default'
+    )
+  ).toBe('custom/model/family:Latest (Fast)');
+});
+
+test('reasoning display uses explicit effort or follows CLI without adopting defaults', () => {
+  const options = [
+    { id: 'high', label: 'High', is_default: false },
+    { id: 'xhigh', label: 'Extra High', is_default: true },
+  ];
+  expect(
+    getReasoningDisplayLabel(options, 'high', true, 'Follow CLI config')
+  ).toBe('High');
+  expect(
+    getReasoningDisplayLabel(options, 'xhigh', true, 'Follow CLI config')
+  ).toBe('Extra High');
+  for (const effort of [null, undefined, 'invalid']) {
+    expect(
+      getReasoningDisplayLabel(options, effort, true, '遵循 CLI 配置')
+    ).toBe('Extra High');
+  }
+  expect(
+    getReasoningDisplayLabel(options, 'high', false, 'Follow CLI config')
+  ).toBe('Extra High');
+  expect(
+    getReasoningDisplayLabel([], 'high', true, 'Follow CLI config')
+  ).toBeNull();
+  expect(
+    getReasoningDisplayLabel([], null, true, 'Follow CLI config')
+  ).toBeNull();
+});
+
+test('model display honors overrides and displays CLI defaults without changing null', () => {
+  expect(resolveModelDisplayId(undefined, 'provider/preset', 'fallback')).toBe(
+    'provider/preset'
+  );
+  expect(resolveModelDisplayId(null, 'provider/preset', 'provider/cli')).toBe(
+    'provider/cli'
+  );
+});
+
+test('model display never invents a model or expands runtime aliases', () => {
+  expect(resolveModelDisplayId(undefined, null, 'opus')).toBe('opus');
+  expect(resolveModelDisplayId(null, 'preset', null)).toBeNull();
+  expect(resolveModelDisplayId(undefined, undefined, undefined)).toBeNull();
+  expect(resolveModelDisplayId('', 'preset', 'fallback')).toBeNull();
+});
 test('installer preserves npm defaults and never sends npm options to native installers', () => {
   for (const executor of ['CODEX', 'GEMINI'] as BaseCodingAgent[]) {
     expect(agentInstallRequest(executor, '  ')).toEqual({ executor });

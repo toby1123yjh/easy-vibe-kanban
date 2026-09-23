@@ -15,11 +15,13 @@ import { sessionRoute } from '@/features/app-shell/model/appShell';
 interface ProjectSessionsProps {
   projectId: string;
   variant?: 'list' | 'column';
+  onCreateIssue?: () => void;
 }
 
 export function ProjectSessions({
   projectId,
   variant = 'list',
+  onCreateIssue,
 }: ProjectSessionsProps) {
   const shell = useAppShellProjects();
   return (
@@ -27,11 +29,16 @@ export function ProjectSessions({
       key={`${shell?.scopeKey}:${projectId}`}
       projectId={projectId}
       variant={variant}
+      onCreateIssue={onCreateIssue}
     />
   );
 }
 
-function ProjectSessionsContent({ projectId, variant }: ProjectSessionsProps) {
+function ProjectSessionsContent({
+  projectId,
+  variant,
+  onCreateIssue,
+}: ProjectSessionsProps) {
   const { t } = useTranslation('common');
   const shell = useAppShellProjects();
   const hostId = shell?.hostId ?? null;
@@ -185,14 +192,11 @@ function ProjectSessionsContent({ projectId, variant }: ProjectSessionsProps) {
             t('projectSessions.create', { defaultValue: 'New discussion' })
           }
           disabled={
-            !enabled || Boolean(navigation.agentExecutionUnavailableReason)
+            !enabled ||
+            !onCreateIssue ||
+            Boolean(navigation.agentExecutionUnavailableReason)
           }
-          onClick={() =>
-            navigation.goToProjectWorkspaceCreate(
-              projectId,
-              crypto.randomUUID()
-            )
-          }
+          onClick={onCreateIssue}
         >
           <Plus size={16} aria-hidden="true" />
         </button>

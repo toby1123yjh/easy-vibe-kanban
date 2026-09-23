@@ -373,7 +373,11 @@ export function ProjectKanbanContainer({
         />
       </aside>
     ) : showLegacyDeepPanel ? (
-      <aside className="vk-issue-floating-panel" aria-label="Issue activity">
+      <aside
+        className="vk-issue-floating-panel"
+        data-workspace-create={routeState.isWorkspaceCreateMode || undefined}
+        aria-label="Issue activity"
+      >
         <ProjectRightSidebarContainer />
       </aside>
     ) : null;
@@ -389,7 +393,13 @@ export function ProjectKanbanContainer({
         />
       }
       columns={columns}
-      sessionColumn={<ProjectSessions projectId={projectId} variant="column" />}
+      sessionColumn={
+        <ProjectSessions
+          projectId={projectId}
+          variant="column"
+          onCreateIssue={() => openKanbanIssueComposer(composerKey)}
+        />
+      }
       issueCount={columns.reduce(
         (count, column) => count + column.issues.length,
         0

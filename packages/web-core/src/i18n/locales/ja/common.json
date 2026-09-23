@@ -771,6 +771,7 @@
     }
   },
   "modelSelector": {
+    "unspecified": "モデル未指定",
     "followCliConfig": "Follow CLI config",
     "preset": "プリセット",
     "custom": "カスタマイズ",

@@ -1519,6 +1519,7 @@
     }
   },
   "modelSelector": {
+    "unspecified": "Model not specified",
     "followCliConfig": "Follow CLI config",
     "preset": "Preset",
     "custom": "Custom",
