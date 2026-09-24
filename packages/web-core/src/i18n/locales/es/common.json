@@ -950,6 +950,7 @@
       "commands": "Commands",
       "profiles": "Perfiles de configuración"
     },
+    "authenticationUnverified": "Agente detectado; el estado de autenticación no se ha verificado.",
     "readiness": {
       "unknown": "Desconocido",
       "ready": "Listo",

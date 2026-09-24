@@ -1659,6 +1659,7 @@
       "commands": "命令",
       "profiles": "設定檔案"
     },
+    "authenticationUnverified": "已偵測到智慧體，驗證狀態尚未確認。",
     "readiness": {
       "unknown": "未知",
       "ready": "就緒",

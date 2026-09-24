@@ -950,6 +950,7 @@
       "commands": "Commands",
       "profiles": "Profils de configuration"
     },
+    "authenticationUnverified": "Agent détecté ; l’état de l’authentification n’a pas été vérifié.",
     "readiness": {
       "unknown": "Inconnu",
       "ready": "Prêt",

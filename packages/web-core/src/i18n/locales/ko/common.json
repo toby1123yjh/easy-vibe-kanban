@@ -950,6 +950,7 @@
       "commands": "Commands",
       "profiles": "설정 프로필"
     },
+    "authenticationUnverified": "에이전트가 감지되었습니다. 인증 상태는 확인되지 않았습니다.",
     "readiness": {
       "unknown": "알 수 없음",
       "ready": "준비됨",

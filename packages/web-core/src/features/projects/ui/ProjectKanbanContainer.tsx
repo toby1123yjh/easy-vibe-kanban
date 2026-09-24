@@ -375,7 +375,11 @@ export function ProjectKanbanContainer({
     ) : showLegacyDeepPanel ? (
       <aside
         className="vk-issue-floating-panel"
-        data-workspace-create={routeState.isWorkspaceCreateMode || undefined}
+        data-create-panel={
+          issueComposer !== null ||
+          routeState.isWorkspaceCreateMode ||
+          undefined
+        }
         aria-label="Issue activity"
       >
         <ProjectRightSidebarContainer />

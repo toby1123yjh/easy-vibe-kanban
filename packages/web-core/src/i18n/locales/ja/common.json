@@ -950,6 +950,7 @@
       "commands": "Commands",
       "profiles": "設定プロファイル"
     },
+    "authenticationUnverified": "エージェントを検出しました。認証状態は未確認です。",
     "readiness": {
       "unknown": "不明",
       "ready": "準備完了",

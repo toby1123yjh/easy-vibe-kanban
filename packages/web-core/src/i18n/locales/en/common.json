@@ -1574,6 +1574,7 @@
       "commands": "Commands",
       "profiles": "Configuration Profiles"
     },
+    "authenticationUnverified": "Agent detected; authentication status has not been verified.",
     "readiness": {
       "unknown": "Unknown",
       "ready": "Ready",

@@ -9,6 +9,7 @@ import {
   WarningCircleIcon,
 } from '@phosphor-icons/react';
 import {
+  AgentProviderDiagnosticKind,
   AgentProviderReadiness,
   AgentSettingsProvider,
   BaseCodingAgent,
@@ -1256,7 +1257,10 @@ function ProviderOverview({
           {diagnostics.map((diagnostic) => (
             <p key={`${diagnostic.kind}:${diagnostic.message}`}>
               <WarningCircleIcon aria-hidden="true" />
-              {diagnostic.message}
+              {entry?.policy?.readiness === AgentProviderReadiness.INSTALLED &&
+              diagnostic.kind === AgentProviderDiagnosticKind.AUTH_REQUIRED
+                ? t('agentCenter.authenticationUnverified')
+                : diagnostic.message}
             </p>
           ))}
         </div>
