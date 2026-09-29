@@ -6,8 +6,6 @@ import type {
   RunState,
 } from 'shared/types';
 
-export type { AgentEventCursor } from 'shared/types';
-
 export type CanonicalAgentTimelineItemKind =
   | 'message'
   | 'thinking'
@@ -86,6 +84,10 @@ function itemFromEvent(event: AgentEventEnvelope): CanonicalAgentTimelineItem {
     case 'tool_call':
       kind = 'tool';
       content = payload.data.tool_name;
+      break;
+    case 'file_changes':
+      kind = 'tool';
+      content = payload.data.changes.map((change) => change.path).join('\n');
       break;
     case 'approval_requested':
     case 'approval_resolved':

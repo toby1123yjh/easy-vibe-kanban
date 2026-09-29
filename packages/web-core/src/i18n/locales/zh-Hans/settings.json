@@ -1,4 +1,50 @@
 {
+  "externalIntegrations": {
+    "result": "执行结果",
+    "close": "关闭",
+    "resultHint": "本次执行的文字结果和已确认的 Agent 文件变更。查看或下载全部当前文件，请使用项目目录。",
+    "agentFiles": "已确认的 Agent 文件变更",
+    "filesFailed": "无法加载文件变更，不代表没有文件变化。",
+    "filesStatus": {
+      "collecting": "仍在采集中，清单可能不完整。",
+      "partial": "清单可能不完整。命令、脚本、MCP 和部分智能体工具无法提供可靠的文件归属证据。",
+      "unavailable": "文件记录采集不可用或不完整，保留已有确认项；项目文件仍可访问。"
+    },
+    "fileKind": {
+      "added": "新增",
+      "modified": "修改",
+      "deleted": "删除"
+    },
+    "title": "外部接入",
+    "description": "让外部系统调用当前主机的工作流、读写项目文件。每个系统使用独立的 API Key 和项目授权。",
+    "endpoint": "接口路径：",
+    "loading": "正在加载接入配置…",
+    "loadFailed": "无法加载接入配置或项目，请重试后再修改。",
+    "retry": "重试",
+    "failed": "操作失败，请重试。",
+    "create": "添加接入",
+    "name": "系统名称",
+    "projects": "授权项目",
+    "projectHint": "勾选此系统可访问的已有项目。通过接口新建的项目会自动授权。",
+    "keyOnce": "请现在复制 API Key，之后不会再次显示。",
+    "copy": "复制 Key",
+    "copied": "已复制",
+    "keySaved": "我已保存 Key",
+    "copyFailed": "复制失败，请选中 Key 后手动复制。",
+    "save": "保存",
+    "generate": "生成 API Key",
+    "cancel": "取消",
+    "edit": "编辑授权",
+    "enabled": "已启用",
+    "disabled": "已停用",
+    "toggle": "启用或停用 {{name}}",
+    "projectCount": "已授权项目：{{count}}",
+    "stopHint": "停用接入只阻止后续请求。已受理的执行会继续，停止需要单独取消。",
+    "externalAllowed": "允许外部调用",
+    "externalHint": "获授权的系统可使用此模板。关闭后只拒绝新提交，已受理的执行继续。",
+    "queued": "排队中",
+    "starting": "启动中"
+  },
   "gitConnections": {
     "title": "Git 连接",
     "description": "连接和加密凭据保存在所选机器。无需保存连接也可使用本机 Git / SSH。",
@@ -63,6 +109,7 @@
       "sections": {
         "application": "应用",
         "repositories": "仓库",
+        "integrations": "外部接入",
         "relay": "远程访问",
         "organizations": "组织",
         "projects": "项目"

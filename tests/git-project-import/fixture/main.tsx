@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HotkeysProvider } from "react-hotkeys-hook";
 import { CreateRemoteProjectDialog } from "@/shared/dialogs/org/CreateRemoteProjectDialog";
 import { GitConnectionsEditor } from "@/shared/dialogs/settings/settings/GitConnectionsSettings";
+import { IntegrationSettingsEditor } from "@/features/settings/ui/IntegrationSettings";
+import { WorkflowRunResult } from "@/features/workflow/ui/WorkflowRunResult";
+import { WorkflowExternalAccessSwitch } from "@/features/workflow/ui/WorkflowExternalAccessSwitch";
 import { GitProjectImportPanel } from "@/shared/components/GitProjectImportPanel";
 import { SettingsDirtyProvider } from "@/shared/dialogs/settings/settings/SettingsDirtyContext";
 import { AppRuntimeProvider } from "@/shared/hooks/useAppRuntime";
@@ -61,6 +64,24 @@ function Fixture() {
             enabled={enabled}
           />
         </SettingsDirtyProvider>
+      )}
+      {new URLSearchParams(location.search).has("integrations") && (
+        <SettingsDirtyProvider>
+          <IntegrationSettingsEditor key={host ?? "local"} hostId={host} enabled={enabled} />
+        </SettingsDirtyProvider>
+      )}
+      {new URLSearchParams(location.search).has("result") && (
+        <WorkflowRunResult run={{
+          id: "run-1", orchestration_run_id: null, workflow_id: "template-1",
+          attempt_id: null, issue_id: "issue-1", workspace_id: null,
+          trigger_source: "external", input_text: "Prepare a report",
+          output_text: "Report ready", status: "succeeded", started_at: null,
+          finished_at: null, error_text: null, created_at: "2026-09-29T00:00:00Z",
+          updated_at: "2026-09-29T00:00:00Z", nodes: [],
+        }} />
+      )}
+      {new URLSearchParams(location.search).has("externalSwitch") && (
+        <WorkflowExternalAccessSwitch workflowId="template-1" enabled={false} />
       )}
     </>
   );

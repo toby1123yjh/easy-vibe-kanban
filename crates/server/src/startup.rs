@@ -242,6 +242,7 @@ pub async fn initialize_deployment(
     // this task picks up and uses to trigger `reconcile_workflow_run_with_arena`
     // immediately.
     spawn_workflow_completion_watcher(deployment.clone());
+    crate::workflow_runtime::queue::spawn_dispatcher(deployment.clone());
     spawn_scheduled_task_loop(deployment.clone());
     deployment
         .container()

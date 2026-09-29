@@ -24,6 +24,7 @@ pub mod frontend;
 pub mod git_import;
 pub mod health;
 pub mod host_relay;
+pub mod integrations;
 pub mod local_remote;
 pub mod oauth;
 pub mod organizations;
@@ -62,6 +63,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(filesystem::router())
         .merge(repo::router())
         .merge(git_import::router())
+        .merge(integrations::admin_router())
         .merge(events::router(&deployment))
         .merge(approvals::router())
         .merge(scratch::router(&deployment))
@@ -86,6 +88,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .with_state(deployment.clone());
 
     let api_routes = Router::new()
+        .nest("/integrations/v1", integrations::router(&deployment))
         .merge(relay_auth::router())
         .merge(host_relay::router(&deployment))
         .merge(relay_signed_routes)

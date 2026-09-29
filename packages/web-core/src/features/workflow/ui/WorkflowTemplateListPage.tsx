@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { getWorkflowDefaultGraphLabels } from './workflowI18n';
 import { ScheduledTaskDialog } from './ScheduledTaskDialog';
+import { WorkflowExternalAccessSwitch } from './WorkflowExternalAccessSwitch';
 
 export interface WorkflowTemplateListPageProps {
   projectId: string;
@@ -202,6 +203,12 @@ export function WorkflowTemplateListPage({
                   {template.description ||
                     t('workflow.templates.noDescription')}
                 </p>
+
+                <WorkflowExternalAccessSwitch
+                  workflowId={template.id}
+                  enabled={template.external_enabled ?? false}
+                  disabled={!!error}
+                />
 
                 <div className="mt-auto flex items-center justify-between gap-3 rounded-sm border border-secondary/60 bg-secondary/20 px-2 py-1.5 text-xs text-low">
                   <span className="flex min-w-0 items-center gap-1.5">

@@ -403,7 +403,10 @@ async fn list_local_projects(pool: &SqlitePool) -> Result<Vec<Project>, ApiError
         .map_err(ApiError::from)
 }
 
-async fn get_local_project(pool: &SqlitePool, project_id: Uuid) -> Result<Project, ApiError> {
+pub(crate) async fn get_local_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<Project, ApiError> {
     ensure_project_metadata(pool).await?;
 
     let row = sqlx::query(
@@ -433,16 +436,26 @@ async fn create_local_project(
     pool: &SqlitePool,
     request: CreateProjectRequest,
 ) -> Result<Project, ApiError> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let project_id = insert_local_project(&mut tx, request).await?;
+    tx.commit().await?;
+    get_local_project(pool, project_id).await
+}
+
+pub(crate) async fn insert_local_project(
+    conn: &mut sqlx::SqliteConnection,
+    request: CreateProjectRequest,
+) -> Result<Uuid, ApiError> {
     let project_id = request.id.unwrap_or_else(Uuid::new_v4);
     let sort_order: i32 =
         sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM local_project_metadata")
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?;
 
     sqlx::query("INSERT INTO projects (id, name) VALUES (?, ?)")
         .bind(project_id)
         .bind(request.name)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
 
     sqlx::query(
@@ -456,12 +469,24 @@ async fn create_local_project(
     .bind(local_org_id())
     .bind(request.color)
     .bind(sort_order)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
 
-    ensure_default_statuses(pool, project_id).await?;
-    ensure_default_tags(pool, project_id).await?;
-    get_local_project(pool, project_id).await
+    for (name, color, sort_order, hidden) in DEFAULT_STATUSES {
+        sqlx::query("INSERT INTO local_project_statuses (id, project_id, name, color, sort_order, hidden) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(Uuid::new_v4()).bind(project_id).bind(name).bind(color).bind(sort_order).bind(hidden)
+            .execute(&mut *conn).await?;
+    }
+    for (name, color) in DEFAULT_TAGS {
+        sqlx::query("INSERT INTO local_tags (id, project_id, name, color) VALUES (?, ?, ?, ?)")
+            .bind(Uuid::new_v4())
+            .bind(project_id)
+            .bind(name)
+            .bind(color)
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(project_id)
 }
 
 async fn update_local_project(
@@ -707,7 +732,7 @@ async fn list_project_issues(pool: &SqlitePool, project_id: Uuid) -> Result<Vec<
         .map_err(ApiError::from)
 }
 
-async fn get_local_issue(pool: &SqlitePool, issue_id: Uuid) -> Result<Issue, ApiError> {
+pub(crate) async fn get_local_issue(pool: &SqlitePool, issue_id: Uuid) -> Result<Issue, ApiError> {
     let row = sqlx::query(
         r#"
         SELECT
@@ -745,12 +770,22 @@ async fn create_local_issue(
     pool: &SqlitePool,
     request: CreateIssueRequest,
 ) -> Result<Issue, ApiError> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let id = insert_local_issue(&mut tx, request).await?;
+    tx.commit().await?;
+    get_local_issue(pool, id).await
+}
+
+pub(crate) async fn insert_local_issue(
+    conn: &mut sqlx::SqliteConnection,
+    request: CreateIssueRequest,
+) -> Result<Uuid, ApiError> {
     let id = request.id.unwrap_or_else(Uuid::new_v4);
     let issue_number: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(issue_number), 0) + 1 FROM local_issues WHERE project_id = ?",
     )
     .bind(request.project_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     let simple_id = format!("LOCAL-{issue_number}");
     let extension_metadata =
@@ -795,10 +830,10 @@ async fn create_local_issue(
     .bind(request.parent_issue_sort_order)
     .bind(extension_metadata)
     .bind(local_user_id())
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
 
-    get_local_issue(pool, id).await
+    Ok(id)
 }
 
 async fn update_local_issue(

@@ -17,6 +17,9 @@ use db::models::{
     session::{CreateSession, Session},
     task::{CreateTask, Task, TaskExecutionKind},
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
+    workflow_file_changes::{
+        WorkflowFileChangeSummary, WorkflowFileChanges, WorkflowFileCollectionStatus,
+    },
     workspace_repo::CreateWorkspaceRepo,
 };
 use deployment::Deployment;
@@ -45,12 +48,11 @@ use crate::{
         runner::{
             DeploymentAgentRunReconciliationBoundary, DeploymentWorkflowAgentExecutor,
             DeploymentWorkflowRunCanceller, WorkflowAgentExecutor, WorkflowRunStartRequest,
-            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_with_arena,
+            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_at,
             cancel_workflow_run_runtime, get_workflow_run_response,
-            reconcile_workflow_run_with_arena_and_boundary, reject_human_node,
-            retry_workflow_node_with_arena, select_arena_winner_with_arena,
-            select_condition_branch_with_arena, subscribe_workflow_events,
-            trigger_workflow_run_for_attempt_with_repos, trigger_workflow_run_with_arena,
+            reconcile_workflow_run_with_arena_and_boundary, reject_human_node_at,
+            retry_workflow_node_with_arena, select_arena_winner_at, select_condition_branch_at,
+            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_repos,
             workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
@@ -67,6 +69,7 @@ pub struct WorkflowTemplateResponse {
     pub graph_json: String,
     #[ts(type = "number")]
     pub revision: i64,
+    pub external_enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -81,6 +84,11 @@ pub struct CreateWorkflowRequest {
     pub name: String,
     pub description: Option<String>,
     pub graph_json: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct WorkflowExternalAccessRequest {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -157,10 +165,18 @@ pub struct RunWorkflowAttemptRequest {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SelectArenaWinnerRequest {
     pub candidate_id: Uuid,
+    pub node_execution_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct RespondWorkflowNodeRequest {
+    pub node_execution_id: Uuid,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SelectConditionBranchRequest {
+    pub node_execution_id: Uuid,
     pub selected_target_node_ids: Vec<String>,
     #[serde(default)]
     #[ts(optional)]
@@ -207,6 +223,9 @@ pub struct WorkflowRunResponse {
     #[serde(default)]
     #[ts(optional)]
     pub runtime_view: Option<WorkflowRunRuntimeView>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub queue_phase: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -415,7 +434,15 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/workflows/{workflow_id}/trigger",
             post(trigger_workflow),
         )
+        .route(
+            "/v1/workflows/{workflow_id}/external-access",
+            axum::routing::put(set_external_access),
+        )
         .route("/v1/workflow-runs/{run_id}", get(get_workflow_run))
+        .route(
+            "/v1/workflow-runs/{run_id}/file-changes",
+            get(get_workflow_file_changes),
+        )
         .route(
             "/v1/workflow-attempts/{attempt_id}",
             get(get_workflow_attempt).delete(delete_workflow_attempt),
@@ -541,21 +568,27 @@ async fn run_workflow_attempt(
     State(deployment): State<DeploymentImpl>,
     Path(attempt_id): Path<Uuid>,
     Json(request): Json<RunWorkflowAttemptRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowRunResponse>>, ApiError> {
+) -> Result<
+    (
+        StatusCode,
+        ResponseJson<MutationResponse<WorkflowRunResponse>>,
+    ),
+    ApiError,
+> {
     let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
-    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let data = run_workflow_attempt_runtime_with_arena(
+    let data = accept_workflow_attempt(
         &deployment.db().pool,
+        Uuid::new_v4(),
         attempt_id,
         request,
         &workspace_resolver,
-        &agent_executor,
-        &arena_creator,
     )
     .await?;
 
-    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
+    Ok((
+        StatusCode::ACCEPTED,
+        ResponseJson(MutationResponse { data, txid: txid() }),
+    ))
 }
 
 async fn get_workflow(
@@ -594,6 +627,43 @@ async fn delete_workflow(
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
+async fn set_external_access(
+    State(deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+    Json(request): Json<WorkflowExternalAccessRequest>,
+) -> Result<ResponseJson<MutationResponse<WorkflowTemplateResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    ensure_system_workflows(pool).await?;
+    let changed=sqlx::query("UPDATE workflows SET external_enabled=?, updated_at=datetime('now','subsec') WHERE id=? AND id NOT IN (SELECT workflow_id FROM workflow_attempts)")
+        .bind(request.enabled).bind(id).execute(pool).await?.rows_affected();
+    if changed == 0 {
+        return Err(ApiError::BadRequest(
+            "Choose a reusable workflow template".to_string(),
+        ));
+    }
+    Ok(ResponseJson(MutationResponse {
+        data: get_workflow_template(pool, id).await?,
+        txid: txid(),
+    }))
+}
+
+pub async fn external_workflow_templates(
+    pool: &SqlitePool,
+) -> Result<Vec<WorkflowTemplateResponse>, ApiError> {
+    ensure_system_workflows(pool).await?;
+    let rows=sqlx::query("SELECT id,source,project_id,name,description,graph_json,revision,external_enabled,created_at,updated_at FROM workflows WHERE external_enabled=1 AND id NOT IN (SELECT workflow_id FROM workflow_attempts) ORDER BY name,id")
+        .fetch_all(pool).await?;
+    let allowed_system = built_in_workflow_ids()?;
+    let templates = rows
+        .iter()
+        .map(workflow_template_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(templates
+        .into_iter()
+        .filter(|w| w.source != WorkflowSource::System || allowed_system.contains(&w.id))
+        .collect())
+}
+
 pub async fn list_project_workflows(
     pool: &SqlitePool,
     project_id: Uuid,
@@ -603,7 +673,7 @@ pub async fn list_project_workflows(
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
                created_at, updated_at
         FROM workflows
         WHERE (
@@ -688,6 +758,31 @@ pub async fn create_issue_workflow_attempt(
     let workflow_id = Uuid::new_v4();
     let mut transaction = pool.begin().await?;
 
+    insert_workflow_attempt(
+        &mut transaction,
+        attempt_id,
+        workflow_id,
+        project_id,
+        issue_id,
+        name,
+        request.graph_json,
+    )
+    .await?;
+    transaction.commit().await?;
+    workflow_attempt_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found after create".to_string()))
+}
+
+pub async fn insert_workflow_attempt(
+    transaction: &mut sqlx::SqliteConnection,
+    attempt_id: Uuid,
+    workflow_id: Uuid,
+    project_id: Uuid,
+    issue_id: Uuid,
+    name: String,
+    graph_json: String,
+) -> Result<(), ApiError> {
     sqlx::query(
         r#"
         INSERT INTO workflows (id, source, project_id, name, description, graph_json)
@@ -698,12 +793,12 @@ pub async fn create_issue_workflow_attempt(
     .bind(project_id)
     .bind(&name)
     .bind("Issue-bound workflow attempt backing graph. Hidden from template lists.")
-    .bind(request.graph_json)
+    .bind(graph_json)
     .execute(&mut *transaction)
     .await?;
 
     Task::create(
-        &mut transaction,
+        &mut *transaction,
         &CreateTask {
             id: attempt_id,
             project_id,
@@ -727,11 +822,7 @@ pub async fn create_issue_workflow_attempt(
     .execute(&mut *transaction)
     .await?;
 
-    transaction.commit().await?;
-
-    workflow_attempt_by_id(pool, attempt_id)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found after create".to_string()))
+    Ok(())
 }
 
 pub async fn create_issue_workflow_attempt_with_resources<W>(
@@ -948,7 +1039,7 @@ pub async fn persist_workflow_graph(
             updated_at = datetime('now', 'subsec')
         WHERE id = ? AND revision = ?
         RETURNING id, source, project_id, name, description, graph_json,
-                  revision, created_at, updated_at
+                  revision, external_enabled, created_at, updated_at
         "#,
     )
     .bind(graph_json)
@@ -1178,6 +1269,41 @@ pub async fn delete_issue_workflow_attempt(
     Ok(())
 }
 
+pub async fn accept_workflow_attempt<W: WorkflowWorkspaceResolver>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    attempt_id: Uuid,
+    request: RunWorkflowAttemptRequest,
+    resolver: &W,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let attempt = workflow_attempt_by_id(pool, attempt_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
+    let repos = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
+        .map_err(ApiError::BadRequest)?;
+    let directory =
+        workflow_workspace_directory_override(request.directory_path.as_deref(), &repos)
+            .map_err(ApiError::BadRequest)?;
+    crate::workflow_runtime::runner::accept_workflow_run(
+        pool,
+        run_id,
+        WorkflowRunStartRequest {
+            workflow_id: attempt.workflow_id,
+            attempt_id: Some(attempt.id),
+            trigger: TriggerWorkflowRequest {
+                issue_id: attempt.issue_id,
+                workspace_id: attempt.workspace_id.or(request.workspace_id),
+                trigger_source: request.trigger_source,
+                input_text: request.input_text,
+            },
+            directory_path: directory,
+            repo_overrides: repos,
+        },
+        resolver,
+    )
+    .await
+}
+
 pub async fn run_workflow_attempt_runtime<W, A>(
     pool: &SqlitePool,
     attempt_id: Uuid,
@@ -1345,7 +1471,7 @@ pub async fn update_workflow_template(
             updated_at = datetime('now', 'subsec')
         WHERE id = ? AND revision = ?
         RETURNING id, source, project_id, name, description, graph_json,
-                  revision, created_at, updated_at
+                  revision, external_enabled, created_at, updated_at
         "#,
     )
     .bind(request.name.unwrap_or(existing.name))
@@ -1459,7 +1585,7 @@ async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateRes
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
                created_at, updated_at
         FROM workflows
         WHERE (
@@ -1498,7 +1624,7 @@ async fn workflow_by_id(
 ) -> Result<Option<WorkflowTemplateResponse>, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
                created_at, updated_at
         FROM workflows
         WHERE id = ?
@@ -1558,7 +1684,7 @@ async fn ensure_system_workflows(pool: &SqlitePool) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn built_in_workflow_ids() -> Result<Vec<Uuid>, ApiError> {
+pub(crate) fn built_in_workflow_ids() -> Result<Vec<Uuid>, ApiError> {
     built_in_templates()
         .iter()
         .map(|template| parse_system_template_id(template.id))
@@ -1669,6 +1795,7 @@ fn workflow_template_from_row(
         description: row.try_get("description")?,
         graph_json: row.try_get("graph_json")?,
         revision: row.try_get("revision")?,
+        external_enabled: row.try_get("external_enabled")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -2148,21 +2275,89 @@ async fn trigger_workflow(
     State(deployment): State<DeploymentImpl>,
     Path(workflow_id): Path<Uuid>,
     Json(request): Json<TriggerWorkflowRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowRunResponse>>, ApiError> {
+) -> Result<
+    (
+        StatusCode,
+        ResponseJson<MutationResponse<WorkflowRunResponse>>,
+    ),
+    ApiError,
+> {
     let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
-    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let data = trigger_workflow_run_with_arena(
+    let data = crate::workflow_runtime::runner::accept_workflow_run(
         &deployment.db().pool,
-        workflow_id,
-        request,
+        Uuid::new_v4(),
+        WorkflowRunStartRequest {
+            workflow_id,
+            attempt_id: None,
+            trigger: request,
+            directory_path: None,
+            repo_overrides: Vec::new(),
+        },
         &workspace_resolver,
-        &agent_executor,
-        &arena_creator,
     )
     .await?;
 
-    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
+    Ok((
+        StatusCode::ACCEPTED,
+        ResponseJson(MutationResponse { data, txid: txid() }),
+    ))
+}
+
+pub async fn workflow_file_summary(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<WorkflowFileChangeSummary, ApiError> {
+    let workspace_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT workspace_id FROM workflow_runs WHERE id=?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Workflow run not found".into()))?;
+    let root = async {
+        let workspace_id =
+            workspace_id.ok_or_else(|| ApiError::BadRequest("Workspace missing".into()))?;
+        let workspace = db::models::workspace::Workspace::find_by_id(pool, workspace_id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Workspace missing".into()))?;
+        let mut root = std::path::PathBuf::from(
+            workspace
+                .container_ref
+                .ok_or_else(|| ApiError::BadRequest("Workspace directory missing".into()))?,
+        );
+        if let Some(relative) = Session::resolve_agent_working_dir(pool, workspace_id).await? {
+            root.push(relative);
+        }
+        tokio::fs::canonicalize(root)
+            .await
+            .map_err(|_| ApiError::BadRequest("Workspace directory unavailable".into()))
+    }
+    .await;
+    let reason = match root {
+        Ok(root) => match WorkflowFileChanges::project(pool, run_id, &root).await {
+            Ok(summary) => return Ok(summary),
+            Err(error) => {
+                tracing::warn!(%run_id,%error,"Workflow file collection unavailable");
+                "file_collection_failed"
+            }
+        },
+        Err(_) => "project_directory_unavailable",
+    };
+    Ok(WorkflowFileChanges::unavailable(pool, run_id, reason)
+        .await
+        .unwrap_or_else(|_| WorkflowFileChangeSummary {
+            files: Vec::new(),
+            collection_status: WorkflowFileCollectionStatus::Unavailable,
+            reasons: vec![reason.to_string()],
+        }))
+}
+
+async fn get_workflow_file_changes(
+    State(deployment): State<DeploymentImpl>,
+    Path(run_id): Path<Uuid>,
+) -> Result<ResponseJson<WorkflowFileChangeSummary>, ApiError> {
+    Ok(ResponseJson(
+        workflow_file_summary(&deployment.db().pool, run_id).await?,
+    ))
 }
 
 async fn get_workflow_run(
@@ -2278,13 +2473,15 @@ async fn retry_node(
 async fn approve_node(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    Json(request): Json<RespondWorkflowNodeRequest>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = approve_human_node_with_arena(
+    let run = approve_human_node_at(
         &deployment.db().pool,
         run_id,
         &node_id,
+        Some(request.node_execution_id),
         &agent_executor,
         &arena_creator,
     )
@@ -2300,8 +2497,15 @@ async fn approve_node(
 async fn reject_node(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    Json(request): Json<RespondWorkflowNodeRequest>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
-    let run = reject_human_node(&deployment.db().pool, run_id, &node_id).await?;
+    let run = reject_human_node_at(
+        &deployment.db().pool,
+        run_id,
+        &node_id,
+        Some(request.node_execution_id),
+    )
+    .await?;
     sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
@@ -2318,10 +2522,11 @@ async fn select_arena_winner(
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
     let winner_applier = DeploymentWorkflowArenaWinnerApplier::new(deployment.clone());
-    let run = select_arena_winner_with_arena(
+    let run = select_arena_winner_at(
         &deployment.db().pool,
         run_id,
         &node_id,
+        Some(request.node_execution_id),
         request.candidate_id,
         &agent_executor,
         &arena_creator,
@@ -2343,10 +2548,11 @@ async fn select_condition_branch(
 ) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
     let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = select_condition_branch_with_arena(
+    let run = select_condition_branch_at(
         &deployment.db().pool,
         run_id,
         &node_id,
+        Some(request.node_execution_id),
         request.selected_target_node_ids,
         request.reason,
         &agent_executor,

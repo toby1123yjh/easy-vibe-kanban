@@ -25,6 +25,7 @@
       "sections": {
         "application": "Aplicación",
         "repositories": "Repositorios",
+        "integrations": "Integraciones externas",
         "relay": "Acceso remoto",
         "organizations": "Organizaciones",
         "projects": "Proyectos"

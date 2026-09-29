@@ -1,4 +1,50 @@
 {
+  "externalIntegrations": {
+    "result": "Execution result",
+    "close": "Close",
+    "resultHint": "Text output and confirmed Agent file changes from this execution. Use the project directory to browse or download all current files.",
+    "agentFiles": "Confirmed Agent file changes",
+    "filesFailed": "Could not load file changes. This does not mean no files changed.",
+    "filesStatus": {
+      "collecting": "Still collecting. This list may be incomplete.",
+      "partial": "This list may be incomplete. Commands, scripts, MCP and some Agent tools cannot provide reliable file evidence.",
+      "unavailable": "File evidence is unavailable or degraded. Previously confirmed records are retained; project files remain accessible."
+    },
+    "fileKind": {
+      "added": "Added",
+      "modified": "Modified",
+      "deleted": "Deleted"
+    },
+    "title": "External integrations",
+    "description": "Let external systems use workflows and project files on this host. Each system has its own API Key and project access.",
+    "endpoint": "API path:",
+    "loading": "Loading integrations…",
+    "loadFailed": "Could not load integrations or projects. Retry before making changes.",
+    "retry": "Retry",
+    "failed": "Operation failed. Try again.",
+    "create": "Add integration",
+    "name": "System name",
+    "projects": "Authorized projects",
+    "projectHint": "Select existing projects this system may access. Projects it creates are authorized automatically.",
+    "keyOnce": "Copy this API Key now. It will not be shown again.",
+    "copy": "Copy key",
+    "copied": "Copied",
+    "keySaved": "I have saved the key",
+    "copyFailed": "Could not copy. Select the key and copy it manually.",
+    "save": "Save",
+    "generate": "Generate API Key",
+    "cancel": "Cancel",
+    "edit": "Edit access",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "toggle": "Enable or disable {{name}}",
+    "projectCount": "Authorized projects: {{count}}",
+    "stopHint": "Disabling an integration blocks new requests. Accepted executions continue until explicitly cancelled.",
+    "externalAllowed": "Allow external calls",
+    "externalHint": "Authorized systems can use this template. Turning this off only blocks new submissions; accepted executions continue.",
+    "queued": "Queued",
+    "starting": "Starting"
+  },
   "gitConnections": {
     "title": "Git connections",
     "description": "Connections and encrypted credentials are stored on the selected machine. Native Git / SSH remains available without a saved connection.",
@@ -63,6 +109,7 @@
       "sections": {
         "application": "Application",
         "repositories": "Repositories",
+        "integrations": "External integrations",
         "relay": "Remote Access",
         "organizations": "Organizations",
         "projects": "Projects"

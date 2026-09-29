@@ -36,6 +36,21 @@ test.describe('Settings route model', () => {
     });
   });
 
+  test('external integrations belong to the selected host', () => {
+    expect(
+      resolveSettingsRoute({ section: 'integrations', host: 'host-b' })
+    ).toEqual({
+      tab: 'host',
+      section: 'integrations',
+      host: 'host-b',
+    });
+    expect(settingsRouteForSection('integrations', 'host-b')).toEqual({
+      tab: 'host',
+      section: 'integrations',
+      host: 'host-b',
+    });
+  });
+
   test('canonicalizes legacy section aliases', () => {
     expect(resolveSettingsRoute({ section: 'appearance' })).toEqual({
       tab: 'general',

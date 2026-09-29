@@ -11,6 +11,31 @@ fn generate_types_content() -> String {
 // If you are an AI, and you absolutely have to edit this file, please confirm with the user first.";
 
     let decls: Vec<String> = vec![
+        db::models::integration::ExternalIntegration::decl(),
+        server::routes::integrations::IntegrationSettings::decl(),
+        server::routes::integrations::CreateIntegrationRequest::decl(),
+        server::routes::integrations::UpdateIntegrationRequest::decl(),
+        server::routes::integrations::CreatedIntegration::decl(),
+        server::routes::integrations::IntegrationProjectOption::decl(),
+        server::routes::integrations::CreateExternalProject::decl(),
+        server::routes::integrations::CreateExternalIssue::decl(),
+        server::routes::integrations::files::ProjectFileKind::decl(),
+        server::routes::integrations::files::ProjectFileEntry::decl(),
+        server::routes::integrations::files::ProjectDirectoryPage::decl(),
+        server::routes::integrations::files::UploadedProjectFile::decl(),
+        executors::runtime::AgentFileChange::decl(),
+        executors::runtime::AgentFileChangeType::decl(),
+        db::models::workflow_file_changes::WorkflowFileChange::decl(),
+        db::models::workflow_file_changes::WorkflowFileCollectionStatus::decl(),
+        db::models::workflow_file_changes::WorkflowFileChangeSummary::decl(),
+        server::routes::workflows::WorkflowExternalAccessRequest::decl(),
+        server::routes::workflows::RespondWorkflowNodeRequest::decl(),
+        server::routes::integrations::workflows::CreateExternalWorkflowAttempt::decl(),
+        server::routes::integrations::workflows::RunExternalWorkflow::decl(),
+        server::routes::integrations::workflows::ExternalWorkflowRun::decl(),
+        server::routes::integrations::workflows::ExternalWorkflowTemplate::decl(),
+        server::routes::integrations::workflows::WorkflowInteraction::decl(),
+        server::routes::integrations::workflows::WorkflowInteractionResponse::decl(),
         db::models::repo::Repo::decl(),
         db::models::project::Project::decl(),
         db::models::project::ProjectListItem::decl(),
@@ -534,6 +559,7 @@ fn generate_types_content() -> String {
     let body = decls
         .into_iter()
         .map(|d| {
+            let d = d.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
             let trimmed = d.trim_start();
             if trimmed.starts_with("export") {
                 d

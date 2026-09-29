@@ -513,13 +513,13 @@ export function WorkflowRunCanvasTab({
         await approveNode({
           runId: run.id,
           nodeId: execution.node_id,
-          payload: {},
+          payload: { node_execution_id: execution.id },
         });
       } else {
         await rejectNode({
           runId: run.id,
           nodeId: execution.node_id,
-          payload: {},
+          payload: { node_execution_id: execution.id },
         });
       }
       setGateSubmission((current) =>
@@ -578,7 +578,10 @@ export function WorkflowRunCanvasTab({
       await selectConditionBranch({
         runId: run.id,
         nodeId: execution.node_id,
-        payload: { selected_target_node_ids: targetNodeIds },
+        payload: {
+          selected_target_node_ids: targetNodeIds,
+          node_execution_id: execution.id,
+        },
       });
       setConditionSubmission((current) =>
         current?.executionId === execution.id

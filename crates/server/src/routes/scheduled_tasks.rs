@@ -1713,6 +1713,7 @@ mod tests {
                 updated_at: now,
             },
             WorkflowRunResponse {
+                queue_phase: None,
                 id: run_id,
                 orchestration_run_id: None,
                 workflow_id,

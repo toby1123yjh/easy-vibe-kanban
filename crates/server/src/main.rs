@@ -128,6 +128,7 @@ async fn main() -> Result<(), VibeKanbanError> {
     recover_stale_workflow_runs_with_boundary(&deployment.db().pool, &workflow_boundary)
         .await
         .map_err(|err| DeploymentError::Other(anyhow::anyhow!(err.to_string())))?;
+    server::workflow_runtime::queue::spawn_dispatcher(deployment.clone());
     spawn_scheduled_task_loop(deployment.clone());
     deployment
         .container()

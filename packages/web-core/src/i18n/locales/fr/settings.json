@@ -25,6 +25,7 @@
       "sections": {
         "application": "Application",
         "repositories": "Dépôts",
+        "integrations": "Intégrations externes",
         "relay": "Accès à distance",
         "organizations": "Organisations",
         "projects": "Projets"

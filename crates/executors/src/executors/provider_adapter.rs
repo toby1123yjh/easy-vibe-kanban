@@ -32,6 +32,8 @@ use crate::{
     },
 };
 
+mod file_evidence;
+
 /// Everything needed to launch one real provider process without constructing
 /// a legacy `ExecutorAction` or routing through `StandardCodingAgentExecutor`.
 pub struct DirectProviderLaunchRequest<'a> {
@@ -322,7 +324,7 @@ impl DirectProvider {
                 runtime: None,
                 protocol: Some("acp-0.8"),
                 adapter: "gemini-adapter-v1",
-                mapper: "gemini-mapper-v1",
+                mapper: "gemini-mapper-v2",
             },
             Self::Codex => DirectAdapterVersions {
                 executable: "codex",
@@ -331,7 +333,7 @@ impl DirectProvider {
                 runtime: None,
                 protocol: Some("rust-v0.144.1"),
                 adapter: "codex-adapter-v1",
-                mapper: "codex-mapper-v1",
+                mapper: "codex-mapper-v2",
             },
             Self::ClaudeCode => DirectAdapterVersions {
                 executable: "claude",
@@ -1246,98 +1248,108 @@ fn map_typed_event(
     event: &DecodedProviderEvent,
     manifest: &NativeAuditManifest,
 ) -> Result<Vec<AgentEvent>, NativeAuditError> {
-    let payload = match &event.typed {
-        TypedProviderEvent::Lifecycle(status) => {
-            AgentEventPayload::LifecycleChanged { status: *status }
-        }
-        TypedProviderEvent::SessionObserved(session_id) => AgentEventPayload::SessionObserved {
-            provider_session: ProviderSessionReference {
-                schema_version: crate::runtime::PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
-                provider_id: provider.id().to_string(),
-                runtime_profile_id: manifest.runtime_profile_id.clone(),
-                provider_session_id: session_id.clone(),
-                observed_at: event.raw.timestamp,
-                metadata: Some(serde_json::json!({ "source": "native_frame" })),
+    let payload = if let Some(evidence) =
+        file_evidence::completed_file_changes(provider, &event.raw)
+    {
+        evidence
+    } else {
+        match &event.typed {
+            TypedProviderEvent::Lifecycle(status) => {
+                AgentEventPayload::LifecycleChanged { status: *status }
+            }
+            TypedProviderEvent::SessionObserved(session_id) => AgentEventPayload::SessionObserved {
+                provider_session: ProviderSessionReference {
+                    schema_version: crate::runtime::PROVIDER_SESSION_REFERENCE_SCHEMA_VERSION,
+                    provider_id: provider.id().to_string(),
+                    runtime_profile_id: manifest.runtime_profile_id.clone(),
+                    provider_session_id: session_id.clone(),
+                    observed_at: event.raw.timestamp,
+                    metadata: Some(serde_json::json!({ "source": "native_frame" })),
+                },
             },
-        },
-        TypedProviderEvent::Message {
-            role,
-            content,
-            final_output,
-            message_id,
-        } => AgentEventPayload::Message {
-            message: crate::runtime::CanonicalMessage {
-                message_id: message_id
-                    .clone()
-                    .map(|id| canonical_message_id(manifest.run_attempt_id, &id))
-                    .unwrap_or_else(|| event_id(manifest.run_attempt_id, event.raw.sequence)),
-                role: *role,
+            TypedProviderEvent::Message {
+                role,
+                content,
+                final_output,
+                message_id,
+            } => AgentEventPayload::Message {
+                message: crate::runtime::CanonicalMessage {
+                    message_id: message_id
+                        .clone()
+                        .map(|id| canonical_message_id(manifest.run_attempt_id, &id))
+                        .unwrap_or_else(|| event_id(manifest.run_attempt_id, event.raw.sequence)),
+                    role: *role,
+                    content: content.clone(),
+                },
+                final_output: *final_output,
+            },
+            TypedProviderEvent::Thinking(content) => AgentEventPayload::Thinking {
                 content: content.clone(),
             },
-            final_output: *final_output,
-        },
-        TypedProviderEvent::Thinking(content) => AgentEventPayload::Thinking {
-            content: content.clone(),
-        },
-        TypedProviderEvent::ToolCall {
-            id,
-            name,
-            status,
-            arguments,
-            result,
-        } => AgentEventPayload::ToolCall {
-            tool_call_id: id.clone(),
-            tool_name: name.clone(),
-            status: *status,
-            arguments: arguments.clone(),
-            result: result.clone(),
-        },
-        TypedProviderEvent::ApprovalRequested {
-            id,
-            tool_call_id,
-            tool_name,
-        } => AgentEventPayload::ApprovalRequested {
-            approval_id: id.clone(),
-            tool_call_id: tool_call_id.clone(),
-            tool_name: tool_name.clone(),
-        },
-        TypedProviderEvent::ApprovalResolved {
-            id,
-            approved,
-            reason,
-        } => AgentEventPayload::ApprovalResolved {
-            approval_id: id.clone(),
-            approved: *approved,
-            reason: reason.clone(),
-        },
-        TypedProviderEvent::InputRequested { id, prompt } => AgentEventPayload::InputRequested {
-            input_id: id.clone(),
-            prompt: prompt.clone(),
-        },
-        TypedProviderEvent::InputResolved { id, answered } => AgentEventPayload::InputResolved {
-            input_id: id.clone(),
-            answered: *answered,
-        },
-        TypedProviderEvent::TokenUsage {
-            input_tokens,
-            output_tokens,
-            cached_input_tokens,
-        } => AgentEventPayload::TokenUsage {
-            input_tokens: *input_tokens,
-            output_tokens: *output_tokens,
-            cached_input_tokens: *cached_input_tokens,
-        },
-        TypedProviderEvent::Error(error) => AgentEventPayload::Error {
-            error: error.clone(),
-        },
-        TypedProviderEvent::Unknown {
-            event_type,
-            payload,
-        } => AgentEventPayload::ProviderExtension {
-            provider_namespace: provider.id().to_string(),
-            provider_event: event_type.clone(),
-            payload: payload.clone(),
-        },
+            TypedProviderEvent::ToolCall {
+                id,
+                name,
+                status,
+                arguments,
+                result,
+            } => AgentEventPayload::ToolCall {
+                tool_call_id: id.clone(),
+                tool_name: name.clone(),
+                status: *status,
+                arguments: arguments.clone(),
+                result: result.clone(),
+            },
+            TypedProviderEvent::ApprovalRequested {
+                id,
+                tool_call_id,
+                tool_name,
+            } => AgentEventPayload::ApprovalRequested {
+                approval_id: id.clone(),
+                tool_call_id: tool_call_id.clone(),
+                tool_name: tool_name.clone(),
+            },
+            TypedProviderEvent::ApprovalResolved {
+                id,
+                approved,
+                reason,
+            } => AgentEventPayload::ApprovalResolved {
+                approval_id: id.clone(),
+                approved: *approved,
+                reason: reason.clone(),
+            },
+            TypedProviderEvent::InputRequested { id, prompt } => {
+                AgentEventPayload::InputRequested {
+                    input_id: id.clone(),
+                    prompt: prompt.clone(),
+                }
+            }
+            TypedProviderEvent::InputResolved { id, answered } => {
+                AgentEventPayload::InputResolved {
+                    input_id: id.clone(),
+                    answered: *answered,
+                }
+            }
+            TypedProviderEvent::TokenUsage {
+                input_tokens,
+                output_tokens,
+                cached_input_tokens,
+            } => AgentEventPayload::TokenUsage {
+                input_tokens: *input_tokens,
+                output_tokens: *output_tokens,
+                cached_input_tokens: *cached_input_tokens,
+            },
+            TypedProviderEvent::Error(error) => AgentEventPayload::Error {
+                error: error.clone(),
+            },
+            TypedProviderEvent::Unknown {
+                event_type,
+                payload,
+            } => AgentEventPayload::ProviderExtension {
+                provider_namespace: provider.id().to_string(),
+                provider_event: event_type.clone(),
+                payload: payload.clone(),
+            },
+        }
     };
     Ok(vec![AgentEventEnvelope {
         schema_version: AGENT_EVENT_SCHEMA_VERSION,
@@ -1723,7 +1735,7 @@ mod tests {
             runtime_version: None,
             protocol_version: None,
             adapter_version: "codex-adapter-v1".to_string(),
-            mapper_version: "codex-mapper-v1".to_string(),
+            mapper_version: DirectProvider::Codex.versions().mapper.to_string(),
             frame_count: 1,
             first_sequence: Some(1),
             last_sequence: Some(1),
@@ -1883,7 +1895,7 @@ mod tests {
             runtime_version: None,
             protocol_version: Some("acp-0.8".to_string()),
             adapter_version: "gemini-adapter-v1".to_string(),
-            mapper_version: "gemini-mapper-v1".to_string(),
+            mapper_version: DirectProvider::Gemini.versions().mapper.to_string(),
             frame_count: 1,
             first_sequence: Some(1),
             last_sequence: Some(1),

@@ -507,6 +507,25 @@ async fn setup_workflow_pool() -> SqlitePool {
             .expect("create workflow test schema");
     }
 
+    sqlx::query(
+        "CREATE UNIQUE INDEX idx_node_executions_task_id ON node_executions(task_id) WHERE task_id IS NOT NULL",
+    )
+    .execute(&pool)
+    .await
+    .expect("create pre-integration Node Task index");
+    sqlx::raw_sql(include_str!(
+        "../../db/migrations/20260929000000_external_integrations.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("apply external integration fixture schema");
+    sqlx::raw_sql(include_str!(
+        "../../db/migrations/20260929010000_workflow_integration_queue.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("apply workflow integration schema");
+
     pool
 }
 
@@ -1503,6 +1522,47 @@ fn workflow_router_function_is_public() {
     let _router = server::routes::workflows::router;
 }
 
+#[test]
+fn workflow_interaction_requests_require_an_execution_identity() {
+    use server::routes::workflows::{RespondWorkflowNodeRequest, SelectConditionBranchRequest};
+
+    let execution_id = Uuid::new_v4();
+    let candidate_id = Uuid::new_v4();
+    let response: RespondWorkflowNodeRequest = serde_json::from_value(json!({
+        "node_execution_id": execution_id,
+        "message": "Approved"
+    }))
+    .expect("human response identifies an execution");
+    assert_eq!(response.node_execution_id, execution_id);
+    assert!(serde_json::from_value::<RespondWorkflowNodeRequest>(json!({})).is_err());
+
+    let branch: SelectConditionBranchRequest = serde_json::from_value(json!({
+        "node_execution_id": execution_id,
+        "selected_target_node_ids": ["approved"]
+    }))
+    .expect("branch response identifies an execution");
+    assert_eq!(branch.node_execution_id, execution_id);
+    assert!(
+        serde_json::from_value::<SelectConditionBranchRequest>(json!({
+            "selected_target_node_ids": ["approved"]
+        }))
+        .is_err()
+    );
+
+    let winner: SelectArenaWinnerRequest = serde_json::from_value(json!({
+        "node_execution_id": execution_id,
+        "candidate_id": candidate_id
+    }))
+    .expect("arena response identifies an execution");
+    assert_eq!(winner.node_execution_id, execution_id);
+    assert!(
+        serde_json::from_value::<SelectArenaWinnerRequest>(json!({
+            "candidate_id": candidate_id
+        }))
+        .is_err()
+    );
+}
+
 #[tokio::test]
 async fn list_project_workflows_seeds_system_templates_and_returns_project_templates() {
     let pool = setup_workflow_pool().await;
@@ -2447,6 +2507,281 @@ async fn running_workflow_attempt_updates_latest_run_workspace_and_status() {
     assert_eq!(
         workspace_requests[0].repo_overrides[0].target_branch,
         "develop"
+    );
+}
+
+#[tokio::test]
+async fn accepted_workflow_runs_keep_snapshot_fifo_and_stable_node_sessions() {
+    use db::models::workflow_queue::WorkflowQueueEntry;
+    use server::{
+        routes::workflows::accept_workflow_attempt,
+        workflow_runtime::runner::{get_workflow_run_response, start_accepted_workflow_run},
+    };
+
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "Queued workflow").await;
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            directory_path: None,
+            name: Some("Queued work".into()),
+            graph_json: agent_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .unwrap();
+    let workspace = FakeWorkspaceResolver::new(&pool, Uuid::new_v4());
+    let request = || RunWorkflowAttemptRequest {
+        directory_path: None,
+        workspace_id: None,
+        trigger_source: "manual".into(),
+        input_text: "Original input".into(),
+        repos: None,
+    };
+    let first_id = Uuid::new_v4();
+    let first = accept_workflow_attempt(&pool, first_id, attempt.id, request(), &workspace)
+        .await
+        .unwrap();
+    assert_eq!(first.status, WorkflowRunStatus::Pending);
+    assert_eq!(first.queue_phase.as_deref(), Some("queued"));
+    assert!(first.started_at.is_none());
+    assert!(first.orchestration_run_id.is_none());
+    let second_id = Uuid::new_v4();
+    let second = accept_workflow_attempt(&pool, second_id, attempt.id, request(), &workspace)
+        .await
+        .unwrap();
+    let first_node = first
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "agent")
+        .unwrap();
+    let second_node = second
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "agent")
+        .unwrap();
+    assert!(first_node.session_id.is_some());
+    assert_eq!(first_node.session_id, second_node.session_id);
+    assert_eq!(first_node.task_id, second_node.task_id);
+    assert_ne!(first_node.id, second_node.id);
+
+    // Editing/turning off the source after acceptance must not rewrite queued work.
+    sqlx::query("UPDATE workflows SET graph_json=?, external_enabled=0 WHERE id=?")
+        .bind(valid_graph_json())
+        .bind(attempt.workflow_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let retry = accept_workflow_attempt(&pool, first_id, attempt.id, request(), &workspace)
+        .await
+        .unwrap();
+    assert_eq!(retry.id, first_id);
+    assert_eq!(retry.nodes.len(), first.nodes.len());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_run_queue")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        2
+    );
+
+    assert_eq!(
+        WorkflowQueueEntry::claim_next(&pool)
+            .await
+            .unwrap()
+            .unwrap()
+            .run_id,
+        first_id
+    );
+    assert!(
+        WorkflowQueueEntry::claim_next(&pool)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    start_accepted_workflow_run(
+        &pool,
+        first_id,
+        &BoundSessionAgentExecutor,
+        &NoopWorkflowArenaCreator,
+    )
+    .await
+    .unwrap();
+    let finished = get_workflow_run_response(&pool, first_id).await.unwrap();
+    assert_eq!(finished.status, WorkflowRunStatus::Succeeded);
+    assert!(
+        finished
+            .nodes
+            .iter()
+            .any(|node| node.node_id == "agent" && node.status == NodeExecutionStatus::Succeeded)
+    );
+    assert!(
+        WorkflowQueueEntry::release_terminal(&pool, first_id)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        WorkflowQueueEntry::claim_next(&pool)
+            .await
+            .unwrap()
+            .unwrap()
+            .run_id,
+        second_id
+    );
+    start_accepted_workflow_run(
+        &pool,
+        second_id,
+        &BoundSessionAgentExecutor,
+        &NoopWorkflowArenaCreator,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        get_workflow_run_response(&pool, second_id)
+            .await
+            .unwrap()
+            .status,
+        WorkflowRunStatus::Succeeded
+    );
+    let children: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tasks WHERE parent_task_id=?")
+        .bind(attempt.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(children, 1);
+}
+
+#[tokio::test]
+async fn external_acceptance_rechecks_grants_and_template_before_committing_queue() {
+    use server::routes::workflows::accept_workflow_attempt;
+    let pool = setup_workflow_pool().await;
+    let project_id = Uuid::new_v4();
+    let issue_id = Uuid::new_v4();
+    let caller = Uuid::new_v4();
+    insert_project(&pool, project_id).await;
+    insert_local_issue(&pool, project_id, issue_id, "External acceptance").await;
+    let template_id = insert_project_workflow(&pool, project_id).await;
+    sqlx::query("UPDATE workflows SET external_enabled=1 WHERE id=?")
+        .bind(template_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let attempt = create_issue_workflow_attempt(
+        &pool,
+        project_id,
+        issue_id,
+        CreateWorkflowAttemptRequest {
+            directory_path: None,
+            name: Some("External work".into()),
+            graph_json: valid_graph_json(),
+            repos: None,
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO workflow_attempt_sources(attempt_id,template_id,template_revision) VALUES (?,?,1)").bind(attempt.id).bind(template_id).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO external_integrations(id,name,key_digest) VALUES (?,'Caller','test-digest')",
+    )
+    .bind(caller)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO external_integration_projects(integration_id,project_id) VALUES (?,?)",
+    )
+    .bind(caller)
+    .bind(project_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let workspace = FakeWorkspaceResolver::new(&pool, Uuid::new_v4());
+    let request = || RunWorkflowAttemptRequest {
+        directory_path: None,
+        workspace_id: None,
+        trigger_source: "external".into(),
+        input_text: "Process documents".into(),
+        repos: None,
+    };
+    let accepted_id = Uuid::new_v4();
+    let rejected_id = Uuid::new_v4();
+    for id in [accepted_id, rejected_id] {
+        sqlx::query("INSERT INTO external_integration_requests(integration_id,operation,scope,request_key,request_hash,resource_id) VALUES (?,'workflow_run',?,?, 'hash',?)")
+            .bind(caller).bind(attempt.id.to_string()).bind(id.to_string()).bind(id).execute(&pool).await.unwrap();
+    }
+    let accepted = accept_workflow_attempt(&pool, accepted_id, attempt.id, request(), &workspace)
+        .await
+        .unwrap();
+    assert_eq!(accepted.status, WorkflowRunStatus::Pending);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT state FROM external_integration_requests WHERE resource_id=?"
+        )
+        .bind(accepted_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "complete"
+    );
+    sqlx::query("UPDATE workflows SET external_enabled=0 WHERE id=?")
+        .bind(template_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        accept_workflow_attempt(&pool, rejected_id, attempt.id, request(), &workspace).await,
+        Err(ApiError::Conflict(_))
+    ));
+    assert_eq!(
+        accept_workflow_attempt(&pool, accepted_id, attempt.id, request(), &workspace)
+            .await
+            .unwrap()
+            .id,
+        accepted_id
+    );
+    sqlx::query("UPDATE workflows SET external_enabled=1 WHERE id=?")
+        .bind(template_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM external_integration_projects WHERE integration_id=?")
+        .bind(caller)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        accept_workflow_attempt(&pool, rejected_id, attempt.id, request(), &workspace).await,
+        Err(ApiError::Forbidden(_))
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_runs")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_run_queue")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT state FROM external_integration_requests WHERE resource_id=?"
+        )
+        .bind(rejected_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "preparing"
     );
 }
 
@@ -3642,12 +3977,10 @@ async fn workflow_arena_winner_selection_requires_awaiting_arena_node() {
     )
     .await;
 
-    assert!(
-        result
-            .expect_err("winner selection should require awaiting_arena")
-            .to_string()
-            .contains("must be `awaiting_arena`")
-    );
+    assert!(matches!(
+        result.expect_err("winner selection must reject a consumed interaction"),
+        ApiError::Conflict(message) if message.contains("stale or unavailable")
+    ));
     assert!(winner.requests().is_empty());
 }
 

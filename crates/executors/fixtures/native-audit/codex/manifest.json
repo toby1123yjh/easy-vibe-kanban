@@ -11,7 +11,7 @@
   "runtime_version": null,
   "protocol_version": "rust-v0.144.1",
   "adapter_version": "codex-adapter-v1",
-  "mapper_version": "codex-mapper-v1",
+  "mapper_version": "codex-mapper-v2",
   "frame_count": 3,
   "first_sequence": 1,
   "last_sequence": 3,

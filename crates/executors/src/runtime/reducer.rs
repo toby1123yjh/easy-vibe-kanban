@@ -134,6 +134,7 @@ pub fn reduce_agent_event(
             ReducerApply::AppliedDegraded
         }
         AgentEventPayload::Thinking { .. }
+        | AgentEventPayload::FileChanges { .. }
         | AgentEventPayload::ToolCall { .. }
         | AgentEventPayload::ApprovalRequested { .. }
         | AgentEventPayload::ApprovalResolved { .. }

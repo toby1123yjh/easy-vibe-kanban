@@ -20,6 +20,7 @@ import {
 } from '../model/workflowRuntimeView';
 import { workflowNodeStatusKey } from './workflowI18n';
 import { WorkflowRunCanvasTab } from './WorkflowRunCanvasTab';
+import { WorkflowRunResult } from './WorkflowRunResult';
 
 export interface WorkflowRunPageProps {
   projectId: string;
@@ -142,7 +143,12 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
               )}
               aria-live="polite"
             >
-              {t(`workflow.runStatus.${workflowNodeStatusKey(run.status)}`)}
+              {run.status === 'pending' &&
+              (run.queue_phase === 'queued' || run.queue_phase === 'starting')
+                ? t(`externalIntegrations.${run.queue_phase}`, {
+                    ns: 'settings',
+                  })
+                : t(`workflow.runStatus.${workflowNodeStatusKey(run.status)}`)}
             </span>
             <span className="text-xs text-low">
               {t('workflow.runPage.progress', {
@@ -162,20 +168,23 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
           ) : null}
         </div>
 
-        {showCancel ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={cancelPending || !runActionGate.canCancel}
-            aria-busy={cancelPending}
-            onClick={() => void handleCancel()}
-          >
-            {cancelPending
-              ? t('workflow.runPage.cancelling')
-              : t('workflow.dashboard.cancelRun')}
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <WorkflowRunResult key={run.id} run={run} />
+          {showCancel ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={cancelPending || !runActionGate.canCancel}
+              aria-busy={cancelPending}
+              onClick={() => void handleCancel()}
+            >
+              {cancelPending
+                ? t('workflow.runPage.cancelling')
+                : t('workflow.dashboard.cancelRun')}
+            </Button>
+          ) : null}
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1">

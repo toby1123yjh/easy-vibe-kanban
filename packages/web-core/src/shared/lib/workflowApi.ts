@@ -13,6 +13,7 @@ import type {
   WorkflowRunResponse,
   WorkflowActionResponse,
   WorkflowRevisionConflict,
+  WorkflowFileChangeSummary,
 } from 'shared/types';
 
 const LOCAL_BASE = '/api/local/v1';
@@ -126,23 +127,46 @@ async function mutate<T>(response: Response, errorMessage: string): Promise<T> {
 }
 
 export interface ApproveNodeRequest {
+  node_execution_id: string;
   message?: string;
 }
 
 export interface RejectNodeRequest {
+  node_execution_id: string;
   message?: string;
 }
 
 export interface SelectArenaWinnerRequest {
+  node_execution_id: string;
   candidate_id: string;
 }
 
 export interface SelectConditionBranchRequest {
+  node_execution_id: string;
   selected_target_node_ids: string[];
   reason?: string | null;
 }
 
 export const workflowApi = {
+  async fileChanges(runId: string): Promise<WorkflowFileChangeSummary> {
+    return getJson(
+      await localFetch(`/workflow-runs/${runId}/file-changes`),
+      'Failed to load workflow file changes'
+    );
+  },
+  async setExternalAccess(
+    workflowId: string,
+    enabled: boolean
+  ): Promise<WorkflowTemplateResponse> {
+    return mutate(
+      await localFetch(`/workflows/${workflowId}/external-access`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled }),
+      }),
+      'Failed to update external access'
+    );
+  },
+
   async list(projectId: string): Promise<WorkflowTemplateListResponse> {
     return getJson(
       await localFetch(`/projects/${projectId}/workflows`),

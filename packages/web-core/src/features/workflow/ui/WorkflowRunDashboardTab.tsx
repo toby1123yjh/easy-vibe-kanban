@@ -159,7 +159,12 @@ export function WorkflowRunDashboardTab({
   };
 
   const handleApproveNode = async (nodeId: string) => {
+    const execution = getWorkflowNodeExecutionForWork(
+      run,
+      getWorkflowNodeWork(runtimeView, nodeId)
+    );
     if (
+      !execution ||
       !getWorkflowNodeActionGate(getWorkflowNodeWork(runtimeView, nodeId))
         .canApprove
     ) {
@@ -176,7 +181,7 @@ export function WorkflowRunDashboardTab({
       await mutations.approveNode({
         runId: run.id,
         nodeId,
-        payload: {},
+        payload: { node_execution_id: execution.id },
       });
     } catch (err) {
       setActionError(
@@ -188,7 +193,12 @@ export function WorkflowRunDashboardTab({
   };
 
   const handleRejectNode = async (nodeId: string) => {
+    const execution = getWorkflowNodeExecutionForWork(
+      run,
+      getWorkflowNodeWork(runtimeView, nodeId)
+    );
     if (
+      !execution ||
       !getWorkflowNodeActionGate(getWorkflowNodeWork(runtimeView, nodeId))
         .canReject
     ) {
@@ -205,7 +215,7 @@ export function WorkflowRunDashboardTab({
       await mutations.rejectNode({
         runId: run.id,
         nodeId,
-        payload: {},
+        payload: { node_execution_id: execution.id },
       });
     } catch (err) {
       setActionError(
@@ -592,6 +602,7 @@ export function WorkflowRunDashboardTab({
                   arenaGroupId={selectedNode.arena_group_id}
                   issueId={run.issue_id}
                   nodeId={selectedNode.node_id}
+                  nodeExecutionId={selectedNode.id}
                   projectId={projectId}
                   runId={run.id}
                 />

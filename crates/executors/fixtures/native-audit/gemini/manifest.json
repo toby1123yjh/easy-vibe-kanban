@@ -11,7 +11,7 @@
   "runtime_version": null,
   "protocol_version": "acp-0.8",
   "adapter_version": "gemini-adapter-v1",
-  "mapper_version": "gemini-mapper-v1",
+  "mapper_version": "gemini-mapper-v2",
   "frame_count": 3,
   "first_sequence": 1,
   "last_sequence": 3,

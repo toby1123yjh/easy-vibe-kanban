@@ -1,4 +1,5 @@
 import type {
+  AgentEventCursor,
   AgentRunSummary,
   CancelAgentRunRequest,
   ResolveAgentRunApprovalRequest,
@@ -7,7 +8,6 @@ import type {
   RunState,
   SubmitAgentRunInputRequest,
 } from 'shared/types';
-import type { AgentEventCursor } from '@/features/agent-runtime/model/canonicalAgentTimeline';
 import { handleApiResponse } from './api';
 import { makeLocalApiRequest } from './localApiTransport';
 

@@ -365,6 +365,23 @@ pub struct NativeAuditReference {
     pub checksum: Option<String>,
 }
 
+/// A confirmed provider file operation, never an inferred directory difference.
+/// Native paths are resolved against the captured Agent working directory by
+/// the project projection; these are not public download targets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AgentFileChange {
+    pub path: String,
+    pub change_type: AgentFileChangeType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentFileChangeType {
+    Added,
+    Modified,
+    Deleted,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AgentEventPayload {
@@ -380,6 +397,12 @@ pub enum AgentEventPayload {
     },
     Thinking {
         content: String,
+    },
+    /// Emitted only for completed native file operations with an explicit kind.
+    /// Does not imply that other writes made by this Agent were observed.
+    FileChanges {
+        tool_call_id: String,
+        changes: Vec<AgentFileChange>,
     },
     ToolCall {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -471,6 +494,7 @@ const KNOWN_AGENT_EVENT_TYPES: &[&str] = &[
     "session_observed",
     "message",
     "thinking",
+    "file_changes",
     "tool_call",
     "approval_requested",
     "approval_resolved",

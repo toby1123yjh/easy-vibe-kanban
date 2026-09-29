@@ -334,7 +334,9 @@ impl<'a> AgentRuntimeReadService<'a> {
             match &event.payload {
                 AgentEventPayload::Message { .. } => stats.message_count += 1,
                 AgentEventPayload::Thinking { .. } => stats.thinking_count += 1,
-                AgentEventPayload::ToolCall { .. } => stats.tool_call_count += 1,
+                AgentEventPayload::ToolCall { .. } => {
+                    stats.tool_call_count += 1;
+                }
                 AgentEventPayload::ApprovalRequested { .. } => stats.approval_request_count += 1,
                 AgentEventPayload::ApprovalResolved { .. } => stats.approval_resolution_count += 1,
                 AgentEventPayload::InputRequested { .. } => stats.input_request_count += 1,
@@ -354,6 +356,7 @@ impl<'a> AgentRuntimeReadService<'a> {
                 AgentEventPayload::ProviderExtension { .. } => stats.provider_extension_count += 1,
                 AgentEventPayload::Unknown { .. } => {}
                 AgentEventPayload::LifecycleChanged { .. }
+                | AgentEventPayload::FileChanges { .. }
                 | AgentEventPayload::ProjectionDegraded { .. }
                 | AgentEventPayload::SessionObserved { .. } => {}
             }

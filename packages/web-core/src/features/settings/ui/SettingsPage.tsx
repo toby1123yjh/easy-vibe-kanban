@@ -22,6 +22,7 @@ import { GitConnectionsSettings } from '@/shared/dialogs/settings/settings/GitCo
 import { OrganizationsSettingsSection } from '@/shared/dialogs/settings/settings/OrganizationsSettingsSection';
 import { RelaySettingsSectionContent } from '@/shared/dialogs/settings/settings/RelaySettingsSection';
 import { ProjectSettingsContent } from './ProjectSettingsContent';
+import { IntegrationSettings } from './IntegrationSettings';
 import { useNavigate } from '@tanstack/react-router';
 import { ReposSettingsSection } from '@/shared/dialogs/settings/settings/ReposSettingsSection';
 import { SettingsCard } from '@/shared/dialogs/settings/settings/SettingsComponents';
@@ -81,6 +82,7 @@ const TAB_LABELS = {
 const SECTION_LABELS = {
   application: 'Application',
   repositories: 'Repositories',
+  integrations: 'External integrations',
   relay: 'Remote Access',
   organizations: 'Organizations',
   projects: 'Projects',
@@ -604,6 +606,8 @@ function SettingsContent({
           <ReposSettingsSection />
         </>
       );
+    case 'integrations':
+      return <IntegrationSettings />;
     case 'relay':
       return <RelaySettingsContent hostId={hostId} />;
     case 'organizations':

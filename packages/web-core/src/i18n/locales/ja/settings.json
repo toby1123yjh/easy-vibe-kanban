@@ -25,6 +25,7 @@
       "sections": {
         "application": "アプリケーション",
         "repositories": "リポジトリ",
+        "integrations": "外部連携",
         "relay": "リモートアクセス",
         "organizations": "組織",
         "projects": "プロジェクト"

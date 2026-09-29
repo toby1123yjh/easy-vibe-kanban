@@ -4,6 +4,68 @@
 
 // If you are an AI, and you absolutely have to edit this file, please confirm with the user first.
 
+export type ExternalIntegration = { id: string, name: string, enabled: boolean, created_at: string, };
+
+export type IntegrationSettings = { project_ids: Array<string>, id: string, name: string, enabled: boolean, created_at: string, };
+
+export type CreateIntegrationRequest = { name: string, project_ids: Array<string>, };
+
+export type UpdateIntegrationRequest = { name: string, enabled: boolean, project_ids: Array<string>, expected_project_ids: Array<string>, };
+
+export type CreatedIntegration = { integration: IntegrationSettings, api_key: string, };
+
+export type IntegrationProjectOption = { id: string, name: string, };
+
+export type CreateExternalProject = { name: string, };
+
+export type CreateExternalIssue = { title: string, description: string | null, status_id: string | null, };
+
+export type ProjectFileKind = "file" | "directory" | "symlink" | "other";
+
+export type ProjectFileEntry = { path: string, name: string, kind: ProjectFileKind, size_bytes: number, };
+
+export type ProjectDirectoryPage = { path: string, entries: Array<ProjectFileEntry>, next_cursor: string | null, };
+
+export type UploadedProjectFile = { path: string, size_bytes: number, };
+
+export type AgentFileChange = { path: string, change_type: AgentFileChangeType, };
+
+export type AgentFileChangeType = "added" | "modified" | "deleted";
+
+export type WorkflowFileChange = {
+/**
+ * Project-relative slash-normalized path; downloads resolve current files.
+ */
+path: string, change_type: AgentFileChangeType, };
+
+export type WorkflowFileCollectionStatus = "collecting" | "partial" | "unavailable";
+
+export type WorkflowFileChangeSummary = {
+/**
+ * Observed operations, not a net diff. A path can have multiple kinds.
+ */
+files: Array<WorkflowFileChange>, collection_status: WorkflowFileCollectionStatus,
+/**
+ * Stable reason codes. An empty list never proves that no files changed.
+ */
+reasons: Array<string>, };
+
+export type WorkflowExternalAccessRequest = { enabled: boolean, };
+
+export type RespondWorkflowNodeRequest = { node_execution_id: string, message: string | null, };
+
+export type CreateExternalWorkflowAttempt = { template_id: string, name: string | null, };
+
+export type RunExternalWorkflow = { input_text: string, material_paths: Array<string>, };
+
+export type ExternalWorkflowRun = { project_id: string, run: WorkflowRunResponse, file_changes: WorkflowFileChangeSummary, };
+
+export type ExternalWorkflowTemplate = { id: string, name: string, description: string | null, revision: number, };
+
+export type WorkflowInteraction = { id: string, run_id: string, node_id: string, iteration: bigint, node_type: string, output_text: string | null, branch_targets: Array<string>, arena_candidate_ids: Array<string>, };
+
+export type WorkflowInteractionResponse = { "action": "approve" } | { "action": "reject" } | { "action": "select_branch", selected_target_node_ids: Array<string>, reason: string | null, } | { "action": "select_arena_winner", candidate_id: string, };
+
 export type Repo = { id: string, path: string, name: string, display_name: string, setup_script: string | null, cleanup_script: string | null, archive_script: string | null, copy_files: string | null, parallel_setup_script: boolean, dev_server_script: string | null, default_target_branch: string | null, default_working_dir: string | null, created_at: Date, updated_at: Date, };
 
 export type Project = { id: string, name: string, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
@@ -16,7 +78,7 @@ export type ProjectPage = { projects: Array<ProjectListItem>, next_cursor: Proje
 
 export type UpdateRepo = { display_name?: string | null, setup_script?: string | null, cleanup_script?: string | null, archive_script?: string | null, copy_files?: string | null, parallel_setup_script?: boolean | null, dev_server_script?: string | null, default_target_branch?: string | null, default_working_dir?: string | null, };
 
-export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType, 
+export type SearchResult = { path: string, is_file: boolean, match_type: SearchMatchType,
 /**
  * Ranking score based on git history (higher = more recently/frequently edited)
  */
@@ -46,15 +108,15 @@ export type DraftWorkspaceLinkedIssue = { issue_id: string, simple_id: string, t
 
 export type DraftWorkspaceRepo = { repo_id: string, target_branch: string, };
 
-export type DraftIssueData = { title: string, description: string | null, status_id: string, 
+export type DraftIssueData = { title: string, description: string | null, status_id: string,
 /**
  * Stored as the string value of IssuePriority (e.g. "urgent", "high", "medium", "low")
  */
-priority: string | null, assignee_ids: Array<string>, tag_ids: Array<string>, create_draft_workspace: boolean, 
+priority: string | null, assignee_ids: Array<string>, tag_ids: Array<string>, create_draft_workspace: boolean,
 /**
  * The project this draft belongs to
  */
-project_id: string, 
+project_id: string,
 /**
  * Parent issue ID if creating a sub-issue
  */
@@ -76,71 +138,71 @@ export type WorkspaceFilterStateData = { project_ids: Array<string>, pr_filter: 
 
 export type WorkspaceSortStateData = { sort_by: WorkspaceSortByData, sort_order: WorkspaceSortOrderData, };
 
-export type UiPreferencesData = { 
+export type UiPreferencesData = {
 /**
  * Preferred repo actions per repo
  */
-repo_actions: { [key in string]?: string }, 
+repo_actions: { [key in string]?: string },
 /**
  * Expanded/collapsed state for UI sections
  */
-expanded: { [key in string]?: boolean }, 
+expanded: { [key in string]?: boolean },
 /**
  * Context bar position
  */
-context_bar_position: string | null, 
+context_bar_position: string | null,
 /**
  * Pane sizes
  */
-pane_sizes: { [key in string]?: JsonValue }, 
+pane_sizes: { [key in string]?: JsonValue },
 /**
  * Collapsed paths per workspace in file tree
  */
-collapsed_paths: { [key in string]?: Array<string> }, 
+collapsed_paths: { [key in string]?: Array<string> },
 /**
  * Preferred file-search repo
  */
-file_search_repo_id: string | null, 
+file_search_repo_id: string | null,
 /**
  * Global left sidebar visibility
  */
-is_left_sidebar_visible: boolean | null, 
+is_left_sidebar_visible: boolean | null,
 /**
  * Global right sidebar visibility
  */
-is_right_sidebar_visible: boolean | null, 
+is_right_sidebar_visible: boolean | null,
 /**
  * Global terminal visibility
  */
-is_terminal_visible: boolean | null, 
+is_terminal_visible: boolean | null,
 /**
  * Workspace-specific panel states
  */
-workspace_panel_states: { [key in string]?: WorkspacePanelStateData }, 
+workspace_panel_states: { [key in string]?: WorkspacePanelStateData },
 /**
  * Workspace sidebar filter preferences
  */
-workspace_filters: WorkspaceFilterStateData, 
+workspace_filters: WorkspaceFilterStateData,
 /**
  * Workspace sidebar sort preferences
  */
-workspace_sort: WorkspaceSortStateData, 
+workspace_sort: WorkspaceSortStateData,
 /**
  * Last selected organization ID
  */
-selected_org_id: string | null, 
+selected_org_id: string | null,
 /**
  * Last selected project ID
  */
-selected_project_id: string | null, 
+selected_project_id: string | null,
 /**
  * Default setting for creating a draft workspace from new issues
  */
-create_draft_workspace_by_default: boolean | null, 
+create_draft_workspace_by_default: boolean | null,
 /**
  * Kanban project view selections (active view per project)
  */
-kanban_project_view_selections: { [key in string]?: JsonValue }, 
+kanban_project_view_selections: { [key in string]?: JsonValue },
 /**
  * Kanban project view preferences (filters, toggles per project per view)
  */
@@ -234,7 +296,7 @@ export type CreateNodeExecution = { run_id: string, task_id: string | null, node
 
 export type UpdateNodeExecution = { status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, error_text: string | null, };
 
-export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string | null, 
+export type ArenaAttemptInput = { executor_config: ExecutorConfig, name?: string | null,
 /**
  * Optional per-attempt prompt override. Falls back to the
  * group-level `prompt` when not provided.
@@ -253,7 +315,7 @@ export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, eve
 
 export type PromoteArenaRequest = { candidate_id: string, };
 
-export type RetryArenaRequest = { executor_config: ExecutorConfig, name?: string | null, 
+export type RetryArenaRequest = { executor_config: ExecutorConfig, name?: string | null,
 /**
  * Optional override; falls back to the group's prompt.
  */
@@ -273,7 +335,7 @@ export type ArenaWorkspaceExecutorConfig = { workspace_id: string, executor_conf
 
 export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, executor_configs: Array<ArenaWorkspaceExecutorConfig>, };
 
-export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: number, created_at: string, updated_at: string, };
+export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: number, external_enabled: boolean, created_at: string, updated_at: string, };
 
 export type WorkflowTemplateListResponse = { workflows: Array<WorkflowTemplateResponse>, };
 
@@ -289,9 +351,9 @@ export type CreateWorkflowAttemptRequest = { directory_path?: string, name: stri
 
 export type RunWorkflowAttemptRequest = { directory_path?: string, workspace_id: string | null, trigger_source: string, input_text: string, repos?: Array<DraftWorkspaceRepo>, };
 
-export type SelectArenaWinnerRequest = { candidate_id: string, };
+export type SelectArenaWinnerRequest = { candidate_id: string, node_execution_id: string, };
 
-export type SelectConditionBranchRequest = { selected_target_node_ids: Array<string>, reason?: string, };
+export type SelectConditionBranchRequest = { node_execution_id: string, selected_target_node_ids: Array<string>, reason?: string, };
 
 export type WorkflowAttemptResponse = { id: string, project_id: string, issue_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
 
@@ -305,7 +367,7 @@ export type WorkflowNodeWorkView = { node_id: string, node_type: string, iterati
 
 export type WorkflowRunRuntimeView = { run_id: string, status: WorkflowRunStatus, active_node_count: number, pending_node_count: number, waiting_node_count: number, failed_node_count: number, completed_node_count: number, node_work: Array<WorkflowNodeWorkView>, };
 
-export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, };
+export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, queue_phase?: string, };
 
 export type WorkflowNodeExecutionResponse = { id: string, run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, projection_status: ProjectionStatus | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
@@ -333,7 +395,7 @@ export type ScheduledTaskRunNowResponse = { task: ScheduledTaskResponse, run?: W
 
 export type Session = { id: string, workspace_id: string, name: string | null, executor: string | null, agent_working_dir: string | null, created_at: string, updated_at: string, };
 
-export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
+export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null,
 /**
  * dropped: true if this process is excluded from the current
  * history view (due to restore/trimming). Hidden from logs/timeline;
@@ -369,11 +431,11 @@ export type ApprovalOutcome = { "status": "approved" } | { "status": "denied", r
 
 export type ApprovalResponse = { execution_process_id: string, status: ApprovalOutcome, };
 
-export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null, 
+export type Diff = { change: DiffChangeKind, oldPath: string | null, newPath: string | null, oldContent: string | null, newContent: string | null,
 /**
  * True when file contents are intentionally omitted (e.g., too large)
  */
-contentOmitted: boolean, 
+contentOmitted: boolean,
 /**
  * Optional precomputed stats for omitted content
  */
@@ -441,7 +503,7 @@ export type TagSearchParams = { search: string | null, };
 
 export type TokenResponse = { access_token: string, expires_at: string | null, };
 
-export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment, 
+export type UserSystemInfo = { version: string, config: Config, machine_id: string, login_status: LoginStatus, remote_auth_degraded: string | null, environment: Environment,
 /**
  * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
  */
@@ -461,7 +523,7 @@ export type CheckEditorAvailabilityResponse = { available: boolean, };
 
 export type CheckAgentAvailabilityQuery = { executor: BaseCodingAgent, };
 
-export type AgentGarageEntry = { executor: BaseCodingAgent, availability: AvailabilityInfo, capabilities: Array<BaseAgentCapability>, 
+export type AgentGarageEntry = { executor: BaseCodingAgent, availability: AvailabilityInfo, capabilities: Array<BaseAgentCapability>,
 /**
  * Version of the binary bundled by the npx wrapper (pin & ship), when known.
  */
@@ -651,51 +713,51 @@ export type UpdateSession = { name: string | null, };
 
 export type WorkspaceSummaryRequest = { archived: boolean, };
 
-export type WorkspaceSummary = { workspace_id: string, 
+export type WorkspaceSummary = { workspace_id: string,
 /**
  * Session ID of the latest canonical AgentRun
  */
-latest_session_id: string | null, 
+latest_session_id: string | null,
 /**
  * Is a tool approval currently pending?
  */
-has_pending_approval: boolean, 
+has_pending_approval: boolean,
 /**
  * Number of files with changes
  */
-files_changed: number | null, 
+files_changed: number | null,
 /**
  * Total lines added across all files
  */
-lines_added: number | null, 
+lines_added: number | null,
 /**
  * Total lines removed across all files
  */
-lines_removed: number | null, 
+lines_removed: number | null,
 /**
  * When the latest canonical AgentRun reached its current terminal state
  */
-latest_process_completed_at?: string, 
+latest_process_completed_at?: string,
 /**
  * Status of the latest canonical AgentRun
  */
-latest_process_status: AgentRunStatus | null, 
+latest_process_status: AgentRunStatus | null,
 /**
  * Is a dev server currently running?
  */
-has_running_dev_server: boolean, 
+has_running_dev_server: boolean,
 /**
  * Does this workspace have unseen canonical AgentRuns?
  */
-has_unseen_turns: boolean, 
+has_unseen_turns: boolean,
 /**
  * PR status for this workspace (if any PR exists)
  */
-pr_status: MergeStatus | null, 
+pr_status: MergeStatus | null,
 /**
  * PR number for this workspace (if any PR exists)
  */
-pr_number: bigint | null, 
+pr_number: bigint | null,
 /**
  * PR URL for this workspace (if any PR exists)
  */
@@ -741,15 +803,15 @@ export type SendMessageShortcut = "ModifierEnter" | "Enter";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
 
-export type QueuedMessage = { 
+export type QueuedMessage = {
 /**
  * The session this message is queued for
  */
-session_id: string, 
+session_id: string,
 /**
  * The follow-up data (message + variant)
  */
-data: DraftFollowUpData, 
+data: DraftFollowUpData,
 /**
  * Timestamp when the message was queued
  */
@@ -965,27 +1027,27 @@ export type AgentCommandDiscoveryQuery = { project_path: string | null, };
 
 export type ExecutorActionType = { "type": "ScriptRequest" } & ScriptRequest;
 
-export type ExecutorConfig = { 
+export type ExecutorConfig = {
 /**
  * The executor type (e.g., CLAUDE_CODE, GEMINI)
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant/preset name (e.g., "PLAN", "ROUTER")
  */
-variant?: string | null, 
+variant?: string | null,
 /**
  * Model override (e.g., "anthropic/claude-sonnet-4-20250514")
  */
-model_id?: string | null, 
+model_id?: string | null,
 /**
  * Agent mode override
  */
-agent_id?: string | null, 
+agent_id?: string | null,
 /**
  * Reasoning effort override (e.g., "high", "medium")
  */
-reasoning_id?: string | null, 
+reasoning_id?: string | null,
 /**
  * Permission policy override
  */
@@ -993,7 +1055,7 @@ permission_policy?: PermissionPolicy | null, };
 
 export type ScriptContext = "SetupScript" | "CleanupScript" | "ArchiveScript" | "DevServer" | "ToolInstallScript";
 
-export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext, 
+export type ScriptRequest = { script: string, language: ScriptRequestLanguage, context: ScriptContext,
 /**
  * Optional relative path to execute the script in (relative to container_ref).
  * If None, uses the container_ref directory directly.
@@ -1010,7 +1072,7 @@ export type SlashCommandSource = "builtin" | "skill" | "plugin" | "custom" | "fa
 
 export type SlashCommandSupportLevel = "product" | "native" | "skill" | "custom" | "diagnostic" | "unsupported" | "fallback";
 
-export type SlashCommandDescription = { 
+export type SlashCommandDescription = {
 /**
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
@@ -1018,31 +1080,31 @@ name: string, description?: string | null, source?: SlashCommandSource | null, s
 
 export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
-export type CommandBuilder = { 
+export type CommandBuilder = {
 /**
  * Base executable command (e.g., "claude", "codex", or "omp")
  */
-base: string, 
+base: string,
 /**
  * Optional parameters to append to the base command
  */
 params: Array<string> | null, };
 
-export type ExecutorProfileId = { 
+export type ExecutorProfileId = {
 /**
  * The executor type (e.g., "CLAUDE_CODE", "GEMINI")
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant name (e.g., "PLAN", "ROUTER")
  */
 variant: string | null, };
 
-export type ExecutorRecentModels = { 
+export type ExecutorRecentModels = {
 /**
  * Ordered list of recently used model keys (most recent last).
  */
-models?: Array<string>, 
+models?: Array<string>,
 /**
  * Last-used reasoning effort per model
  */
@@ -1100,11 +1162,11 @@ export type NormalizedEntryType = { "type": "user_message" } | { "type": "user_f
 
 export type TokenUsageInfo = { total_tokens: number, model_context_window: number, };
 
-export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit", 
+export type FileChange = { "action": "write", content: string, } | { "action": "delete" } | { "action": "rename", new_path: string, } | { "action": "edit",
 /**
  * Unified diff containing file header and hunks.
  */
-unified_diff: string, 
+unified_diff: string,
 /**
  * Whether line number in the hunks are reliable.
  */
@@ -1122,7 +1184,7 @@ export type TodoItem = { content: string, status: string, priority: string | nul
 
 export type NormalizedEntryError = { "type": "setup_required" } | { "type": "other" };
 
-export type ToolResult = { type: ToolResultValueType, 
+export type ToolResult = { type: ToolResultValueType,
 /**
  * For Markdown, this will be a JSON string; for JSON, a structured value
  */
@@ -1134,19 +1196,19 @@ export type ToolStatus = { "status": "created" } | { "status": "success" } | { "
 
 export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry } | { "type": "STDOUT", "content": string } | { "type": "STDERR", "content": string } | { "type": "DIFF", "content": Diff };
 
-export type ModelInfo = { 
+export type ModelInfo = {
 /**
  * Model identifier
  */
-id: string, 
+id: string,
 /**
  * Display name
  */
-name: string, 
+name: string,
 /**
  * Provider this model belongs to
  */
-provider_id?: string | null, 
+provider_id?: string | null,
 /**
  * Configurable reasoning options if supported
  */
@@ -1154,11 +1216,11 @@ reasoning_options: Array<ReasoningOption>, };
 
 export type ReasoningOption = { id: string, label: string, is_default: boolean, };
 
-export type ModelProvider = { 
+export type ModelProvider = {
 /**
  * Provider identifier
  */
-id: string, 
+id: string,
 /**
  * Display name
  */
@@ -1168,23 +1230,23 @@ export type AgentInfo = { id: string, label: string, description?: string | null
 
 export enum PermissionPolicy { AUTO = "AUTO", SUPERVISED = "SUPERVISED", PLAN = "PLAN" }
 
-export type ModelSelectorConfig = { 
+export type ModelSelectorConfig = {
 /**
  * Available providers
  */
-providers: Array<ModelProvider>, 
+providers: Array<ModelProvider>,
 /**
  * Available models
  */
-models: Array<ModelInfo>, 
+models: Array<ModelInfo>,
 /**
  * Global default model (format: provider_id/model_id)
  */
-default_model?: string | null, 
+default_model?: string | null,
 /**
  * Available agents
  */
-agents: Array<AgentInfo>, 
+agents: Array<AgentInfo>,
 /**
  * Supported permission policies
  */
@@ -1238,7 +1300,7 @@ export type RunAttemptRequest = { schema_version: number, payload_version: numbe
 
 export type NativeAuditReference = { stream_id: string, sequence: bigint, checksum?: string | null, };
 
-export type AgentEventPayload = { "type": "lifecycle_changed", "data": { status: AgentRunStatus, } } | { "type": "session_observed", "data": { provider_session: ProviderSessionReference, } } | { "type": "message", "data": { message: CanonicalMessage, final_output: boolean, } } | { "type": "thinking", "data": { content: string, } } | { "type": "tool_call", "data": { tool_call_id?: string | null, tool_name: string, status: AgentRuntimeToolStatus, arguments?: JsonValue | null, result?: JsonValue | null, } } | { "type": "approval_requested", "data": { approval_id: string, tool_call_id?: string | null, tool_name: string, } } | { "type": "approval_resolved", "data": { approval_id: string, approved: boolean, reason?: string | null, } } | { "type": "input_requested", "data": { input_id: string, prompt: string, } } | { "type": "input_resolved", "data": { input_id: string, answered: boolean, } } | { "type": "token_usage", "data": { input_tokens: bigint, output_tokens: bigint, cached_input_tokens?: bigint | null, } } | { "type": "error", "data": { error: AgentRuntimeError, } } | { "type": "projection_degraded", "data": { reason: string, } } | { "type": "provider_extension", "data": { provider_namespace: string, provider_event: string, payload: JsonValue, } } | { "type": "unknown", "data": { event_type: string, payload: JsonValue, } };
+export type AgentEventPayload = { "type": "lifecycle_changed", "data": { status: AgentRunStatus, } } | { "type": "session_observed", "data": { provider_session: ProviderSessionReference, } } | { "type": "message", "data": { message: CanonicalMessage, final_output: boolean, } } | { "type": "thinking", "data": { content: string, } } | { "type": "file_changes", "data": { tool_call_id: string, changes: Array<AgentFileChange>, } } | { "type": "tool_call", "data": { tool_call_id?: string | null, tool_name: string, status: AgentRuntimeToolStatus, arguments?: JsonValue | null, result?: JsonValue | null, } } | { "type": "approval_requested", "data": { approval_id: string, tool_call_id?: string | null, tool_name: string, } } | { "type": "approval_resolved", "data": { approval_id: string, approved: boolean, reason?: string | null, } } | { "type": "input_requested", "data": { input_id: string, prompt: string, } } | { "type": "input_resolved", "data": { input_id: string, answered: boolean, } } | { "type": "token_usage", "data": { input_tokens: bigint, output_tokens: bigint, cached_input_tokens?: bigint | null, } } | { "type": "error", "data": { error: AgentRuntimeError, } } | { "type": "projection_degraded", "data": { reason: string, } } | { "type": "provider_extension", "data": { provider_namespace: string, provider_event: string, payload: JsonValue, } } | { "type": "unknown", "data": { event_type: string, payload: JsonValue, } };
 
 export type AgentEventEnvelope = { schema_version: number, payload_version: number, event_id: string, session_id: string, agent_run_id: string, turn_id: string, run_attempt_id: string, run_attempt_number: number, sequence: bigint, correlation_id: string, orchestration_run_id?: string | null, orchestration_node_execution_id?: string | null, timestamp: string, native_refs?: Array<NativeAuditReference>, payload: AgentEventPayload, };
 
@@ -1310,49 +1372,49 @@ export type RelayWsMessageType = "text" | "binary" | "ping" | "pong" | "close";
 
 export type DataChannelMessage = { "type": "http_request" } & DataChannelRequest | { "type": "http_response" } & DataChannelResponse | { "type": "ws_open" } & WsOpen | { "type": "ws_opened" } & WsOpened | { "type": "ws_frame" } & WsFrame | { "type": "ws_close" } & WsClose | { "type": "ws_error" } & WsError;
 
-export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> }, 
+export type DataChannelRequest = { id: string, method: string, path: string, headers: { [key in string]?: Array<string> },
 /**
  * Base64-encoded request body, if any.
  */
 body_b64?: string | null, };
 
-export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> }, 
+export type DataChannelResponse = { id: string, status: number, headers: { [key in string]?: Array<string> },
 /**
  * Base64-encoded response body, if any.
  */
 body_b64?: string | null, };
 
-export type WsOpen = { 
+export type WsOpen = {
 /**
  * Unique connection ID for multiplexing.
  */
-conn_id: string, 
+conn_id: string,
 /**
  * Target path, e.g. `/api/sessions/abc/queue`.
  */
-path: string, 
+path: string,
 /**
  * Optional sub-protocol(s) to negotiate.
  */
 protocols?: string | null, };
 
-export type WsOpened = { conn_id: string, 
+export type WsOpened = { conn_id: string,
 /**
  * The sub-protocol selected by the server, if any.
  */
 selected_protocol?: string | null, };
 
-export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType, 
+export type WsFrame = { conn_id: string, msg_type: RelayWsMessageType,
 /**
  * Base64-encoded payload.
  */
 payload_b64?: string | null, };
 
-export type WsClose = { conn_id: string, 
+export type WsClose = { conn_id: string,
 /**
  * Close code (RFC 6455 §7.4).
  */
-code?: number | null, 
+code?: number | null,
 /**
  * Close reason.
  */
@@ -1360,21 +1422,21 @@ reason?: string | null, };
 
 export type WsError = { conn_id: string, error: string, };
 
-export type SdpOffer = { 
+export type SdpOffer = {
 /**
  * The SDP string from the peer's `RTCPeerConnection.createOffer()`.
  */
-sdp: string, 
+sdp: string,
 /**
  * Caller-provided session identifier to correlate offer/answer/candidates.
  */
 session_id: string, };
 
-export type SdpAnswer = { 
+export type SdpAnswer = {
 /**
  * The SDP string from `Rtc::direct_api().create_answer()`.
  */
-sdp: string, 
+sdp: string,
 /**
  * Echoed session identifier from the offer.
  */

@@ -25,6 +25,7 @@
       "sections": {
         "application": "애플리케이션",
         "repositories": "저장소",
+        "integrations": "외부 연동",
         "relay": "원격 액세스",
         "organizations": "조직",
         "projects": "프로젝트"

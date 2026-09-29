@@ -1,0 +1,272 @@
+---
+title: "External workflow API"
+description: "Create projects and Issues, upload materials, and run prepared workflows from another system."
+---
+
+You can use Vibe Kanban as a workflow service for documents, research, coding, or other file-based work. Your application creates a project and an Issue, selects a workflow prepared in Vibe Kanban, and submits an asynchronous run. Files stay in the project's working directory.
+
+You use the same HTTP API from the same machine or another machine. You do not need a Git repository for ordinary workflows. Nodes with Git-specific requirements, such as Arena nodes, still require a suitable repository.
+
+## Prepare access
+
+In Vibe Kanban, configure your agents, prepare a workflow template, and turn on **Allow external calls** on its template card. Open **Settings → External integrations**, create an integration, and copy its API key when it appears. You cannot retrieve the plaintext key afterwards.
+
+Grant the integration access to each existing project it needs. A project created through the integration API automatically grants access to its creating integration. The built-in default project is not available through this API.
+
+Every request requires `Authorization: Bearer YOUR_API_KEY`, including requests from localhost. Disabling an integration rejects subsequent requests; removing a project grant removes access to that project. Neither operation cancels an already accepted run: cancel that run explicitly if required.
+
+<Warning>
+When exposing this service to another machine, allow external traffic only to `/api/integrations/v1/` and its child paths. Protect the local UI and management API separately. An integration key does not protect the application's other routes. Use HTTPS for network access.
+</Warning>
+
+## Run a workflow from files
+
+These examples use Bash, `curl` with `--fail-with-body` support, and `jq`. On Windows, use Git Bash or WSL. Run the steps in the same shell. Prepare a local `brief.txt` containing your input materials.
+
+<Steps>
+<Step title="Set your connection details">
+
+Set `VK_BASE_URL` to your running service address and `VK_API_KEY` to the key you copied. The example prompts for the key without echoing it.
+
+```bash
+set -euo pipefail
+read -r -p 'Vibe Kanban base URL: ' VK_BASE_URL
+read -r -s -p 'Integration API key: ' VK_API_KEY
+printf '\n'
+VK_API="${VK_BASE_URL%/}/api/integrations/v1"
+read -r -p 'Unique request prefix for this job: ' VK_REQUEST_PREFIX
+: "${VK_BASE_URL:?A base URL is required}"
+: "${VK_API_KEY:?An API key is required}"
+: "${VK_REQUEST_PREFIX:?A request prefix is required}"
+```
+
+Choose a prefix such as your own job identifier. Keep the same prefix and request bodies when retrying this job after a network failure. Choose a new prefix for a separate job.
+
+</Step>
+<Step title="Create a project">
+
+```bash
+PROJECT_ID=$(curl --fail-with-body --silent --show-error \
+  "$VK_API/projects" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  -H "Idempotency-Key: $VK_REQUEST_PREFIX-project" \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"Research documents"}' | jq -er '.data.id')
+```
+
+The response returns the ordinary Vibe Kanban project ID. Vibe Kanban allocates its own directory beneath the configured default working directory. You do not send an absolute server path. To use an existing authorised project, set `PROJECT_ID` to that project's ID instead.
+
+</Step>
+<Step title="Upload your materials">
+
+```bash
+curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/files?path=brief.txt" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  --form 'file=@brief.txt' | jq -e '.data'
+```
+
+The multipart request must contain exactly one field named `file`. Uploading does not create an Issue or start a workflow. Existing files cause a conflict unless you explicitly pass `overwrite=true`. If an upload response is lost, inspect or download the existing file before deciding whether to overwrite it.
+
+</Step>
+<Step title="Create an Issue">
+
+```bash
+ISSUE_ID=$(curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/issues" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  -H "Idempotency-Key: $VK_REQUEST_PREFIX-issue" \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"Summarise the research brief","description":"Produce a concise summary from the uploaded materials."}' \
+  | jq -er '.data.id')
+```
+
+You can optionally supply a `status_id` belonging to this project. Otherwise, Vibe Kanban uses its first visible status. Creating the Issue does not start execution.
+
+</Step>
+<Step title="Select a prepared template and create a workflow task">
+
+```bash
+curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/workflows" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  | jq '.data[] | {id, name, revision}'
+read -r -p 'Prepared template ID from the list: ' TEMPLATE_ID
+: "${TEMPLATE_ID:?A template ID is required}"
+
+ATTEMPT_ID=$(curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-attempts" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  -H "Idempotency-Key: $VK_REQUEST_PREFIX-attempt" \
+  -H 'Content-Type: application/json' \
+  --data "$(jq -n --arg id "$TEMPLATE_ID" \
+    '{template_id:$id,name:"Summarise documents"}')" \
+  | jq -er '.data.id')
+```
+
+Only templates enabled for external access appear in the list. An attempt is the workflow task attached to your Issue. It captures a prepared template; you cannot submit an arbitrary workflow graph through this API.
+
+</Step>
+<Step title="Submit an asynchronous run">
+
+```bash
+RUN_ID=$(curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-attempts/$ATTEMPT_ID/run" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  -H "Idempotency-Key: $VK_REQUEST_PREFIX-run" \
+  -H 'Content-Type: application/json' \
+  --data '{"input_text":"Read brief.txt and write a concise summary to summary.md.","material_paths":["brief.txt"]}' \
+  | jq -er '.data.id')
+RUN_URL="$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-runs/$RUN_ID"
+```
+
+HTTP `202` means the run has been accepted, not completed. Materials must already exist inside the project directory. Their paths identify inputs; they do not upload, copy, or freeze those files.
+
+</Step>
+<Step title="Check progress and collect the output">
+
+```bash
+curl --fail-with-body --silent --show-error "$RUN_URL" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  | jq '.data | {run: (.run | {id,status,queue_phase,output_text,error_text}),file_changes}'
+
+curl --fail-with-body --silent --show-error --get \
+  "$VK_API/projects/$PROJECT_ID/files" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  --data-urlencode 'path=' --data-urlencode 'limit=100' \
+  | jq '.data'
+```
+
+Repeat the run query periodically. Handle a waiting interaction if present. Once the run reaches a terminal status, inspect its result and the directory listing. The requested filename is not a guarantee that the agent produced it. If `summary.md` exists, download it:
+
+```bash
+curl --fail-with-body --silent --show-error --get \
+  "$VK_API/projects/$PROJECT_ID/files/download" \
+  -H "Authorization: Bearer $VK_API_KEY" \
+  --data-urlencode 'path=summary.md' --output summary.md
+```
+
+Downloads return the file's current contents, not a snapshot of the run.
+
+</Step>
+</Steps>
+
+## Queue, status, and cancellation
+
+Only one workflow run occupies a project's execution slot at a time. Runs submitted from Vibe Kanban and from external integrations share this queue. Waiting for a human decision, an Arena result, or cancellation to finish keeps that slot occupied. Other projects have independent queues.
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| `run.queue_phase` | `queued` | Accepted and waiting for its project slot |
+| `run.queue_phase` | `starting` | Claimed for startup |
+| `run.queue_phase` | `active` | Owns the project slot |
+| `run.queue_phase` | `finished` | Released the project slot |
+| `run.status` | `pending`, `running` | Waiting to start or executing |
+| `run.status` | `awaiting_human`, `awaiting_arena` | Requires a decision |
+| `run.status` | `cancelling` | Stop requested; execution has not yet fully stopped |
+| `run.status` | `succeeded`, `failed`, `canceled` | Terminal outcome |
+
+To cancel a run:
+
+```bash
+curl --fail-with-body --silent --show-error --request POST \
+  "$RUN_URL/cancel" -H "Authorization: Bearer $VK_API_KEY" \
+  | jq '.data | {id,status,queue_phase}'
+```
+
+Continue querying until cancellation completes. A cancellation request alone does not prove that the agent process has stopped. Disabling external access on a template prevents new tasks and runs; it does not withdraw work already accepted into the queue.
+
+Running the same workflow task again can reuse its existing Node tasks and sessions. Creating a new attempt creates a separate workflow task. Execution remains tied to its established directory; changing a project's directory is not a way to move a running task.
+
+The queue serialises workflow runs, not all filesystem activity. Uploads, manual edits, and other applications can still change the shared directory.
+
+## Respond to an interaction
+
+List the run's pending interactions:
+
+```bash
+curl --fail-with-body --silent --show-error "$RUN_URL/interactions" \
+  -H "Authorization: Bearer $VK_API_KEY" | jq '.data'
+```
+
+Use the returned interaction `id`, not just the Node name. Each interaction identifies a particular Node execution and iteration. Send one of these JSON bodies to `POST /projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response`:
+
+| Decision | JSON body |
+| --- | --- |
+| Approve a human gate | `{"action":"approve"}` |
+| Reject a human gate | `{"action":"reject"}` |
+| Choose condition branches | `{"action":"select_branch","selected_target_node_ids":["approved"],"reason":"Ready to proceed"}` |
+| Choose an Arena winner | `{"action":"select_arena_winner","candidate_id":"UUID of the chosen candidate"}` |
+
+Use the interaction's `branch_targets` for branch choices and `arena_candidate_ids` for Arena choices. Replaying a consumed or stale interaction cannot authorise a later iteration. You can also handle these decisions inside Vibe Kanban. Agent-native tool permission requests remain in Vibe Kanban's existing agent approval interface; they are not workflow interactions.
+
+## Files and change evidence
+
+All Issues and runs in a project use its project directory. The API does not create mandatory Issue, input, output, or run subdirectories. You control the relative filenames and can create your own structure through uploads.
+
+Directory listing accepts `path`, `limit` (1–1,000; default 100), and `cursor`. Follow `data.next_cursor` until it is `null`, and list child directories separately. Hidden and Git-ignored files appear in the listing. Pagination reads a live directory, so concurrent edits can affect successive pages.
+
+File paths must be project-relative. Absolute paths, parent traversal, Windows device names, and links that escape the permitted directory are rejected. Uploads preserve the old destination if transfer or publication fails. New-file publication requires filesystem hard-link support; an unsupported filesystem reports an error rather than overwriting an existing file.
+
+These restrictions apply to the file API. They are not an operating-system sandbox for agent processes.
+
+`data.file_changes` contains confirmed agent file operations:
+
+| Field | Meaning |
+| --- | --- |
+| `files[].path` | Project-relative path |
+| `files[].change_type` | `added`, `modified`, or `deleted` |
+| `collection_status` | `collecting` while running, or `partial` / `unavailable` when evidence is incomplete |
+| `reasons` | Machine-readable reasons explaining evidence limits |
+
+The list records operations, not a net filesystem diff. A path can have more than one change type. It contains no file bodies, diffs, or historical snapshots. Deleted files cannot be downloaded through the current-file endpoint.
+
+<Note>
+An empty change list does not mean that nothing changed. Current provider evidence is incomplete: supported Codex patch completions and Gemini edit events can identify some operations, while generic Claude Code and Pi tool results do not reliably prove the same details. Shell commands, MCP tools, unsupported events, and manual changes can produce files without a confirmed entry. A terminal run currently reports partial evidence rather than claiming a complete inventory. Always retain access to the full project directory listing and downloads.
+</Note>
+
+## Retry requests safely
+
+Project, Issue, attempt, and run creation require an `Idempotency-Key` header containing 1–200 characters. The key is scoped to the integration, operation, and parent resource. Retrying with the same key and equivalent body returns the original resource identity. Reusing it with different parameters returns HTTP `409`.
+
+Keep keys with your calling system's job records. A lost response must not cause you to generate a new key and accidentally create another run. Retries still check authorisation; deleting a result or removing access does not make an old key create a replacement.
+
+Uploads do not use these creation keys. They use the destination path and explicit `overwrite` flag instead. Interaction responses use the returned execution identity.
+
+## Endpoint reference
+
+All paths below are relative to `/api/integrations/v1`. JSON successes contain `success`, `data`, `error_data`, and `message`; file downloads return binary content.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/projects` | Create a project and its directory |
+| GET | `/projects/{project_id}` | Read an authorised project |
+| POST | `/projects/{project_id}/issues` | Create an Issue |
+| GET | `/projects/{project_id}/issues/{issue_id}` | Read an Issue |
+| GET / POST | `/projects/{project_id}/files` | List a directory / upload one file |
+| GET | `/projects/{project_id}/files/download` | Download a current file |
+| GET | `/projects/{project_id}/workflows` | List enabled templates |
+| POST | `/projects/{project_id}/issues/{issue_id}/workflow-attempts` | Create a workflow task from a template |
+| POST | `/projects/{project_id}/issues/{issue_id}/workflow-attempts/{attempt_id}/run` | Queue a run; returns HTTP 202 |
+| GET | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}` | Read state, output, and file evidence |
+| POST | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/cancel` | Request cancellation |
+| GET | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions` | List pending decisions |
+| POST | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response` | Answer one decision |
+
+## Handle errors
+
+Errors use `success: false` with `error_data.code`, `error_data.message`, and a top-level `message`. Check the HTTP status and machine-readable code rather than matching translated UI text.
+
+| Status / code | Action |
+| --- | --- |
+| 401 `unauthorized` | Supply a valid, enabled integration key |
+| 403 `forbidden` | Check project grants and resource ownership |
+| 404 `not_found` | Check that the resource or file still exists |
+| 409 `idempotency_conflict` | Restore the original request body or use a new key for a new operation |
+| 409 `file_exists` | Inspect the destination; opt into overwrite only if intended |
+| `project_space_required` | Configure a single existing working directory for the project in Vibe Kanban |
+| 409 `conflict` | Read the message; the task, template, directory, or interaction state no longer permits the operation |
+| Other 4xx `invalid_request` | Correct the request fields or relative path |
+| 5xx `internal_error` | Check server logs; retry creation with the same key |
+
+This API uses polling. It does not provide webhooks, remote workflow graph editing, or a separate delivery archive.

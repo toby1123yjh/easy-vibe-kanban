@@ -1,4 +1,50 @@
 {
+  "externalIntegrations": {
+    "result": "執行結果",
+    "close": "關閉",
+    "resultHint": "本次執行的文字結果和已確認的 Agent 檔案變更。查看或下載全部目前檔案，請使用專案目錄。",
+    "agentFiles": "已確認的 Agent 檔案變更",
+    "filesFailed": "無法載入檔案變更，不代表沒有檔案變化。",
+    "filesStatus": {
+      "collecting": "仍在採集中，清單可能不完整。",
+      "partial": "清單可能不完整。命令、腳本、MCP 和部分智慧體工具無法提供可靠的檔案歸屬證據。",
+      "unavailable": "檔案記錄採集不可用或不完整，保留已有確認項；專案檔案仍可存取。"
+    },
+    "fileKind": {
+      "added": "新增",
+      "modified": "修改",
+      "deleted": "刪除"
+    },
+    "title": "外部接入",
+    "description": "讓外部系統呼叫目前主機的工作流程、讀寫專案檔案。每個系統使用獨立的 API Key 和專案授權。",
+    "endpoint": "介面路徑：",
+    "loading": "正在載入接入設定…",
+    "loadFailed": "無法載入接入設定或專案，請重試後再修改。",
+    "retry": "重試",
+    "failed": "操作失敗，請重試。",
+    "create": "新增接入",
+    "name": "系統名稱",
+    "projects": "授權專案",
+    "projectHint": "勾選此系統可存取的既有專案。透過介面建立的專案會自動授權。",
+    "keyOnce": "請現在複製 API Key，之後不會再次顯示。",
+    "copy": "複製 Key",
+    "copied": "已複製",
+    "keySaved": "我已儲存 Key",
+    "copyFailed": "複製失敗，請選取 Key 後手動複製。",
+    "save": "儲存",
+    "generate": "產生 API Key",
+    "cancel": "取消",
+    "edit": "編輯授權",
+    "enabled": "已啟用",
+    "disabled": "已停用",
+    "toggle": "啟用或停用 {{name}}",
+    "projectCount": "已授權專案：{{count}}",
+    "stopHint": "停用接入只阻止後續請求。已受理的執行會繼續，停止需要單獨取消。",
+    "externalAllowed": "允許外部呼叫",
+    "externalHint": "獲授權的系統可使用此範本。關閉後只拒絕新提交，已受理的執行繼續。",
+    "queued": "排隊中",
+    "starting": "啟動中"
+  },
   "gitConnections": {
     "title": "Git 連線",
     "description": "連線與加密憑證儲存在所選機器。無需儲存連線也可使用本機 Git / SSH。",
@@ -63,6 +109,7 @@
       "sections": {
         "application": "應用程式",
         "repositories": "儲存庫",
+        "integrations": "外部接入",
         "relay": "遠端存取",
         "organizations": "組織",
         "projects": "專案"

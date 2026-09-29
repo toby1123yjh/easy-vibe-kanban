@@ -104,6 +104,7 @@
       {
         "group": "Integrations",
         "pages": [
+          "integrations/external-workflows",
           "integrations/github-integration",
           "integrations/azure-repos-integration",
           "integrations/vscode-extension",

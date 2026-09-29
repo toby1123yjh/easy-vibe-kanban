@@ -346,6 +346,14 @@ impl AgentRunReconciliationBoundary for DeploymentAgentRunReconciliationBoundary
             .reconcile_run(orchestration_run_id, orchestration_run_id)
             .await
             .map_err(orchestration_api_error)?;
+        let arena_runs: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT o.id FROM orchestration_runs o JOIN node_executions n ON n.arena_group_id=o.source_definition_id WHERE n.run_id=? AND o.product_kind='arena'")
+            .bind(run_id).fetch_all(pool).await?;
+        for arena_run in arena_runs {
+            service
+                .reconcile_run(arena_run, arena_run)
+                .await
+                .map_err(orchestration_api_error)?;
+        }
 
         let runtime_run = load_runtime_run(pool, run_id).await?;
         let rows = sqlx::query(
@@ -946,6 +954,7 @@ where
         workspace_id,
         &trigger,
         &graph,
+        None,
     )
     .await?;
     let orchestration_run_id =
@@ -1038,6 +1047,187 @@ async fn start_workflow_orchestration(
         )
         .await
         .map_err(orchestration_api_error)
+}
+
+/// Persist the immutable run and queue identity before any Agent is dispatched.
+/// The caller may supply an idempotency-reserved ID; retries never allocate a
+/// second run. Workspace/session setup is ordinary configuration, not execution.
+pub async fn accept_workflow_run<W: WorkflowWorkspaceResolver>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    request: WorkflowRunStartRequest,
+    resolver: &W,
+) -> Result<WorkflowRunResponse, ApiError> {
+    static ACCEPT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _accept_guard = ACCEPT_LOCK.lock().await;
+    if sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_runs WHERE id = ?")
+        .bind(run_id)
+        .fetch_one(pool)
+        .await?
+        > 0
+    {
+        return get_workflow_run_response(pool, run_id).await;
+    }
+    let project_id = resolve_issue_project_id(pool, request.trigger.issue_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Issue not found".to_string()))?;
+    let workflow = get_workflow_template(pool, request.workflow_id).await?;
+    if workflow.project_id.is_some_and(|id| id != project_id) {
+        return Err(ApiError::BadRequest(
+            "Workflow belongs to another project".to_string(),
+        ));
+    }
+    let mut graph: WorkflowGraph = serde_json::from_str(&workflow.graph_json)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid workflow graph: {e}")))?;
+    validate_graph_for_run(&graph).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let workspace_id = resolver
+        .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
+            issue_id: request.trigger.issue_id,
+            run_id,
+            project_id: Some(project_id),
+            existing_workspace_id: request.trigger.workspace_id,
+            directory_path: request.directory_path,
+            repo_overrides: request.repo_overrides,
+            branch_name: main_workflow_branch_name(request.trigger.issue_id, run_id),
+        })
+        .await?;
+    if ensure_agent_node_sessions(pool, workspace_id, &mut graph).await? {
+        persist_workflow_graph(pool, request.workflow_id, workflow.revision, &graph)
+            .await
+            .map_err(ApiError::from)?;
+    }
+    initialize_workflow_run(
+        pool,
+        run_id,
+        request.workflow_id,
+        request.attempt_id,
+        workspace_id,
+        &request.trigger,
+        &graph,
+        Some(project_id),
+    )
+    .await?;
+    let run = get_workflow_run_response(pool, run_id).await?;
+    crate::routes::workflows::sync_attempt_from_run(pool, &run).await?;
+    Ok(run)
+}
+
+/// Continue an already persisted queue item. Only the dispatcher holding its
+/// project slot may call this entry. The graph always comes from the snapshot.
+pub async fn start_accepted_workflow_run<A: WorkflowAgentExecutor, R: WorkflowArenaCreator>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    executor: &A,
+    arena: &R,
+) -> Result<(), ApiError> {
+    let changed = sqlx::query("UPDATE workflow_runs SET status='running', started_at=COALESCE(started_at,datetime('now','subsec')), updated_at=datetime('now','subsec') WHERE id=? AND status='pending' AND EXISTS (SELECT 1 FROM workflow_project_slots WHERE run_id=?)")
+        .bind(run_id).bind(run_id).execute(pool).await?.rows_affected();
+    if changed == 0 {
+        return Ok(());
+    }
+    let runtime = load_runtime_run(pool, run_id).await?;
+    let workflow_id: Uuid = sqlx::query_scalar("SELECT workflow_id FROM workflow_runs WHERE id=?")
+        .bind(run_id)
+        .fetch_one(pool)
+        .await?;
+    let orchestration_id = start_workflow_orchestration(
+        pool,
+        run_id,
+        workflow_id,
+        runtime.workspace_id,
+        &runtime.graph,
+    )
+    .await?;
+    sqlx::query("UPDATE workflow_runs SET orchestration_run_id=? WHERE id=?")
+        .bind(orchestration_id)
+        .bind(run_id)
+        .execute(pool)
+        .await?;
+    link_workflow_node_execution_identities(pool, run_id, orchestration_id).await?;
+    sqlx::query("UPDATE workflow_run_queue SET phase='active' WHERE run_id=?")
+        .bind(run_id)
+        .execute(pool)
+        .await?;
+    emit_run_status(run_id, WorkflowRunStatus::Running, None, None);
+    drive_workflow_run(
+        pool,
+        run_id,
+        &runtime.graph,
+        runtime.issue_id,
+        runtime.workspace_id,
+        &runtime.input_text,
+        executor,
+        arena,
+    )
+    .await
+}
+
+pub async fn fail_accepted_workflow_run(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    error: &str,
+) -> Result<(), ApiError> {
+    mark_pending_nodes_skipped(pool, run_id).await?;
+    update_run_status(
+        pool,
+        run_id,
+        WorkflowRunStatus::Failed,
+        None,
+        Some(error),
+        true,
+    )
+    .await
+}
+
+pub async fn recover_accepted_workflow_start<A: WorkflowAgentExecutor, R: WorkflowArenaCreator>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    executor: &A,
+    arena: &R,
+) -> Result<(), ApiError> {
+    link_workflow_node_execution_identities(pool, run_id, run_id).await?;
+    // Winner application can write the workspace. Never blindly repeat it
+    // after a crash; expose the interrupted decision as a failed run.
+    let interrupted = sqlx::query("UPDATE node_executions SET status='failed', error_text='Arena winner application was interrupted; inspect the project files before a new run', finished_at=datetime('now','subsec') WHERE run_id=? AND status='awaiting_arena' AND id IN (SELECT node_execution_id FROM workflow_interaction_responses WHERE json_extract(response_json,'$.action')='arena_winner')")
+        .bind(run_id).execute(pool).await?.rows_affected();
+    if interrupted > 0 {
+        fail_accepted_workflow_run(
+            pool,
+            run_id,
+            "Arena winner application was interrupted during restart",
+        )
+        .await?;
+        return Ok(());
+    }
+    let touched: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM node_executions WHERE run_id=? AND status<>'pending'",
+    )
+    .bind(run_id)
+    .fetch_one(pool)
+    .await?;
+    let links: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM orchestration_agent_run_links WHERE orchestration_run_id=?",
+    )
+    .bind(run_id)
+    .fetch_one(pool)
+    .await?;
+    let unresolved: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM node_executions WHERE run_id=? AND status IN ('running','cancelling')")
+        .bind(run_id).fetch_one(pool).await?;
+    if (touched == 0 && links == 0) || unresolved == 0 {
+        let run = load_runtime_run(pool, run_id).await?;
+        drive_workflow_run(
+            pool,
+            run_id,
+            &run.graph,
+            run.issue_id,
+            run.workspace_id,
+            &run.input_text,
+            executor,
+            arena,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn link_workflow_node_execution_identities(
@@ -1306,6 +1496,10 @@ pub async fn get_workflow_run_response(
         updated_at: row.try_get("updated_at")?,
         nodes,
         runtime_view: Some(runtime_view),
+        queue_phase: sqlx::query_scalar("SELECT phase FROM workflow_run_queue WHERE run_id=?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await?,
     })
 }
 
@@ -1333,6 +1527,17 @@ where
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
+    approve_human_node_at(pool, run_id, node_id, None, agent_executor, arena_creator).await
+}
+
+pub async fn approve_human_node_at<A: WorkflowAgentExecutor, R: WorkflowArenaCreator>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    interaction_id: Option<Uuid>,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError> {
     let run = load_runtime_run(pool, run_id).await?;
     let node = run
         .graph
@@ -1345,11 +1550,26 @@ where
             "Workflow node `{node_id}` is not a human gate"
         )));
     }
-    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman).await?;
-
     let context = node_context(pool, &run.graph, run_id, node, &run.input_text).await?;
     let approval_output = context.upstream_text();
-    mark_node_succeeded(pool, run_id, node_id, 0, Some(&approval_output), None).await?;
+    let iteration = claim_interaction(
+        pool,
+        run_id,
+        node_id,
+        interaction_id,
+        "awaiting_human",
+        serde_json::json!({"action":"approve", "output_text":approval_output}),
+    )
+    .await?;
+    mark_node_succeeded(
+        pool,
+        run_id,
+        node_id,
+        iteration,
+        Some(&approval_output),
+        None,
+    )
+    .await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
     drive_workflow_run(
         pool,
@@ -1379,6 +1599,29 @@ where
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
+    select_condition_branch_at(
+        pool,
+        run_id,
+        node_id,
+        None,
+        selected_target_node_ids,
+        reason,
+        agent_executor,
+        arena_creator,
+    )
+    .await
+}
+
+pub async fn select_condition_branch_at<A: WorkflowAgentExecutor, R: WorkflowArenaCreator>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    interaction_id: Option<Uuid>,
+    selected_target_node_ids: Vec<String>,
+    reason: Option<String>,
+    agent_executor: &A,
+    arena_creator: &R,
+) -> Result<WorkflowRunResponse, ApiError> {
     let run = load_runtime_run(pool, run_id).await?;
     let node = run
         .graph
@@ -1391,9 +1634,14 @@ where
             "Workflow node `{node_id}` is not a condition"
         )));
     }
-    let iteration =
+    let iteration = if let Some(interaction_id) = interaction_id {
+        sqlx::query_scalar("SELECT iteration FROM node_executions WHERE id=? AND run_id=? AND node_id=? AND status='awaiting_human' AND NOT EXISTS(SELECT 1 FROM workflow_interaction_responses WHERE node_execution_id=?)")
+            .bind(interaction_id).bind(run_id).bind(node_id).bind(interaction_id).fetch_optional(pool).await?
+            .ok_or_else(|| ApiError::Conflict("Workflow interaction is stale or already answered".into()))?
+    } else {
         node_iteration_with_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman)
-            .await?;
+            .await?
+    };
 
     let existing_output = node_execution_output_text(pool, run_id, node_id, iteration).await?;
     let manual_route = build_manual_route(
@@ -1405,6 +1653,20 @@ where
     )
     .map_err(|err| ApiError::BadRequest(err.to_string()))?;
 
+    let claimed_iteration = claim_interaction(
+        pool,
+        run_id,
+        node_id,
+        interaction_id,
+        "awaiting_human",
+        serde_json::json!({"action":"branch", "output_text":manual_route.output_text, "skipped":manual_route.skipped_target_node_ids}),
+    )
+    .await?;
+    if claimed_iteration != iteration {
+        return Err(ApiError::Conflict(
+            "Workflow interaction changed".to_string(),
+        ));
+    }
     mark_node_succeeded(
         pool,
         run_id,
@@ -1414,7 +1676,6 @@ where
         None,
     )
     .await?;
-    mark_skipped_targets(pool, run_id, &manual_route.skipped_target_node_ids).await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
     drive_workflow_run(
         pool,
@@ -1445,6 +1706,33 @@ where
     R: WorkflowArenaCreator,
     W: WorkflowArenaWinnerApplier,
 {
+    select_arena_winner_at(
+        pool,
+        run_id,
+        node_id,
+        None,
+        candidate_id,
+        agent_executor,
+        arena_creator,
+        winner_applier,
+    )
+    .await
+}
+
+pub async fn select_arena_winner_at<
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+    W: WorkflowArenaWinnerApplier,
+>(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    interaction_id: Option<Uuid>,
+    candidate_id: Uuid,
+    agent_executor: &A,
+    arena_creator: &R,
+    winner_applier: &W,
+) -> Result<WorkflowRunResponse, ApiError> {
     let run = load_runtime_run(pool, run_id).await?;
     let node = run
         .graph
@@ -1457,8 +1745,18 @@ where
             "Workflow node `{node_id}` is not an arena node"
         )));
     }
-    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingArena).await?;
-    let arena_group_id = arena_group_id_for_node(pool, run_id, node_id).await?;
+    let arena_group_id: Uuid = sqlx::query_scalar::<_, Option<Uuid>>("SELECT arena_group_id FROM node_executions WHERE run_id=? AND node_id=? AND status='awaiting_arena' AND (? IS NULL OR id=?) ORDER BY iteration DESC LIMIT 1")
+        .bind(run_id).bind(node_id).bind(interaction_id).bind(interaction_id)
+        .fetch_optional(pool).await?.flatten().ok_or_else(|| ApiError::Conflict("Workflow Arena interaction is stale or unavailable".into()))?;
+    let iteration = claim_interaction(
+        pool,
+        run_id,
+        node_id,
+        interaction_id,
+        "awaiting_arena",
+        serde_json::json!({"action":"arena_winner", "candidate_id":candidate_id}),
+    )
+    .await?;
 
     match winner_applier
         .apply_winner(ArenaWinnerRequest {
@@ -1471,7 +1769,7 @@ where
         .await
     {
         Ok(ArenaWinnerExecution { output_text }) => {
-            mark_node_succeeded(pool, run_id, node_id, 0, Some(&output_text), None).await?;
+            mark_node_succeeded(pool, run_id, node_id, iteration, Some(&output_text), None).await?;
             update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
             drive_workflow_run(
                 pool,
@@ -1487,7 +1785,7 @@ where
         }
         Err(err) => {
             let message = format!("{err}; winner candidate: {candidate_id}");
-            mark_node_failed(pool, run_id, node_id, 0, &message).await?;
+            mark_node_failed(pool, run_id, node_id, iteration, &message).await?;
             mark_pending_nodes_skipped(pool, run_id).await?;
             update_run_status(
                 pool,
@@ -1509,10 +1807,37 @@ pub async fn reject_human_node(
     run_id: Uuid,
     node_id: &str,
 ) -> Result<WorkflowRunResponse, ApiError> {
-    ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::AwaitingHuman).await?;
+    reject_human_node_at(pool, run_id, node_id, None).await
+}
 
+pub async fn reject_human_node_at(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    interaction_id: Option<Uuid>,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let run = load_runtime_run(pool, run_id).await?;
+    if !run
+        .graph
+        .nodes
+        .iter()
+        .any(|node| node.id == node_id && node.kind == WorkflowNodeKind::HumanGate)
+    {
+        return Err(ApiError::BadRequest(
+            "Only a Human Gate can accept a workflow rejection".into(),
+        ));
+    }
     let message = "Human gate rejected";
-    mark_node_failed(pool, run_id, node_id, 0, message).await?;
+    let iteration = claim_interaction(
+        pool,
+        run_id,
+        node_id,
+        interaction_id,
+        "awaiting_human",
+        serde_json::json!({"action":"reject", "error":message}),
+    )
+    .await?;
+    mark_node_failed(pool, run_id, node_id, iteration, message).await?;
     mark_pending_nodes_skipped(pool, run_id).await?;
     update_run_status(
         pool,
@@ -1527,6 +1852,64 @@ pub async fn reject_human_node(
     get_workflow_run_response(pool, run_id).await
 }
 
+async fn claim_interaction(
+    pool: &SqlitePool,
+    run_id: Uuid,
+    node_id: &str,
+    expected: Option<Uuid>,
+    status: &str,
+    response: serde_json::Value,
+) -> Result<i64, ApiError> {
+    let mut tx = pool.begin().await?;
+    let claimed: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO workflow_interaction_responses(node_execution_id,response_json)
+         SELECT n.id,? FROM node_executions n JOIN workflow_runs r ON r.id=n.run_id
+         WHERE n.run_id=? AND n.node_id=? AND n.status=? AND (? IS NULL OR n.id=?)
+           AND r.status IN ('running','awaiting_human','awaiting_arena')
+         ORDER BY n.iteration DESC LIMIT 1
+         ON CONFLICT(node_execution_id) DO NOTHING RETURNING node_execution_id",
+    )
+    .bind(response.to_string())
+    .bind(run_id)
+    .bind(node_id)
+    .bind(status)
+    .bind(expected)
+    .bind(expected)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let id = claimed.ok_or_else(|| {
+        ApiError::Conflict("Workflow interaction is stale or already answered".to_string())
+    })?;
+    let iteration = sqlx::query_scalar("SELECT iteration FROM node_executions WHERE id=?")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    // Persist the decision and its state transition together. Restart can
+    // resume downstream dispatch without losing an already accepted answer.
+    let action = response["action"].as_str().unwrap_or_default();
+    if action != "arena_winner" {
+        let rejected = action == "reject";
+        sqlx::query("UPDATE node_executions SET status=?, output_text=?, error_text=?, finished_at=datetime('now','subsec'), updated_at=datetime('now','subsec') WHERE id=?")
+            .bind(if rejected { "failed" } else { "succeeded" })
+            .bind(response["output_text"].as_str()).bind(response["error"].as_str())
+            .bind(id).execute(&mut *tx).await?;
+        if rejected {
+            sqlx::query("UPDATE node_executions SET status='skipped', finished_at=datetime('now','subsec') WHERE run_id=? AND status='pending'")
+                .bind(run_id).execute(&mut *tx).await?;
+        } else if let Some(skipped) = response["skipped"].as_array() {
+            for target in skipped.iter().filter_map(serde_json::Value::as_str) {
+                sqlx::query("UPDATE node_executions SET status='skipped', finished_at=datetime('now','subsec') WHERE id=(SELECT id FROM node_executions WHERE run_id=? AND node_id=? AND status='pending' ORDER BY iteration ASC LIMIT 1)")
+                    .bind(run_id).bind(target).execute(&mut *tx).await?;
+            }
+        }
+        sqlx::query("UPDATE workflow_runs SET status=?, error_text=?, updated_at=datetime('now','subsec'), finished_at=CASE WHEN ? THEN datetime('now','subsec') ELSE finished_at END WHERE id=?")
+            .bind(if rejected { "failed" } else { "running" }).bind(response["error"].as_str())
+            .bind(rejected).bind(run_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(iteration)
+}
+
 pub async fn cancel_workflow_run_runtime<C>(
     pool: &SqlitePool,
     run_id: Uuid,
@@ -1536,6 +1919,11 @@ where
     C: WorkflowRunCanceller,
 {
     ensure_run_exists(pool, run_id).await?;
+    if db::models::workflow_queue::WorkflowQueueEntry::cancel_queued(pool, run_id).await? {
+        sqlx::query("UPDATE node_executions SET status='cancelled', finished_at=datetime('now','subsec') WHERE run_id=? AND status='pending'")
+            .bind(run_id).execute(pool).await?;
+        return get_workflow_run_response(pool, run_id).await;
+    }
     let status: WorkflowRunStatus =
         sqlx::query_scalar("SELECT status FROM workflow_runs WHERE id = ?")
             .bind(run_id)
@@ -1546,7 +1934,20 @@ where
         status,
         WorkflowRunStatus::Canceled | WorkflowRunStatus::Failed | WorkflowRunStatus::Succeeded
     ) {
-        return get_workflow_run_response(pool, run_id).await;
+        let owns_slot: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM workflow_project_slots WHERE run_id=?)",
+        )
+        .bind(run_id)
+        .fetch_one(pool)
+        .await?;
+        if !owns_slot
+            || db::models::workflow_queue::WorkflowQueueEntry::release_terminal(pool, run_id)
+                .await?
+        {
+            return get_workflow_run_response(pool, run_id).await;
+        }
+        // A failed parent may still have a running parallel child. Keep the
+        // explicit cancel usable until real child/process shutdown is confirmed.
     }
     update_run_status(
         pool,
@@ -1573,6 +1974,11 @@ where
             canceller.cancel_session(session_id).await?;
         }
     }
+    let arena_runs: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT o.id FROM orchestration_runs o JOIN node_executions n ON n.arena_group_id=o.source_definition_id WHERE n.run_id=? AND o.product_kind='arena'")
+        .bind(run_id).fetch_all(pool).await?;
+    for arena_run in arena_runs {
+        canceller.cancel_orchestration_run(pool, arena_run).await?;
+    }
     reconcile_cancelling_workflow_run(pool, run_id).await?;
 
     get_workflow_run_response(pool, run_id).await
@@ -1584,7 +1990,7 @@ async fn project_workflow_nodes_cancelling(
 ) -> Result<(), ApiError> {
     let rows = sqlx::query(
         r#"
-        SELECT node_id, iteration, status, session_id,
+        SELECT node_id, iteration, status, session_id, node_type,
                orchestration_node_execution_id, agent_run_id
         FROM node_executions
         WHERE run_id = ?
@@ -1598,7 +2004,9 @@ async fn project_workflow_nodes_cancelling(
 
     for row in rows {
         let current_status: String = row.try_get("status")?;
-        let undispatched = current_status == "pending";
+        let undispatched = current_status == "pending"
+            || (current_status == "awaiting_human"
+                && row.try_get::<String, _>("node_type")? == "human_gate");
         let node_id: String = row.try_get("node_id")?;
         update_node_execution(
             pool,
@@ -1631,6 +2039,8 @@ async fn reconcile_cancelling_workflow_run(
     pool: &SqlitePool,
     run_id: Uuid,
 ) -> Result<(), ApiError> {
+    sqlx::query("UPDATE node_executions SET status='cancelled',finished_at=datetime('now','subsec') WHERE run_id=? AND status='cancelling' AND arena_group_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM orchestration_runs o JOIN orchestration_agent_run_links l ON l.orchestration_run_id=o.id LEFT JOIN agent_run_state s ON s.agent_run_id=l.agent_run_id WHERE o.product_kind='arena' AND o.source_definition_id=node_executions.arena_group_id AND (s.agent_run_id IS NULL OR s.status NOT IN ('succeeded','failed','cancelled','crashed')))")
+        .bind(run_id).execute(pool).await?;
     let active: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM node_executions WHERE run_id = ? AND status IN ('running','awaiting_human','awaiting_arena','cancelling')",
     )
@@ -1698,6 +2108,12 @@ where
     }
     ensure_node_status(pool, run_id, node_id, DbNodeExecutionStatus::Failed).await?;
 
+    if !db::models::workflow_queue::WorkflowQueueEntry::acquire_retry(pool, run_id).await? {
+        return Err(ApiError::Conflict(
+            "Project has another active or queued workflow; retry after it finishes".into(),
+        ));
+    }
+
     reset_node_for_retry(pool, run_id, node_id).await?;
     reset_downstream_skipped_nodes(pool, run_id, &run.graph, node_id).await?;
     update_run_status(pool, run_id, WorkflowRunStatus::Running, None, None, false).await?;
@@ -1761,6 +2177,13 @@ where
     B: AgentRunReconciliationBoundary,
 {
     let current = get_workflow_run_response(pool, run_id).await?;
+    if current
+        .queue_phase
+        .as_deref()
+        .is_some_and(|phase| matches!(phase, "queued" | "starting"))
+    {
+        return Ok(current);
+    }
     if !matches!(
         current.status,
         WorkflowRunStatus::Pending
@@ -1927,16 +2350,18 @@ async fn initialize_workflow_run(
     workspace_id: Uuid,
     request: &TriggerWorkflowRequest,
     graph: &WorkflowGraph,
+    queue_project_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     let graph_snapshot = serde_json::to_string(graph).map_err(|error| {
         ApiError::BadRequest(format!("Cannot snapshot workflow graph: {error}"))
     })?;
     let mut transaction = pool.begin().await?;
-    sqlx::query(
+    let inserted = sqlx::query(
         r#"
         INSERT INTO workflow_runs
             (id, workflow_id, attempt_id, issue_id, workspace_id, trigger_source, input_text, graph_snapshot, status, started_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', datetime('now', 'subsec'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN NULL ELSE datetime('now', 'subsec') END)
+        ON CONFLICT(id) DO NOTHING
         "#,
     )
     .bind(run_id)
@@ -1947,16 +2372,59 @@ async fn initialize_workflow_run(
     .bind(&request.trigger_source)
     .bind(&request.input_text)
     .bind(graph_snapshot)
+    .bind(if queue_project_id.is_some() { "pending" } else { "running" })
+    .bind(queue_project_id.is_some())
     .execute(&mut *transaction)
     .await?;
+
+    if inserted.rows_affected() == 0 {
+        transaction.commit().await?;
+        return Ok(());
+    }
+
+    if request.trigger_source == "external" {
+        let authorized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_integration_requests r JOIN external_integrations i ON i.id=r.integration_id JOIN external_integration_projects p ON p.integration_id=i.id JOIN local_issues issue ON issue.project_id=p.project_id WHERE r.resource_id=? AND r.operation='workflow_run' AND i.enabled=1 AND issue.id=?)")
+            .bind(run_id).bind(request.issue_id).fetch_one(&mut *transaction).await?;
+        if !authorized {
+            return Err(ApiError::Forbidden(
+                "External integration project access was revoked".into(),
+            ));
+        }
+        let enabled: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_attempt_sources s JOIN workflows w ON w.id=s.template_id WHERE s.attempt_id=? AND w.external_enabled=1)")
+            .bind(attempt_id).fetch_one(&mut *transaction).await?;
+        if !enabled {
+            return Err(ApiError::Conflict(
+                "Workflow template is no longer enabled for external calls".into(),
+            ));
+        }
+        sqlx::query("UPDATE external_integration_requests SET state='complete' WHERE resource_id=? AND operation='workflow_run'")
+            .bind(run_id).execute(&mut *transaction).await?;
+    }
 
     let parent = workflow_task_parent(&mut transaction, attempt_id, request.issue_id).await?;
     for node in &graph.nodes {
         materialize_node_execution(&mut transaction, run_id, workspace_id, parent, node, 0).await?;
     }
 
+    if let Some(project_id) = queue_project_id {
+        sqlx::query("INSERT INTO workflow_run_queue(run_id,project_id) VALUES (?,?)")
+            .bind(run_id)
+            .bind(project_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+
     transaction.commit().await?;
-    emit_run_status(run_id, WorkflowRunStatus::Running, None, None);
+    emit_run_status(
+        run_id,
+        if queue_project_id.is_some() {
+            WorkflowRunStatus::Pending
+        } else {
+            WorkflowRunStatus::Running
+        },
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -2015,45 +2483,47 @@ async fn materialize_node_execution(
                     node.id
                 ))
             })?;
-            let runtime_session_id = Uuid::new_v4();
-            let inserted = sqlx::query(
-                r#"
-                INSERT INTO sessions (
-                    id, workspace_id, name, executor, agent_working_dir
-                )
-                SELECT ?, ?, name, executor, agent_working_dir
-                FROM sessions
-                WHERE id = ?
-                "#,
-            )
-            .bind(runtime_session_id)
-            .bind(workspace_id)
-            .bind(source_session_id)
-            .execute(&mut *connection)
-            .await?;
-            if inserted.rows_affected() != 1 {
+            let valid: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id=? AND workspace_id=?")
+                    .bind(source_session_id)
+                    .bind(workspace_id)
+                    .fetch_one(&mut *connection)
+                    .await?;
+            if valid != 1 {
                 return Err(ApiError::BadRequest(format!(
-                    "Workflow Agent node `{}` references a missing source Session",
+                    "Workflow Agent node `{}` references a missing or foreign Session",
                     node.id
                 )));
             }
-            Task::create(
-                connection,
-                &CreateTask {
-                    id: execution_id,
-                    project_id: parent.project_id,
-                    issue_id: parent.issue_id,
-                    parent_task_id: Some(parent.task_id),
-                    title: workflow_node_task_title(node),
-                    execution_kind: TaskExecutionKind::Agent,
-                },
-            )
-            .await
-            .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
-            Task::bind_agent_session(connection, execution_id, runtime_session_id)
+            let bound:Option<(Uuid,Option<Uuid>)>=sqlx::query_as("SELECT t.id,t.parent_task_id FROM tasks t JOIN agent_task_bindings b ON b.task_id=t.id WHERE b.session_id=?")
+                .bind(source_session_id).fetch_optional(&mut *connection).await?;
+            let task_id = if let Some((task_id, parent_id)) = bound {
+                if parent_id != Some(parent.task_id) {
+                    return Err(ApiError::Conflict(
+                        "Workflow Node Session belongs to another Task".to_string(),
+                    ));
+                }
+                task_id
+            } else {
+                Task::create(
+                    connection,
+                    &CreateTask {
+                        id: execution_id,
+                        project_id: parent.project_id,
+                        issue_id: parent.issue_id,
+                        parent_task_id: Some(parent.task_id),
+                        title: workflow_node_task_title(node),
+                        execution_kind: TaskExecutionKind::Agent,
+                    },
+                )
                 .await
                 .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
-            (Some(execution_id), Some(runtime_session_id))
+                Task::bind_agent_session(connection, execution_id, source_session_id)
+                    .await
+                    .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+                execution_id
+            };
+            (Some(task_id), Some(source_session_id))
         }
         (WorkflowNodeKind::Arena, Some(parent)) => {
             Task::create(
@@ -2251,6 +2721,13 @@ where
     let runner = WorkflowRunner::from_graph(graph.clone());
 
     loop {
+        let status: String = sqlx::query_scalar("SELECT status FROM workflow_runs WHERE id=?")
+            .bind(run_id)
+            .fetch_one(pool)
+            .await?;
+        if matches!(status.as_str(), "cancelling" | "canceled" | "failed") {
+            return Ok(());
+        }
         ensure_triggered_node_iterations(pool, run_id, graph).await?;
         let snapshot = load_run_snapshot(pool, run_id).await?;
         if all_nodes_terminal(&snapshot) {
@@ -2274,6 +2751,13 @@ where
 
         let mut should_pause = false;
         for ready_node in ready_plan.ready_nodes {
+            let status: String = sqlx::query_scalar("SELECT status FROM workflow_runs WHERE id=?")
+                .bind(run_id)
+                .fetch_one(pool)
+                .await?;
+            if matches!(status.as_str(), "cancelling" | "canceled" | "failed") {
+                return Ok(());
+            }
             let Some(node) = graph
                 .nodes
                 .iter()
@@ -3809,30 +4293,6 @@ async fn node_execution_output_text(
     .flatten())
 }
 
-async fn arena_group_id_for_node(
-    pool: &SqlitePool,
-    run_id: Uuid,
-    node_id: &str,
-) -> Result<Uuid, ApiError> {
-    sqlx::query_scalar::<_, Option<Uuid>>(
-        r#"
-        SELECT arena_group_id
-        FROM node_executions
-        WHERE run_id = ? AND node_id = ? AND iteration = 0
-        "#,
-    )
-    .bind(run_id)
-    .bind(node_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten()
-    .ok_or_else(|| {
-        ApiError::BadRequest(format!(
-            "Workflow arena node `{node_id}` has no arena group"
-        ))
-    })
-}
-
 async fn running_node_session_ids(pool: &SqlitePool, run_id: Uuid) -> Result<Vec<Uuid>, ApiError> {
     let rows = sqlx::query(
         r#"
@@ -4078,6 +4538,7 @@ async fn update_run_status(
             finished_at = CASE WHEN ? THEN datetime('now', 'subsec') ELSE NULL END,
             updated_at = datetime('now', 'subsec')
         WHERE id = ?
+          AND (status NOT IN ('cancelling','canceled') OR ? IN ('cancelling','canceled'))
         "#,
     )
     .bind(run_status_value(status))
@@ -4085,6 +4546,7 @@ async fn update_run_status(
     .bind(error_text)
     .bind(finished)
     .bind(run_id)
+    .bind(run_status_value(status))
     .execute(pool)
     .await?;
 
@@ -4340,6 +4802,86 @@ fn node_kind_value(kind: &WorkflowNodeKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn interaction_identity_consumes_one_iteration_and_persists_decision_atomically() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TABLE workflow_runs(id BLOB PRIMARY KEY,status TEXT,error_text TEXT,updated_at TEXT,finished_at TEXT);
+            CREATE TABLE node_executions(id BLOB PRIMARY KEY,run_id BLOB,node_id TEXT,iteration INTEGER,status TEXT,output_text TEXT,error_text TEXT,finished_at TEXT,updated_at TEXT);
+            CREATE TABLE workflow_interaction_responses(node_execution_id BLOB PRIMARY KEY,response_json TEXT);")
+            .execute(&pool).await.unwrap();
+        let run = Uuid::new_v4();
+        let stale = Uuid::new_v4();
+        let waiting = Uuid::new_v4();
+        sqlx::query("INSERT INTO workflow_runs(id,status) VALUES (?,'awaiting_human')")
+            .bind(run)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (id, iteration, status) in [(stale, 0, "succeeded"), (waiting, 4, "awaiting_human")] {
+            sqlx::query("INSERT INTO node_executions(id,run_id,node_id,iteration,status) VALUES (?,?,'gate',?,?)")
+                .bind(id).bind(run).bind(iteration).bind(status).execute(&pool).await.unwrap();
+        }
+        let response = serde_json::json!({"action":"approve","output_text":"accepted output"});
+        assert!(matches!(
+            claim_interaction(
+                &pool,
+                run,
+                "gate",
+                Some(stale),
+                "awaiting_human",
+                response.clone()
+            )
+            .await,
+            Err(ApiError::Conflict(_))
+        ));
+        assert_eq!(
+            claim_interaction(
+                &pool,
+                run,
+                "gate",
+                Some(waiting),
+                "awaiting_human",
+                response.clone()
+            )
+            .await
+            .unwrap(),
+            4
+        );
+        assert!(matches!(
+            claim_interaction(
+                &pool,
+                run,
+                "gate",
+                Some(waiting),
+                "awaiting_human",
+                response
+            )
+            .await,
+            Err(ApiError::Conflict(_))
+        ));
+        let state: (String,String,String) = sqlx::query_as("SELECT n.status,n.output_text,r.status FROM node_executions n JOIN workflow_runs r ON r.id=n.run_id WHERE n.id=?")
+            .bind(waiting).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            state,
+            (
+                "succeeded".into(),
+                "accepted output".into(),
+                "running".into()
+            )
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_interaction_responses")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
     #[test]
     fn workflow_direct_folder_cwd_preserves_plain_path_and_selected_git_root() {
         assert_eq!(

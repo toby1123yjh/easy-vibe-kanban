@@ -50,6 +50,7 @@ export type NavigationTransition = {
 export type SettingsNavigationSection =
   | 'application'
   | 'repositories'
+  | 'integrations'
   | 'relay'
   | 'organizations'
   | 'projects';
@@ -62,7 +63,7 @@ export const SETTINGS_NAVIGATION_SECTIONS: Readonly<
   Record<SettingsNavigationTab, readonly SettingsNavigationSection[]>
 > = {
   general: ['application'],
-  host: ['repositories'],
+  host: ['repositories', 'integrations'],
   cloud: ['relay', 'organizations', 'projects'],
 };
 

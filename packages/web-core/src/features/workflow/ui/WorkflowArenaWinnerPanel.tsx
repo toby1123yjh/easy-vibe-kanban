@@ -35,15 +35,16 @@ export interface WorkflowArenaWinnerPanelProps {
   className?: string;
   issueId: string;
   nodeId: string;
+  nodeExecutionId: string;
   projectId: string;
   runId: string;
 }
 
 export function WorkflowArenaWinnerPanel(props: WorkflowArenaWinnerPanelProps) {
-  const { arenaGroupId, nodeId, runId } = props;
+  const { arenaGroupId, nodeId, nodeExecutionId, runId } = props;
   return (
     <WorkflowArenaWinnerPanelForIdentity
-      key={`${runId}:${nodeId}:${arenaGroupId ?? 'none'}`}
+      key={`${runId}:${nodeId}:${nodeExecutionId}:${arenaGroupId ?? 'none'}`}
       {...props}
     />
   );
@@ -54,6 +55,7 @@ function WorkflowArenaWinnerPanelForIdentity({
   className,
   issueId,
   nodeId,
+  nodeExecutionId,
   projectId,
   runId,
 }: WorkflowArenaWinnerPanelProps) {
@@ -165,7 +167,10 @@ function WorkflowArenaWinnerPanelForIdentity({
       await selectArenaWinner({
         runId,
         nodeId,
-        payload: { candidate_id: currentCandidate.candidateId },
+        payload: {
+          candidate_id: currentCandidate.candidateId,
+          node_execution_id: nodeExecutionId,
+        },
       });
       if (arenaGroupId) {
         invalidateGroup(arenaGroupId);
