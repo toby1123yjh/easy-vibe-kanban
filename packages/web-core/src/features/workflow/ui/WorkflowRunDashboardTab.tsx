@@ -296,7 +296,7 @@ export function WorkflowRunDashboardTab({
                 <span>
                   {t('workflow.dashboard.stepsSucceeded', {
                     completed: summary.completedSteps,
-                    total: summary.totalSteps,
+                    total: summary.freshSteps,
                   })}
                 </span>
                 <span>{summary.progressPercent}%</span>
@@ -314,6 +314,7 @@ export function WorkflowRunDashboardTab({
             </div>
           </div>
           {summary.failedSteps > 0 ||
+          summary.reusedSteps > 0 ||
           summary.skippedSteps > 0 ||
           summary.waitingSteps > 0 ||
           summary.runningSteps > 0 ? (
@@ -343,6 +344,13 @@ export function WorkflowRunDashboardTab({
                 <span className="rounded border border-secondary bg-primary px-2 py-0.5 text-low">
                   {t('workflow.dashboard.skippedCount', {
                     count: summary.skippedSteps,
+                  })}
+                </span>
+              ) : null}
+              {summary.reusedSteps > 0 ? (
+                <span className="rounded border border-brand/25 bg-primary px-2 py-0.5 text-brand">
+                  {t('workflow.dashboard.reusedCount', {
+                    count: summary.reusedSteps,
                   })}
                 </span>
               ) : null}

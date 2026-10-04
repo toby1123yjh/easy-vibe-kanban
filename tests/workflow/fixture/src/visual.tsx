@@ -15,6 +15,12 @@ import { WorkflowCanvas } from "@/features/workflow/ui/WorkflowCanvas";
 import { WorkflowConfigurationFrame } from "@/features/workflow/ui/WorkflowConfigurationFrame";
 import { WorkflowRunCanvasTab } from "@/features/workflow/ui/WorkflowRunCanvasTab";
 import {
+  getWorkflowNodeActionGate,
+  getWorkflowNodeExecutionForWork,
+  getWorkflowRuntimeView,
+} from "@/features/workflow/model/workflowRuntimeView";
+import { buildWorkflowRunDashboardSummary } from "@/features/workflow/model/workflowRunView";
+import {
   migrateWorkflowGraph,
   WORKFLOW_GRAPH_VERSION,
   type WorkflowGraph,
@@ -120,6 +126,8 @@ function makeRun(status: "running" | "succeeded"): WorkflowRunResponse {
       status,
       active_node_count: status === "running" ? 1 : 0,
       completed_node_count: status === "running" ? 2 : 4,
+      reused_node_count: 0,
+      skipped_node_count: 0,
       pending_node_count: status === "running" ? 1 : 0,
       waiting_node_count: 0,
       failed_node_count: 0,
@@ -155,9 +163,90 @@ function makeRun(status: "running" | "succeeded"): WorkflowRunResponse {
         can_select_arena_winner: false,
         can_select_condition_branch: false,
         can_cancel_node: false,
+        reused_results: [],
       })),
     },
   };
+}
+
+function makeReusedRun(): WorkflowRunResponse {
+  const run = makeRun("succeeded");
+  run.nodes = [
+    {
+      id: "fresh-build-execution",
+      run_id: run.id,
+      task_id: "fresh-build-task",
+      node_id: "build",
+      node_type: "agent",
+      iteration: 0n,
+      status: "succeeded",
+      input_text: "Use the earlier plan",
+      output_text: "Fresh build result",
+      session_id: "fresh-build-session",
+      orchestration_node_execution_id: "fresh-build-orchestration",
+      agent_run_id: "fresh-build-agent-run",
+      projection_status: "current",
+      execution_process_id: null,
+      arena_group_id: null,
+      tokens_used: 42n,
+      cost_estimate: 0.01,
+      started_at: "2026-09-07T00:00:00Z",
+      finished_at: "2026-09-07T00:00:01Z",
+      error_text: null,
+      created_at: "2026-09-07T00:00:00Z",
+      updated_at: "2026-09-07T00:00:01Z",
+    },
+  ];
+  const view = run.runtime_view!;
+  view.completed_node_count = 1;
+  view.reused_node_count = 2;
+  view.skipped_node_count = 1;
+  view.node_work = view.node_work.map((work) => {
+    if (work.node_id === "start" || work.node_id === "plan") {
+      return {
+        ...work,
+        status: "reused",
+        iteration: 1n,
+        // Deliberately inconsistent action flags verify frontend fail-closed
+        // guards rather than hiding controls only because a fixture says false.
+        can_open_session: true,
+        can_retry: true,
+        can_approve: true,
+        can_reject: true,
+        can_select_arena_winner: true,
+        can_select_condition_branch: true,
+        can_cancel_node: true,
+        reused_results: [
+          {
+            node_id: work.node_id,
+            iteration: 0,
+            source_node_execution_id: `${work.node_id}-source-0`,
+            source_run_id: "earlier-run",
+            output_text:
+              work.node_id === "plan" ? "Earlier plan, first iteration" : null,
+          },
+          ...(work.node_id === "plan"
+            ? [
+                {
+                  node_id: work.node_id,
+                  iteration: 1,
+                  source_node_execution_id: "plan-source-1",
+                  source_run_id: "earlier-run",
+                  output_text: "Earlier plan, second iteration",
+                },
+              ]
+            : []),
+        ],
+      };
+    }
+    if (work.node_id === "end") return { ...work, status: "skipped" };
+    return {
+      ...work,
+      orchestration_node_execution_id: "fresh-build-orchestration",
+      active_agent_run_id: "fresh-build-agent-run",
+    };
+  });
+  return run;
 }
 
 const runtime = new URLSearchParams(location.search).get("mode") === "run";
@@ -167,6 +256,11 @@ function Fixture() {
   const [currentGraph, setGraph] = useState(graph);
   const [selection, setSelection] = useState<string | null>(null);
   const [run, setRun] = useState(() => makeRun("running"));
+  const runtimeView = getWorkflowRuntimeView(run);
+  const runtimeSummary = buildWorkflowRunDashboardSummary(run, runtimeView);
+  const reusedWork = runtimeView.node_work.find(
+    (work) => work.status === "reused",
+  );
   const selected = currentGraph.nodes.find((node) => node.id === selection);
 
   return (
@@ -179,9 +273,30 @@ function Fixture() {
         <button onClick={() => setTheme(ThemeMode.DARK)}>Dark</button>
         <button onClick={() => setTheme(ThemeMode.SYSTEM)}>System</button>
         {runtime ? (
-          <button onClick={() => setRun(makeRun("succeeded"))}>
-            Complete run
-          </button>
+          <>
+            <button onClick={() => setRun(makeRun("succeeded"))}>
+              Complete run
+            </button>
+            <button onClick={() => setRun(makeReusedRun())}>
+              Rework with reused results
+            </button>
+            <output hidden data-testid="runtime-facts">
+              {JSON.stringify({
+                completed: runtimeSummary.completedSteps,
+                freshSteps: runtimeSummary.freshSteps,
+                progressPercent: runtimeSummary.progressPercent,
+                reused: runtimeSummary.reusedSteps,
+                skipped: runtimeSummary.skippedSteps,
+                tokens: runtimeSummary.totalTokens,
+                actualExecutionIds: run.nodes.map((execution) => execution.id),
+                reusedExecution: getWorkflowNodeExecutionForWork(
+                  run,
+                  reusedWork,
+                ),
+                reusedActions: getWorkflowNodeActionGate(reusedWork),
+              })}
+            </output>
+          </>
         ) : null}
       </header>
       <div

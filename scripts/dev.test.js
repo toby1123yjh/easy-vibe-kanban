@@ -6,18 +6,19 @@ const test = require("node:test");
 
 const {
   backendWatchArgs,
+  auxiliaryBuildArgs,
   configuredProcessHost,
   withDevelopmentEnvironment,
   resolveDevelopmentPorts,
 } = require("./dev");
 
-test("backend watch rebuilds the process host before the server", () => {
+test("backend watch rebuilds the process host and bundled MCP before the server", () => {
   assert.deepEqual(backendWatchArgs({}), [
     "watch",
     "-w",
     "crates",
     "-x",
-    "build -p local-deployment --bin agent-process-host",
+    "build -p mcp --bin vibe-kanban-mcp -p local-deployment --bin agent-process-host",
     "-x",
     "run --bin server",
   ]);
@@ -33,6 +34,8 @@ test("an explicit process host path is preserved", () => {
       configuredProcessHost({ VIBE_KANBAN_AGENT_PROCESS_HOST: hostPath }),
       hostPath,
     );
+    assert.deepEqual(auxiliaryBuildArgs({ VIBE_KANBAN_AGENT_PROCESS_HOST: hostPath }),
+      ["build", "-p", "mcp", "--bin", "vibe-kanban-mcp"]);
     assert.throws(
       () =>
         configuredProcessHost({

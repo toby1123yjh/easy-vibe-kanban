@@ -88,6 +88,7 @@ function Composer({
             : 'ready'}
       </output>
       <output data-testid="error">{state.configError?.message}</output>
+      <output data-testid="config-locked">{String(state.configurationLocked)}</output>
       <output data-testid="create-state">{createSession.status}</output>
       <output data-testid="queue-config">
         {JSON.stringify(queue.queuedConfig)}

@@ -160,6 +160,8 @@ use crate::{
 #[derive(Debug)]
 struct OhMyPiControl {
     stdin: Mutex<ChildStdin>,
+    // Keep execution-local config until the supervised process/control dies.
+    _workflow_plugin: Option<tempfile::TempDir>,
 }
 
 #[async_trait]
@@ -281,6 +283,13 @@ impl OhMyPi {
         session_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
+        let workflow_mcp = crate::workflow_mcp::ScopedWorkflowMcp::from_execution_env(env)?;
+        let mut launch_env = env.clone().with_profile(&self.cmd);
+        let readiness = crate::workflow_mcp::WorkflowMcpReadiness::start(&mut launch_env).await?;
+        let workflow_plugin = workflow_mcp
+            .as_ref()
+            .map(command_adapter::create_workflow_plugin)
+            .transpose()?;
         let builder = command_adapter::OhMyPiCommandAdapter::new(self).build(
             if session_id.is_some() {
                 DirectIntent::FollowUp
@@ -289,6 +298,10 @@ impl OhMyPi {
             },
             session_id,
         )?;
+        let builder = command_adapter::append_workflow_plugin(
+            builder,
+            workflow_plugin.as_ref().map(|plugin| plugin.path()),
+        );
         let (program, args) = builder.build_initial()?.into_resolved().await?;
         let mut command = Command::new(program);
         command
@@ -298,11 +311,24 @@ impl OhMyPi {
             .stderr(Stdio::piped())
             .current_dir(current_dir)
             .args(args);
-        env.clone()
-            .with_profile(&self.cmd)
-            .apply_to_command(&mut command);
+        launch_env.apply_to_command(&mut command);
 
         let mut child = command.group_spawn_no_window()?;
+        let cancel = CancellationToken::new();
+        if let Some(readiness) = readiness {
+            let result = tokio::select! {
+                biased;
+                _ = child.wait() => Err(ExecutorError::Io(std::io::Error::other("Oh My Pi exited before workflow MCP tool discovery"))),
+                result = readiness.wait(&cancel) => result,
+            };
+            if let Err(error) = result {
+                // No prompt was written. This spawn has not been handed to the
+                // supervisor yet, so it owns process-group cleanup itself.
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.kill()).await;
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
+                return Err(error);
+            }
+        }
         let request = command_adapter::session_request(
             &self.append_prompt.combine_prompt(prompt),
             session_id,
@@ -321,9 +347,10 @@ impl OhMyPi {
         Ok(SpawnedChild {
             child,
             exit_signal: None,
-            cancel: Some(CancellationToken::new()),
+            cancel: Some(cancel),
             control: Some(Arc::new(OhMyPiControl {
                 stdin: Mutex::new(stdin),
+                _workflow_plugin: workflow_plugin,
             })),
         })
     }

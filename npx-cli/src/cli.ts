@@ -2,6 +2,7 @@ import { execSync, spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import { cac } from "cac";
+import { assertBundleEntries, requiredBinaryNames } from "./binary-bundle";
 import {
   ensureBinary,
   ensureDesktopBundle,
@@ -130,6 +131,8 @@ async function extractAndRun(
   const binName = getBinaryName(baseName);
   const binPath = path.join(versionCacheDir, binName);
   const zipPath = path.join(versionCacheDir, `${baseName}.zip`);
+  const requiredNames = requiredBinaryNames(baseName, platform);
+  const requiredPaths = requiredNames.map((name) => path.join(versionCacheDir, name));
 
   // Clean old binary if exists
   try {
@@ -156,24 +159,27 @@ async function extractAndRun(
     }
   }
 
-  // Extract
-  if (!fs.existsSync(binPath)) {
-    try {
-      const { default: AdmZip } = await import("adm-zip");
-      const zip = new AdmZip(zipPath);
+  // Validate the current archive, even if stale siblings already exist. Never
+  // repair a main package by silently selecting a global/latest MCP binary.
+  try {
+    const { default: AdmZip } = await import("adm-zip");
+    const zip = new AdmZip(zipPath);
+    assertBundleEntries(baseName, platform, zip.getEntries().map((entry) => entry.entryName));
+    if (requiredPaths.some((file) => !fs.existsSync(file))) {
       zip.extractAllTo(versionCacheDir, true);
-    } catch (err: unknown) {
+    }
+  } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Extraction failed:", msg);
       try {
         fs.unlinkSync(zipPath);
       } catch {}
       process.exit(1);
-    }
   }
 
-  if (!fs.existsSync(binPath)) {
-    console.error(`Extracted binary not found at: ${binPath}`);
+  const missingPath = requiredPaths.find((file) => !fs.existsSync(file));
+  if (missingPath) {
+    console.error(`Extracted bundled component not found at: ${missingPath}`);
     console.error(
       "This usually indicates a corrupt download. Please try again.",
     );
@@ -187,9 +193,11 @@ async function extractAndRun(
 
   // Set permissions (non-Windows)
   if (platform !== "win32") {
-    try {
-      fs.chmodSync(binPath, 0o755);
-    } catch {}
+    for (const componentPath of requiredPaths) {
+      try {
+        fs.chmodSync(componentPath, 0o755);
+      } catch {}
+    }
   }
 
   return launch(binPath);

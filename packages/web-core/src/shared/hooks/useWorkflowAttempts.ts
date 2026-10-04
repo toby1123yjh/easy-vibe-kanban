@@ -116,6 +116,7 @@ export function useWorkflowAttemptForWorkflow(
       : ['workflow-attempts', 'workflow', 'noop'],
     queryFn: () => workflowApi.getAttemptForWorkflow(workflowId as string),
     enabled: !!workflowId && enabled,
+    refetchInterval: 5_000,
   });
 }
 

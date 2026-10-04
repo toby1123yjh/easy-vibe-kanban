@@ -27,6 +27,7 @@ import {
 } from '../model/issueWorkflow';
 import {
   acknowledgeLocalWorkflowSave,
+  acknowledgeWorkflowPublication,
   acknowledgeWorkflowSave,
   commitWorkflowAuthoringGraph,
   createWorkflowAuthoringState,
@@ -56,6 +57,8 @@ import { WorkflowConfigurationFrame } from './WorkflowConfigurationFrame';
 import { WorkflowEdgeInspector } from './WorkflowEdgeInspector';
 import { WorkflowNodeInspector } from './WorkflowNodeInspector';
 import { WorkflowRouterConfigPanel } from './WorkflowRouterConfigPanel';
+import { WorkflowMainAgentDialog } from './WorkflowMainAgentDialog';
+import { WorkflowMainSessionButton } from './WorkflowMainSessionButton';
 import { ScheduledTaskDialog } from './ScheduledTaskDialog';
 import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
 import {
@@ -285,8 +288,11 @@ export function WorkflowTemplateEditorPage({
     error,
     refetch: refetchTemplate,
   } = useWorkflowTemplate(workflowId, { enabled: !isLocalDraft });
-  const { data: workflowAttempt, isLoading: isWorkflowAttemptLoading } =
-    useWorkflowAttemptForWorkflow(workflowId, { enabled: !isLocalDraft });
+  const {
+    data: workflowAttempt,
+    isLoading: isWorkflowAttemptLoading,
+    error: workflowAttemptError,
+  } = useWorkflowAttemptForWorkflow(workflowId, { enabled: !isLocalDraft });
   const { data: scheduledTask } = useWorkflowScheduledTask(
     projectId,
     workflowId,
@@ -306,6 +312,7 @@ export function WorkflowTemplateEditorPage({
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [isRouterConfigPanelOpen, setIsRouterConfigPanelOpen] = useState(false);
+  const [isMainAgentDialogOpen, setIsMainAgentDialogOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<NodeContextMenuState | null>(
     null
   );
@@ -378,7 +385,11 @@ export function WorkflowTemplateEditorPage({
   }, [localDraftId]);
 
   const isSystem = template?.source === 'system';
-  const readOnly = isSystem;
+  const definitionLocked = !!workflowAttempt?.definition_locked_at;
+  const readOnly =
+    isSystem ||
+    definitionLocked ||
+    (!isLocalDraft && (isWorkflowAttemptLoading || !!workflowAttemptError));
   const hasUnsavedChanges = Boolean(
     !readOnly &&
       (authoringState?.dirty ||
@@ -472,6 +483,7 @@ export function WorkflowTemplateEditorPage({
   const persistWorkflowGraph = async (
     stateToSave: WorkflowAuthoringState = authoringState!
   ) => {
+    if (readOnly) throw new Error(t('workflow.management.definitionLocked'));
     const snapshot = createWorkflowSaveSnapshot(stateToSave);
     const metadataSnapshot = { name, description };
     if (isLocalDraft && localDraft) {
@@ -511,7 +523,7 @@ export function WorkflowTemplateEditorPage({
     nextGraph: WorkflowGraph,
     label: WorkflowCommandHistoryEntry['label'] = 'configure-node'
   ): WorkflowAuthoringState | null => {
-    if (!authoringState) return null;
+    if (!authoringState || readOnly) return null;
     const nextState = commitWorkflowAuthoringGraph(
       authoringState,
       nextGraph,
@@ -522,7 +534,7 @@ export function WorkflowTemplateEditorPage({
   };
 
   const dispatchAuthoringCommand = (command: WorkflowAuthoringCommand) => {
-    if (!authoringState) return null;
+    if (!authoringState || readOnly) return null;
     setDeletionToast(null);
     const result = dispatchWorkflowAuthoringCommand(authoringState, command);
     if (result.issue) {
@@ -668,7 +680,12 @@ export function WorkflowTemplateEditorPage({
       return;
     }
 
-    if (!workflowAttempt || readOnly) {
+    if (
+      !workflowAttempt ||
+      isSystem ||
+      isWorkflowAttemptLoading ||
+      workflowAttemptError
+    ) {
       setRunStartError(t('workflow.errors.notLinkedToAttempt'));
       return;
     }
@@ -699,7 +716,7 @@ export function WorkflowTemplateEditorPage({
       }
 
       if (!authoringState) return;
-      await persistWorkflowGraph(authoringState);
+      if (!definitionLocked) await persistWorkflowGraph(authoringState);
       const run = await runAttempt({
         attemptId: workflowAttempt.id,
         payload: {
@@ -1208,7 +1225,8 @@ export function WorkflowTemplateEditorPage({
     !isUpdating &&
     !isLocalDraft &&
     isRunReady &&
-    !readOnly;
+    !isSystem &&
+    !workflowAttemptError;
   const configurableNode =
     selectedNode?.type === 'start' || selectedNode?.type === 'end'
       ? null
@@ -1248,6 +1266,26 @@ export function WorkflowTemplateEditorPage({
 
   return (
     <div className="workflow-canvas-shell flex h-full flex-col bg-primary">
+      {isMainAgentDialogOpen && loadedTemplate && !definitionLocked ? (
+        <WorkflowMainAgentDialog
+          key={loadedTemplate.id}
+          projectId={projectId}
+          template={loadedTemplate}
+          issueId={workflowAttempt?.issue_id}
+          onPublished={(saved, previousRevision) => {
+            setAuthoringState((current) =>
+              current
+                ? acknowledgeWorkflowPublication(
+                    current,
+                    previousRevision,
+                    saved.revision
+                  )
+                : current
+            );
+          }}
+          onClose={() => setIsMainAgentDialogOpen(false)}
+        />
+      ) : null}
       <Dialog
         open={navigationBlocker.status === 'blocked'}
         onOpenChange={(open) => {
@@ -1425,6 +1463,14 @@ export function WorkflowTemplateEditorPage({
               <DropdownMenuItem onSelect={() => setIsDescriptionOpen(true)}>
                 {t('workflow.editor.descriptionPlaceholder')}
               </DropdownMenuItem>
+              {!isLocalDraft && !definitionLocked ? (
+                <DropdownMenuItem
+                  disabled={isWorkflowAttemptLoading || !!workflowAttemptError}
+                  onSelect={() => setIsMainAgentDialogOpen(true)}
+                >
+                  {t('workflow.management.mainAgent')}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={readOnly} onSelect={handleTidyGraph}>
                 <LayoutGrid className="mr-2 h-4 w-4" />
@@ -1486,6 +1532,20 @@ export function WorkflowTemplateEditorPage({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+          {workflowAttempt ? (
+            <WorkflowMainSessionButton
+              key={workflowAttempt.id}
+              projectId={projectId}
+              workflowId={
+                workflowAttempt.template_id ?? workflowAttempt.workflow_id
+              }
+              issueId={workflowAttempt.issue_id}
+              disabled={
+                !!workflowAttempt.main_session_bound_at &&
+                !workflowAttempt.main_session_id
+              }
+            />
+          ) : null}
           <Button
             variant="outline"
             disabled={!canRunWorkflowAttempt}
@@ -1528,7 +1588,9 @@ export function WorkflowTemplateEditorPage({
             <>
               <Button
                 onClick={() => void handleSave()}
-                disabled={isUpdating || isCreatingAttempt || !isValid}
+                disabled={
+                  readOnly || isUpdating || isCreatingAttempt || !isValid
+                }
                 className="flex items-center gap-2"
               >
                 <span className="inline-flex items-center gap-2">
@@ -1544,6 +1606,19 @@ export function WorkflowTemplateEditorPage({
           )}
         </div>
       </div>
+
+      {definitionLocked ? (
+        <p className="shrink-0 border-b border-secondary px-base py-half text-base text-low">
+          {t('workflow.management.definitionLocked')}
+        </p>
+      ) : workflowAttemptError ? (
+        <p
+          role="alert"
+          className="shrink-0 px-base py-half text-base text-error"
+        >
+          {t('workflow.management.instanceFailed')}
+        </p>
+      ) : null}
 
       {graphParseError ? (
         <div className="border-b border-error/30 bg-error/10 px-base py-half text-xs text-error">

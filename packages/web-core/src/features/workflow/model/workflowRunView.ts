@@ -94,7 +94,9 @@ export function selectWorkflowRunNode(
 
 export interface WorkflowRunDashboardSummary {
   totalSteps: number;
+  freshSteps: number;
   completedSteps: number;
+  reusedSteps: number;
   skippedSteps: number;
   waitingSteps: number;
   failedSteps: number;
@@ -109,10 +111,11 @@ export function buildWorkflowRunDashboardSummary(
   runtimeView?: WorkflowRunRuntimeView | WorkflowRuntimeProjection | null
 ): WorkflowRunDashboardSummary {
   const nodes = run.nodes;
-  const workItems = runtimeView?.node_work;
-  const totalSteps = workItems?.length ?? 0;
+  const workItems = (runtimeView ?? getWorkflowRuntimeView(run)).node_work;
+  const totalSteps = workItems.length;
 
   let completedSteps = 0;
+  let reusedSteps = 0;
   let skippedSteps = 0;
   let waitingSteps = 0;
   let failedSteps = 0;
@@ -120,36 +123,24 @@ export function buildWorkflowRunDashboardSummary(
   let totalTokens = 0;
   let totalCostEstimate = 0;
 
-  if (workItems) {
-    for (const work of workItems) {
-      if (work.status === 'succeeded') {
-        completedSteps++;
-      } else if (work.status === 'skipped') {
-        skippedSteps++;
-      } else if (
-        work.status === 'awaiting_human' ||
-        work.status === 'awaiting_arena' ||
-        work.status === 'cancelling'
-      ) {
-        waitingSteps++;
-      } else if (work.status === 'failed') {
-        failedSteps++;
-      } else if (work.status === 'running' || work.status === 'starting') {
-        runningSteps++;
-      }
+  for (const work of workItems) {
+    if (work.status === 'succeeded') {
+      completedSteps++;
+    } else if (work.status === 'reused') {
+      reusedSteps++;
+    } else if (work.status === 'skipped') {
+      skippedSteps++;
+    } else if (
+      work.status === 'awaiting_human' ||
+      work.status === 'awaiting_arena' ||
+      work.status === 'cancelling'
+    ) {
+      waitingSteps++;
+    } else if (work.status === 'failed') {
+      failedSteps++;
+    } else if (work.status === 'running' || work.status === 'starting') {
+      runningSteps++;
     }
-  } else {
-    return {
-      totalSteps: 0,
-      completedSteps: 0,
-      skippedSteps: 0,
-      waitingSteps: 0,
-      failedSteps: 0,
-      runningSteps: 0,
-      progressPercent: 0,
-      totalTokens: 0,
-      totalCostEstimate: 0,
-    };
   }
 
   for (const node of nodes) {
@@ -161,12 +152,15 @@ export function buildWorkflowRunDashboardSummary(
     }
   }
 
+  const freshSteps = totalSteps - reusedSteps - skippedSteps;
   const progressPercent =
-    totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+    freshSteps > 0 ? Math.round((completedSteps / freshSteps) * 100) : 0;
 
   return {
     totalSteps,
+    freshSteps,
     completedSteps,
+    reusedSteps,
     skippedSteps,
     waitingSteps,
     failedSteps,

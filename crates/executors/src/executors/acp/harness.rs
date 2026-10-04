@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     path::{Path, PathBuf},
     process::Stdio,
     rc::Rc,
@@ -27,6 +28,7 @@ use crate::{
     command::{CmdOverrides, CommandParts},
     env::ExecutionEnv,
     executors::{ExecutorError, ExecutorExitResult, SpawnedChild, acp::AcpEvent},
+    workflow_mcp::WorkflowMcpReadiness,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -73,11 +75,23 @@ async fn wait_for_native_replay_quiescence(client: &AcpClient, cancel: &Cancella
     }
 }
 
+async fn bound_acp_startup<T, E: std::fmt::Display>(
+    deadline: Option<tokio::time::Instant>,
+    cancel: &CancellationToken,
+    future: impl Future<Output = Result<T, E>>,
+) -> Result<T, ExecutorError> {
+    WorkflowMcpReadiness::bound_startup(deadline, cancel, future)
+        .await?
+        .map_err(|error| ExecutorError::Io(std::io::Error::other(error.to_string())))
+}
+
 /// Reusable harness for ACP-based connections such as Gemini.
 pub struct AcpAgentHarness {
     session_namespace: String,
     model: Option<String>,
     mode: Option<String>,
+    mcp_servers: Vec<proto::McpServer>,
+    workflow_readiness: Option<WorkflowMcpReadiness>,
 }
 
 impl Default for AcpAgentHarness {
@@ -94,6 +108,8 @@ impl AcpAgentHarness {
             session_namespace: "gemini_sessions".to_string(),
             model: None,
             mode: None,
+            mcp_servers: Vec::new(),
+            workflow_readiness: None,
         }
     }
 
@@ -103,6 +119,8 @@ impl AcpAgentHarness {
             session_namespace: namespace.into(),
             model: None,
             mode: None,
+            mcp_servers: Vec::new(),
+            workflow_readiness: None,
         }
     }
 
@@ -113,6 +131,16 @@ impl AcpAgentHarness {
 
     pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
         self.mode = Some(mode.into());
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, servers: Vec<proto::McpServer>) -> Self {
+        self.mcp_servers = servers;
+        self
+    }
+
+    pub fn with_workflow_readiness(mut self, readiness: Option<WorkflowMcpReadiness>) -> Self {
+        self.workflow_readiness = readiness;
         self
     }
 
@@ -127,7 +155,7 @@ impl AcpAgentHarness {
     }
 
     pub async fn spawn_with_command(
-        &self,
+        self,
         current_dir: &Path,
         prompt: String,
         command_parts: CommandParts,
@@ -168,6 +196,8 @@ impl AcpAgentHarness {
             approvals,
             cancel.clone(),
             false,
+            self.mcp_servers.clone(),
+            self.workflow_readiness,
         )
         .await?;
 
@@ -181,7 +211,7 @@ impl AcpAgentHarness {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn_follow_up_with_command(
-        &self,
+        self,
         current_dir: &Path,
         prompt: String,
         session_id: &str,
@@ -223,6 +253,8 @@ impl AcpAgentHarness {
             approvals,
             cancel.clone(),
             false,
+            self.mcp_servers.clone(),
+            self.workflow_readiness,
         )
         .await?;
 
@@ -239,7 +271,7 @@ impl AcpAgentHarness {
     /// kept as the ACP session id for the lifetime of the run.
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn_native_resume_with_command(
-        &self,
+        self,
         current_dir: &Path,
         prompt: String,
         session_id: &str,
@@ -280,6 +312,8 @@ impl AcpAgentHarness {
             approvals,
             cancel.clone(),
             true,
+            self.mcp_servers.clone(),
+            self.workflow_readiness,
         )
         .await?;
 
@@ -304,6 +338,8 @@ impl AcpAgentHarness {
         approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
         cancel: CancellationToken,
         native_resume: bool,
+        mcp_servers: Vec<proto::McpServer>,
+        workflow_readiness: Option<WorkflowMcpReadiness>,
     ) -> Result<(), ExecutorError> {
         // Take child's stdio for ACP wiring
         let orig_stdout = child.inner().stdout.take().ok_or_else(|| {
@@ -391,6 +427,9 @@ impl AcpAgentHarness {
         });
 
         let mut exit_signal_tx = exit_signal;
+        let startup_deadline = workflow_readiness
+            .as_ref()
+            .map(WorkflowMcpReadiness::startup_deadline);
 
         // Run ACP client in a LocalSet
         tokio::task::spawn_blocking(move || {
@@ -446,11 +485,22 @@ impl AcpAgentHarness {
                         });
 
                         // Initialize
-                        if let Err(e) = conn
-                            .initialize(proto::InitializeRequest::new(proto::ProtocolVersion::V1))
-                            .await
+                        if let Err(e) = bound_acp_startup(
+                            startup_deadline,
+                            &cancel,
+                            conn.initialize(proto::InitializeRequest::new(
+                                proto::ProtocolVersion::V1,
+                            )),
+                        )
+                        .await
                         {
                             error!("Failed to initialize ACP connection: {}", e);
+                            let _ = log_tx.send(
+                                AcpEvent::Error(format!(
+                                    "Failed to initialize ACP connection: {e}"
+                                ))
+                                .to_string(),
+                            );
                             if let Some(tx) = exit_signal_tx.take() {
                                 let _ = tx.send(ExecutorExitResult::Failure);
                             }
@@ -472,12 +522,18 @@ impl AcpAgentHarness {
                                 return;
                             };
                             let native_id = existing.clone();
-                            match conn
-                                .load_session(proto::LoadSessionRequest::new(
-                                    proto::SessionId::new(native_id.clone()),
-                                    cwd.clone(),
-                                ))
-                                .await
+                            match bound_acp_startup(
+                                startup_deadline,
+                                &cancel,
+                                conn.load_session(
+                                    proto::LoadSessionRequest::new(
+                                        proto::SessionId::new(native_id.clone()),
+                                        cwd.clone(),
+                                    )
+                                    .mcp_servers(mcp_servers.clone()),
+                                ),
+                            )
+                            .await
                             {
                                 Ok(_) => {
                                     // ACP session/load is allowed to return
@@ -485,11 +541,16 @@ impl AcpAgentHarness {
                                     // history. Keep the event gate closed and
                                     // wait for a quiet boundary before the
                                     // first VK-owned prompt is forwarded.
-                                    if !wait_for_native_replay_quiescence(
-                                        &client_feedback_handle,
+                                    if !WorkflowMcpReadiness::bound_startup(
+                                        startup_deadline,
                                         &cancel,
+                                        wait_for_native_replay_quiescence(
+                                            &client_feedback_handle,
+                                            &cancel,
+                                        ),
                                     )
                                     .await
+                                    .unwrap_or(false)
                                     {
                                         if let Some(tx) = exit_signal_tx.take() {
                                             let _ = tx.send(ExecutorExitResult::Failure);
@@ -522,13 +583,20 @@ impl AcpAgentHarness {
                             let history = session_manager.read_session_raw(&new_ui_id).ok();
                             let meta = history.map(|h| serde_json::json!({ "history_jsonl": h }));
 
-                            let mut req = proto::NewSessionRequest::new(cwd.clone());
+                            let mut req = proto::NewSessionRequest::new(cwd.clone())
+                                .mcp_servers(mcp_servers.clone());
                             if let Some(m) = meta
                                 && let Some(obj) = m.as_object()
                             {
                                 req = req.meta(obj.clone());
                             }
-                            match conn.new_session(req).await {
+                            match bound_acp_startup(
+                                startup_deadline,
+                                &cancel,
+                                conn.new_session(req),
+                            )
+                            .await
+                            {
                                 Ok(resp) => {
                                     let resume_prompt = session_manager
                                         .generate_resume_prompt(&new_ui_id, &prompt)
@@ -537,6 +605,12 @@ impl AcpAgentHarness {
                                 }
                                 Err(e) => {
                                     error!("Failed to create session: {}", e);
+                                    let _ = log_tx.send(
+                                        AcpEvent::Error(format!(
+                                            "Failed to create ACP session: {e}"
+                                        ))
+                                        .to_string(),
+                                    );
                                     if let Some(tx) = exit_signal_tx.take() {
                                         let _ = tx.send(ExecutorExitResult::Failure);
                                     }
@@ -546,9 +620,15 @@ impl AcpAgentHarness {
                             }
                         } else {
                             // New session
-                            match conn
-                                .new_session(proto::NewSessionRequest::new(cwd.clone()))
-                                .await
+                            match bound_acp_startup(
+                                startup_deadline,
+                                &cancel,
+                                conn.new_session(
+                                    proto::NewSessionRequest::new(cwd.clone())
+                                        .mcp_servers(mcp_servers.clone()),
+                                ),
+                            )
+                            .await
                             {
                                 Ok(resp) => {
                                     let sid = resp.session_id.0.to_string();
@@ -556,6 +636,12 @@ impl AcpAgentHarness {
                                 }
                                 Err(e) => {
                                     error!("Failed to create session: {}", e);
+                                    let _ = log_tx.send(
+                                        AcpEvent::Error(format!(
+                                            "Failed to create ACP session: {e}"
+                                        ))
+                                        .to_string(),
+                                    );
                                     if let Some(tx) = exit_signal_tx.take() {
                                         let _ = tx.send(ExecutorExitResult::Failure);
                                     }
@@ -565,17 +651,33 @@ impl AcpAgentHarness {
                             }
                         };
 
+                        if let Err(error) =
+                            WorkflowMcpReadiness::wait_optional(workflow_readiness, &cancel).await
+                        {
+                            error!("ACP workflow MCP startup failed: {error}");
+                            let _ = log_tx.send(AcpEvent::Error(error.to_string()).to_string());
+                            if let Some(tx) = exit_signal_tx.take() {
+                                let _ = tx.send(ExecutorExitResult::Failure);
+                            }
+                            let _ = shutdown_tx.send(true);
+                            cancel.cancel();
+                            return;
+                        }
+
                         // Emit session ID
                         let _ = log_tx
                             .send(AcpEvent::SessionStart(display_session_id.clone()).to_string());
 
                         if let Some(model) = model.clone() {
-                            match conn
-                                .set_session_model(proto::SetSessionModelRequest::new(
+                            match bound_acp_startup(
+                                startup_deadline,
+                                &cancel,
+                                conn.set_session_model(proto::SetSessionModelRequest::new(
                                     proto::SessionId::new(acp_session_id.clone()),
                                     model,
-                                ))
-                                .await
+                                )),
+                            )
+                            .await
                             {
                                 Ok(_) => {}
                                 Err(e) => error!("Failed to set session mode: {}", e),
@@ -583,16 +685,29 @@ impl AcpAgentHarness {
                         }
 
                         if let Some(mode) = mode.clone() {
-                            match conn
-                                .set_session_mode(proto::SetSessionModeRequest::new(
+                            match bound_acp_startup(
+                                startup_deadline,
+                                &cancel,
+                                conn.set_session_mode(proto::SetSessionModeRequest::new(
                                     proto::SessionId::new(acp_session_id.clone()),
                                     mode,
-                                ))
-                                .await
+                                )),
+                            )
+                            .await
                             {
                                 Ok(_) => {}
                                 Err(e) => error!("Failed to set session mode: {}", e),
                             }
+                        }
+
+                        // Option-setting requests share the startup deadline;
+                        // never persist or forward the prompt after a timeout.
+                        if cancel.is_cancelled() {
+                            if let Some(tx) = exit_signal_tx.take() {
+                                let _ = tx.send(ExecutorExitResult::Failure);
+                            }
+                            let _ = shutdown_tx.send(true);
+                            return;
                         }
 
                         // Start raw event forwarder and persistence

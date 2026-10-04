@@ -210,6 +210,73 @@ test("System theme follows the OS and reduced motion removes canvas and frame ef
   ).toHaveCSS("animation-name", "none");
 });
 
+test("reused results stay read-only, identify every source iteration, and preserve the canvas", async ({
+  page,
+}) => {
+  await page.goto("/visual.html?mode=run");
+  const plan = page.getByTestId("workflow-run-node-plan");
+  await expect(plan).toBeVisible();
+  await plan.click();
+  const transform = await viewportTransform(page);
+  await page
+    .getByRole("button", { name: "Rework with reused results" })
+    .click();
+  await expect(plan).toContainText("Reused");
+  expect(await viewportTransform(page)).toBe(transform);
+  await expect(
+    canvas(page).locator('.react-flow__node[data-id="plan"]'),
+  ).toHaveClass(/selected/);
+  await expect(canvas(page).locator(".workflow-edge-beam-running")).toHaveCount(
+    0,
+  );
+
+  const panel = page.getByTestId("workflow-run-node-details");
+  await expect(panel).toContainText("This Node did not run again");
+  const sources = panel.getByTestId("workflow-run-reused-result");
+  await expect(sources).toHaveCount(2);
+  await expect(sources.nth(0)).toContainText("Source iteration 0");
+  await expect(sources.nth(0)).toContainText("Earlier plan, first iteration");
+  await expect(sources.nth(1)).toContainText("Source iteration 1");
+  await expect(sources.nth(1)).toContainText("Earlier plan, second iteration");
+  await sources.nth(1).getByText("Result source", { exact: true }).click();
+  await expect(sources.nth(1)).toContainText("earlier-run");
+  await expect(sources.nth(1)).toContainText("plan-source-1");
+  await expect(
+    panel.getByRole("button", {
+      name: /Approve|Reject|Retry|Open full session/,
+    }),
+  ).toHaveCount(0);
+  await expect(panel.getByRole("link")).toHaveCount(0);
+  await expect(
+    panel.getByText("Technical details", { exact: true }),
+  ).toHaveCount(0);
+  const facts = JSON.parse(
+    (await page.getByTestId("runtime-facts").textContent())!,
+  );
+  expect(facts).toMatchObject({
+    completed: 1,
+    freshSteps: 1,
+    progressPercent: 100,
+    reused: 2,
+    skipped: 1,
+    tokens: 42,
+    actualExecutionIds: ["fresh-build-execution"],
+    reusedExecution: null,
+  });
+  expect(
+    Object.values(facts.reusedActions).every((allowed) => allowed === false),
+  ).toBe(true);
+
+  await page.getByTestId("workflow-run-node-end").click();
+  await expect(panel).toContainText("Skipped");
+  await expect(panel.getByTestId("workflow-run-reused-result")).toHaveCount(0);
+  await expect(panel).toContainText("has not executed");
+  await expect(
+    panel.getByText("Technical details", { exact: true }),
+  ).toHaveCount(0);
+  expect(await viewportTransform(page)).toBe(transform);
+});
+
 test("explicit fit animates smoothly and reacts to a reduced-motion preference change", async ({
   page,
 }) => {

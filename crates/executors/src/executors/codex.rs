@@ -106,6 +106,7 @@ use crate::{
     model_selector::{ModelInfo, ModelSelectorConfig, PermissionPolicy, ReasoningOption},
     profile::ExecutorConfig,
     stdout_dup::create_stdout_pipe_writer,
+    workflow_mcp::{WorkflowMcpReadiness, WorkflowPromptGate},
 };
 
 #[derive(Debug)]
@@ -930,7 +931,7 @@ impl Codex {
             current_dir,
             command_parts,
             env,
-            move |client, _| async move {
+            move |client, _, readiness, cancel, prompt_gate| async move {
                 match action {
                     CodexSessionAction::Chat {
                         prompt,
@@ -942,11 +943,23 @@ impl Codex {
                             prompt,
                             selected_skills,
                             client,
+                            readiness,
+                            cancel,
+                            prompt_gate,
                         )
                         .await
                     }
                     CodexSessionAction::Review { target } => {
-                        review::launch_codex_review(params, resume_session, target, client).await
+                        review::launch_codex_review(
+                            params,
+                            resume_session,
+                            target,
+                            client,
+                            readiness,
+                            cancel,
+                            prompt_gate,
+                        )
+                        .await
                     }
                 }
             },
@@ -954,12 +967,16 @@ impl Codex {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn launch_codex_agent(
         thread_start_params: ThreadStartParams,
         resume_session: Option<String>,
         combined_prompt: String,
         selected_skills: Vec<SelectedSkill>,
         client: Arc<AppServerClient>,
+        readiness: Option<WorkflowMcpReadiness>,
+        cancel: tokio_util::sync::CancellationToken,
+        prompt_gate: WorkflowPromptGate,
     ) -> Result<(), ExecutorError> {
         let account = client.get_account().await?;
         if account.requires_openai_auth && account.account.is_none() {
@@ -984,11 +1001,13 @@ impl Codex {
 
         client.set_resolved_model(resolved_model);
         client.register_session(&thread_id).await?;
+        WorkflowMcpReadiness::wait_optional(readiness, &cancel).await?;
         let collaboration_mode = client.initial_collaboration_mode()?;
         let input = build_chat_input(combined_prompt, selected_skills);
         client
             .turn_start_with_mode(thread_id, input, Some(collaboration_mode))
             .await?;
+        prompt_gate.open();
 
         Ok(())
     }
@@ -1004,9 +1023,26 @@ impl Codex {
         task: F,
     ) -> Result<SpawnedChild, ExecutorError>
     where
-        F: FnOnce(Arc<AppServerClient>, ExitSignalSender) -> Fut + Send + 'static,
+        F: FnOnce(
+                Arc<AppServerClient>,
+                ExitSignalSender,
+                Option<WorkflowMcpReadiness>,
+                tokio_util::sync::CancellationToken,
+                WorkflowPromptGate,
+            ) -> Fut
+            + Send
+            + 'static,
         Fut: std::future::Future<Output = Result<(), ExecutorError>> + Send + 'static,
     {
+        let workflow_mcp = crate::workflow_mcp::ScopedWorkflowMcp::from_execution_env(env)?;
+        let mut launch_env = env.clone().with_profile(&self.cmd);
+        let readiness = WorkflowMcpReadiness::start(&mut launch_env).await?;
+        let startup_deadline = readiness
+            .as_ref()
+            .map(WorkflowMcpReadiness::startup_deadline);
+        let prompt_gate = WorkflowPromptGate::new(readiness.is_some());
+        let command_parts =
+            command_adapter::append_workflow_mcp(command_parts, workflow_mcp.as_ref());
         let (program_path, args) = command_parts.into_resolved().await?;
         let launch_context = self.launch_context(&program_path, &args, current_dir);
         tracing::debug!("Launching Codex app-server:\n{}", launch_context);
@@ -1024,9 +1060,7 @@ impl Codex {
             .env("RUST_LOG", "error")
             .args(&args);
 
-        env.clone()
-            .with_profile(&self.cmd)
-            .apply_to_command(&mut process);
+        launch_env.apply_to_command(&mut process);
 
         let spawn_error_context = launch_context.clone();
         let mut child = process.group_spawn_no_window().map_err(|err| {
@@ -1062,9 +1096,9 @@ impl Codex {
         let commit_reminder_prompt = env.commit_reminder_prompt.clone();
         let cancel_for_task = cancel.clone();
         let client_slot = Arc::new(OnceLock::new());
-        let control = Arc::new(DeferredCodexControl {
+        let control = prompt_gate.wrap(Arc::new(DeferredCodexControl {
             client: client_slot.clone(),
-        });
+        }));
 
         tokio::spawn(async move {
             let exit_signal_tx = ExitSignalSender::new(exit_signal_tx);
@@ -1087,7 +1121,7 @@ impl Codex {
                 child_stdout,
                 client.clone(),
                 exit_signal_tx.clone(),
-                cancel_for_task,
+                cancel_for_task.clone(),
             );
             client.connect(rpc_peer);
             // Do not expose the control peer until it owns a connected RPC
@@ -1095,11 +1129,20 @@ impl Codex {
             // after launch, before the initialization request has completed.
             let _ = client_slot.set(client.clone());
 
-            let result = async {
-                client.initialize().await?;
-                task(client, exit_signal_tx.clone()).await
-            }
-            .await;
+            let result =
+                WorkflowMcpReadiness::bound_startup(startup_deadline, &cancel_for_task, async {
+                    client.initialize().await?;
+                    task(
+                        client,
+                        exit_signal_tx.clone(),
+                        readiness,
+                        cancel_for_task.clone(),
+                        prompt_gate,
+                    )
+                    .await
+                })
+                .await
+                .and_then(|result| result);
 
             if let Err(err) = result {
                 match &err {

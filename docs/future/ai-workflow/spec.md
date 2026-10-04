@@ -2,6 +2,8 @@
 
 > 状态：Draft · 创建于 2026-05-08 · 上层路线图见 [`docs/future/future_task.md`](../future_task.md) §T1-1 进化版
 
+> 2026-10-03 更新：[Workflow 运行时控制设计](./runtime-control-design.md)记录最新确认的调度职责、Issue 与 WorkflowInstance 的一对一关系、实例启动后的流程冻结、后台结果持久交回原主会话及实现差距。主 Agent 离线时不自动启动，用户再次打开会话时展示已保存结果。本文保留历史规格；其中早期 V1 非目标不代表当前外部接入能力仍未实现，旧 Run/Attempt 描述也不作为新实例模型的业务关系。
+
 ---
 
 ## 1. 一句话目标

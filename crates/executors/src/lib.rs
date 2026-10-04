@@ -14,3 +14,4 @@ pub mod profile;
 pub mod provider_policy;
 pub mod runtime;
 pub mod stdout_dup;
+pub mod workflow_mcp;

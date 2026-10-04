@@ -626,6 +626,21 @@ export function acknowledgeWorkflowSave(
   );
 }
 
+/** Publication changes share the revision but do not save the graph draft. */
+export function acknowledgeWorkflowPublication(
+  state: WorkflowAuthoringState,
+  expectedRevision: number,
+  serverRevision: number
+): WorkflowAuthoringState {
+  if (
+    expectedRevision !== state.serverRevision ||
+    serverRevision <= state.serverRevision
+  ) {
+    return state;
+  }
+  return { ...state, serverRevision };
+}
+
 export function acknowledgeLocalWorkflowSave(
   state: WorkflowAuthoringState,
   snapshot: WorkflowSaveSnapshot

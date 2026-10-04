@@ -18,6 +18,7 @@ export type WorkflowCanvasNodeState =
   | 'succeeded'
   | 'failed'
   | 'waiting'
+  | 'reused'
   | 'skipped';
 
 export type WorkflowCanvasEdgeState =
@@ -26,6 +27,7 @@ export type WorkflowCanvasEdgeState =
   | 'succeeded'
   | 'failed'
   | 'waiting'
+  | 'reused'
   | 'skipped';
 
 export type WorkflowNodeExecutionStatusMap = Record<
@@ -41,6 +43,7 @@ const NODE_STATE_LABELS: Record<WorkflowCanvasNodeState, string> = {
   succeeded: 'Done',
   failed: 'Failed',
   waiting: 'Waiting',
+  reused: 'Reused',
   skipped: 'Skipped',
 };
 
@@ -102,6 +105,8 @@ export function getWorkflowCanvasNodeState({
       return 'running';
     case 'succeeded':
       return 'succeeded';
+    case 'reused':
+      return 'reused';
     case 'failed':
       return 'failed';
     case 'awaiting_human':
@@ -162,6 +167,7 @@ export function getWorkflowCanvasEdgeState(
   if (sourceStatus === 'succeeded' || targetStatus === 'succeeded') {
     return 'succeeded';
   }
+  if (sourceStatus === 'reused' || targetStatus === 'reused') return 'reused';
   return 'idle';
 }
 

@@ -138,6 +138,8 @@ describe('workflow run view helpers', () => {
         waiting_node_count: 1,
         failed_node_count: 1,
         completed_node_count: 1,
+        reused_node_count: 0,
+        skipped_node_count: 0,
         node_work: [
           {
             node_id: 'plan',
@@ -163,6 +165,7 @@ describe('workflow run view helpers', () => {
             can_select_arena_winner: false,
             can_select_condition_branch: false,
             can_cancel_node: false,
+            reused_results: [],
           },
           {
             node_id: 'review',
@@ -188,6 +191,7 @@ describe('workflow run view helpers', () => {
             can_select_arena_winner: false,
             can_select_condition_branch: false,
             can_cancel_node: false,
+            reused_results: [],
           },
           {
             node_id: 'fix',
@@ -213,6 +217,7 @@ describe('workflow run view helpers', () => {
             can_select_arena_winner: false,
             can_select_condition_branch: false,
             can_cancel_node: false,
+            reused_results: [],
           },
         ],
       },
@@ -271,7 +276,8 @@ describe('workflow run view helpers', () => {
     expect(summary.completedSteps).toBe(1);
     expect(summary.skippedSteps).toBe(1);
     expect(summary.failedSteps).toBe(1);
-    expect(summary.progressPercent).toBe(33);
+    expect(summary.freshSteps).toBe(2);
+    expect(summary.progressPercent).toBe(50);
   });
 
   it('formats elapsed durations from timestamps', () => {

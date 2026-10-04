@@ -4,12 +4,29 @@ use uuid::Uuid;
 
 use super::Codex;
 use crate::{
-    command::{CommandBuildError, CommandBuilder, apply_overrides},
+    command::{CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
     executors::provider_adapter::{DirectControl, encode_stdio_rpc},
+    workflow_mcp::{FORWARDED_ENV_KEYS, ScopedWorkflowMcp},
 };
 
 pub struct CodexCommandAdapter<'a> {
     agent: &'a Codex,
+}
+
+/// App-server CLI overrides merge this uniquely named server into native
+/// settings. Only environment names, never the scoped credential, reach argv.
+pub(crate) fn append_workflow_mcp(
+    parts: CommandParts,
+    config: Option<&ScopedWorkflowMcp>,
+) -> CommandParts {
+    let Some(config) = config else {
+        return parts;
+    };
+    let command =
+        serde_json::to_string(&config.executable.to_string_lossy()).expect("path serializes");
+    let args = serde_json::to_string(&config.args()).expect("arguments serialize");
+    let env_vars = serde_json::to_string(&FORWARDED_ENV_KEYS).expect("environment names serialize");
+    parts.extend_args(["-c".into(), format!("mcp_servers.{}={{command={command},args={args},env_vars={env_vars},enabled=true,required=true}}", config.server_name)])
 }
 
 impl<'a> CodexCommandAdapter<'a> {
@@ -92,5 +109,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(params.last().map(String::as_str), Some("--profile-flag"));
+    }
+
+    #[test]
+    fn workflow_mcp_uses_native_cli_merge_without_secret_values() {
+        let executable = tempfile::NamedTempFile::new().unwrap();
+        let env = crate::workflow_mcp::test_env(executable.path());
+        let config = ScopedWorkflowMcp::from_execution_env(&env)
+            .unwrap()
+            .unwrap();
+        let parts = append_workflow_mcp(
+            CommandParts::new("codex".into(), vec!["app-server".into()]),
+            Some(&config),
+        );
+        let debug = format!("{parts:?}");
+        assert!(debug.contains("mcp_servers.vk_"));
+        assert!(debug.contains("env_vars"));
+        assert!(debug.contains(crate::workflow_mcp::TOKEN_ENV));
+        assert!(!debug.contains(env.get(crate::workflow_mcp::TOKEN_ENV).unwrap()));
+        assert!(debug.contains("required=true"));
     }
 }

@@ -51,6 +51,11 @@ impl CommandParts {
         Self { program, args }
     }
 
+    pub fn extend_args(mut self, args: impl IntoIterator<Item = String>) -> Self {
+        self.args.extend(args);
+        self
+    }
+
     pub async fn into_resolved(self) -> Result<(PathBuf, Vec<String>), ExecutorError> {
         let CommandParts { program, args } = self;
         let executable = resolve_executable_path(&program)

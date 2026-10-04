@@ -8,6 +8,12 @@ import type {
 } from 'shared/types';
 
 let host: string | null = null;
+export const getCurrentHostId = () => host;
+export async function handleApiResponse<T>(response: Response): Promise<T> {
+  const body = await response.json();
+  if (!response.ok || !body.success) throw new Error(body.message ?? 'Fixture API request failed');
+  return body.data;
+}
 const listeners = new Set<() => void>();
 export function switchHost() {
   host = host ? null : 'remote-host';

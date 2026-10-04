@@ -103,13 +103,40 @@ pub(crate) struct HostLaunchRequest {
     pub audited_launch_payload: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct HostExecutionEnv {
     pub vars: HashMap<String, String>,
     pub workspace_root: PathBuf,
     pub repo_names: Vec<String>,
     pub commit_reminder: bool,
     pub commit_reminder_prompt: String,
+}
+
+impl std::fmt::Debug for HostExecutionEnv {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let vars: HashMap<_, _> = self
+            .vars
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key,
+                    if executors::workflow_mcp::is_token_env_key(key) {
+                        "<redacted>"
+                    } else {
+                        value.as_str()
+                    },
+                )
+            })
+            .collect();
+        formatter
+            .debug_struct("HostExecutionEnv")
+            .field("vars", &vars)
+            .field("workspace_root", &self.workspace_root)
+            .field("repo_names", &self.repo_names)
+            .field("commit_reminder", &self.commit_reminder)
+            .field("commit_reminder_prompt", &self.commit_reminder_prompt)
+            .finish()
+    }
 }
 
 impl From<&ExecutionEnv> for HostExecutionEnv {

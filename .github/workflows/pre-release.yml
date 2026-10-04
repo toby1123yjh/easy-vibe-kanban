@@ -451,10 +451,6 @@ jobs:
           sign: true
           sign_args: "--code-signature-flags=runtime"
 
-      - name: Package main binary (macOS)
-        if: runner.os == 'macOS'
-        run: zip vibe-kanban.zip vibe-kanban agent-process-host
-
       - name: Sign MCP binary (macOS)
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
@@ -465,6 +461,10 @@ jobs:
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           sign: true
           sign_args: "--code-signature-flags=runtime"
+
+      - name: Package main binary and bundled MCP (macOS)
+        if: runner.os == 'macOS'
+        run: zip vibe-kanban.zip vibe-kanban agent-process-host vibe-kanban-mcp
 
       - name: Package MCP binary (macOS)
         if: runner.os == 'macOS'
@@ -606,9 +606,11 @@ jobs:
 
           zip -j npx-cli/dist/${{ matrix.name }}/vibe-kanban.zip \
             vibe-kanban-${{ matrix.name }}/${{ matrix.binary }} \
-            agent-process-host-${{ matrix.name }}/${{ matrix.agent_process_host }}
+            agent-process-host-${{ matrix.name }}/${{ matrix.agent_process_host }} \
+            vibe-kanban-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
           zip -j npx-cli/dist/${{ matrix.name }}/vibe-kanban-mcp.zip vibe-kanban-mcp-${{ matrix.name }}/${{ matrix.mcp_binary }}
           zip -j npx-cli/dist/${{ matrix.name }}/vibe-kanban-review.zip vibe-kanban-review-${{ matrix.name }}/${{ matrix.review_binary }}
+          unzip -Z1 npx-cli/dist/${{ matrix.name }}/vibe-kanban.zip | grep -Fxq '${{ matrix.mcp_binary }}'
 
       - name: Create platform package (macOS)
         if: matrix.name == 'macos-arm64' || matrix.name == 'macos-x64'
@@ -888,6 +890,7 @@ jobs:
             conf.plugins.updater.endpoints = conf.plugins.updater.endpoints.map(e =>
               e === '__TAURI_UPDATE_ENDPOINT__' ? endpoint : e
             );
+            conf.bundle.externalBin = ['binaries/agent-process-host', 'binaries/vibe-kanban-mcp'];
             fs.writeFileSync('crates/tauri-app/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
           "
 
@@ -918,6 +921,20 @@ jobs:
             export CC_aarch64_pc_windows_msvc="${{ github.workspace }}/scripts/ring-cc-wrapper.sh"
             export CARGO_PROFILE_RELEASE_DEBUG=0
           fi
+
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cargo xwin build --release --target ${{ matrix.target }} -p mcp -p local-deployment --bin vibe-kanban-mcp --bin agent-process-host
+          else
+            cargo build --release --target ${{ matrix.target }} -p mcp -p local-deployment --bin vibe-kanban-mcp --bin agent-process-host
+          fi
+
+          mkdir -p crates/tauri-app/binaries
+          auxiliary_suffix=""
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then auxiliary_suffix=".exe"; fi
+          for auxiliary in agent-process-host vibe-kanban-mcp; do
+            cp "target/${{ matrix.target }}/release/${auxiliary}${auxiliary_suffix}" \
+              "crates/tauri-app/binaries/${auxiliary}-${{ matrix.target }}${auxiliary_suffix}"
+          done
 
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             cargo tauri build --runner cargo-xwin --target ${{ matrix.target }} --ci

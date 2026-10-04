@@ -62,6 +62,7 @@ export const WORKFLOW_CANVAS_NODE_STATE_FRAME_CLASSES: Record<
   succeeded: 'border-success/45 shadow-[var(--workflow-node-shadow-succeeded)]',
   failed: 'border-error/70 shadow-[var(--workflow-node-shadow-failed)]',
   waiting: 'border-warning/60 shadow-[var(--workflow-node-shadow-waiting)]',
+  reused: 'border-brand/35',
   skipped: 'border-secondary opacity-80',
 };
 
@@ -80,6 +81,7 @@ export const WORKFLOW_RUN_NODE_STATE_FRAME_CLASSES: Record<
     'border-error/70 bg-error/10 text-high shadow-[var(--workflow-node-shadow-failed)]',
   waiting:
     'border-warning/60 bg-warning/10 text-high shadow-[var(--workflow-node-shadow-waiting)]',
+  reused: 'border-brand/35 bg-panel text-high',
   skipped: 'border-secondary bg-panel text-low opacity-80',
 };
 
@@ -94,6 +96,7 @@ export const WORKFLOW_CANVAS_NODE_STATE_CHIP_CLASSES: Record<
   succeeded: 'border-success/35 bg-success/10 text-success',
   failed: 'border-error/35 bg-error/10 text-error',
   waiting: 'border-warning/35 bg-warning/10 text-warning',
+  reused: 'border-brand/25 bg-brand/5 text-brand',
   skipped: 'border-secondary bg-secondary/30 text-low',
 };
 
@@ -108,6 +111,7 @@ export const WORKFLOW_RUN_NODE_STATE_CHIP_CLASSES: Record<
   succeeded: 'border-success/35 bg-success/10 text-success',
   failed: 'border-error/35 bg-error/10 text-error',
   waiting: 'border-warning/35 bg-warning/10 text-warning',
+  reused: 'border-brand/25 bg-panel text-brand',
   skipped: 'border-secondary bg-panel text-low',
 };
 
@@ -122,6 +126,7 @@ export const WORKFLOW_CANVAS_NODE_STATE_DOT_CLASSES: Record<
   succeeded: 'bg-success shadow-[var(--workflow-node-shadow-dot-succeeded)]',
   failed: 'bg-error shadow-[var(--workflow-node-shadow-dot-failed)]',
   waiting: 'bg-warning shadow-[var(--workflow-node-shadow-dot-waiting)]',
+  reused: 'bg-brand/60',
   skipped: 'bg-low/45',
 };
 
@@ -134,6 +139,7 @@ export const WORKFLOW_CANVAS_EDGE_STATE_PATH_CLASSES: Record<
   succeeded: 'stroke-success/80',
   failed: 'stroke-error/85',
   waiting: 'stroke-warning/85',
+  reused: 'stroke-brand/50',
   skipped: 'stroke-low/35',
 };
 
@@ -163,6 +169,7 @@ const WORKFLOW_NODE_STATUS_IDENTITY_OVERRIDE_STATES =
     'succeeded',
     'failed',
     'waiting',
+    'reused',
     'skipped',
   ]);
 

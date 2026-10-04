@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BaseCodingAgent,
@@ -11,6 +11,7 @@ import { restoreExecutorConfig } from '@/shared/lib/executorConfig';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
 import { useHostId } from '@/shared/providers/HostIdProvider';
 import { sessionExecutorConfigKey } from '@/shared/hooks/sessionExecutorConfigKeys';
+import { useWorkflowMainSessionContext } from '@/shared/hooks/useWorkflowManagement';
 
 interface UseSessionExecutorConfigOptions {
   sessionId?: string;
@@ -39,6 +40,16 @@ export function useSessionExecutorConfig({
 }: UseSessionExecutorConfigOptions) {
   const hostId = useHostId();
   const existingSession = !isNewSessionMode && !!sessionId;
+  const workflowContext = useWorkflowMainSessionContext(
+    existingSession ? sessionId : undefined
+  );
+  const capturedMainConfig = useMemo(
+    () =>
+      workflowContext.data
+        ? restoreExecutorConfig(workflowContext.data.main_agent_config)
+        : null,
+    [workflowContext.data]
+  );
   const query = useQuery({
     queryKey: sessionExecutorConfigKey(hostId, sessionId),
     queryFn: () => sessionsApi.getExecutorConfig(sessionId!, hostId),
@@ -48,13 +59,16 @@ export function useSessionExecutorConfig({
     staleTime: 0,
   });
   const restored = useMemo(
-    () => (query.data ? restoreExecutorConfig(query.data) : null),
-    [query.data]
+    () =>
+      capturedMainConfig ??
+      (query.data ? restoreExecutorConfig(query.data) : null),
+    [capturedMainConfig, query.data]
   );
   const boundExecutor = Object.values(BaseCodingAgent).find(
     (agent) => agent === sessionExecutor
   );
   const configError =
+    (existingSession ? workflowContext.error : null) ??
     (existingSession ? query.error : null) ??
     (existingSession && sessionExecutor && !boundExecutor
       ? new Error(`Unknown session executor: ${sessionExecutor}`)
@@ -67,7 +81,8 @@ export function useSessionExecutorConfig({
       : null);
   const isConfigLoading =
     isScratchLoading ||
-    (existingSession && (query.isPending || query.isFetching));
+    (existingSession &&
+      (query.isPending || query.isFetching || workflowContext.isPending));
   const isConfigReady = !isConfigLoading && !configError;
   const selection = useExecutorConfig({
     ...options,
@@ -76,7 +91,7 @@ export function useSessionExecutorConfig({
       sessionId ?? workspaceId,
       isNewSessionMode,
     ]),
-    enabled: isConfigReady,
+    enabled: isConfigReady && !capturedMainConfig,
     lockedExecutor: existingSession ? boundExecutor : null,
     lockedConfig: existingSession ? restored : null,
     lastUsedConfig: existingSession
@@ -86,20 +101,39 @@ export function useSessionExecutorConfig({
     // Embedded workflow defaults are initial values, never session overrides.
     // Bound-session drafts are complete snapshots. Rust omits null fields on
     // serialization, so restore those as Follow CLI instead of old run values.
-    scratchConfig: isScratchLoading
-      ? undefined
-      : existingSession && restored && scratchConfig
-        ? restoreExecutorConfig(scratchConfig)
-        : scratchConfig,
+    scratchConfig: capturedMainConfig
+      ? null
+      : isScratchLoading
+        ? undefined
+        : existingSession && restored && scratchConfig
+          ? restoreExecutorConfig(scratchConfig)
+          : scratchConfig,
   });
+  const refetchSessionConfig = query.refetch;
+  const refetchWorkflowContext = workflowContext.refetch;
+  const refetchConfig = useCallback(async () => {
+    await Promise.all([
+      refetchSessionConfig(),
+      ...(existingSession ? [refetchWorkflowContext()] : []),
+    ]);
+  }, [refetchSessionConfig, refetchWorkflowContext, existingSession]);
   return {
     ...selection,
+    effectiveExecutor:
+      capturedMainConfig?.executor ?? selection.effectiveExecutor,
+    selectedVariant: capturedMainConfig
+      ? (capturedMainConfig.variant ?? null)
+      : selection.selectedVariant,
+    presetOptions: capturedMainConfig ?? selection.presetOptions,
+    configurationLocked: !!capturedMainConfig,
     // ModelSelector already renders an empty options list as a disabled current preset.
     variantOptions: existingSession && restored ? [] : selection.variantOptions,
-    executorConfig: isConfigReady ? selection.executorConfig : null,
+    executorConfig: isConfigReady
+      ? (capturedMainConfig ?? selection.executorConfig)
+      : null,
     isConfigLoading,
     configError,
-    refetchConfig: query.refetch,
+    refetchConfig,
     needsExecutorSelection: isNewSessionMode || (!boundExecutor && !restored),
   };
 }

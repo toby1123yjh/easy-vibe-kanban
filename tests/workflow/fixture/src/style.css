@@ -95,6 +95,14 @@ aside {
   white-space: nowrap;
 }
 
+/* Behavioral editor tests need a measurable canvas without importing the
+   application's Tailwind shell. Visual assertions use the visual fixture. */
+[data-testid='workflow-management'] .workflow-canvas-shell > .relative {
+  position: relative;
+  flex: 1;
+  min-height: 520px;
+}
+
 @media (max-width: 767px) {
   main {
     grid-template-columns: minmax(0, 1fr);

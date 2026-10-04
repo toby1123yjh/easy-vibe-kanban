@@ -4,7 +4,7 @@ use api_types::{DeleteResponse, MutationResponse};
 use axum::{
     BoxError, Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{
         IntoResponse, Json as ResponseJson, Response, Sse,
         sse::{Event, KeepAlive},
@@ -23,7 +23,7 @@ use db::models::{
     workspace_repo::CreateWorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::runtime::ProjectionStatus;
+use executors::{profile::ExecutorConfig, runtime::ProjectionStatus};
 use futures_util::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -40,20 +40,22 @@ use workflow::{
 use crate::{
     DeploymentImpl,
     error::ApiError,
+    routes::{
+        integrations::workflows::WorkflowInteractionResponse,
+        workflow_management::WorkflowManagementApiError,
+    },
     workflow_runtime::{
         arena::{
             DeploymentWorkflowArenaCreator, DeploymentWorkflowArenaWinnerApplier,
             NoopWorkflowArenaCreator, WorkflowArenaCreator,
         },
+        management::{self, WorkflowManagementCaller, WorkflowManagementInteractionRequest},
         runner::{
             DeploymentAgentRunReconciliationBoundary, DeploymentWorkflowAgentExecutor,
-            DeploymentWorkflowRunCanceller, WorkflowAgentExecutor, WorkflowRunStartRequest,
-            WorkflowWorkspaceRequest, WorkflowWorkspaceResolver, approve_human_node_at,
-            cancel_workflow_run_runtime, get_workflow_run_response,
-            reconcile_workflow_run_with_arena_and_boundary, reject_human_node_at,
-            retry_workflow_node_with_arena, select_arena_winner_at, select_condition_branch_at,
-            subscribe_workflow_events, trigger_workflow_run_for_attempt_with_repos,
-            workflow_event_history,
+            DeploymentWorkflowRunCanceller, WorkflowAgentExecutor, WorkflowWorkspaceRequest,
+            WorkflowWorkspaceResolver, get_workflow_run_response,
+            reconcile_workflow_run_with_arena_and_boundary, retry_workflow_node_with_arena,
+            subscribe_workflow_events, workflow_event_history,
         },
         workspace::{DeploymentWorkflowWorkspaceResolver, main_workflow_branch_name},
     },
@@ -70,6 +72,8 @@ pub struct WorkflowTemplateResponse {
     #[ts(type = "number")]
     pub revision: i64,
     pub external_enabled: bool,
+    pub main_agent_config: Option<ExecutorConfig>,
+    pub main_agent_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -98,6 +102,12 @@ pub struct UpdateWorkflowRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub graph_json: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub main_agent_config: Option<ExecutorConfig>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub main_agent_prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -189,10 +199,14 @@ pub struct WorkflowAttemptResponse {
     pub project_id: Uuid,
     pub issue_id: Uuid,
     pub workflow_id: Uuid,
+    pub template_id: Option<Uuid>,
     pub latest_run_id: Option<Uuid>,
     pub workspace_id: Option<Uuid>,
     pub name: String,
     pub status: WorkflowAttemptStatus,
+    pub main_session_id: Option<Uuid>,
+    pub main_session_bound_at: Option<DateTime<Utc>>,
+    pub definition_locked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -279,6 +293,7 @@ pub enum WorkflowNodeWorkStatus {
     Failed,
     Cancelled,
     Skipped,
+    Reused,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -306,6 +321,9 @@ pub struct WorkflowNodeWorkView {
     pub can_select_arena_winner: bool,
     pub can_select_condition_branch: bool,
     pub can_cancel_node: bool,
+    /// Read-only exact source results, never fabricated executions of this Run.
+    #[serde(default)]
+    pub reused_results: Vec<crate::workflow_runtime::management::WorkflowReuseView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -317,6 +335,10 @@ pub struct WorkflowRunRuntimeView {
     pub waiting_node_count: i32,
     pub failed_node_count: i32,
     pub completed_node_count: i32,
+    #[serde(default)]
+    pub reused_node_count: i32,
+    #[serde(default)]
+    pub skipped_node_count: i32,
     pub node_work: Vec<WorkflowNodeWorkView>,
 }
 
@@ -651,7 +673,7 @@ pub async fn external_workflow_templates(
     pool: &SqlitePool,
 ) -> Result<Vec<WorkflowTemplateResponse>, ApiError> {
     ensure_system_workflows(pool).await?;
-    let rows=sqlx::query("SELECT id,source,project_id,name,description,graph_json,revision,external_enabled,created_at,updated_at FROM workflows WHERE external_enabled=1 AND id NOT IN (SELECT workflow_id FROM workflow_attempts) ORDER BY name,id")
+    let rows=sqlx::query("SELECT id,source,project_id,name,description,graph_json,revision,external_enabled,main_agent_config_json,main_agent_prompt,created_at,updated_at FROM workflows WHERE external_enabled=1 AND id NOT IN (SELECT workflow_id FROM workflow_attempts) ORDER BY name,id")
         .fetch_all(pool).await?;
     let allowed_system = built_in_workflow_ids()?;
     let templates = rows
@@ -673,7 +695,7 @@ pub async fn list_project_workflows(
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled, main_agent_config_json, main_agent_prompt,
                created_at, updated_at
         FROM workflows
         WHERE (
@@ -749,6 +771,17 @@ pub async fn create_issue_workflow_attempt(
     ensure_issue_belongs_to_project(pool, project_id, issue_id).await?;
     validate_graph_json(&request.graph_json)?;
 
+    if let Some(id) =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM workflow_attempts WHERE issue_id=?")
+            .bind(issue_id)
+            .fetch_optional(pool)
+            .await?
+    {
+        return Err(ApiError::Conflict(format!(
+            "Issue already has workflow instance {id}; use that instance instead of creating another"
+        )));
+    }
+
     let name = request
         .name
         .filter(|value| !value.trim().is_empty())
@@ -812,13 +845,14 @@ pub async fn insert_workflow_attempt(
 
     sqlx::query(
         r#"
-        INSERT INTO workflow_attempts (id, task_id, workflow_id, status)
-        VALUES (?, ?, ?, 'draft')
+        INSERT INTO workflow_attempts (id, task_id, workflow_id, issue_id, status)
+        VALUES (?, ?, ?, ?, 'draft')
         "#,
     )
     .bind(attempt_id)
     .bind(attempt_id)
     .bind(workflow_id)
+    .bind(issue_id)
     .execute(&mut *transaction)
     .await?;
 
@@ -1002,8 +1036,9 @@ pub async fn list_workflow_attempts_for_project(
     let rows = sqlx::query(
         r#"
         SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               (SELECT template_id FROM workflow_attempt_sources WHERE attempt_id=attempt.id) AS template_id,
                attempt.latest_run_id, attempt.workspace_id, task.title AS name,
-               attempt.status, attempt.created_at, attempt.updated_at
+               attempt.status, attempt.main_session_id, attempt.main_session_bound_at, attempt.definition_locked_at, attempt.created_at, attempt.updated_at
         FROM workflow_attempts attempt
         JOIN tasks task ON task.id = attempt.task_id
         WHERE task.project_id = ?
@@ -1038,8 +1073,9 @@ pub async fn persist_workflow_graph(
             revision = revision + 1,
             updated_at = datetime('now', 'subsec')
         WHERE id = ? AND revision = ?
+          AND NOT EXISTS(SELECT 1 FROM workflow_attempts a WHERE a.workflow_id=workflows.id AND a.definition_locked_at IS NOT NULL)
         RETURNING id, source, project_id, name, description, graph_json,
-                  revision, external_enabled, created_at, updated_at
+                  revision, external_enabled, main_agent_config_json, main_agent_prompt, created_at, updated_at
         "#,
     )
     .bind(graph_json)
@@ -1054,6 +1090,7 @@ pub async fn persist_workflow_graph(
             .map_err(ApiError::from)
             .map_err(WorkflowUpdateError::from),
         None => {
+            ensure_workflow_definition_editable(pool, workflow_id).await?;
             let current_revision =
                 sqlx::query_scalar::<_, i64>("SELECT revision FROM workflows WHERE id = ?")
                     .bind(workflow_id)
@@ -1083,8 +1120,9 @@ pub async fn list_workflow_attempts_for_issue(
     let rows = sqlx::query(
         r#"
         SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               (SELECT template_id FROM workflow_attempt_sources WHERE attempt_id=attempt.id) AS template_id,
                attempt.latest_run_id, attempt.workspace_id, task.title AS name,
-               attempt.status, attempt.created_at, attempt.updated_at
+               attempt.status, attempt.main_session_id, attempt.main_session_bound_at, attempt.definition_locked_at, attempt.created_at, attempt.updated_at
         FROM workflow_attempts attempt
         JOIN tasks task ON task.id = attempt.task_id
         WHERE task.project_id = ? AND task.issue_id = ?
@@ -1109,8 +1147,9 @@ pub async fn workflow_attempt_by_id(
     let row = sqlx::query(
         r#"
         SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               (SELECT template_id FROM workflow_attempt_sources WHERE attempt_id=attempt.id) AS template_id,
                attempt.latest_run_id, attempt.workspace_id, task.title AS name,
-               attempt.status, attempt.created_at, attempt.updated_at
+               attempt.status, attempt.main_session_id, attempt.main_session_bound_at, attempt.definition_locked_at, attempt.created_at, attempt.updated_at
         FROM workflow_attempts attempt
         JOIN tasks task ON task.id = attempt.task_id
         WHERE attempt.id = ?
@@ -1130,8 +1169,9 @@ pub async fn workflow_attempt_by_workflow_id(
     let row = sqlx::query(
         r#"
         SELECT attempt.id, task.project_id, task.issue_id, attempt.workflow_id,
+               (SELECT template_id FROM workflow_attempt_sources WHERE attempt_id=attempt.id) AS template_id,
                attempt.latest_run_id, attempt.workspace_id, task.title AS name,
-               attempt.status, attempt.created_at, attempt.updated_at
+               attempt.status, attempt.main_session_id, attempt.main_session_bound_at, attempt.definition_locked_at, attempt.created_at, attempt.updated_at
         FROM workflow_attempts attempt
         JOIN tasks task ON task.id = attempt.task_id
         WHERE attempt.workflow_id = ?
@@ -1158,17 +1198,19 @@ pub async fn update_workflow_attempt_runtime(
             workspace_id = COALESCE(?, workspace_id),
             status = ?,
             updated_at = datetime('now', 'subsec')
-        WHERE id = ?
+        WHERE id = ? AND (? IS NULL OR latest_run_id IS NULL OR latest_run_id=?)
         "#,
     )
     .bind(latest_run_id)
     .bind(workspace_id)
     .bind(workflow_attempt_status_value(status))
     .bind(attempt_id)
+    .bind(latest_run_id)
+    .bind(latest_run_id)
     .execute(pool)
     .await?;
 
-    if result.rows_affected() == 0 {
+    if result.rows_affected() == 0 && workflow_attempt_by_id(pool, attempt_id).await?.is_none() {
         return Err(ApiError::BadRequest(
             "Workflow attempt not found".to_string(),
         ));
@@ -1284,24 +1326,98 @@ pub async fn accept_workflow_attempt<W: WorkflowWorkspaceResolver>(
     let directory =
         workflow_workspace_directory_override(request.directory_path.as_deref(), &repos)
             .map_err(ApiError::BadRequest)?;
-    crate::workflow_runtime::runner::accept_workflow_run(
-        pool,
-        run_id,
-        WorkflowRunStartRequest {
-            workflow_id: attempt.workflow_id,
-            attempt_id: Some(attempt.id),
-            trigger: TriggerWorkflowRequest {
+    use crate::workflow_runtime::management::{
+        self, WorkflowActivePolicy, WorkflowManagementCaller, WorkflowSubmission,
+        WorkflowSubmissionAction, WorkflowSubmissionScope,
+    };
+    let integration_id: Option<Uuid> = if request.trigger_source == "external" {
+        sqlx::query_scalar("SELECT integration_id FROM external_integration_requests WHERE resource_id=? AND operation='workflow_run'")
+            .bind(run_id).fetch_optional(pool).await?
+    } else {
+        None
+    };
+    if request.trigger_source == "external" && integration_id.is_none() {
+        return Err(ApiError::Forbidden(
+            "External acceptance requires its durable integration request".into(),
+        ));
+    }
+    let caller = WorkflowManagementCaller::Instance {
+        instance_id: attempt_id,
+        namespace: integration_id
+            .map(|id| format!("integration:{id}"))
+            .unwrap_or_else(|| format!("page-instance:{attempt_id}")),
+        integration_id,
+    };
+    management::verify_management_caller(pool, &caller).await?;
+    if let Some(existing) =
+        sqlx::query("SELECT input_text,attempt_id,trigger_source FROM workflow_runs WHERE id=?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await?
+    {
+        if existing.try_get::<Option<Uuid>, _>("attempt_id")? != Some(attempt_id)
+            || existing.try_get::<String, _>("input_text")? != request.input_text
+            || existing.try_get::<String, _>("trigger_source")? != request.trigger_source
+        {
+            return Err(ApiError::Conflict(
+                "IDEMPOTENCY_CONFLICT: accepted Run has different parameters".into(),
+            ));
+        }
+        return get_workflow_run_response(pool, run_id).await;
+    }
+    let workspace_id = if let Some(id) = attempt.workspace_id {
+        id
+    } else {
+        let id = resolver
+            .create_or_bind_main_workspace(WorkflowWorkspaceRequest {
+                directory_path: directory,
                 issue_id: attempt.issue_id,
-                workspace_id: attempt.workspace_id.or(request.workspace_id),
-                trigger_source: request.trigger_source,
-                input_text: request.input_text,
+                run_id: attempt.id,
+                project_id: Some(attempt.project_id),
+                existing_workspace_id: request.workspace_id,
+                repo_overrides: repos,
+                branch_name: format!("vk/main-session/{}", attempt.id),
+            })
+            .await?;
+        sqlx::query("UPDATE workflow_attempts SET workspace_id=? WHERE id=? AND workspace_id IS NULL AND definition_locked_at IS NULL")
+            .bind(id).bind(attempt.id).execute(pool).await?;
+        sqlx::query_scalar("SELECT workspace_id FROM workflow_attempts WHERE id=?")
+            .bind(attempt.id)
+            .fetch_one(pool)
+            .await?
+    };
+    if request.workspace_id.is_some_and(|id| id != workspace_id) {
+        return Err(ApiError::Conflict(
+            "Workflow instance workspace is fixed".into(),
+        ));
+    }
+    let accepted = management::submit_workflow(
+        pool,
+        &caller,
+        WorkflowSubmission {
+            request_id: run_id.to_string(),
+            action: if attempt.latest_run_id.is_some() {
+                WorkflowSubmissionAction::Rework
+            } else {
+                WorkflowSubmissionAction::Start
             },
-            directory_path: directory,
-            repo_overrides: repos,
+            input_text: Some(request.input_text),
+            material_paths: Vec::new(),
+            source_run_id: attempt.latest_run_id,
+            source_node_execution_id: None,
+            scope: WorkflowSubmissionScope::All,
+            active_policy: attempt
+                .latest_run_id
+                .map(|_| WorkflowActivePolicy::AfterCurrent),
+            source_message_id: None,
         },
-        resolver,
+        Some(run_id),
+        &request.trigger_source,
     )
-    .await
+    .await?;
+    let run = get_workflow_run_response(pool, accepted.run_id).await?;
+    sync_attempt_from_run(pool, &run).await?;
+    Ok(run)
 }
 
 pub async fn run_workflow_attempt_runtime<W, A>(
@@ -1332,45 +1448,111 @@ pub async fn run_workflow_attempt_runtime_with_arena<W, A, R>(
     attempt_id: Uuid,
     request: RunWorkflowAttemptRequest,
     workspace_resolver: &W,
-    agent_executor: &A,
-    arena_creator: &R,
+    _agent_executor: &A,
+    _arena_creator: &R,
 ) -> Result<WorkflowRunResponse, ApiError>
 where
     W: WorkflowWorkspaceResolver,
     A: WorkflowAgentExecutor,
     R: WorkflowArenaCreator,
 {
-    let attempt = workflow_attempt_by_id(pool, attempt_id)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Workflow attempt not found".to_string()))?;
-    let repo_overrides = workflow_workspace_repo_overrides(request.repos.as_deref().unwrap_or(&[]))
-        .map_err(ApiError::BadRequest)?;
-
-    let directory_path =
-        workflow_workspace_directory_override(request.directory_path.as_deref(), &repo_overrides)
-            .map_err(ApiError::BadRequest)?;
-    let run = trigger_workflow_run_for_attempt_with_repos(
+    // Scheduled calls and the legacy page helper use the same asynchronous
+    // acceptance boundary. Only the dispatcher may claim and start a Run.
+    accept_workflow_attempt(
         pool,
-        WorkflowRunStartRequest {
-            workflow_id: attempt.workflow_id,
-            attempt_id: Some(attempt.id),
-            trigger: TriggerWorkflowRequest {
-                issue_id: attempt.issue_id,
-                workspace_id: request.workspace_id.or(attempt.workspace_id),
-                trigger_source: request.trigger_source,
-                input_text: request.input_text,
-            },
-            repo_overrides,
-            directory_path,
-        },
+        Uuid::new_v4(),
+        attempt_id,
+        request,
         workspace_resolver,
-        agent_executor,
-        arena_creator,
     )
-    .await?;
+    .await
+}
 
-    sync_attempt_from_run(pool, &run).await?;
-    get_workflow_run_response(pool, run.id).await
+pub async fn accept_workflow_template_for_issue<W: WorkflowWorkspaceResolver>(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+    request: TriggerWorkflowRequest,
+    resolver: &W,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let template = get_workflow_template(pool, workflow_id).await?;
+    let project_id: Uuid = sqlx::query_scalar("SELECT project_id FROM local_issues WHERE id=?")
+        .bind(request.issue_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Issue does not exist".into()))?;
+    if template.project_id.is_some_and(|id| id != project_id) {
+        return Err(ApiError::Forbidden(
+            "Workflow is not available in this Issue's project".into(),
+        ));
+    }
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let existing=sqlx::query("SELECT a.id,a.workflow_id,s.template_id FROM workflow_attempts a LEFT JOIN workflow_attempt_sources s ON s.attempt_id=a.id WHERE a.issue_id=?")
+        .bind(request.issue_id).fetch_optional(&mut *tx).await?;
+    let instance_id = if let Some(row) = existing {
+        let backing_id: Uuid = row.try_get("workflow_id")?;
+        if backing_id != workflow_id
+            && row
+                .try_get::<Option<Uuid>, _>("template_id")?
+                .unwrap_or(backing_id)
+                != workflow_id
+        {
+            return Err(ApiError::Conflict(
+                "INSTANCE_BINDING_CONFLICT: Issue already has a different workflow publication"
+                    .into(),
+            ));
+        }
+        row.try_get("id")?
+    } else {
+        let instance_id = Uuid::new_v4();
+        let backing_id = Uuid::new_v4();
+        let mut graph: WorkflowGraph = serde_json::from_str(&template.graph_json)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+        for node in &mut graph.nodes {
+            node.data.session_id = None;
+        }
+        insert_workflow_attempt(
+            &mut tx,
+            instance_id,
+            backing_id,
+            project_id,
+            request.issue_id,
+            template.name,
+            serde_json::to_string(&graph)
+                .map_err(|error| ApiError::BadRequest(error.to_string()))?,
+        )
+        .await?;
+        sqlx::query("INSERT INTO workflow_attempt_sources(attempt_id,template_id,template_revision) VALUES (?,?,?)")
+            .bind(instance_id).bind(workflow_id).bind(template.revision).execute(&mut *tx).await?;
+        sqlx::query("UPDATE workflows SET main_agent_config_json=?,main_agent_prompt=? WHERE id=?")
+            .bind(
+                template
+                    .main_agent_config
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()
+                    .map_err(|error| ApiError::BadRequest(error.to_string()))?,
+            )
+            .bind(template.main_agent_prompt)
+            .bind(backing_id)
+            .execute(&mut *tx)
+            .await?;
+        instance_id
+    };
+    tx.commit().await?;
+    accept_workflow_attempt(
+        pool,
+        Uuid::new_v4(),
+        instance_id,
+        RunWorkflowAttemptRequest {
+            directory_path: None,
+            workspace_id: request.workspace_id,
+            trigger_source: request.trigger_source,
+            input_text: request.input_text,
+            repos: None,
+        },
+        resolver,
+    )
+    .await
 }
 
 pub async fn sync_attempt_from_run(
@@ -1409,6 +1591,7 @@ pub async fn update_workflow_template(
     let existing = workflow_by_id(pool, workflow_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("Workflow not found".to_string()))?;
+    ensure_workflow_definition_editable(pool, workflow_id).await?;
 
     if existing.source == WorkflowSource::System {
         return Err(
@@ -1462,21 +1645,34 @@ pub async fn update_workflow_template(
         existing.graph_json
     };
 
+    let main_agent_config_json = request
+        .main_agent_config
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| {
+            ApiError::BadRequest(format!("Invalid main Agent configuration: {error}"))
+        })?;
     let mut transaction = pool.begin().await.map_err(ApiError::from)?;
     let row = sqlx::query(
         r#"
         UPDATE workflows
         SET name = ?, description = ?, graph_json = ?,
+            main_agent_config_json=COALESCE(?,main_agent_config_json),
+            main_agent_prompt=COALESCE(?,main_agent_prompt),
             revision = revision + 1,
             updated_at = datetime('now', 'subsec')
         WHERE id = ? AND revision = ?
+          AND NOT EXISTS(SELECT 1 FROM workflow_attempts a WHERE a.workflow_id=workflows.id AND a.definition_locked_at IS NOT NULL)
         RETURNING id, source, project_id, name, description, graph_json,
-                  revision, external_enabled, created_at, updated_at
+                  revision, external_enabled, main_agent_config_json, main_agent_prompt, created_at, updated_at
         "#,
     )
     .bind(request.name.unwrap_or(existing.name))
     .bind(request.description.or(existing.description))
     .bind(graph_json)
+    .bind(main_agent_config_json)
+    .bind(request.main_agent_prompt)
     .bind(workflow_id)
     .bind(request.expected_revision)
     .fetch_optional(&mut *transaction)
@@ -1486,6 +1682,11 @@ pub async fn update_workflow_template(
     let updated = match row {
         Some(row) => workflow_template_from_row(&row).map_err(ApiError::from)?,
         None => {
+            let locked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_attempts WHERE workflow_id=? AND definition_locked_at IS NOT NULL)")
+                .bind(workflow_id).fetch_one(&mut *transaction).await.map_err(ApiError::from)?;
+            if locked {
+                return Err(ApiError::Conflict("INSTANCE_DEFINITION_LOCKED: This workflow instance definition is permanently locked after acceptance; edit the publication for future instances".into()).into());
+            }
             let current_revision =
                 sqlx::query_scalar::<_, i64>("SELECT revision FROM workflows WHERE id = ?")
                     .bind(workflow_id)
@@ -1525,6 +1726,18 @@ pub async fn update_workflow_template(
     }
 
     Ok(updated)
+}
+
+async fn ensure_workflow_definition_editable(
+    pool: &SqlitePool,
+    workflow_id: Uuid,
+) -> Result<(), ApiError> {
+    let locked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_attempts WHERE workflow_id=? AND definition_locked_at IS NOT NULL)")
+        .bind(workflow_id).fetch_one(pool).await?;
+    if locked {
+        return Err(ApiError::Conflict("INSTANCE_DEFINITION_LOCKED: This workflow instance definition is permanently locked after acceptance; edit the publication for future instances".into()));
+    }
+    Ok(())
 }
 
 pub async fn delete_workflow_template(
@@ -1585,7 +1798,7 @@ async fn list_all_workflows(pool: &SqlitePool) -> Result<Vec<WorkflowTemplateRes
 
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled, main_agent_config_json, main_agent_prompt,
                created_at, updated_at
         FROM workflows
         WHERE (
@@ -1624,7 +1837,7 @@ async fn workflow_by_id(
 ) -> Result<Option<WorkflowTemplateResponse>, ApiError> {
     let row = sqlx::query(
         r#"
-        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled,
+        SELECT id, source, project_id, name, description, graph_json, revision, external_enabled, main_agent_config_json, main_agent_prompt,
                created_at, updated_at
         FROM workflows
         WHERE id = ?
@@ -1796,6 +2009,17 @@ fn workflow_template_from_row(
         graph_json: row.try_get("graph_json")?,
         revision: row.try_get("revision")?,
         external_enabled: row.try_get("external_enabled")?,
+        main_agent_config: row
+            .try_get::<Option<String>, _>("main_agent_config_json")?
+            .map(|value| {
+                serde_json::from_str(&value).map_err(|error| {
+                    WorkflowRouteError::BadRequest(format!(
+                        "Invalid main Agent configuration: {error}"
+                    ))
+                })
+            })
+            .transpose()?,
+        main_agent_prompt: row.try_get("main_agent_prompt")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -1809,10 +2033,14 @@ fn workflow_attempt_from_row(
         project_id: row.try_get("project_id")?,
         issue_id: row.try_get("issue_id")?,
         workflow_id: row.try_get("workflow_id")?,
+        template_id: row.try_get("template_id")?,
         latest_run_id: row.try_get("latest_run_id")?,
         workspace_id: row.try_get("workspace_id")?,
         name: row.try_get("name")?,
         status: workflow_attempt_status_from_str(&row.try_get::<String, _>("status")?)?,
+        main_session_id: row.try_get("main_session_id")?,
+        main_session_bound_at: row.try_get("main_session_bound_at")?,
+        definition_locked_at: row.try_get("definition_locked_at")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -2108,12 +2336,7 @@ pub fn build_workflow_run_runtime_view(
         .count() as i32;
     let completed_node_count = node_work
         .iter()
-        .filter(|work| {
-            matches!(
-                work.status,
-                WorkflowNodeWorkStatus::Succeeded | WorkflowNodeWorkStatus::Skipped
-            )
-        })
+        .filter(|work| work.status == WorkflowNodeWorkStatus::Succeeded)
         .count() as i32;
 
     WorkflowRunRuntimeView {
@@ -2124,6 +2347,11 @@ pub fn build_workflow_run_runtime_view(
         waiting_node_count,
         failed_node_count,
         completed_node_count,
+        reused_node_count: 0,
+        skipped_node_count: node_work
+            .iter()
+            .filter(|work| work.status == WorkflowNodeWorkStatus::Skipped)
+            .count() as i32,
         node_work,
     }
 }
@@ -2204,7 +2432,11 @@ fn build_workflow_node_work_view(
         runtime_health,
         can_open_session: current.session_id.is_some()
             && matches!(current.node_type.as_str(), "agent" | "condition"),
-        can_retry: current.status == NodeExecutionStatus::Failed,
+        can_retry: current.status == NodeExecutionStatus::Failed
+            && matches!(
+                current.node_type.as_str(),
+                "agent" | "condition" | "transform"
+            ),
         can_approve: current.status == NodeExecutionStatus::AwaitingHuman
             && current.node_type == "human_gate",
         can_reject: current.status == NodeExecutionStatus::AwaitingHuman
@@ -2214,6 +2446,7 @@ fn build_workflow_node_work_view(
         can_select_condition_branch: current.status == NodeExecutionStatus::AwaitingHuman
             && current.node_type == "condition",
         can_cancel_node: false,
+        reused_results: Vec::new(),
     }
 }
 
@@ -2259,6 +2492,7 @@ fn workflow_runtime_health(
         | WorkflowNodeWorkStatus::Succeeded
         | WorkflowNodeWorkStatus::Failed
         | WorkflowNodeWorkStatus::Cancelled
+        | WorkflowNodeWorkStatus::Reused
         | WorkflowNodeWorkStatus::Skipped => WorkflowRuntimeHealth::Ok,
         WorkflowNodeWorkStatus::Pending if node.started_at.is_none() => {
             WorkflowRuntimeHealth::Unknown
@@ -2280,19 +2514,13 @@ async fn trigger_workflow(
         StatusCode,
         ResponseJson<MutationResponse<WorkflowRunResponse>>,
     ),
-    ApiError,
+    WorkflowManagementApiError,
 > {
     let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
-    let data = crate::workflow_runtime::runner::accept_workflow_run(
+    let data = accept_workflow_template_for_issue(
         &deployment.db().pool,
-        Uuid::new_v4(),
-        WorkflowRunStartRequest {
-            workflow_id,
-            attempt_id: None,
-            trigger: request,
-            directory_path: None,
-            repo_overrides: Vec::new(),
-        },
+        workflow_id,
+        request,
         &workspace_resolver,
     )
     .await?;
@@ -2382,10 +2610,14 @@ async fn get_workflow_run(
 async fn cancel_workflow_run(
     State(deployment): State<DeploymentImpl>,
     Path(run_id): Path<Uuid>,
-) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, WorkflowManagementApiError> {
+    let pool = &deployment.db().pool;
+    let caller = page_run_caller(pool, run_id).await?;
+    let key = workflow_operation_key(&headers, format!("page-stop:{run_id}"))?;
     let canceller = DeploymentWorkflowRunCanceller::new(deployment.clone());
-    let run = cancel_workflow_run_runtime(&deployment.db().pool, run_id, &canceller).await?;
-    sync_attempt_from_run(&deployment.db().pool, &run).await?;
+    management::stop_workflow(pool, &caller, run_id, &key, &canceller).await?;
+    let run = get_workflow_run_response(pool, run_id).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, None),
@@ -2473,20 +2705,18 @@ async fn retry_node(
 async fn approve_node(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    headers: HeaderMap,
     Json(request): Json<RespondWorkflowNodeRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
-    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = approve_human_node_at(
-        &deployment.db().pool,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, WorkflowManagementApiError> {
+    let run = respond_page_node(
+        &deployment,
         run_id,
         &node_id,
-        Some(request.node_execution_id),
-        &agent_executor,
-        &arena_creator,
+        request.node_execution_id,
+        &headers,
+        WorkflowInteractionResponse::Approve,
     )
     .await?;
-    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -2497,16 +2727,18 @@ async fn approve_node(
 async fn reject_node(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    headers: HeaderMap,
     Json(request): Json<RespondWorkflowNodeRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
-    let run = reject_human_node_at(
-        &deployment.db().pool,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, WorkflowManagementApiError> {
+    let run = respond_page_node(
+        &deployment,
         run_id,
         &node_id,
-        Some(request.node_execution_id),
+        request.node_execution_id,
+        &headers,
+        WorkflowInteractionResponse::Reject,
     )
     .await?;
-    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -2517,23 +2749,20 @@ async fn reject_node(
 async fn select_arena_winner(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    headers: HeaderMap,
     Json(request): Json<SelectArenaWinnerRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
-    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let winner_applier = DeploymentWorkflowArenaWinnerApplier::new(deployment.clone());
-    let run = select_arena_winner_at(
-        &deployment.db().pool,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, WorkflowManagementApiError> {
+    let run = respond_page_node(
+        &deployment,
         run_id,
         &node_id,
-        Some(request.node_execution_id),
-        request.candidate_id,
-        &agent_executor,
-        &arena_creator,
-        &winner_applier,
+        request.node_execution_id,
+        &headers,
+        WorkflowInteractionResponse::SelectArenaWinner {
+            candidate_id: request.candidate_id,
+        },
     )
     .await?;
-    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -2544,22 +2773,21 @@ async fn select_arena_winner(
 async fn select_condition_branch(
     State(deployment): State<DeploymentImpl>,
     Path((run_id, node_id)): Path<(Uuid, String)>,
+    headers: HeaderMap,
     Json(request): Json<SelectConditionBranchRequest>,
-) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, ApiError> {
-    let agent_executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena_creator = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = select_condition_branch_at(
-        &deployment.db().pool,
+) -> Result<ResponseJson<MutationResponse<WorkflowActionResponse>>, WorkflowManagementApiError> {
+    let run = respond_page_node(
+        &deployment,
         run_id,
         &node_id,
-        Some(request.node_execution_id),
-        request.selected_target_node_ids,
-        request.reason,
-        &agent_executor,
-        &arena_creator,
+        request.node_execution_id,
+        &headers,
+        WorkflowInteractionResponse::SelectBranch {
+            selected_target_node_ids: request.selected_target_node_ids,
+            reason: request.reason,
+        },
     )
     .await?;
-    sync_attempt_from_run(&deployment.db().pool, &run).await?;
 
     Ok(ResponseJson(MutationResponse {
         data: workflow_action_response(&run, Some(node_id)),
@@ -2576,6 +2804,76 @@ fn workflow_action_response(
         node_id,
         status: run.status,
     }
+}
+
+pub(crate) fn workflow_operation_key(
+    headers: &HeaderMap,
+    fallback: String,
+) -> Result<String, ApiError> {
+    if headers.contains_key("Idempotency-Key") {
+        crate::routes::integrations::request_key(headers)
+    } else {
+        Ok(fallback)
+    }
+}
+
+async fn page_run_caller(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<WorkflowManagementCaller, ApiError> {
+    let instance_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT attempt_id FROM workflow_runs WHERE id=?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+    let instance_id = instance_id
+        .ok_or_else(|| ApiError::Conflict("Workflow Run has no bound instance".into()))?;
+    Ok(WorkflowManagementCaller::Instance {
+        instance_id,
+        namespace: format!("page-instance:{instance_id}"),
+        integration_id: None,
+    })
+}
+
+async fn respond_page_node(
+    deployment: &DeploymentImpl,
+    run_id: Uuid,
+    node_id: &str,
+    node_execution_id: Uuid,
+    headers: &HeaderMap,
+    response: WorkflowInteractionResponse,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let pool = &deployment.db().pool;
+    let belongs: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM node_executions WHERE id=? AND run_id=? AND node_id=?)",
+    )
+    .bind(node_execution_id)
+    .bind(run_id)
+    .bind(node_id)
+    .fetch_one(pool)
+    .await?;
+    if !belongs {
+        return Err(ApiError::Conflict(
+            "Workflow interaction does not match this exact Run/Node".into(),
+        ));
+    }
+    let caller = page_run_caller(pool, run_id).await?;
+    let request_id = workflow_operation_key(headers, format!("page-response:{node_execution_id}"))?;
+    management::respond_to_workflow(
+        pool,
+        &caller,
+        WorkflowManagementInteractionRequest {
+            run_id,
+            node_execution_id,
+            request_id,
+            response,
+        },
+        &DeploymentWorkflowAgentExecutor::new(deployment.clone()),
+        &DeploymentWorkflowArenaCreator::new(deployment.clone()),
+        &DeploymentWorkflowArenaWinnerApplier::new(deployment.clone()),
+    )
+    .await
 }
 
 fn workflow_event_to_sse_event(event: workflow::WorkflowEvent) -> Event {
@@ -2880,6 +3178,8 @@ mod tests {
         assert_eq!(fan_in.status, WorkflowNodeWorkStatus::Pending);
         assert_eq!(fan_in.pending_work_count, 1);
         assert_eq!(view.pending_node_count, 1);
-        assert_eq!(view.completed_node_count, 1);
+        assert_eq!(view.completed_node_count, 0);
+        assert_eq!(view.skipped_node_count, 1);
+        assert_eq!(view.reused_node_count, 0);
     }
 }

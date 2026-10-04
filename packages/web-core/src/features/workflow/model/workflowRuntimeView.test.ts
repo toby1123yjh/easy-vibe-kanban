@@ -79,6 +79,8 @@ describe('workflow runtime view', () => {
       waiting_node_count: 0,
       failed_node_count: 0,
       completed_node_count: 0,
+      reused_node_count: 0,
+      skipped_node_count: 0,
       node_work: [
         {
           node_id: 'agent',
@@ -104,6 +106,7 @@ describe('workflow runtime view', () => {
           can_select_arena_winner: false,
           can_select_condition_branch: false,
           can_cancel_node: false,
+          reused_results: [],
         },
       ],
     } satisfies WorkflowRunRuntimeView;
@@ -233,6 +236,8 @@ describe('workflow runtime view', () => {
       waiting_node_count: 0,
       failed_node_count: 0,
       completed_node_count: 1,
+      reused_node_count: 0,
+      skipped_node_count: 0,
       node_work: [
         {
           node_id: 'approval',
@@ -258,6 +263,7 @@ describe('workflow runtime view', () => {
           can_select_arena_winner: false,
           can_select_condition_branch: false,
           can_cancel_node: false,
+          reused_results: [],
         },
       ],
     } satisfies WorkflowRunRuntimeView;
@@ -286,6 +292,8 @@ describe('workflow runtime view', () => {
       waiting_node_count: 1,
       failed_node_count: 1,
       completed_node_count: 0,
+      reused_node_count: 0,
+      skipped_node_count: 0,
       node_work: [
         {
           node_id: 'failed-agent',
@@ -311,6 +319,7 @@ describe('workflow runtime view', () => {
           can_select_arena_winner: false,
           can_select_condition_branch: false,
           can_cancel_node: false,
+          reused_results: [],
         },
         {
           node_id: 'approval',
@@ -336,6 +345,7 @@ describe('workflow runtime view', () => {
           can_select_arena_winner: false,
           can_select_condition_branch: false,
           can_cancel_node: false,
+          reused_results: [],
         },
       ],
     } satisfies WorkflowRunRuntimeView;

@@ -14,6 +14,7 @@ import {
 import { useWorkflowRunEvents } from '@/shared/hooks/useWorkflowRunEvents';
 import { useWorkflowTemplate } from '@/shared/hooks/useWorkflowTemplates';
 import { cn } from '@/shared/lib/utils';
+import { buildWorkflowRunDashboardSummary } from '../model/workflowRunView';
 import {
   getWorkflowRunActionGate,
   getWorkflowRuntimeView,
@@ -93,7 +94,7 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
     (runActionGate.canCancel && (isCanceling || cancelState !== 'idle'));
   const showCancel =
     runActionGate.canCancel || runActionGate.cancellationPending;
-  const totalNodes = runtimeView.node_work.length;
+  const summary = buildWorkflowRunDashboardSummary(run, runtimeView);
   const statusTone =
     run.status === 'succeeded'
       ? 'text-success'
@@ -152,10 +153,24 @@ export function WorkflowRunPage({ projectId, runId }: WorkflowRunPageProps) {
             </span>
             <span className="text-xs text-low">
               {t('workflow.runPage.progress', {
-                completed: runtimeView.completed_node_count,
-                total: totalNodes,
+                completed: summary.completedSteps,
+                total: summary.freshSteps,
               })}
             </span>
+            {runtimeView.reused_node_count > 0 ? (
+              <span className="text-xs text-brand">
+                {t('workflow.dashboard.reusedCount', {
+                  count: runtimeView.reused_node_count,
+                })}
+              </span>
+            ) : null}
+            {runtimeView.skipped_node_count > 0 ? (
+              <span className="text-xs text-low">
+                {t('workflow.dashboard.skippedCount', {
+                  count: runtimeView.skipped_node_count,
+                })}
+              </span>
+            ) : null}
           </div>
           <WorkspaceContextHeader
             workspaceId={run.workspace_id}

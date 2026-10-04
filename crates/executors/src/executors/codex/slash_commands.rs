@@ -26,6 +26,7 @@ use crate::{
         utils::{SlashCommandCall, parse_slash_command},
     },
     stdout_dup::spawn_local_output_process,
+    workflow_mcp::{ScopedWorkflowMcp, WorkflowMcpReadiness},
 };
 
 const CODEX_INIT_PROMPT: &str = include_str!("init_prompt.md");
@@ -95,6 +96,25 @@ impl CodexSlashCommand {
             _ => None,
         }
     }
+}
+
+fn validate_workflow_slash_command(
+    command: &CodexSlashCommand,
+    workflow_scoped: bool,
+) -> Result<(), ExecutorError> {
+    if workflow_scoped && matches!(command, CodexSlashCommand::Fast { status: false, .. }) {
+        return Err(ExecutorError::Io(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "The workflow main session's runtime configuration is fixed; /fast changes are not allowed. Use /fast status to read the current setting.",
+        )));
+    }
+    Ok(())
+}
+
+fn workflow_diagnostic_session_id(session_id: Option<&str>, workflow_scoped: bool) -> Option<&str> {
+    // A workflow diagnostic must load MCP into the same native continuation,
+    // not register a replacement thread. Ordinary diagnostics need no thread.
+    if workflow_scoped { session_id } else { None }
 }
 
 fn parse_goal_command(arguments: &str) -> CodexGoalCommand {
@@ -458,6 +478,7 @@ impl Codex {
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         if let Some(command) = CodexSlashCommand::parse(prompt) {
+            let workflow_scoped = ScopedWorkflowMcp::from_execution_env(env)?.is_some();
             return match command {
                 CodexSlashCommand::Init => {
                     let init_target = current_dir.join(DEFAULT_PROJECT_DOC_FILENAME);
@@ -503,12 +524,22 @@ impl Codex {
                         .await
                 }
                 CodexSlashCommand::Mcp => {
-                    self.handle_app_server_slash_command(current_dir, command, None, env)
-                        .await
+                    self.handle_app_server_slash_command(
+                        current_dir,
+                        command,
+                        workflow_diagnostic_session_id(session_id, workflow_scoped),
+                        env,
+                    )
+                    .await
                 }
                 CodexSlashCommand::Skills => {
-                    self.handle_app_server_slash_command(current_dir, command, None, env)
-                        .await
+                    self.handle_app_server_slash_command(
+                        current_dir,
+                        command,
+                        workflow_diagnostic_session_id(session_id, workflow_scoped),
+                        env,
+                    )
+                    .await
                 }
                 CodexSlashCommand::Fast { .. } => {
                     self.handle_app_server_slash_command(current_dir, command, session_id, env)
@@ -576,6 +607,12 @@ impl Codex {
         session_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Validate before starting a CLI or issuing global config/batchWrite.
+        // Native slash commands must not bypass the captured Main Session tier.
+        validate_workflow_slash_command(
+            &command,
+            ScopedWorkflowMcp::from_execution_env(env)?.is_some(),
+        )?;
         let command_parts = self.build_command_builder()?.build_initial()?;
         let session_id = session_id.map(|s| s.to_string());
         let (_, session_fast) = resolve_model(self.model.as_deref());
@@ -586,7 +623,35 @@ impl Codex {
             current_dir,
             command_parts,
             env,
-            move |client, exit_signal_tx| async move {
+            move |client, exit_signal_tx, readiness, cancel, prompt_gate| async move {
+                // Scoped commands can resume/compact/change a native thread or
+                // wake a goal. Prepare that execution's MCP just as for chat,
+                // rather than ignoring the gate on this alternate entrypoint.
+                // Ordinary diagnostic commands retain their no-thread behavior.
+                let workflow_thread_id = if readiness.is_some() {
+                    let (thread_id, model) = match session_id.as_ref() {
+                        Some(session_id) => {
+                            let response = client
+                                .thread_resume(resume_params_from(
+                                    session_id.clone(),
+                                    thread_start_params.clone(),
+                                ))
+                                .await?;
+                            (response.thread.id, response.model)
+                        }
+                        None => {
+                            let response = client.thread_start(thread_start_params.clone()).await?;
+                            (response.thread.id, response.model)
+                        }
+                    };
+                    client.set_resolved_model(model);
+                    client.register_session(&thread_id).await?;
+                    Some(thread_id)
+                } else {
+                    None
+                };
+                WorkflowMcpReadiness::wait_optional(readiness, &cancel).await?;
+
                 match command {
                     CodexSlashCommand::Init => {
                         return Err(ExecutorError::Io(std::io::Error::other(
@@ -597,10 +662,19 @@ impl Codex {
                         let old_thread_id = session_id.ok_or_else(|| {
                             ExecutorError::Io(std::io::Error::other("No active session to compact"))
                         })?;
-                        let resume_response = client
-                            .thread_resume(resume_params_from(old_thread_id, thread_start_params))
-                            .await?;
-                        let thread_id = resume_response.thread.id;
+                        let thread_id = match workflow_thread_id {
+                            Some(thread_id) => thread_id,
+                            None => {
+                                client
+                                    .thread_resume(resume_params_from(
+                                        old_thread_id,
+                                        thread_start_params,
+                                    ))
+                                    .await?
+                                    .thread
+                                    .id
+                            }
+                        };
                         tracing::debug!("resumed thread for compact, thread_id={thread_id}");
                         client.thread_compact_start(thread_id).await?;
                     }
@@ -722,6 +796,9 @@ impl Codex {
                     }
                 }
 
+                // This path has no initial chat prompt. Keep scoped steering
+                // blocked until the requested native command has completed.
+                prompt_gate.open();
                 Ok(())
             },
         )
@@ -1403,8 +1480,66 @@ mod tests {
     use super::{
         CodexGoalCommand, CodexPersonalityCommand, CodexSlashCommand, format_goal_details,
         format_rate_limit_reset_credits, format_seconds, format_skills_status,
-        skill_slash_commands, supported_slash_commands,
+        skill_slash_commands, supported_slash_commands, validate_workflow_slash_command,
+        workflow_diagnostic_session_id,
     };
+
+    #[test]
+    fn workflow_codex_diagnostics_retain_bound_native_session_and_leave_ordinary_queries_threadless()
+     {
+        assert_eq!(
+            workflow_diagnostic_session_id(Some("bound-main-native-thread"), true),
+            Some("bound-main-native-thread")
+        );
+        assert_eq!(
+            workflow_diagnostic_session_id(Some("ordinary-native-thread"), false),
+            None
+        );
+        assert_eq!(workflow_diagnostic_session_id(None, false), None);
+        // A first scoped command has no continuation to invent; the handler's
+        // existing scoped-start branch can create the initial native thread.
+        assert_eq!(workflow_diagnostic_session_id(None, true), None);
+    }
+
+    #[test]
+    fn workflow_codex_fast_mutations_are_rejected_before_native_config_writes() {
+        for prompt in [
+            "/fast",
+            "/fast on",
+            "/fast off",
+            "/fast true",
+            "/fast false",
+        ] {
+            let command = CodexSlashCommand::parse(prompt).unwrap();
+            let error = validate_workflow_slash_command(&command, true).unwrap_err();
+            assert!(
+                error.to_string().contains("runtime configuration is fixed"),
+                "{prompt}"
+            );
+            assert!(error.to_string().contains("/fast status"));
+            assert!(
+                validate_workflow_slash_command(&command, false).is_ok(),
+                "ordinary {prompt}"
+            );
+        }
+    }
+
+    #[test]
+    fn workflow_codex_fast_status_and_other_read_only_commands_remain_allowed() {
+        for prompt in ["/fast status", "/status", "/mcp", "/skills"] {
+            let command = CodexSlashCommand::parse(prompt).unwrap();
+            assert!(
+                validate_workflow_slash_command(&command, true).is_ok(),
+                "{prompt}"
+            );
+        }
+        // Personality is not a captured ExecutorConfig field. Do not broaden
+        // this narrowly scoped immutable-tier check into a native-command ban.
+        let personality = CodexSlashCommand::Personality(super::CodexPersonalityCommand::Set(
+            Personality::Friendly,
+        ));
+        assert!(validate_workflow_slash_command(&personality, true).is_ok());
+    }
 
     #[test]
     fn formats_rate_limit_reset_credit_details() {

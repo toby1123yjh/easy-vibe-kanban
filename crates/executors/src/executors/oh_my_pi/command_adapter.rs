@@ -1,5 +1,7 @@
 //! Oh My Pi-native command construction.
 
+use std::path::Path;
+
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -7,6 +9,7 @@ use super::OhMyPi;
 use crate::{
     command::{CommandBuildError, CommandBuilder, apply_overrides},
     executors::provider_adapter::{DirectControl, DirectIntent, encode_stdio_rpc},
+    workflow_mcp::ScopedWorkflowMcp,
 };
 
 pub struct OhMyPiCommandAdapter<'a> {
@@ -37,6 +40,56 @@ impl<'a> OhMyPiCommandAdapter<'a> {
         }
         apply_overrides(builder, &self.agent.cmd)
     }
+}
+
+pub(crate) fn append_workflow_plugin(
+    builder: CommandBuilder,
+    plugin: Option<&Path>,
+) -> CommandBuilder {
+    match plugin {
+        Some(path) => builder.extend_params([
+            "--plugin-dir".to_owned(),
+            path.to_string_lossy().into_owned(),
+        ]),
+        None => builder,
+    }
+}
+
+/// OMP supports legacy Claude-format execution plugins. The portable Agent
+/// Plugins format deliberately forbids absolute commands and treats most env
+/// values as literals, so it is NOT appropriate for the bundled executable or
+/// credential placeholders. Never write an entry to the user's global config.
+pub(crate) fn create_workflow_plugin(
+    config: &ScopedWorkflowMcp,
+) -> Result<tempfile::TempDir, std::io::Error> {
+    let plugin = tempfile::Builder::new()
+        .prefix("vk-workflow-mcp-")
+        .tempdir()?;
+    let manifest_dir = plugin.path().join(".claude-plugin");
+    std::fs::create_dir(&manifest_dir)?;
+    // OMP namespaces servers as <plugin>:<server>, then mints model-facing
+    // mcp__<sanitized-server>_<tool> names with a hard 64-character limit.
+    // Retain the full execution UUID while shortening both namespace parts;
+    // otherwise the context tool's meaningful name is truncated and hashed.
+    let execution_id = config
+        .server_name
+        .strip_prefix(crate::workflow_mcp::SERVER_NAME_PREFIX)
+        .filter(|value| value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| std::io::Error::other("Invalid workflow MCP execution namespace"))?;
+    let manifest = serde_json::json!({"name":format!("vk-{execution_id}"), "version":env!("CARGO_PKG_VERSION")});
+    let native = serde_json::json!({"mcpServers": {"wf": {
+        "type":"stdio", "command":config.executable, "args":config.args(),
+        "env":config.environment_placeholders(), "enabled":true
+    }}});
+    std::fs::write(
+        manifest_dir.join("plugin.json"),
+        serde_json::to_vec(&manifest)?,
+    )?;
+    std::fs::write(
+        plugin.path().join(".mcp.json"),
+        serde_json::to_vec(&native)?,
+    )?;
+    Ok(plugin)
 }
 
 pub(crate) fn encode_control(control: DirectControl) -> Result<Vec<u8>, serde_json::Error> {
@@ -108,5 +161,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(params.last().map(String::as_str), Some("--profile-flag"));
+    }
+
+    #[test]
+    fn workflow_plugin_is_ephemeral_native_config_without_secret_material() {
+        let executable = tempfile::NamedTempFile::new().unwrap();
+        let env = crate::workflow_mcp::test_env(executable.path());
+        let config = ScopedWorkflowMcp::from_execution_env(&env)
+            .unwrap()
+            .unwrap();
+        let plugin = create_workflow_plugin(&config).unwrap();
+        let path = plugin.path().to_owned();
+        let native = std::fs::read_to_string(path.join(".mcp.json")).unwrap();
+        assert!(native.contains("${MCP_WORKFLOW_TOKEN}"));
+        assert!(!native.contains(env.get(crate::workflow_mcp::TOKEN_ENV).unwrap()));
+        assert!(path.join(".claude-plugin/plugin.json").is_file());
+        assert!(!path.join("plugin.json").exists());
+        let manifest: Value = serde_json::from_slice(
+            &std::fs::read(path.join(".claude-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        let plugin_name = manifest["name"].as_str().unwrap();
+        assert_eq!(
+            plugin_name,
+            format!(
+                "vk-{}",
+                config
+                    .server_name
+                    .strip_prefix(crate::workflow_mcp::SERVER_NAME_PREFIX)
+                    .unwrap()
+            )
+        );
+        let native_value: Value = serde_json::from_str(&native).unwrap();
+        assert!(native_value["mcpServers"].get("wf").is_some());
+        let namespace = format!("{}_wf", plugin_name.replace('-', "_"));
+        for tool in crate::workflow_mcp::WORKFLOW_TOOL_NAMES {
+            // Also allow the documented double-separator alias: neither native
+            // spelling needs OMP's truncation/hash fallback.
+            assert!(format!("mcp__{namespace}__{tool}").len() <= 64);
+        }
+        let builder = append_workflow_plugin(CommandBuilder::new("omp"), Some(&path));
+        assert_eq!(builder.params.as_ref().unwrap()[0], "--plugin-dir");
+        drop(plugin);
+        assert!(!path.exists());
     }
 }

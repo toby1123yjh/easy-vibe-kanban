@@ -24,11 +24,16 @@ use super::{IntegrationCaller, authorize_project, project_root, request_hash, re
 use crate::{
     DeploymentImpl,
     error::ApiError,
-    routes::workflows::{
-        self, RunWorkflowAttemptRequest, WorkflowAttemptResponse, WorkflowRunResponse,
+    routes::{
+        workflow_management::WorkflowManagementApiError,
+        workflows::{self, WorkflowAttemptResponse, WorkflowRunResponse},
     },
     workflow_runtime::{
         arena::{DeploymentWorkflowArenaCreator, DeploymentWorkflowArenaWinnerApplier},
+        management::{
+            self, WorkflowActivePolicy, WorkflowManagementCaller, WorkflowSubmission,
+            WorkflowSubmissionAction, WorkflowSubmissionScope,
+        },
         runner::{
             self, DeploymentAgentRunReconciliationBoundary, DeploymentWorkflowAgentExecutor,
             DeploymentWorkflowRunCanceller, WorkflowWorkspaceRequest, WorkflowWorkspaceResolver,
@@ -70,7 +75,7 @@ pub struct ExternalWorkflowRun {
     pub file_changes: WorkflowFileChangeSummary,
 }
 
-#[derive(Debug, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct WorkflowInteraction {
     pub id: Uuid,
     pub run_id: Uuid,
@@ -82,7 +87,7 @@ pub struct WorkflowInteraction {
     pub arena_candidate_ids: Vec<Uuid>,
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkflowInteractionResponse {
     Approve,
@@ -185,8 +190,8 @@ async fn create_attempt(
     let scope = format!("{project_id}:{issue_id}");
     // Reservation and business identities are one transaction. Filesystem setup
     // may be retried without re-creating the Issue Task or copying old sessions.
-    let mut tx = pool.begin().await?;
-    let reserved = IntegrationRequest::reserve(
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let mut reserved = IntegrationRequest::reserve(
         &mut tx,
         caller.id,
         "workflow_attempt",
@@ -209,8 +214,8 @@ async fn create_attempt(
                 "External integration project access was revoked".into(),
             ));
         }
-        let template=sqlx::query("SELECT graph_json,name,revision,source FROM workflows WHERE id=? AND external_enabled=1 AND id NOT IN(SELECT workflow_id FROM workflow_attempts)")
-            .bind(request.template_id).fetch_optional(&mut *tx).await?
+        let template=sqlx::query("SELECT graph_json,name,revision,source,main_agent_config_json,main_agent_prompt FROM workflows WHERE id=? AND (project_id IS NULL OR project_id=?) AND external_enabled=1 AND id NOT IN(SELECT workflow_id FROM workflow_attempts)")
+            .bind(request.template_id).bind(project_id).fetch_optional(&mut *tx).await?
             .ok_or_else(||ApiError::BadRequest("Workflow is not enabled for external calls".into()))?;
         if template.try_get::<String, _>("source")? == "system"
             && !workflows::built_in_workflow_ids()?.contains(&request.template_id)
@@ -218,6 +223,18 @@ async fn create_attempt(
             return Err(ApiError::BadRequest(
                 "Workflow template is no longer available".into(),
             ));
+        }
+        if let Some(existing)=sqlx::query("SELECT a.id,a.workflow_id,s.template_id FROM workflow_attempts a LEFT JOIN workflow_attempt_sources s ON s.attempt_id=a.id WHERE a.issue_id=?")
+            .bind(issue_id).fetch_optional(&mut *tx).await? {
+            if existing.try_get::<Option<Uuid>,_>("template_id")?.unwrap_or(existing.try_get("workflow_id")?)!=request.template_id {
+                return Err(ApiError::Conflict("INSTANCE_BINDING_CONFLICT: Issue already has a different workflow instance".into()));
+            }
+            reserved.resource_id=existing.try_get("id")?;
+            sqlx::query("UPDATE external_integration_requests SET resource_id=? WHERE integration_id=? AND operation='workflow_attempt' AND scope=? AND request_key=?")
+                .bind(reserved.resource_id).bind(caller.id).bind(&scope).bind(&key).execute(&mut *tx).await?;
+            IntegrationRequest::complete(&mut tx,caller.id,"workflow_attempt",&scope,&key).await?;
+            tx.commit().await?;
+            return Ok(Json(ApiResponse::success(bind_attempt_space(&deployment,reserved.resource_id,&root).await?)));
         }
         let mut graph: WorkflowGraph =
             serde_json::from_str(&template.try_get::<String, _>("graph_json")?)
@@ -235,16 +252,23 @@ async fn create_attempt(
             .filter(|s| !s.trim().is_empty())
             .map(str::to_owned)
             .unwrap_or(template.try_get("name")?);
+        let backing_id = Uuid::new_v4();
         workflows::insert_workflow_attempt(
             &mut tx,
             reserved.resource_id,
-            Uuid::new_v4(),
+            backing_id,
             project_id,
             issue_id,
             name,
             graph_json,
         )
         .await?;
+        sqlx::query("UPDATE workflows SET main_agent_config_json=?,main_agent_prompt=? WHERE id=?")
+            .bind(template.try_get::<Option<String>, _>("main_agent_config_json")?)
+            .bind(template.try_get::<Option<String>, _>("main_agent_prompt")?)
+            .bind(backing_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("INSERT INTO workflow_attempt_sources(attempt_id,template_id,template_revision) VALUES(?,?,?)")
             .bind(reserved.resource_id).bind(request.template_id).bind(template.try_get::<i64,_>("revision")?).execute(&mut *tx).await?;
         IntegrationRequest::complete(&mut tx, caller.id, "workflow_attempt", &scope, &key).await?;
@@ -395,6 +419,12 @@ async fn submit_run(
         }
     }
     tx.commit().await?;
+    let management_caller = WorkflowManagementCaller::Instance {
+        instance_id: attempt_id,
+        namespace: format!("integration:{}", caller.id),
+        integration_id: Some(caller.id),
+    };
+    management::verify_management_caller(pool, &management_caller).await?;
     if accepted {
         return Ok((
             StatusCode::ACCEPTED,
@@ -405,42 +435,32 @@ async fn submit_run(
     }
     let root = project_root(&deployment, project_id).await?;
     let attempt = bind_attempt_space(&deployment, attempt.id, &root).await?;
-    let mut materials = Vec::new();
-    for path in &request.material_paths {
-        let relative = super::files::relative_path(path)?;
-        let target = tokio::fs::canonicalize(root.join(&relative))
-            .await
-            .map_err(|_| ApiError::BadRequest("Material path does not exist".into()))?;
-        if !target.starts_with(&root) {
-            return Err(ApiError::BadRequest(
-                "Material path leaves the project directory".into(),
-            ));
-        }
-        materials.push(relative.to_string_lossy().replace('\\', "/"));
-    }
-    let input = if materials.is_empty() {
-        request.input_text
-    } else {
-        format!(
-            "{}\n\nProject-relative materials:\n{}",
-            request.input_text,
-            materials.join("\n")
-        )
-    };
-    let run = workflows::accept_workflow_attempt(
+    let accepted = management::submit_workflow(
         pool,
-        reserved.resource_id,
-        attempt_id,
-        RunWorkflowAttemptRequest {
-            directory_path: Some(root.to_string_lossy().into_owned()),
-            workspace_id: attempt.workspace_id,
-            trigger_source: "external".into(),
-            input_text: input,
-            repos: None,
+        &management_caller,
+        WorkflowSubmission {
+            request_id: key.clone(),
+            action: if attempt.latest_run_id.is_some() {
+                WorkflowSubmissionAction::Rework
+            } else {
+                WorkflowSubmissionAction::Start
+            },
+            input_text: Some(request.input_text),
+            material_paths: request.material_paths,
+            source_run_id: attempt.latest_run_id,
+            source_node_execution_id: None,
+            scope: WorkflowSubmissionScope::All,
+            active_policy: attempt
+                .latest_run_id
+                .map(|_| WorkflowActivePolicy::AfterCurrent),
+            source_message_id: None,
         },
-        &DeploymentWorkflowWorkspaceResolver::new(deployment.clone()),
+        Some(reserved.resource_id),
+        "external",
     )
     .await?;
+    let run = runner::get_workflow_run_response(pool, accepted.run_id).await?;
+    workflows::sync_attempt_from_run(pool, &run).await?;
     let mut tx = pool.begin().await?;
     IntegrationRequest::complete(&mut tx, caller.id, "workflow_run", &scope, &key).await?;
     tx.commit().await?;
@@ -484,15 +504,21 @@ async fn cancel_run(
     State(deployment): State<DeploymentImpl>,
     Extension(caller): Extension<IntegrationCaller>,
     Path((project_id, issue_id, run_id)): Path<(Uuid, Uuid, Uuid)>,
-) -> Result<Json<ApiResponse<WorkflowRunResponse>>, ApiError> {
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<WorkflowRunResponse>>, WorkflowManagementApiError> {
     ensure_run(&deployment.db().pool, &caller, project_id, issue_id, run_id).await?;
-    let run = runner::cancel_workflow_run_runtime(
-        &deployment.db().pool,
+    let pool = &deployment.db().pool;
+    let scoped = integration_run_caller(pool, &caller, run_id).await?;
+    let key = workflows::workflow_operation_key(&headers, format!("cancel:{run_id}"))?;
+    management::stop_workflow(
+        pool,
+        &scoped,
         run_id,
+        &key,
         &DeploymentWorkflowRunCanceller::new(deployment.clone()),
     )
     .await?;
-    workflows::sync_attempt_from_run(&deployment.db().pool, &run).await?;
+    let run = runner::get_workflow_run_response(pool, run_id).await?;
     Ok(Json(ApiResponse::success(run)))
 }
 
@@ -503,38 +529,7 @@ async fn interactions(
 ) -> Result<Json<ApiResponse<Vec<WorkflowInteraction>>>, ApiError> {
     let pool = &deployment.db().pool;
     ensure_run(pool, &caller, project_id, issue_id, run_id).await?;
-    let rows=sqlx::query("SELECT n.id,n.node_id,n.iteration,n.node_type,n.output_text FROM node_executions n JOIN workflow_runs r ON r.id=n.run_id WHERE n.run_id=? AND n.node_type IN ('human_gate','condition','arena') AND n.status IN ('awaiting_human','awaiting_arena') AND r.status IN ('running','awaiting_human','awaiting_arena') AND NOT EXISTS(SELECT 1 FROM workflow_interaction_responses a WHERE a.node_execution_id=n.id) ORDER BY n.created_at,n.id")
-        .bind(run_id).fetch_all(pool).await?;
-    let graph_json: String =
-        sqlx::query_scalar("SELECT graph_snapshot FROM workflow_runs WHERE id=?")
-            .bind(run_id)
-            .fetch_one(pool)
-            .await?;
-    let graph: WorkflowGraph = serde_json::from_str(&graph_json)
-        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-    let mut result = Vec::with_capacity(rows.len());
-    for row in rows {
-        let node_id: String = row.try_get("node_id")?;
-        let execution_id: Uuid = row.try_get("id")?;
-        let arena_candidate_ids: Vec<Uuid> = sqlx::query_scalar("SELECT c.id FROM arena_candidates c JOIN node_executions n ON n.arena_group_id=c.arena_group_id WHERE n.id=? ORDER BY c.id")
-            .bind(execution_id).fetch_all(pool).await?;
-        let branch_targets = graph
-            .edges
-            .iter()
-            .filter(|edge| edge.source == node_id)
-            .map(|edge| edge.target.clone())
-            .collect();
-        result.push(WorkflowInteraction {
-            id: row.try_get("id")?,
-            run_id,
-            node_id,
-            iteration: row.try_get("iteration")?,
-            node_type: row.try_get("node_type")?,
-            output_text: row.try_get("output_text")?,
-            branch_targets,
-            arena_candidate_ids,
-        });
-    }
+    let result = management::list_run_interactions(pool, run_id).await?;
     Ok(Json(ApiResponse::success(result)))
 }
 
@@ -542,64 +537,49 @@ async fn respond(
     State(deployment): State<DeploymentImpl>,
     Extension(caller): Extension<IntegrationCaller>,
     Path((project_id, issue_id, run_id, interaction_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+    headers: HeaderMap,
     Json(response): Json<WorkflowInteractionResponse>,
-) -> Result<Json<ApiResponse<WorkflowRunResponse>>, ApiError> {
+) -> Result<Json<ApiResponse<WorkflowRunResponse>>, WorkflowManagementApiError> {
     let pool = &deployment.db().pool;
     ensure_run(pool, &caller, project_id, issue_id, run_id).await?;
-    let node_id: String =
-        sqlx::query_scalar("SELECT node_id FROM node_executions WHERE id=? AND run_id=?")
-            .bind(interaction_id)
+    let executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
+    let arena = DeploymentWorkflowArenaCreator::new(deployment.clone());
+    let scoped = integration_run_caller(pool, &caller, run_id).await?;
+    let request_id =
+        workflows::workflow_operation_key(&headers, format!("response:{interaction_id}"))?;
+    let run = management::respond_to_workflow(
+        pool,
+        &scoped,
+        management::WorkflowManagementInteractionRequest {
+            run_id,
+            node_execution_id: interaction_id,
+            request_id,
+            response,
+        },
+        &executor,
+        &arena,
+        &DeploymentWorkflowArenaWinnerApplier::new(deployment.clone()),
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(run)))
+}
+
+async fn integration_run_caller(
+    pool: &SqlitePool,
+    caller: &IntegrationCaller,
+    run_id: Uuid,
+) -> Result<WorkflowManagementCaller, ApiError> {
+    let instance_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT attempt_id FROM workflow_runs WHERE id=?")
             .bind(run_id)
             .fetch_optional(pool)
             .await?
-            .ok_or_else(|| ApiError::Conflict("Workflow interaction is unavailable".into()))?;
-    let executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
-    let arena = DeploymentWorkflowArenaCreator::new(deployment.clone());
-    let run = match response {
-        WorkflowInteractionResponse::Approve => {
-            runner::approve_human_node_at(
-                pool,
-                run_id,
-                &node_id,
-                Some(interaction_id),
-                &executor,
-                &arena,
-            )
-            .await?
-        }
-        WorkflowInteractionResponse::Reject => {
-            runner::reject_human_node_at(pool, run_id, &node_id, Some(interaction_id)).await?
-        }
-        WorkflowInteractionResponse::SelectBranch {
-            selected_target_node_ids,
-            reason,
-        } => {
-            runner::select_condition_branch_at(
-                pool,
-                run_id,
-                &node_id,
-                Some(interaction_id),
-                selected_target_node_ids,
-                reason,
-                &executor,
-                &arena,
-            )
-            .await?
-        }
-        WorkflowInteractionResponse::SelectArenaWinner { candidate_id } => {
-            runner::select_arena_winner_at(
-                pool,
-                run_id,
-                &node_id,
-                Some(interaction_id),
-                candidate_id,
-                &executor,
-                &arena,
-                &DeploymentWorkflowArenaWinnerApplier::new(deployment.clone()),
-            )
-            .await?
-        }
-    };
-    workflows::sync_attempt_from_run(pool, &run).await?;
-    Ok(Json(ApiResponse::success(run)))
+            .flatten();
+    let instance_id = instance_id
+        .ok_or_else(|| ApiError::Conflict("Workflow Run has no bound instance".into()))?;
+    Ok(WorkflowManagementCaller::Instance {
+        instance_id,
+        namespace: format!("integration:{}", caller.id),
+        integration_id: Some(caller.id),
+    })
 }

@@ -66,6 +66,42 @@ export type WorkflowInteraction = { id: string, run_id: string, node_id: string,
 
 export type WorkflowInteractionResponse = { "action": "approve" } | { "action": "reject" } | { "action": "select_branch", selected_target_node_ids: Array<string>, reason: string | null, } | { "action": "select_arena_winner", candidate_id: string, };
 
+export type PrepareWorkflowMainSessionRequest = { project_id: string, workflow_id: string, request_id: string, issue_id?: string, };
+
+export type WorkflowContextView = { project_id: string, main_session_id: string, workflow_id: string, workflow_name: string, main_agent_config: ExecutorConfig, main_agent_prompt: string, prepared_issue_id: string | null, issue_id: string | null, instance_id: string | null, workspace_id: string, latest_run_id: string | null, definition_locked_at: string | null, allowed_actions: Array<string>, };
+
+export type WorkflowMainSessionView = { session: Session, context: WorkflowContextView, };
+
+export type WorkflowSubmissionScope = { "type": "all" } | { "type": "from_nodes", node_ids: Array<string>, };
+
+export type WorkflowSubmissionAction = "start" | "retry" | "rework";
+
+export type WorkflowActivePolicy = "after_current" | "stop_then_run";
+
+export type WorkflowSubmission = { request_id: string, action: WorkflowSubmissionAction, input_text?: string, material_paths: Array<string>, source_run_id?: string, source_node_execution_id?: string, scope: WorkflowSubmissionScope, active_policy?: WorkflowActivePolicy, source_message_id?: string, };
+
+export type AcceptedWorkflowSubmission = { request_id: string, project_id: string, issue_id: string, instance_id: string, run_id: string, phase: string, };
+
+export type WorkflowStopView = { run_id: string, instance_id: string, status: WorkflowRunStatus, stop_status: WorkflowStopStatus, affected_run_ids: Array<string>, unresolved_source_run_ids: Array<string>, };
+
+export type WorkflowStopStatus = "not_requested" | "requested" | "confirmed" | "unreachable";
+
+export type WorkflowNotificationView = { id: string, sequence: number, instance_id: string, run_id: string, main_session_id: string | null, event_key: string, kind: string, node_execution_id: string | null, interaction_id: string | null, observed_status: string, summary: string, created_at: string, current_status: string, is_resolved: boolean, };
+
+export type WorkflowNotificationPage = { notifications: Array<WorkflowNotificationView>, next_cursor: number | null, };
+
+export type WorkflowReuseView = { node_id: string, iteration: number, source_node_execution_id: string, source_run_id: string, output_text: string | null, };
+
+export type WorkflowInstanceView = { instance: WorkflowAttemptResponse, graph_json: string, runs: Array<WorkflowRunResponse>, reuse: Array<WorkflowReuseView>, skipped_node_ids: Array<string>, interactions: Array<WorkflowInteraction>, notifications: Array<WorkflowNotificationView>, next_cursor: number | null, };
+
+export type WorkflowCallableTemplatePage = { workflows: Array<WorkflowTemplateResponse>, next_cursor: number | null, };
+
+export type WorkflowManagementInteractionRequest = { run_id: string, node_execution_id: string, request_id: string, } & ({ "action": "approve" } | { "action": "reject" } | { "action": "select_branch", selected_target_node_ids: Array<string>, reason: string | null, } | { "action": "select_arena_winner", candidate_id: string, });
+
+export type StopWorkflowRequest = { run_id: string, request_id: string, };
+
+export type WorkflowManagementError = { code: string, message: string, };
+
 export type Repo = { id: string, path: string, name: string, display_name: string, setup_script: string | null, cleanup_script: string | null, archive_script: string | null, copy_files: string | null, parallel_setup_script: boolean, dev_server_script: string | null, default_target_branch: string | null, default_working_dir: string | null, created_at: Date, updated_at: Date, };
 
 export type Project = { id: string, name: string, default_agent_working_dir: string | null, remote_project_id: string | null, created_at: Date, updated_at: Date, };
@@ -335,13 +371,13 @@ export type ArenaWorkspaceExecutorConfig = { workspace_id: string, executor_conf
 
 export type ArenaMessageRequest = { target: ArenaMessageTarget, prompt: string, executor_config: ExecutorConfig, executor_configs: Array<ArenaWorkspaceExecutorConfig>, };
 
-export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: number, external_enabled: boolean, created_at: string, updated_at: string, };
+export type WorkflowTemplateResponse = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: number, external_enabled: boolean, main_agent_config: ExecutorConfig | null, main_agent_prompt: string | null, created_at: string, updated_at: string, };
 
 export type WorkflowTemplateListResponse = { workflows: Array<WorkflowTemplateResponse>, };
 
 export type CreateWorkflowRequest = { name: string, description: string | null, graph_json: string, };
 
-export type UpdateWorkflowRequest = { expected_revision: number, name: string | null, description: string | null, graph_json: string | null, };
+export type UpdateWorkflowRequest = { expected_revision: number, name: string | null, description: string | null, graph_json: string | null, main_agent_config?: ExecutorConfig, main_agent_prompt?: string, };
 
 export type WorkflowRevisionConflict = { workflow_id: string, expected_revision: number, current_revision: number, };
 
@@ -355,17 +391,21 @@ export type SelectArenaWinnerRequest = { candidate_id: string, node_execution_id
 
 export type SelectConditionBranchRequest = { node_execution_id: string, selected_target_node_ids: Array<string>, reason?: string, };
 
-export type WorkflowAttemptResponse = { id: string, project_id: string, issue_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
+export type WorkflowAttemptResponse = { id: string, project_id: string, issue_id: string, workflow_id: string, template_id: string | null, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, main_session_id: string | null, main_session_bound_at: string | null, definition_locked_at: string | null, created_at: string, updated_at: string, };
 
 export type WorkflowAttemptListResponse = { attempts: Array<WorkflowAttemptResponse>, };
 
 export type WorkflowRuntimeHealth = "ok" | "starting" | "slow" | "projection_degraded" | "unknown";
 
-export type WorkflowNodeWorkStatus = "pending" | "starting" | "running" | "awaiting_human" | "awaiting_arena" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped";
+export type WorkflowNodeWorkStatus = "pending" | "starting" | "running" | "awaiting_human" | "awaiting_arena" | "cancelling" | "succeeded" | "failed" | "cancelled" | "skipped" | "reused";
 
-export type WorkflowNodeWorkView = { node_id: string, node_type: string, iteration: bigint, status: WorkflowNodeWorkStatus, pending_work_count: number, starting_child_count: number, active_execution_id: string | null, active_session_id: string | null, orchestration_node_execution_id: string | null, active_agent_run_id: string | null, projection_status: ProjectionStatus | null, active_started_at: string | null, active_elapsed_ms: number | null, active_slow: boolean, active_slow_threshold_ms: number, runtime_health: WorkflowRuntimeHealth, can_open_session: boolean, can_retry: boolean, can_approve: boolean, can_reject: boolean, can_select_arena_winner: boolean, can_select_condition_branch: boolean, can_cancel_node: boolean, };
+export type WorkflowNodeWorkView = { node_id: string, node_type: string, iteration: bigint, status: WorkflowNodeWorkStatus, pending_work_count: number, starting_child_count: number, active_execution_id: string | null, active_session_id: string | null, orchestration_node_execution_id: string | null, active_agent_run_id: string | null, projection_status: ProjectionStatus | null, active_started_at: string | null, active_elapsed_ms: number | null, active_slow: boolean, active_slow_threshold_ms: number, runtime_health: WorkflowRuntimeHealth, can_open_session: boolean, can_retry: boolean, can_approve: boolean, can_reject: boolean, can_select_arena_winner: boolean, can_select_condition_branch: boolean, can_cancel_node: boolean,
+/**
+ * Read-only exact source results, never fabricated executions of this Run.
+ */
+reused_results: Array<WorkflowReuseView>, };
 
-export type WorkflowRunRuntimeView = { run_id: string, status: WorkflowRunStatus, active_node_count: number, pending_node_count: number, waiting_node_count: number, failed_node_count: number, completed_node_count: number, node_work: Array<WorkflowNodeWorkView>, };
+export type WorkflowRunRuntimeView = { run_id: string, status: WorkflowRunStatus, active_node_count: number, pending_node_count: number, waiting_node_count: number, failed_node_count: number, completed_node_count: number, reused_node_count: number, skipped_node_count: number, node_work: Array<WorkflowNodeWorkView>, };
 
 export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, queue_phase?: string, };
 

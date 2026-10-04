@@ -119,6 +119,8 @@ export function getWorkflowNodeExecutionForWork(
   if (!work) return null;
   const canonicalWork = work as CanonicalWorkflowNodeWorkView;
   if (canonicalWork.runtime_authority !== 'current') return null;
+  // Reuse is a reference to an earlier Run, never a current execution row.
+  if (canonicalWork.status === 'reused') return null;
 
   const orchestrationNodeExecutionId =
     canonicalWork.orchestration_node_execution_id;
@@ -168,7 +170,11 @@ export function getWorkflowNodeActionGate(
     | CanonicalWorkflowNodeWorkView
     | null
     | undefined;
-  if (canonicalWork?.runtime_authority !== 'current') {
+  if (
+    canonicalWork?.runtime_authority !== 'current' ||
+    canonicalWork.status === 'reused' ||
+    canonicalWork.status === 'skipped'
+  ) {
     return {
       canOpenSession: false,
       canRetry: false,
@@ -253,7 +259,12 @@ export function getWorkflowNodeTaskTarget(
     | CanonicalWorkflowNodeWorkView
     | null
     | undefined;
-  if (!execution?.task_id || canonicalWork?.runtime_authority !== 'current') {
+  if (
+    !execution?.task_id ||
+    canonicalWork?.runtime_authority !== 'current' ||
+    canonicalWork.status === 'reused' ||
+    canonicalWork.status === 'skipped'
+  ) {
     return null;
   }
 
@@ -352,9 +363,11 @@ function buildFallbackWorkflowRuntimeView(
     waiting_node_count: nodeWork.filter(isWaitingWorkflowNodeWork).length,
     failed_node_count: nodeWork.filter((work) => work.status === 'failed')
       .length,
-    completed_node_count: nodeWork.filter(
-      (work) => work.status === 'succeeded' || work.status === 'skipped'
-    ).length,
+    completed_node_count: nodeWork.filter((work) => work.status === 'succeeded')
+      .length,
+    reused_node_count: 0,
+    skipped_node_count: nodeWork.filter((work) => work.status === 'skipped')
+      .length,
     node_work: nodeWork,
     authority: 'unknown',
   };
@@ -375,7 +388,10 @@ function normalizeBackendRuntimeView(
       projectionStatus === 'rebuilding' ||
       (canonicalWork.runtime_health as string) === 'projection_degraded'
         ? 'degraded'
-        : hasCanonicalIdentity || canonicalWork.node_type !== 'agent'
+        : hasCanonicalIdentity ||
+            canonicalWork.node_type !== 'agent' ||
+            canonicalWork.status === 'reused' ||
+            canonicalWork.status === 'skipped'
           ? 'current'
           : 'unknown';
 
@@ -451,6 +467,7 @@ function buildFallbackNodeWorkView(
     can_select_arena_winner: false,
     can_select_condition_branch: false,
     can_cancel_node: false,
+    reused_results: [],
     runtime_authority: 'unknown',
   };
 }

@@ -16,6 +16,7 @@ import {
   CheckCircle,
   Clock,
   ExternalLink,
+  History,
   Swords,
   User,
 } from 'lucide-react';
@@ -816,6 +817,7 @@ function WorkflowRunNodeDetailsDialog({
   const isGateActionPending = gatePending && gateSubmission?.nodeId === node.id;
   const output = execution?.output_text?.trim();
   const error = execution?.error_text?.trim();
+  const reusedResults = work?.status === 'reused' ? work.reused_results : [];
   const waitingPrompt =
     work?.status === 'awaiting_human' || work?.status === 'awaiting_arena'
       ? output || t('workflow.runCanvas.reviewNodeToProceed')
@@ -889,7 +891,53 @@ function WorkflowRunNodeDetailsDialog({
           </section>
         ) : null}
 
-        {!execution ? (
+        {work?.status === 'reused' ? (
+          <section aria-labelledby="workflow-reused-results-heading">
+            <h3
+              id="workflow-reused-results-heading"
+              className="text-xs font-semibold text-high"
+            >
+              {t('workflow.runCanvas.reusedResults')}
+            </h3>
+            <p className="mt-half text-xs text-low">
+              {t('workflow.runCanvas.reusedResultsHint')}
+            </p>
+            <div className="mt-base space-y-base">
+              {reusedResults.map((result) => (
+                <article
+                  key={`${result.source_run_id}:${result.source_node_execution_id}:${result.iteration}`}
+                  className="space-y-half rounded border border-secondary bg-primary p-base"
+                  data-testid="workflow-run-reused-result"
+                >
+                  <h4 className="text-xs font-medium text-high">
+                    {t('workflow.runCanvas.reusedIteration', {
+                      iteration: result.iteration,
+                    })}
+                  </h4>
+                  <pre className="whitespace-pre-wrap break-words text-xs text-high">
+                    {result.output_text ??
+                      t('workflow.runCanvas.noSourceOutput')}
+                  </pre>
+                  <details className="rounded border border-secondary">
+                    <summary className="cursor-pointer px-half py-half text-xs text-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                      {t('workflow.runCanvas.reuseSource')}
+                    </summary>
+                    <div className="space-y-half border-t border-secondary p-half">
+                      <MetadataRow label={t('workflow.runCanvas.sourceRunId')}>
+                        {result.source_run_id}
+                      </MetadataRow>
+                      <MetadataRow
+                        label={t('workflow.runCanvas.sourceExecutionId')}
+                      >
+                        {result.source_node_execution_id}
+                      </MetadataRow>
+                    </div>
+                  </details>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : !execution ? (
           <p className="text-xs text-low">
             {t('workflow.runCanvas.nodeNotExecuted')}
           </p>
@@ -1157,6 +1205,8 @@ function getRuntimeStatusIcon(
       );
     case 'succeeded':
       return <CheckCircle className="h-4 w-4 text-success" />;
+    case 'reused':
+      return <History className="h-4 w-4 text-brand" />;
     case 'failed':
       return <AlertCircle className="h-4 w-4 text-error" />;
     case 'awaiting_human':

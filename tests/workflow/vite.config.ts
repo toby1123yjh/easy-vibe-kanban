@@ -14,6 +14,8 @@ export default defineConfig({
       '@tanstack/react-router': `${repoRoot}/packages/web-core/node_modules/@tanstack/react-router`,
       '@xyflow/react': `${repoRoot}/packages/web-core/node_modules/@xyflow/react`,
       'lucide-react': `${repoRoot}/packages/web-core/node_modules/lucide-react`,
+      'react-hotkeys-hook': `${repoRoot}/packages/web-core/node_modules/react-hotkeys-hook`,
+      'react-i18next': `${repoRoot}/packages/web-core/node_modules/react-i18next`,
       react: `${repoRoot}/packages/web-core/node_modules/react`,
       'react-dom': `${repoRoot}/packages/web-core/node_modules/react-dom`,
       shared: `${repoRoot}/shared`,

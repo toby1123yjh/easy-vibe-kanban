@@ -24,7 +24,7 @@ mod tests {
             CREATE TABLE workflow_run_queue(sequence INTEGER PRIMARY KEY AUTOINCREMENT,run_id BLOB UNIQUE,project_id BLOB,phase TEXT DEFAULT 'queued');
             CREATE TABLE workflow_project_slots(project_id BLOB PRIMARY KEY,run_id BLOB UNIQUE);
             CREATE TABLE orchestration_runs(id BLOB,source_definition_id BLOB,product_kind TEXT);
-            CREATE TABLE node_executions(run_id BLOB,status TEXT,arena_group_id BLOB);
+            CREATE TABLE node_executions(run_id BLOB,status TEXT,arena_group_id BLOB,finished_at TEXT);
             CREATE TABLE orchestration_agent_run_links(orchestration_run_id BLOB,agent_run_id BLOB);
             CREATE TABLE agent_run_state(agent_run_id BLOB,status TEXT);
             CREATE TABLE agent_run_attempts(id BLOB,agent_run_id BLOB);
@@ -126,11 +126,6 @@ mod tests {
                 .run_id,
             third
         );
-        assert!(
-            !WorkflowQueueEntry::acquire_retry(&pool, first)
-                .await
-                .unwrap()
-        );
     }
 
     #[tokio::test]
@@ -201,51 +196,154 @@ mod tests {
                 .unwrap()
         );
     }
+
+    #[tokio::test]
+    async fn audit_failure_releases_only_after_confirmed_process_exit() {
+        let pool = pool().await;
+        let project = Uuid::new_v4();
+        let failed = enqueue(&pool, project).await;
+        let successor = enqueue(&pool, project).await;
+        assert_eq!(
+            WorkflowQueueEntry::claim_next(&pool)
+                .await
+                .unwrap()
+                .unwrap()
+                .run_id,
+            failed
+        );
+        sqlx::query("UPDATE workflow_runs SET status='failed' WHERE id=?")
+            .bind(failed)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let agent = Uuid::new_v4();
+        let attempt = Uuid::new_v4();
+        sqlx::query("INSERT INTO orchestration_agent_run_links VALUES (?,?)")
+            .bind(failed)
+            .bind(agent)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO agent_run_state VALUES (?,'audit_failed')")
+            .bind(agent)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO agent_run_attempts VALUES (?,?)")
+            .bind(attempt)
+            .bind(agent)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // A terminal audit failure does not establish process absence. Both
+        // missing and unreachable registry facts must retain the project slot.
+        assert!(
+            !WorkflowQueueEntry::release_terminal(&pool, failed)
+                .await
+                .unwrap()
+        );
+        sqlx::query("INSERT INTO agent_process_registry VALUES (?,'unreachable')")
+            .bind(attempt)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            !WorkflowQueueEntry::release_terminal(&pool, failed)
+                .await
+                .unwrap()
+        );
+        assert!(
+            WorkflowQueueEntry::claim_next(&pool)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        sqlx::query(
+            "UPDATE agent_process_registry SET registry_status='exited' WHERE run_attempt_id=?",
+        )
+        .bind(attempt)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            WorkflowQueueEntry::release_terminal(&pool, failed)
+                .await
+                .unwrap()
+        );
+        let status: String = sqlx::query_scalar("SELECT status FROM workflow_runs WHERE id=?")
+            .bind(failed)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "failed");
+        let child_status: String =
+            sqlx::query_scalar("SELECT status FROM agent_run_state WHERE agent_run_id=?")
+                .bind(agent)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(child_status, "audit_failed");
+        assert_eq!(
+            WorkflowQueueEntry::claim_next(&pool)
+                .await
+                .unwrap()
+                .unwrap()
+                .run_id,
+            successor
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_parent_retains_slot_for_unresolved_human_node() {
+        let pool = pool().await;
+        let run = enqueue(&pool, Uuid::new_v4()).await;
+        WorkflowQueueEntry::claim_next(&pool).await.unwrap();
+        sqlx::query("UPDATE workflow_runs SET status='failed' WHERE id=?")
+            .bind(run)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO node_executions(run_id,status) VALUES (?,'awaiting_human')")
+            .bind(run)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            !WorkflowQueueEntry::release_terminal(&pool, run)
+                .await
+                .unwrap()
+        );
+        sqlx::query("UPDATE node_executions SET status='cancelled' WHERE run_id=?")
+            .bind(run)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            WorkflowQueueEntry::release_terminal(&pool, run)
+                .await
+                .unwrap()
+        );
+    }
 }
 
 impl WorkflowQueueEntry {
-    /// A retry may reuse its occupied slot, but cannot overtake queued work or
-    /// restart a completed run while another run owns the project directory.
-    pub async fn acquire_retry(pool: &SqlitePool, run_id: Uuid) -> Result<bool, sqlx::Error> {
-        let mut tx = pool.begin().await?;
-        let queued: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_run_queue WHERE run_id=?)")
-                .bind(run_id)
-                .fetch_one(&mut *tx)
-                .await?;
-        if !queued {
-            return Ok(true);
-        }
-        sqlx::query("INSERT INTO workflow_project_slots(project_id,run_id) SELECT q.project_id,q.run_id FROM workflow_run_queue q WHERE q.run_id=? AND NOT EXISTS(SELECT 1 FROM workflow_run_queue other WHERE other.project_id=q.project_id AND other.run_id<>q.run_id AND other.phase IN ('queued','starting','active')) ON CONFLICT DO NOTHING")
-            .bind(run_id).execute(&mut *tx).await?;
-        let owned: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM workflow_project_slots WHERE run_id=?)",
-        )
-        .bind(run_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if owned {
-            sqlx::query("UPDATE workflow_run_queue SET phase='active' WHERE run_id=?")
-                .bind(run_id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("UPDATE workflow_runs SET status='running', finished_at=NULL WHERE id=? AND status='failed'")
-                .bind(run_id).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(owned)
-    }
-
     /// Claim is a single write transaction. A second dispatcher cannot overtake
     /// the oldest request or acquire a project already held by another run.
     pub async fn claim_next(pool: &SqlitePool) -> Result<Option<Self>, sqlx::Error> {
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         let claimed: Option<Uuid> = sqlx::query_scalar(
             "INSERT INTO workflow_project_slots(project_id, run_id)
              SELECT q.project_id, q.run_id FROM workflow_run_queue q
              JOIN workflow_runs r ON r.id = q.run_id
              WHERE q.phase = 'queued' AND r.status = 'pending'
                AND NOT EXISTS (SELECT 1 FROM workflow_project_slots s WHERE s.project_id = q.project_id)
+               AND NOT EXISTS (
+                   SELECT 1 FROM workflow_run_queue earlier
+                   WHERE earlier.project_id=q.project_id AND earlier.sequence<q.sequence
+                     AND earlier.phase IN ('queued','waiting_for_source','stopping_source','starting','active')
+               )
                AND NOT EXISTS (
                    SELECT 1 FROM workflow_runs other JOIN local_issues i ON i.id = other.issue_id
                    WHERE i.project_id = q.project_id AND other.id <> q.run_id
@@ -267,12 +365,14 @@ impl WorkflowQueueEntry {
     }
 
     pub async fn cancel_queued(pool: &SqlitePool, run_id: Uuid) -> Result<bool, sqlx::Error> {
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         let changed = sqlx::query(
-            "UPDATE workflow_run_queue SET phase = 'finished' WHERE run_id = ? AND phase = 'queued'",
-        ).bind(run_id).execute(&mut *tx).await?.rows_affected() == 1;
+            "UPDATE workflow_run_queue SET phase = 'finished' WHERE run_id = ? AND phase IN ('queued','waiting_for_source','stopping_source') AND EXISTS(SELECT 1 FROM workflow_runs WHERE id=? AND status='pending')",
+        ).bind(run_id).bind(run_id).execute(&mut *tx).await?.rows_affected() == 1;
         if changed {
             sqlx::query("UPDATE workflow_runs SET status = 'canceled', finished_at = datetime('now','subsec'), updated_at = datetime('now','subsec') WHERE id = ? AND status = 'pending'")
+                .bind(run_id).execute(&mut *tx).await?;
+            sqlx::query("UPDATE node_executions SET status='cancelled',finished_at=datetime('now','subsec') WHERE run_id=? AND status='pending'")
                 .bind(run_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
@@ -295,19 +395,20 @@ impl WorkflowQueueEntry {
                  SELECT 1 FROM orchestration_agent_run_links l
                  LEFT JOIN agent_run_state a ON a.agent_run_id = l.agent_run_id
                  WHERE l.orchestration_run_id IN (SELECT id FROM owned_runs)
-                   AND (a.agent_run_id IS NULL OR a.status NOT IN ('succeeded','failed','cancelled','crashed'))
+                   AND (a.agent_run_id IS NULL OR a.status NOT IN ('succeeded','failed','cancelled','crashed','audit_failed'))
              )
              AND NOT EXISTS (
                  SELECT 1 FROM orchestration_agent_run_links l
                  JOIN agent_run_attempts a ON a.agent_run_id=l.agent_run_id
-                 JOIN agent_process_registry p ON p.run_attempt_id=a.id
-                 WHERE l.orchestration_run_id IN (SELECT id FROM owned_runs) AND p.registry_status<>'exited'
+                 LEFT JOIN agent_process_registry p ON p.run_attempt_id=a.id
+                 WHERE l.orchestration_run_id IN (SELECT id FROM owned_runs)
+                   AND (p.run_attempt_id IS NULL OR p.registry_status<>'exited')
              )
              AND NOT EXISTS (
                  SELECT 1 FROM orchestration_outbox o WHERE o.orchestration_run_id IN (SELECT id FROM owned_runs)
                    AND o.delivery_status IN ('pending','delivering')
              )
-             AND NOT EXISTS (SELECT 1 FROM node_executions n WHERE n.run_id = ?1 AND n.status IN ('running','cancelling','awaiting_arena'))",
+             AND NOT EXISTS (SELECT 1 FROM node_executions n WHERE n.run_id = ?1 AND n.status IN ('running','cancelling','awaiting_human','awaiting_arena'))",
         ).bind(run_id).execute(&mut *tx).await?.rows_affected() == 1;
         if released {
             sqlx::query("UPDATE workflow_run_queue SET phase = 'finished' WHERE run_id = ?")

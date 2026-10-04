@@ -31,7 +31,7 @@ use workspace_utils::{
 
 use self::{
     client::{AUTO_APPROVE_CALLBACK_ID, ClaudeAgentClient, STOP_GIT_CHECK_CALLBACK_ID},
-    protocol::ProtocolPeer,
+    protocol::{ProtocolPeer, StartupFailureSignal},
     types::{ControlRequestType, ControlResponseType, PermissionMode},
 };
 use crate::{
@@ -745,6 +745,16 @@ impl ClaudeCode {
         command_parts: CommandParts,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
+        let workflow_mcp = crate::workflow_mcp::ScopedWorkflowMcp::from_execution_env(env)?;
+        let command_parts =
+            command_adapter::append_workflow_mcp(command_parts, workflow_mcp.as_ref());
+        let mut launch_env = env.clone().with_profile(&self.cmd);
+        let readiness = crate::workflow_mcp::WorkflowMcpReadiness::start(&mut launch_env).await?;
+        let workflow_scoped = readiness.is_some();
+        let startup_deadline = readiness
+            .as_ref()
+            .map(crate::workflow_mcp::WorkflowMcpReadiness::startup_deadline);
+        let prompt_gate = crate::workflow_mcp::WorkflowPromptGate::new(workflow_scoped);
         let (program_path, args) = command_parts.into_resolved().await?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
 
@@ -758,9 +768,7 @@ impl ClaudeCode {
             .env("NPM_CONFIG_LOGLEVEL", "error")
             .args(&args);
 
-        env.clone()
-            .with_profile(&self.cmd)
-            .apply_to_command(&mut command);
+        launch_env.apply_to_command(&mut command);
 
         // Remove ANTHROPIC_API_KEY if disable_api_key is enabled
         if self.disable_api_key.unwrap_or(false) {
@@ -792,38 +800,59 @@ impl ClaudeCode {
             env.commit_reminder_prompt.clone(),
             cancel.clone(),
         );
-        let protocol_peer =
-            ProtocolPeer::spawn(child_stdin, child_stdout, client.clone(), cancel.clone());
-        let control = Arc::new(protocol_peer.clone());
+        let (startup_failure, exit_signal) = if workflow_scoped {
+            let (signal, receiver) = StartupFailureSignal::channel();
+            (Some(signal), Some(receiver))
+        } else {
+            (None, None)
+        };
+        let protocol_peer = ProtocolPeer::spawn(
+            child_stdin,
+            child_stdout,
+            client.clone(),
+            cancel.clone(),
+            startup_failure,
+        );
+        let control = prompt_gate.wrap(Arc::new(protocol_peer.clone()));
+        let cancel_for_startup = cancel.clone();
 
         // Spawn task to initialize the SDK client and send the first message.
         let prompt_clone = combined_prompt.clone();
         tokio::spawn(async move {
-            // Initialize control protocol
-            if let Err(e) = protocol_peer.initialize(hooks).await {
-                tracing::error!("Failed to initialize control protocol: {e}");
-                let _ = log_writer
-                    .log_raw(&format!("Error: Failed to initialize - {e}"))
-                    .await;
-                return;
-            }
+            let startup_result = crate::workflow_mcp::WorkflowMcpReadiness::bound_startup(
+                startup_deadline,
+                &cancel_for_startup,
+                async {
+                    protocol_peer.initialize(hooks).await?;
+                    crate::workflow_mcp::WorkflowMcpReadiness::wait_optional(
+                        readiness,
+                        &cancel_for_startup,
+                    )
+                    .await?;
+                    if let Err(e) = protocol_peer.set_permission_mode(permission_mode).await {
+                        tracing::warn!("Failed to set permission mode to {permission_mode}: {e}");
+                    }
+                    protocol_peer.send_user_message(prompt_clone).await?;
+                    prompt_gate.open();
+                    Ok::<(), ExecutorError>(())
+                },
+            )
+            .await
+            .and_then(|result| result);
 
-            if let Err(e) = protocol_peer.set_permission_mode(permission_mode).await {
-                tracing::warn!("Failed to set permission mode to {permission_mode}: {e}");
-            }
-
-            // Send user message
-            if let Err(e) = protocol_peer.send_user_message(prompt_clone).await {
-                tracing::error!("Failed to send prompt: {e}");
-                let _ = log_writer
-                    .log_raw(&format!("Error: Failed to send prompt - {e}"))
-                    .await;
+            if let Err(error) = startup_result {
+                protocol_peer.fail_startup().await;
+                if workflow_scoped {
+                    cancel_for_startup.cancel();
+                }
+                tracing::error!("Claude startup failed: {error}");
+                let _ = log_writer.log_raw(&format!("Error: {error}")).await;
             }
         });
 
         Ok(SpawnedChild {
             child,
-            exit_signal: None,
+            exit_signal,
             cancel: Some(cancel),
             control: Some(control),
         })

@@ -127,7 +127,10 @@ impl Gemini {
         prompt: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let harness = AcpAgentHarness::new();
+        let (env, readiness) = command_adapter::prepare_workflow_launch(env, &self.cmd).await?;
+        let harness = AcpAgentHarness::new()
+            .with_mcp_servers(command_adapter::workflow_mcp_servers(&env)?)
+            .with_workflow_readiness(readiness);
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder()?.build_initial()?;
         let approvals = if self.yolo.unwrap_or(false) {
@@ -140,7 +143,7 @@ impl Gemini {
                 current_dir,
                 combined_prompt,
                 gemini_command,
-                env,
+                &env,
                 &self.cmd,
                 approvals,
             )
@@ -154,7 +157,10 @@ impl Gemini {
         session_id: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let harness = AcpAgentHarness::new();
+        let (env, readiness) = command_adapter::prepare_workflow_launch(env, &self.cmd).await?;
+        let harness = AcpAgentHarness::new()
+            .with_mcp_servers(command_adapter::workflow_mcp_servers(&env)?)
+            .with_workflow_readiness(readiness);
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder()?.build_follow_up(&[])?;
         let approvals = if self.yolo.unwrap_or(false) {
@@ -168,7 +174,7 @@ impl Gemini {
                 combined_prompt,
                 session_id,
                 gemini_command,
-                env,
+                &env,
                 &self.cmd,
                 approvals,
             )
@@ -182,7 +188,10 @@ impl Gemini {
         session_id: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let harness = AcpAgentHarness::new();
+        let (env, readiness) = command_adapter::prepare_workflow_launch(env, &self.cmd).await?;
+        let harness = AcpAgentHarness::new()
+            .with_mcp_servers(command_adapter::workflow_mcp_servers(&env)?)
+            .with_workflow_readiness(readiness);
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
         let gemini_command = self.build_command_builder()?.build_initial()?;
         let approvals = if self.yolo.unwrap_or(false) {
@@ -196,7 +205,7 @@ impl Gemini {
                 combined_prompt,
                 session_id,
                 gemini_command,
-                env,
+                &env,
                 &self.cmd,
                 approvals,
             )

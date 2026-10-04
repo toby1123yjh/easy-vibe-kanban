@@ -3,6 +3,7 @@ pub mod graph;
 pub mod handlers;
 pub mod planner;
 pub mod ports;
+pub mod rework;
 pub mod runner;
 pub mod templates;
 pub mod transform;

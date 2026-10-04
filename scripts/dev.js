@@ -13,6 +13,8 @@ const PROCESS_HOST_FILENAME =
   process.platform === "win32"
     ? "agent-process-host.exe"
     : "agent-process-host";
+const WORKFLOW_MCP_FILENAME =
+  process.platform === "win32" ? "vibe-kanban-mcp.exe" : "vibe-kanban-mcp";
 
 function defaultCargoCommand() {
   if (process.platform === "win32" && process.env.USERPROFILE) {
@@ -38,6 +40,18 @@ function targetDirectory(env) {
 
 function processHostPath(env) {
   return path.join(targetDirectory(env), "debug", PROCESS_HOST_FILENAME);
+}
+
+function workflowMcpPath(env) {
+  return path.join(targetDirectory(env), "debug", WORKFLOW_MCP_FILENAME);
+}
+
+function auxiliaryBuildArgs(env) {
+  const args = ["build", "-p", "mcp", "--bin", "vibe-kanban-mcp"];
+  if (!configuredProcessHost(env)) {
+    args.push("-p", "local-deployment", "--bin", "agent-process-host");
+  }
+  return args;
 }
 
 function isFile(filePath) {
@@ -108,30 +122,30 @@ function run(command, args, env) {
 }
 
 async function ensureProcessHost(env) {
-  if (configuredProcessHost(env)) return;
-
   const result = await run(
     CARGO_COMMAND,
-    ["build", "-p", "local-deployment", "--bin", "agent-process-host"],
+    auxiliaryBuildArgs(env),
     env,
   );
   if (result.code !== 0) {
     throw new Error(
-      `agent-process-host build failed${result.signal ? ` (${result.signal})` : ""}`,
+      `Agent runtime auxiliary build failed${result.signal ? ` (${result.signal})` : ""}`,
     );
   }
 
   const hostPath = processHostPath(env);
-  if (!isFile(hostPath)) {
+  if (!configuredProcessHost(env) && !isFile(hostPath)) {
     throw new Error(`agent-process-host was not produced at ${hostPath}`);
+  }
+  const mcpPath = workflowMcpPath(env);
+  if (!isFile(mcpPath)) {
+    throw new Error(`vibe-kanban-mcp was not produced at ${mcpPath}`);
   }
 }
 
 function backendWatchArgs(env) {
   const args = ["watch", "-w", "crates"];
-  if (!configuredProcessHost(env)) {
-    args.push("-x", "build -p local-deployment --bin agent-process-host");
-  }
+  args.push("-x", auxiliaryBuildArgs(env).join(" "));
   args.push("-x", "run --bin server");
   return args;
 }
@@ -149,7 +163,7 @@ async function startBackend(env) {
   }
 
   console.warn(
-    "cargo-watch is unavailable; building agent-process-host once and running server without file watching.",
+    "cargo-watch is unavailable; building agent-process-host and workflow MCP once and running server without file watching.",
   );
   const result = await run(CARGO_COMMAND, ["run", "--bin", "server"], env);
   process.exitCode = result.code ?? 1;
@@ -247,6 +261,8 @@ module.exports = {
   backendWatchArgs,
   configuredProcessHost,
   processHostPath,
+  workflowMcpPath,
+  auxiliaryBuildArgs,
   targetDirectory,
   withDevelopmentEnvironment,
   resolveDevelopmentPorts,

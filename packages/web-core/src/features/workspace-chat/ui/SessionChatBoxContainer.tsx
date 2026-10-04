@@ -523,6 +523,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     variantOptions,
     presetOptions,
     isConfigLoading,
+    configurationLocked,
     configError,
     refetchConfig,
     needsExecutorSelection,
@@ -1267,6 +1268,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           onOverrideChange={setExecutorOverrides}
           executorConfig={executorConfig}
           presetOptions={presetOptions}
+          readOnly={configurationLocked}
         />
       )}
       {stagedResumeSession && (
@@ -1463,7 +1465,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       localAttachments={localAttachments}
       dropzone={{ getRootProps, getInputProps, isDragActive }}
       modelSelector={modelSelectorNode}
-      resumeSelector={needsExecutorSelection ? undefined : resumePickerNode}
+      resumeSelector={
+        needsExecutorSelection || configurationLocked
+          ? undefined
+          : resumePickerNode
+      }
     />
   );
 }

@@ -1,4 +1,4 @@
-use mcp::task_server::McpServer;
+use mcp::task_server::{McpServer, WorkflowLaunchContext};
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{EnvFilter, prelude::*};
 use utils::{
@@ -13,6 +13,7 @@ const PORT_ENV: &str = "MCP_PORT";
 enum McpLaunchMode {
     Global,
     Orchestrator,
+    Workflow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,12 +32,21 @@ fn main() -> anyhow::Result<()> {
             let version = env!("CARGO_PKG_VERSION");
             init_process_logging("vibe-kanban-mcp", version);
 
-            let base_url = resolve_base_url("vibe-kanban-mcp").await?;
             let LaunchConfig { mode } = launch_config;
+            let base_url = if mode == McpLaunchMode::Workflow {
+                // Workflow launch is explicit and cannot fall back to port/cwd discovery.
+                std::env::var("VIBE_BACKEND_URL")
+                    .map_err(|_| anyhow::anyhow!("Workflow mode requires VIBE_BACKEND_URL"))?
+            } else {
+                resolve_base_url("vibe-kanban-mcp").await?
+            };
 
             let server = match mode {
                 McpLaunchMode::Global => McpServer::new_global(&base_url),
                 McpLaunchMode::Orchestrator => McpServer::new_orchestrator(&base_url),
+                McpLaunchMode::Workflow => {
+                    McpServer::new_workflow(&base_url, WorkflowLaunchContext::from_environment()?)?
+                }
             };
 
             let service = server.init().await?.serve(stdio()).await.map_err(|error| {
@@ -63,16 +73,22 @@ where
         match arg.as_str() {
             "--mode" => {
                 mode = Some(args.next().ok_or_else(|| {
-                    anyhow::anyhow!("Missing value for --mode. Expected 'global' or 'orchestrator'")
+                    anyhow::anyhow!(
+                        "Missing value for --mode. Expected 'global', 'orchestrator' or 'workflow'"
+                    )
                 })?);
             }
             "-h" | "--help" => {
-                println!("Usage: vibe-kanban-mcp --mode <global|orchestrator>");
+                println!("Usage: vibe-kanban-mcp --mode <global|orchestrator|workflow>");
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("vibe-kanban-mcp {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             _ => {
                 return Err(anyhow::anyhow!(
-                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp --mode <global|orchestrator>"
+                    "Unknown argument '{arg}'. Usage: vibe-kanban-mcp --mode <global|orchestrator|workflow>"
                 ));
             }
         }
@@ -87,9 +103,10 @@ where
     {
         "global" => McpLaunchMode::Global,
         "orchestrator" => McpLaunchMode::Orchestrator,
+        "workflow" => McpLaunchMode::Workflow,
         value => {
             return Err(anyhow::anyhow!(
-                "Invalid MCP mode '{value}'. Expected 'global' or 'orchestrator'"
+                "Invalid MCP mode '{value}'. Expected 'global', 'orchestrator' or 'workflow'"
             ));
         }
     };

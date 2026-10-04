@@ -34,6 +34,10 @@ import {
   UserSystemContext,
   type UserSystemContextType,
 } from '../../../../packages/web-core/src/shared/hooks/useUserSystem';
+import {
+  WorkflowManagementHarness,
+  WorkflowManagementNavigationProbe,
+} from './workflow-management';
 
 // The workflow fixture renders the production node inspector, including the
 // executor/model controls. Keep the harness self-contained by providing the
@@ -208,10 +212,12 @@ function WorkflowCanvasHarness() {
       ...baseGraph,
       version: legacyGraphMode ? 1 : baseGraph.version,
       edges: legacyGraphMode
-        ? baseGraph.edges.map(
-            ({ source_handle: _source, target_handle: _target, ...edge }) =>
-              edge
-          )
+        ? baseGraph.edges.map((edge) => {
+            const legacyEdge = { ...edge };
+            delete legacyEdge.source_handle;
+            delete legacyEdge.target_handle;
+            return legacyEdge;
+          })
         : baseGraph.edges,
     });
   });
@@ -562,13 +568,20 @@ function TaskAttemptsHarness() {
 const mode = new URLSearchParams(window.location.search).get('mode');
 
 const routerRootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: () => (
+    <>
+      <WorkflowManagementNavigationProbe />
+      <Outlet />
+    </>
+  ),
 });
 const routerIndexRoute = createRoute({
   getParentRoute: () => routerRootRoute,
   path: '/',
   component: () =>
-    mode === 'entry' ? (
+    mode?.startsWith('management') ? (
+      <WorkflowManagementHarness />
+    ) : mode === 'entry' ? (
       <WorkflowEntryHarness />
     ) : mode === 'task-attempts' ? (
       <TaskAttemptsHarness />
@@ -576,8 +589,36 @@ const routerIndexRoute = createRoute({
       <WorkflowCanvasHarness />
     ),
 });
+const workspaceRoute = createRoute({
+  getParentRoute: () => routerRootRoute,
+  path: '/workspaces/$workspaceId',
+  validateSearch: (search: Record<string, unknown>) => ({
+    session_id:
+      typeof search.session_id === 'string' ? search.session_id : undefined,
+  }),
+  component: () => (
+    <div data-testid="prepared-workspace">Prepared Session destination</div>
+  ),
+});
+const remoteWorkspaceRoute = createRoute({
+  getParentRoute: () => routerRootRoute,
+  path: '/hosts/$hostId/workspaces/$workspaceId',
+  validateSearch: (search: Record<string, unknown>) => ({
+    session_id:
+      typeof search.session_id === 'string' ? search.session_id : undefined,
+  }),
+  component: () => (
+    <div data-testid="prepared-workspace">
+      Prepared remote Session destination
+    </div>
+  ),
+});
 const router = createRouter({
-  routeTree: routerRootRoute.addChildren([routerIndexRoute]),
+  routeTree: routerRootRoute.addChildren([
+    routerIndexRoute,
+    workspaceRoute,
+    remoteWorkspaceRoute,
+  ]),
   history: createMemoryHistory({ initialEntries: ['/'] }),
 });
 

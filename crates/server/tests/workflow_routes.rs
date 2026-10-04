@@ -16,8 +16,7 @@ use server::{
         create_issue_workflow_attempt_with_resources, create_project_workflow,
         delete_issue_workflow_attempt, delete_workflow_template, fallback_node_executions_payload,
         fallback_workflow_runs_payload, fallback_workflows_payload, get_workflow_template,
-        list_project_workflows, run_workflow_attempt_runtime,
-        run_workflow_attempt_runtime_with_arena, sync_attempt_from_run, update_workflow_template,
+        list_project_workflows, sync_attempt_from_run, update_workflow_template,
         workflow_attempt_by_id, workflow_attempt_by_workflow_id,
     },
     workflow_runtime::{
@@ -39,6 +38,55 @@ use server::{
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use ts_rs::TS;
 use uuid::Uuid;
+
+// Production helpers only accept; these fixtures explicitly play the existing
+// dispatcher role with fake ports after a successful queue claim.
+async fn run_workflow_attempt_runtime<W: WorkflowWorkspaceResolver, A: WorkflowAgentExecutor>(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    request: RunWorkflowAttemptRequest,
+    resolver: &W,
+    agent: &A,
+) -> Result<WorkflowRunResponse, ApiError> {
+    run_workflow_attempt_runtime_with_arena(
+        pool,
+        attempt_id,
+        request,
+        resolver,
+        agent,
+        &NoopWorkflowArenaCreator,
+    )
+    .await
+}
+
+async fn run_workflow_attempt_runtime_with_arena<
+    W: WorkflowWorkspaceResolver,
+    A: WorkflowAgentExecutor,
+    R: WorkflowArenaCreator,
+>(
+    pool: &SqlitePool,
+    attempt_id: Uuid,
+    request: RunWorkflowAttemptRequest,
+    resolver: &W,
+    agent: &A,
+    arena: &R,
+) -> Result<WorkflowRunResponse, ApiError> {
+    let accepted = server::routes::workflows::run_workflow_attempt_runtime_with_arena(
+        pool, attempt_id, request, resolver, agent, arena,
+    )
+    .await?;
+    let entry = db::models::workflow_queue::WorkflowQueueEntry::claim_next(pool)
+        .await?
+        .expect("fixture dispatcher claims accepted work");
+    assert_eq!(entry.run_id, accepted.id);
+    server::workflow_runtime::runner::start_accepted_workflow_run(pool, accepted.id, agent, arena)
+        .await?;
+    let run =
+        server::workflow_runtime::runner::get_workflow_run_response(pool, accepted.id).await?;
+    sync_attempt_from_run(pool, &run).await?;
+    db::models::workflow_queue::WorkflowQueueEntry::release_terminal(pool, run.id).await?;
+    Ok(run)
+}
 
 async fn setup_workflow_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -239,6 +287,12 @@ async fn setup_workflow_pool() -> SqlitePool {
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+        "#,
+        r#"
+        CREATE TABLE session_project_memberships (
+            session_id BLOB PRIMARY KEY,
+            project_id BLOB NOT NULL
         )
         "#,
         r#"
@@ -525,6 +579,12 @@ async fn setup_workflow_pool() -> SqlitePool {
     .execute(&pool)
     .await
     .expect("apply workflow integration schema");
+    sqlx::raw_sql(include_str!(
+        "../../db/migrations/20261003000000_workflow_management.sql"
+    ))
+    .execute(&pool)
+    .await
+    .expect("apply workflow management schema");
 
     pool
 }
@@ -2121,6 +2181,8 @@ async fn update_system_template_returns_forbidden() {
             name: Some("Changed".to_string()),
             description: None,
             graph_json: None,
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await;
@@ -2146,6 +2208,8 @@ async fn update_project_workflow_accepts_parseable_draft_graph() {
             name: None,
             description: None,
             graph_json: Some(unreachable_draft_graph_json()),
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await
@@ -2173,6 +2237,8 @@ async fn concurrent_workflow_updates_from_one_revision_allow_one_writer() {
             name: Some("First writer".to_string()),
             description: None,
             graph_json: None,
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await
@@ -2187,6 +2253,8 @@ async fn concurrent_workflow_updates_from_one_revision_allow_one_writer() {
             name: Some("Second writer".to_string()),
             description: None,
             graph_json: None,
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await
@@ -2254,6 +2322,8 @@ async fn revision_conflict_does_not_create_agent_sessions() {
             name: Some("Winning writer".to_string()),
             description: None,
             graph_json: None,
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await
@@ -2267,6 +2337,8 @@ async fn revision_conflict_does_not_create_agent_sessions() {
             name: Some("Losing writer".to_string()),
             description: None,
             graph_json: Some(agent_graph_json()),
+            main_agent_config: None,
+            main_agent_prompt: None,
         },
     )
     .await;
@@ -2515,7 +2587,10 @@ async fn accepted_workflow_runs_keep_snapshot_fifo_and_stable_node_sessions() {
     use db::models::workflow_queue::WorkflowQueueEntry;
     use server::{
         routes::workflows::accept_workflow_attempt,
-        workflow_runtime::runner::{get_workflow_run_response, start_accepted_workflow_run},
+        workflow_runtime::{
+            management::resolve_waiting_submissions,
+            runner::{get_workflow_run_response, start_accepted_workflow_run},
+        },
     };
 
     let pool = setup_workflow_pool().await;
@@ -2537,39 +2612,67 @@ async fn accepted_workflow_runs_keep_snapshot_fifo_and_stable_node_sessions() {
     .await
     .unwrap();
     let workspace = FakeWorkspaceResolver::new(&pool, Uuid::new_v4());
-    let request = || RunWorkflowAttemptRequest {
+    let request = |input: &str| RunWorkflowAttemptRequest {
         directory_path: None,
         workspace_id: None,
         trigger_source: "manual".into(),
-        input_text: "Original input".into(),
+        input_text: input.into(),
         repos: None,
     };
     let first_id = Uuid::new_v4();
-    let first = accept_workflow_attempt(&pool, first_id, attempt.id, request(), &workspace)
-        .await
-        .unwrap();
+    let first = accept_workflow_attempt(
+        &pool,
+        first_id,
+        attempt.id,
+        request("Original input"),
+        &workspace,
+    )
+    .await
+    .unwrap();
     assert_eq!(first.status, WorkflowRunStatus::Pending);
     assert_eq!(first.queue_phase.as_deref(), Some("queued"));
     assert!(first.started_at.is_none());
     assert!(first.orchestration_run_id.is_none());
     let second_id = Uuid::new_v4();
-    let second = accept_workflow_attempt(&pool, second_id, attempt.id, request(), &workspace)
-        .await
-        .unwrap();
+    let second = accept_workflow_attempt(
+        &pool,
+        second_id,
+        attempt.id,
+        request("Follow-up input"),
+        &workspace,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.status, WorkflowRunStatus::Pending);
+    assert_eq!(second.queue_phase.as_deref(), Some("waiting_for_source"));
+    assert!(second.nodes.is_empty());
+    assert!(second.started_at.is_none());
+    assert!(second.orchestration_run_id.is_none());
+    let snapshot: String =
+        sqlx::query_scalar("SELECT graph_snapshot FROM workflow_runs WHERE id=?")
+            .bind(first_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let first_sequence: i64 =
+        sqlx::query_scalar("SELECT sequence FROM workflow_run_queue WHERE run_id=?")
+            .bind(first_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let second_sequence: i64 =
+        sqlx::query_scalar("SELECT sequence FROM workflow_run_queue WHERE run_id=?")
+            .bind(second_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(first_sequence < second_sequence);
     let first_node = first
         .nodes
         .iter()
         .find(|node| node.node_id == "agent")
         .unwrap();
-    let second_node = second
-        .nodes
-        .iter()
-        .find(|node| node.node_id == "agent")
-        .unwrap();
     assert!(first_node.session_id.is_some());
-    assert_eq!(first_node.session_id, second_node.session_id);
-    assert_eq!(first_node.task_id, second_node.task_id);
-    assert_ne!(first_node.id, second_node.id);
 
     // Editing/turning off the source after acceptance must not rewrite queued work.
     sqlx::query("UPDATE workflows SET graph_json=?, external_enabled=0 WHERE id=?")
@@ -2578,9 +2681,15 @@ async fn accepted_workflow_runs_keep_snapshot_fifo_and_stable_node_sessions() {
         .execute(&pool)
         .await
         .unwrap();
-    let retry = accept_workflow_attempt(&pool, first_id, attempt.id, request(), &workspace)
-        .await
-        .unwrap();
+    let retry = accept_workflow_attempt(
+        &pool,
+        first_id,
+        attempt.id,
+        request("Original input"),
+        &workspace,
+    )
+    .await
+    .unwrap();
     assert_eq!(retry.id, first_id);
     assert_eq!(retry.nodes.len(), first.nodes.len());
     assert_eq!(
@@ -2626,6 +2735,47 @@ async fn accepted_workflow_runs_keep_snapshot_fifo_and_stable_node_sessions() {
             .await
             .unwrap()
     );
+    // The accepted dependent has no actual work until the source outcome and
+    // release boundary settle. Readiness fixes its plan without changing FIFO.
+    assert!(
+        WorkflowQueueEntry::claim_next(&pool)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    resolve_waiting_submissions(&pool).await.unwrap();
+    let second = get_workflow_run_response(&pool, second_id).await.unwrap();
+    assert_eq!(second.queue_phase.as_deref(), Some("queued"));
+    assert_eq!(finished.input_text, "Original input");
+    assert_eq!(second.input_text, "Follow-up input");
+    assert!(second.started_at.is_none());
+    assert!(second.orchestration_run_id.is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT sequence FROM workflow_run_queue WHERE run_id=?")
+            .bind(second_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        second_sequence
+    );
+    for run_id in [first_id, second_id] {
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT graph_snapshot FROM workflow_runs WHERE id=?")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            snapshot
+        );
+    }
+    let second_node = second
+        .nodes
+        .iter()
+        .find(|node| node.node_id == "agent")
+        .expect("ready full rework materializes an actual Agent Node");
+    assert_eq!(first_node.session_id, second_node.session_id);
+    assert_eq!(first_node.task_id, second_node.task_id);
+    assert_ne!(first_node.id, second_node.id);
     assert_eq!(
         WorkflowQueueEntry::claim_next(&pool)
             .await
@@ -4183,7 +4333,7 @@ async fn workflow_human_cancel_marks_run_canceled_and_stops_running_session() {
 }
 
 #[tokio::test]
-async fn workflow_human_retry_failed_agent_node_resumes_without_rerunning_start() {
+async fn standalone_agent_retry_is_rejected_without_resetting_historical_execution() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
@@ -4232,25 +4382,20 @@ async fn workflow_human_retry_failed_agent_node_resumes_without_rerunning_start(
         NodeExecutionStatus::Failed
     );
 
-    let retried = retry_workflow_node(&pool, failed.id, "agent", &agent)
+    let before = serde_json::to_value(&failed).unwrap();
+    let rejected = retry_workflow_node(&pool, failed.id, "agent", &agent).await;
+    assert!(
+        matches!(rejected,Err(ApiError::Conflict(message)) if message.contains("stable Workflow instance"))
+    );
+    assert_eq!(agent.requests().len(), 1);
+    let preserved = server::workflow_runtime::runner::get_workflow_run_response(&pool, failed.id)
         .await
-        .expect("retry agent node");
-
-    assert_eq!(retried.status, WorkflowRunStatus::Succeeded);
-    assert_eq!(agent.requests().len(), 2);
-    assert_eq!(
-        node_status(&retried.nodes, "start"),
-        NodeExecutionStatus::Succeeded
-    );
-    assert_eq!(
-        node_status(&retried.nodes, "agent"),
-        NodeExecutionStatus::Succeeded
-    );
-    assert_eq!(retried.output_text.as_deref(), Some("retry succeeded"));
+        .unwrap();
+    assert_eq!(serde_json::to_value(preserved).unwrap(), before);
 }
 
 #[tokio::test]
-async fn workflow_human_retry_failed_transform_node_uses_immutable_run_snapshot() {
+async fn standalone_transform_retry_never_falls_back_to_a_mutated_publication() {
     let pool = setup_workflow_pool().await;
     let project_id = Uuid::new_v4();
     let issue_id = Uuid::new_v4();
@@ -4313,14 +4458,9 @@ async fn workflow_human_retry_failed_transform_node_uses_immutable_run_snapshot(
         .await
         .expect("fix transform workflow");
 
-    let retried = retry_workflow_node(&pool, failed.id, "transform", &agent)
-        .await
-        .expect("retry transform node");
-
-    assert_eq!(retried.status, WorkflowRunStatus::Failed);
-    assert_eq!(
-        node_status(&retried.nodes, "transform"),
-        NodeExecutionStatus::Failed
+    let rejected = retry_workflow_node(&pool, failed.id, "transform", &agent).await;
+    assert!(
+        matches!(rejected,Err(ApiError::Conflict(message)) if message.contains("stable Workflow instance"))
     );
     let snapshot_after_retry: String =
         sqlx::query_scalar("SELECT graph_snapshot FROM workflow_runs WHERE id = ?")

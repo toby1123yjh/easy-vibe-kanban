@@ -3,7 +3,7 @@ import {
   useWorkflowTemplateMutations,
 } from '@/shared/hooks/useWorkflowTemplates';
 import { useScheduledTasks } from '@/shared/hooks/useScheduledTasks';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createDefaultWorkflowGraph } from '../model/workflowGraph';
 import { shouldShowWorkflowTemplate } from '../model/workflowTemplateVisibility';
@@ -26,6 +26,7 @@ import {
 import { getWorkflowDefaultGraphLabels } from './workflowI18n';
 import { ScheduledTaskDialog } from './ScheduledTaskDialog';
 import { WorkflowExternalAccessSwitch } from './WorkflowExternalAccessSwitch';
+import { WorkflowMainAgentDialog } from './WorkflowMainAgentDialog';
 
 export interface WorkflowTemplateListPageProps {
   projectId: string;
@@ -42,6 +43,9 @@ export function WorkflowTemplateListPage({
   });
   const { createTemplate, isCreating } = useWorkflowTemplateMutations();
   const navigation = useAppNavigation();
+  const [mainAgentWorkflowId, setMainAgentWorkflowId] = useState<string | null>(
+    null
+  );
 
   const handleCreate = async () => {
     const defaultGraph = createDefaultWorkflowGraph(
@@ -100,9 +104,20 @@ export function WorkflowTemplateListPage({
   }
 
   const templates = (data?.workflows ?? []).filter(shouldShowWorkflowTemplate);
+  const mainAgentTemplate = templates.find(
+    (workflow) => workflow.id === mainAgentWorkflowId
+  );
 
   return (
     <div className="flex h-full flex-col bg-primary p-base">
+      {mainAgentTemplate ? (
+        <WorkflowMainAgentDialog
+          key={mainAgentTemplate.id}
+          projectId={projectId}
+          template={mainAgentTemplate}
+          onClose={() => setMainAgentWorkflowId(null)}
+        />
+      ) : null}
       <div className="mb-base flex items-center justify-between">
         <h1 className="text-xl font-semibold text-high">
           {t('workflow.templates.title')}
@@ -173,6 +188,7 @@ export function WorkflowTemplateListPage({
                 className="group flex min-h-[172px] cursor-pointer flex-col gap-3 rounded-lg border border-secondary bg-panel p-4 text-left shadow-sm transition-all duration-200 hover:border-brand hover:shadow-md focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
                 onClick={() => handleOpen(template.id)}
                 onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     handleOpen(template.id);
@@ -209,6 +225,18 @@ export function WorkflowTemplateListPage({
                   enabled={template.external_enabled ?? false}
                   disabled={!!error}
                 />
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!!error}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMainAgentWorkflowId(template.id);
+                  }}
+                >
+                  {t('workflow.management.mainAgent')}
+                </Button>
 
                 <div className="mt-auto flex items-center justify-between gap-3 rounded-sm border border-secondary/60 bg-secondary/20 px-2 py-1.5 text-xs text-low">
                   <span className="flex min-w-0 items-center gap-1.5">

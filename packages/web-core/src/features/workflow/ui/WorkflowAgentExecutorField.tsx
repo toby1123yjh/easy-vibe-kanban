@@ -30,12 +30,14 @@ const WORKFLOW_AGENT_REQUIRED_CAPABILITIES = [
 interface WorkflowAgentExecutorFieldProps {
   value?: unknown;
   readOnly?: boolean;
+  requiredCapabilities?: readonly AgentProviderCapability[];
   onChange: (value: ExecutorConfig) => void;
 }
 
 export function WorkflowAgentExecutorField({
   value,
   readOnly = false,
+  requiredCapabilities = WORKFLOW_AGENT_REQUIRED_CAPABILITIES,
   onChange,
 }: WorkflowAgentExecutorFieldProps) {
   const { t } = useTranslation('common');
@@ -80,7 +82,7 @@ export function WorkflowAgentExecutorField({
   const { options: policyExecutorOptions } = useAgentProviderOptions({
     executors: policyExecutorSource,
     preserveExecutors: [storedExecutorConfig?.executor],
-    requiredCapabilities: WORKFLOW_AGENT_REQUIRED_CAPABILITIES,
+    requiredCapabilities,
   });
 
   const hasSelection = storedExecutorConfig !== null || hasExplicitSelection;
@@ -151,6 +153,7 @@ export function WorkflowAgentExecutorField({
               onOverrideChange={setOverrides}
               executorConfig={selectedExecutorConfig}
               presetOptions={presetOptions}
+              readOnly={readOnly}
             />
           ) : null}
         </div>

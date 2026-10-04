@@ -25,6 +25,11 @@ async fn read_executor_config(
     pool: &SqlitePool,
     session_id: Uuid,
 ) -> Result<Option<ExecutorConfig>, ApiError> {
+    if let Some(config) =
+        crate::workflow_runtime::mcp_launch::captured_main_agent_config(pool, session_id).await?
+    {
+        return Ok(Some(config));
+    }
     let config = sqlx::query_scalar::<_, SqlJson<ExecutorConfig>>(
         r#"
         SELECT json_extract(attempt.request_envelope, '$.executor_config')
@@ -120,7 +125,8 @@ mod tests {
         sqlx::raw_sql(
             "CREATE TABLE agent_runs (id BLOB, session_id BLOB);
              CREATE TABLE agent_run_attempts (agent_run_id BLOB, request_envelope TEXT, created_at TEXT);
-             CREATE TABLE agent_provider_sessions (session_id BLOB, session_reference TEXT);",
+             CREATE TABLE agent_provider_sessions (session_id BLOB, session_reference TEXT);
+             CREATE TABLE workflow_main_session_bindings (session_id BLOB PRIMARY KEY, main_agent_config_json TEXT NOT NULL);",
         ).execute(&pool).await.unwrap();
         let owner = Uuid::new_v4();
         sqlx::query("INSERT INTO agent_provider_sessions VALUES (?, ?)")
@@ -152,7 +158,8 @@ mod tests {
         sqlx::raw_sql(
             "CREATE TABLE agent_runs (id BLOB, session_id BLOB);
              CREATE TABLE agent_run_attempts (agent_run_id BLOB, request_envelope TEXT, created_at TEXT);
-             CREATE TABLE agent_provider_sessions (session_id BLOB, session_reference TEXT);",
+             CREATE TABLE agent_provider_sessions (session_id BLOB, session_reference TEXT);
+             CREATE TABLE workflow_main_session_bindings (session_id BLOB PRIMARY KEY, main_agent_config_json TEXT NOT NULL);",
         ).execute(&pool).await.unwrap();
         let session_id = Uuid::new_v4();
         let run_id = Uuid::new_v4();

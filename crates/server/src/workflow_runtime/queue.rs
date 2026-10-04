@@ -11,10 +11,12 @@ use uuid::Uuid;
 
 use super::{
     arena::DeploymentWorkflowArenaCreator,
+    management::{deliver_stop_intents, resolve_waiting_submissions},
     runner::{
         AgentRunReconciliationBoundary, DeploymentAgentRunReconciliationBoundary,
-        DeploymentWorkflowAgentExecutor, fail_accepted_workflow_run,
-        reconcile_workflow_run_with_arena_and_boundary, start_accepted_workflow_run,
+        DeploymentWorkflowAgentExecutor, DeploymentWorkflowRunCanceller,
+        fail_accepted_workflow_run, reconcile_workflow_run_with_arena_and_boundary,
+        start_accepted_workflow_run,
     },
 };
 use crate::{DeploymentImpl, error::ApiError, routes::workflows::sync_attempt_from_run};
@@ -39,6 +41,13 @@ pub fn spawn_dispatcher(deployment: DeploymentImpl) {
 fn in_flight() -> &'static Mutex<HashSet<Uuid>> {
     static RUNS: OnceLock<Mutex<HashSet<Uuid>>> = OnceLock::new();
     RUNS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(super) fn is_starting(run_id: Uuid) -> bool {
+    in_flight()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&run_id)
 }
 
 struct StartingGuard(Uuid);
@@ -116,8 +125,8 @@ async fn recover_one(deployment: &DeploymentImpl, id: Uuid) -> Result<(), ApiErr
             &DeploymentWorkflowArenaCreator::new(deployment.clone()),
         )
         .await?;
-        sqlx::query("UPDATE workflow_run_queue SET phase='active' WHERE run_id=?")
-            .bind(id)
+        sqlx::query("UPDATE workflow_run_queue SET phase='active' WHERE run_id=? AND phase='starting' AND EXISTS(SELECT 1 FROM workflow_runs WHERE id=? AND status IN ('running','awaiting_human','awaiting_arena','cancelling'))")
+            .bind(id).bind(id)
             .execute(pool)
             .await?;
     }
@@ -139,6 +148,11 @@ pub async fn tick(deployment: &DeploymentImpl) -> Result<(), ApiError> {
     let executor = DeploymentWorkflowAgentExecutor::new(deployment.clone());
     let arena = DeploymentWorkflowArenaCreator::new(deployment.clone());
     let boundary = DeploymentAgentRunReconciliationBoundary::new(deployment.clone());
+    deliver_stop_intents(
+        pool,
+        &DeploymentWorkflowRunCanceller::new(deployment.clone()),
+    )
+    .await?;
     let active: Vec<Uuid> = sqlx::query_scalar("SELECT run_id FROM workflow_project_slots")
         .fetch_all(pool)
         .await?;
@@ -169,6 +183,9 @@ pub async fn tick(deployment: &DeploymentImpl) -> Result<(), ApiError> {
             tracing::warn!(%id,%error,"Workflow reconciliation failed; other projects continue");
         }
     }
+    // Dependency plans become ready only after source reconciliation and slot
+    // release, retaining their original FIFO sequence.
+    resolve_waiting_submissions(pool).await?;
     while let Some(entry) = WorkflowQueueEntry::claim_next(pool).await? {
         schedule(deployment, entry.run_id, false);
     }

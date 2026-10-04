@@ -62,6 +62,10 @@ impl ServerHandle {
             .set_server_addr(self.main_listener.local_addr()?)
             .expect("client server address already set");
         self.deployment
+            .agent_run_port()
+            .set_workflow_backend_address(self.main_listener.local_addr()?)
+            .await;
+        self.deployment
             .client_info()
             .set_preview_proxy_port(self.proxy_port)
             .expect("client preview proxy port already set");

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   WORKFLOW_SEMANTIC_HANDLE_IDS,
   applyWorkflowTransform,
+  acknowledgeWorkflowPublication,
   acknowledgeWorkflowSave,
   canonicalizeWorkflowAuthoringGraph,
   commitWorkflowAuthoringGraph,
@@ -43,6 +44,24 @@ function graphWith(
 }
 
 describe('workflow authoring model', () => {
+  it('advances publication revision without acknowledging or losing graph edits', () => {
+    const initial = createWorkflowAuthoringState(graphWith('agent'), 7);
+    const edited = dispatchWorkflowAuthoringCommand(initial, {
+      type: 'configure-node',
+      nodeId: 'agent-0',
+      patch: { display_name: 'Unsaved change' },
+    }).state;
+    const acknowledged = acknowledgeWorkflowPublication(edited, 7, 8);
+    expect(acknowledged.serverRevision).toBe(8);
+    expect(acknowledged.graph).toBe(edited.graph);
+    expect(acknowledged.persistedGraph).toBe(edited.persistedGraph);
+    expect(acknowledged.undoStack).toBe(edited.undoStack);
+    expect(acknowledged.dirty).toBe(true);
+    expect(acknowledgeWorkflowPublication(acknowledged, 7, 9)).toBe(
+      acknowledged
+    );
+  });
+
   it('projects semantic handles from the source Node type', () => {
     const condition = createWorkflowNode('condition', {
       id: 'condition',

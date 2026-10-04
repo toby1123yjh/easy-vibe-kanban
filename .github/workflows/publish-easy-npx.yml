@@ -193,28 +193,34 @@ jobs:
 
           cp target/x86_64-unknown-linux-musl/release/server package-tmp/linux-x64/vibe-kanban/vibe-kanban
           cp target/x86_64-unknown-linux-musl/release/agent-process-host package-tmp/linux-x64/vibe-kanban/agent-process-host
+          cp target/x86_64-unknown-linux-musl/release/vibe-kanban-mcp package-tmp/linux-x64/vibe-kanban/vibe-kanban-mcp
           cp target/x86_64-unknown-linux-musl/release/vibe-kanban-mcp package-tmp/linux-x64/vibe-kanban-mcp/vibe-kanban-mcp
           cp target/x86_64-unknown-linux-musl/release/review package-tmp/linux-x64/vibe-kanban-review/vibe-kanban-review
 
           cp target/x86_64-pc-windows-msvc/release/server.exe package-tmp/windows-x64/vibe-kanban/vibe-kanban.exe
           cp target/x86_64-pc-windows-msvc/release/agent-process-host.exe package-tmp/windows-x64/vibe-kanban/agent-process-host.exe
+          cp target/x86_64-pc-windows-msvc/release/vibe-kanban-mcp.exe package-tmp/windows-x64/vibe-kanban/vibe-kanban-mcp.exe
           cp target/x86_64-pc-windows-msvc/release/vibe-kanban-mcp.exe package-tmp/windows-x64/vibe-kanban-mcp/vibe-kanban-mcp.exe
           cp target/x86_64-pc-windows-msvc/release/review.exe package-tmp/windows-x64/vibe-kanban-review/vibe-kanban-review.exe
 
           zip -j -q npx-cli/dist/linux-x64/vibe-kanban.zip \
             package-tmp/linux-x64/vibe-kanban/vibe-kanban \
-            package-tmp/linux-x64/vibe-kanban/agent-process-host
+            package-tmp/linux-x64/vibe-kanban/agent-process-host \
+            package-tmp/linux-x64/vibe-kanban/vibe-kanban-mcp
           zip -j -q npx-cli/dist/linux-x64/vibe-kanban-mcp.zip package-tmp/linux-x64/vibe-kanban-mcp/vibe-kanban-mcp
           zip -j -q npx-cli/dist/linux-x64/vibe-kanban-review.zip package-tmp/linux-x64/vibe-kanban-review/vibe-kanban-review
 
           zip -j -q npx-cli/dist/windows-x64/vibe-kanban.zip \
             package-tmp/windows-x64/vibe-kanban/vibe-kanban.exe \
-            package-tmp/windows-x64/vibe-kanban/agent-process-host.exe
+            package-tmp/windows-x64/vibe-kanban/agent-process-host.exe \
+            package-tmp/windows-x64/vibe-kanban/vibe-kanban-mcp.exe
           zip -j -q npx-cli/dist/windows-x64/vibe-kanban-mcp.zip package-tmp/windows-x64/vibe-kanban-mcp/vibe-kanban-mcp.exe
           zip -j -q npx-cli/dist/windows-x64/vibe-kanban-review.zip package-tmp/windows-x64/vibe-kanban-review/vibe-kanban-review.exe
 
           unzip -Z1 npx-cli/dist/linux-x64/vibe-kanban.zip | grep -Fxq agent-process-host
           unzip -Z1 npx-cli/dist/windows-x64/vibe-kanban.zip | grep -Fxq agent-process-host.exe
+          unzip -Z1 npx-cli/dist/linux-x64/vibe-kanban.zip | grep -Fxq vibe-kanban-mcp
+          unzip -Z1 npx-cli/dist/windows-x64/vibe-kanban.zip | grep -Fxq vibe-kanban-mcp.exe
 
           find npx-cli/dist -type f -name '*.zip' -print -exec ls -lh {} \;
 

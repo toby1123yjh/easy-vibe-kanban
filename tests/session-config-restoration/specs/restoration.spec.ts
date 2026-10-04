@@ -29,9 +29,24 @@ async function fixtureBackend(page: Page) {
     gate: undefined as Promise<void> | undefined,
     writeGate: undefined as Promise<void> | undefined,
     readKeys: [] as string[],
+    workflowRecords: new Map<string, Record<string, unknown> | null>(),
+    workflowReadKeys: [] as string[],
+    workflowFailing: false,
   };
   // These are isolated fixtures: no request may reach real project APIs.
   await page.route('**/api/**', (route) => route.abort());
+  await page.route(/\/api\/(?:host\/[^/]+\/)?workflow-management\/sessions\/[^/]+\/context/, async (route) => {
+    const url = new URL(route.request().url());
+    const match = url.pathname.match(/(?:\/host\/([^/]+))?\/workflow-management\/sessions\/([^/]+)\/context/)!;
+    const key = `${match[1] ?? 'local'}:${match[2]}`;
+    state.workflowReadKeys.push(key);
+    await route.fulfill({
+      status: state.workflowFailing ? 503 : 200,
+      json: state.workflowFailing
+        ? { success: false, message: 'Workflow binding unavailable' }
+        : { success: true, data: state.workflowRecords.get(key) ?? null },
+    });
+  });
   await page.route('**/__fixture/session-config/**', async (route) => {
     const url = new URL(route.request().url());
     const key = `${url.searchParams.get('host')}:${url.pathname.split('/').at(-1)}`;
@@ -54,6 +69,40 @@ async function fixtureBackend(page: Page) {
 async function config(page: Page) {
   return JSON.parse(await page.getByTestId('config').innerText());
 }
+
+test('prepared workflow main Session preserves its full snapshot before and after the first turn', async ({ page }) => {
+  const backend = await fixtureBackend(page);
+  backend.records.set('local:a', null);
+  backend.workflowRecords.set('local:a', { main_agent_config: savedA });
+  await page.goto('/?null-draft&preferred');
+  await expect.poll(() => config(page)).toEqual(savedA);
+  await expect(page.getByTestId('config-locked')).toHaveText('true');
+  await page.getByRole('button', { name: 'Choose settings' }).click();
+  await page.getByRole('button', { name: 'Follow CLI' }).click();
+  await page.getByRole('button', { name: 'Choose Claude' }).click();
+  await expect.poll(() => config(page)).toEqual(savedA);
+  await page.getByRole('button', { name: 'Send fixture message' }).click();
+  await expect.poll(() => backend.writes).toEqual([savedA]);
+  // A later attempt/preset cannot silently replace the immutable main binding.
+  backend.records.set('local:a', { ...savedA, model_id: 'new-template-model' });
+  await page.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect.poll(() => config(page)).toEqual(savedA);
+  expect(backend.workflowReadKeys.every((key) => key === 'local:a')).toBe(true);
+});
+
+test('workflow context read failure blocks sending and retry never falls back to a default', async ({ page }) => {
+  const backend = await fixtureBackend(page);
+  backend.workflowRecords.set('local:a', { main_agent_config: savedA });
+  backend.workflowFailing = true;
+  await page.goto('/');
+  await expect(page.getByTestId('state')).toHaveText('error');
+  await expect(page.getByRole('button', { name: 'Send fixture message' })).toBeDisabled();
+  expect(backend.writes).toEqual([]);
+  backend.workflowFailing = false;
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect.poll(() => config(page)).toEqual(savedA);
+  await expect(page.getByTestId('config-locked')).toHaveText('true');
+});
 
 test('saved settings survive reopening and reload with no draft', async ({
   page,

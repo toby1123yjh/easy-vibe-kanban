@@ -57,6 +57,7 @@ interface ModelSelectorContainerProps {
   onOverrideChange: (partial: Partial<ExecutorConfig>) => void;
   executorConfig: ExecutorConfig | null;
   presetOptions: ExecutorConfig | null | undefined;
+  readOnly?: boolean;
 }
 
 const EMPTY_REASONING_OPTIONS: ModelInfo['reasoning_options'] = [];
@@ -76,6 +77,7 @@ export function ModelSelectorContainer({
   onOverrideChange,
   executorConfig,
   presetOptions,
+  readOnly = false,
 }: ModelSelectorContainerProps) {
   const { t } = useTranslation('common');
   const { theme } = useTheme();
@@ -480,6 +482,14 @@ export function ModelSelectorContainer({
     ? (permissionMetaByPolicy[permissionPolicy] ?? null)
     : null;
   const permissionIcon = permissionMeta?.icon ?? HandIcon;
+
+  if (readOnly) {
+    return (
+      <span className="text-sm text-normal" title={modelLabel}>
+        {modelLabel}
+      </span>
+    );
+  }
 
   return (
     <>

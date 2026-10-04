@@ -269,7 +269,9 @@ export function projectAgentWorkbenchTimeline(
     ? copy.terminalStatuses[source.latestStatus as AgentRunStatus]
     : undefined;
   if (isProjection && source.latestStatus && terminalContent) {
-    const last = items.at(-1);
+    // Runtime system messages have no AgentRun identity. A trailing workflow
+    // notification must not become the identity of a native terminal status.
+    const last = items.findLast((item) => item.agentRunId !== null);
     items.push({
       ...identity(
         `agent-run:${last?.agentRunId ?? 'latest'}:status:${source.latestStatus}`

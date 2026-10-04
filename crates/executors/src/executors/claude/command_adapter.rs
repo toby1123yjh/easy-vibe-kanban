@@ -6,10 +6,26 @@ use super::{ClaudeCode, PermissionMode, base_command};
 use crate::{
     command::{CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
     executors::provider_adapter::{DirectControl, DirectIntent, encode_stdio_rpc},
+    workflow_mcp::ScopedWorkflowMcp,
 };
 
 pub struct ClaudeCodeCommandAdapter<'a> {
     agent: &'a ClaudeCode,
+}
+
+pub(crate) fn append_workflow_mcp(
+    parts: CommandParts,
+    config: Option<&ScopedWorkflowMcp>,
+) -> CommandParts {
+    let Some(config) = config else {
+        return parts;
+    };
+    let native = serde_json::json!({"mcpServers": {config.server_name.clone(): {
+        "type":"stdio", "command":config.executable, "args":config.args(),
+        "env":config.environment_placeholders()
+    }}});
+    // No --strict-mcp-config: keep the user's native/global MCP servers.
+    parts.extend_args(["--mcp-config".into(), native.to_string()])
 }
 
 impl<'a> ClaudeCodeCommandAdapter<'a> {
@@ -210,5 +226,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(params.last().map(String::as_str), Some("--profile-flag"));
+    }
+
+    #[test]
+    fn workflow_mcp_appends_scoped_native_json_without_secret_values() {
+        let executable = tempfile::NamedTempFile::new().unwrap();
+        let env = crate::workflow_mcp::test_env(executable.path());
+        let config = ScopedWorkflowMcp::from_execution_env(&env)
+            .unwrap()
+            .unwrap();
+        let parts = append_workflow_mcp(
+            CommandParts::new("claude".into(), vec!["-p".into()]),
+            Some(&config),
+        );
+        let debug = format!("{parts:?}");
+        assert!(debug.contains("--mcp-config"));
+        assert!(debug.contains("${MCP_WORKFLOW_TOKEN}"));
+        assert!(!debug.contains("--strict-mcp-config"));
+        assert!(!debug.contains(env.get(crate::workflow_mcp::TOKEN_ENV).unwrap()));
     }
 }

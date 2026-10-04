@@ -75,12 +75,38 @@ impl RepoContext {
 }
 
 /// Environment variables to inject into executor processes
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExecutionEnv {
     pub vars: HashMap<String, String>,
     pub repo_context: RepoContext,
     pub commit_reminder: bool,
     pub commit_reminder_prompt: String,
+}
+
+impl std::fmt::Debug for ExecutionEnv {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let vars: HashMap<_, _> = self
+            .vars
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key,
+                    if crate::workflow_mcp::is_token_env_key(key) {
+                        "<redacted>"
+                    } else {
+                        value.as_str()
+                    },
+                )
+            })
+            .collect();
+        formatter
+            .debug_struct("ExecutionEnv")
+            .field("vars", &vars)
+            .field("repo_context", &self.repo_context)
+            .field("commit_reminder", &self.commit_reminder)
+            .field("commit_reminder_prompt", &self.commit_reminder_prompt)
+            .finish()
+    }
 }
 
 impl ExecutionEnv {
@@ -104,8 +130,20 @@ impl ExecutionEnv {
 
     /// Merge additional vars into this env. Incoming keys overwrite existing ones.
     pub fn merge(&mut self, other: &HashMap<String, String>) {
-        self.vars
-            .extend(other.iter().map(|(k, v)| (k.clone(), v.clone())));
+        let scoped = self
+            .vars
+            .keys()
+            .any(|key| crate::workflow_mcp::is_context_env_key(key));
+        self.vars.extend(
+            other
+                .iter()
+                .filter(|(key, _)| {
+                    !crate::workflow_mcp::is_context_env_key(key)
+                        && !(scoped
+                            && key.eq_ignore_ascii_case(crate::workflow_mcp::BACKEND_URL_ENV))
+                })
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
     }
 
     /// Return a new env with overrides applied. Overrides take precedence.
@@ -125,6 +163,9 @@ impl ExecutionEnv {
 
     /// Apply all environment variables to a Command
     pub fn apply_to_command(&self, command: &mut Command) {
+        // Ordinary/Node runs must not inherit a main Agent's authority merely
+        // because the server itself inherited an environment from that process.
+        crate::workflow_mcp::remove_inherited_context(command);
         for (key, value) in &self.vars {
             command.env(key, value);
         }
@@ -158,5 +199,95 @@ mod tests {
         assert_eq!(merged.vars.get("VK_PROJECT_NAME").unwrap(), "runtime");
         assert_eq!(merged.vars.get("FOO").unwrap(), "profile"); // overrides
         assert_eq!(merged.vars.get("BAR").unwrap(), "profile");
+    }
+
+    #[test]
+    fn workflow_authority_is_not_profile_overridable_or_debugged() {
+        let mut env = ExecutionEnv::new(RepoContext::default(), false, String::new());
+        env.insert(crate::workflow_mcp::TOKEN_ENV, "scope-secret");
+        env.insert(
+            crate::workflow_mcp::BACKEND_URL_ENV,
+            "http://127.0.0.1:3001",
+        );
+        let overrides = HashMap::from([
+            (
+                crate::workflow_mcp::TOKEN_ENV.to_owned(),
+                "forged".to_owned(),
+            ),
+            (
+                "mcp_workflow_token".to_owned(),
+                "lowercase-forged".to_owned(),
+            ),
+            (
+                crate::workflow_mcp::BACKEND_URL_ENV.to_owned(),
+                "https://other.example".to_owned(),
+            ),
+        ]);
+        let env = env.with_overrides(&overrides);
+        assert_eq!(
+            env.get(crate::workflow_mcp::TOKEN_ENV).unwrap(),
+            "scope-secret"
+        );
+        assert_eq!(
+            env.get(crate::workflow_mcp::BACKEND_URL_ENV).unwrap(),
+            "http://127.0.0.1:3001"
+        );
+        assert!(!env.contains_key("mcp_workflow_token"));
+        assert!(!format!("{env:?}").contains("scope-secret"));
+        let ordinary = ExecutionEnv::new(RepoContext::default(), false, String::new())
+            .with_overrides(&overrides);
+        assert!(!ordinary.contains_key(crate::workflow_mcp::TOKEN_ENV));
+    }
+
+    #[test]
+    fn workflow_authority_gemini_aliases_are_protected_and_not_debugged() {
+        use crate::workflow_mcp::{
+            BACKEND_URL_ENV, READY_ADDRESS_ENV, TOKEN_ENV, gemini_env_alias,
+        };
+
+        let mut env = ExecutionEnv::new(RepoContext::default(), false, String::new());
+        let alias = gemini_env_alias(TOKEN_ENV);
+        env.insert(TOKEN_ENV, "actual-scope-secret");
+        env.insert(&alias, "actual-scope-secret");
+        let overrides = HashMap::from([
+            (alias.clone(), "forged".to_owned()),
+            (alias.to_lowercase(), "lowercase-forged".to_owned()),
+            (
+                gemini_env_alias(BACKEND_URL_ENV),
+                "https://other.example".to_owned(),
+            ),
+            (
+                gemini_env_alias(READY_ADDRESS_ENV),
+                "192.0.2.1:1234".to_owned(),
+            ),
+        ]);
+        let protected = env.with_overrides(&overrides);
+        assert_eq!(protected.get(&alias).unwrap(), "actual-scope-secret");
+        assert!(!protected.contains_key(&alias.to_lowercase()));
+        assert!(!protected.contains_key(&gemini_env_alias(BACKEND_URL_ENV)));
+        assert!(!protected.contains_key(&gemini_env_alias(READY_ADDRESS_ENV)));
+        assert!(!format!("{protected:?}").contains("actual-scope-secret"));
+        let ordinary = ExecutionEnv::new(RepoContext::default(), false, String::new())
+            .with_overrides(&overrides);
+        assert!(ordinary.vars.is_empty());
+    }
+
+    #[test]
+    fn workflow_authority_is_removed_from_ordinary_and_node_child_commands() {
+        let env = ExecutionEnv::new(RepoContext::default(), false, String::new());
+        let mut command = Command::new("unused-test-command");
+        env.apply_to_command(&mut command);
+        let removed = command
+            .as_std()
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect::<std::collections::HashSet<_>>();
+        for key in crate::workflow_mcp::all_context_env_keys() {
+            assert!(
+                removed.contains(&key),
+                "reserved variable was inherited: {key}"
+            );
+        }
     }
 }

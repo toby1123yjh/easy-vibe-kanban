@@ -78,6 +78,8 @@ if (!wixArch) {
 // Binary path
 const binaryName = 'vibe-kanban-tauri.exe';
 const mainBinaryPath = path.join(projectRoot, 'target', target, 'release', binaryName);
+const processHostPath = path.join(projectRoot, 'target', target, 'release', 'agent-process-host.exe');
+const workflowMcpPath = path.join(projectRoot, 'target', target, 'release', 'vibe-kanban-mcp.exe');
 
 if (!fs.existsSync(mainBinaryPath)) {
   console.error(`Binary not found: ${mainBinaryPath}`);
@@ -88,6 +90,13 @@ if (!fs.existsSync(mainBinaryPath)) {
 if (!fs.existsSync(iconPath)) {
   console.error(`Icon not found: ${iconPath}`);
   process.exit(1);
+}
+
+for (const auxiliaryPath of [processHostPath, workflowMcpPath]) {
+  if (!fs.existsSync(auxiliaryPath)) {
+    console.error(`Bundled Agent runtime component not found: ${auxiliaryPath}`);
+    process.exit(1);
+  }
 }
 
 // Read and process template
@@ -102,6 +111,8 @@ const replacements = {
   '{{path_component_guid}}': pathComponentGuid,
   '{{icon_path}}': iconPath,
   '{{main_binary_path}}': mainBinaryPath,
+  '{{process_host_path}}': processHostPath,
+  '{{workflow_mcp_path}}': workflowMcpPath,
 };
 
 for (const [placeholder, value] of Object.entries(replacements)) {

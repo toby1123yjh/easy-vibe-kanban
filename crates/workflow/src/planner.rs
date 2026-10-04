@@ -93,14 +93,13 @@ fn execution_snapshots(
     snapshot: &RunSnapshot,
 ) -> Vec<NodeExecutionSnapshot> {
     let mut executions = snapshot.nodes.clone();
-    let known_iteration_zero = executions
+    let known_nodes = executions
         .iter()
-        .filter(|execution| execution.iteration == 0)
         .map(|execution| execution.node_id.clone())
         .collect::<HashSet<_>>();
 
     for node in &graph.nodes {
-        if known_iteration_zero.contains(node.id.as_str()) {
+        if known_nodes.contains(node.id.as_str()) {
             continue;
         }
         executions.push(NodeExecutionSnapshot {
@@ -196,7 +195,10 @@ fn execution_triggers_edge(
     condition_output_selects_target(execution.output_text.as_deref(), &edge.target)
 }
 
-fn condition_output_selects_target(output_text: Option<&str>, target_node_id: &str) -> bool {
+pub(crate) fn condition_output_selects_target(
+    output_text: Option<&str>,
+    target_node_id: &str,
+) -> bool {
     let Some(output_text) = output_text else {
         return false;
     };

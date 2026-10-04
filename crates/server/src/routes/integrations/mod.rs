@@ -100,6 +100,23 @@ async fn normalize_error_response(response: Response) -> Response {
         .await
         .unwrap_or_default();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    // Shared workflow handlers already map their errors to safe, structured
+    // codes. Preserve that contract instead of erasing it as generic conflict.
+    if let Some(error_data) = body.get("error_data")
+        && let (Some(code), Some(message)) = (
+            error_data.get("code").and_then(serde_json::Value::as_str),
+            error_data
+                .get("message")
+                .and_then(serde_json::Value::as_str),
+        )
+    {
+        return (
+            status,
+            Json(serde_json::json!({"success": false, "data": null,
+                "error_data": {"code": code, "message": message}, "message": message})),
+        )
+            .into_response();
+    }
     let message = if status.is_server_error() {
         "The operation failed. Retry with the same Idempotency-Key.".to_owned()
     } else {
@@ -518,6 +535,38 @@ mod tests {
             let bytes = to_bytes(response.into_body(), 65_536).await.unwrap();
             let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(body["error_data"]["code"], code);
+            assert!(!String::from_utf8_lossy(&bytes).contains("/server/root"));
+        }
+    }
+
+    #[tokio::test]
+    async fn external_errors_preserve_shared_workflow_codes_and_safe_messages() {
+        use crate::routes::workflow_management::WorkflowManagementApiError;
+
+        for (error, status, code) in [
+            (
+                ApiError::Conflict("REUSE_UNAVAILABLE: The source result is missing".into()),
+                StatusCode::CONFLICT,
+                "reuse_unavailable",
+            ),
+            (
+                ApiError::BadRequest("INVALID_REWORK_SCOPE: Select an Agent Node".into()),
+                StatusCode::BAD_REQUEST,
+                "invalid_rework_scope",
+            ),
+            (
+                ApiError::Io(std::io::Error::other("private /server/root secret")),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "workflow_unavailable",
+            ),
+        ] {
+            let response =
+                normalize_error_response(WorkflowManagementApiError(error).into_response()).await;
+            assert_eq!(response.status(), status);
+            let bytes = to_bytes(response.into_body(), 65_536).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["error_data"]["code"], code);
+            assert_eq!(body["error_data"]["message"], body["message"]);
             assert!(!String::from_utf8_lossy(&bytes).contains("/server/root"));
         }
     }

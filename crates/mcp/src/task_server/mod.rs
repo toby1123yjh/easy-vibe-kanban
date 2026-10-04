@@ -1,5 +1,6 @@
 mod handler;
 mod tools;
+mod workflow_context;
 
 use std::path::Path;
 
@@ -8,6 +9,7 @@ use db::models::{requests::ContainerQuery, workspace::WorkspaceContext};
 use rmcp::{handler::server::tool::ToolRouter, schemars};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+pub use workflow_context::WorkflowLaunchContext;
 
 pub(crate) use crate::ApiResponseEnvelope;
 
@@ -44,6 +46,7 @@ pub struct McpContext {
 pub enum McpMode {
     Global,
     Orchestrator,
+    Workflow(WorkflowLaunchContext),
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +79,28 @@ impl McpServer {
         }
     }
 
+    pub fn new_workflow(base_url: &str, launch: WorkflowLaunchContext) -> anyhow::Result<Self> {
+        let url = reqwest::Url::parse(base_url)?;
+        anyhow::ensure!(
+            matches!(url.scheme(), "http" | "https")
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
+            "Invalid workflow backend URL"
+        );
+        Ok(Self {
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()?,
+            base_url: base_url.to_owned(),
+            tool_router: Self::workflow_mode_router(),
+            context: None,
+            mode: McpMode::Workflow(launch),
+        })
+    }
+
     fn url(&self, path: &str) -> String {
         format!(
             "{}/{}",
@@ -85,6 +110,14 @@ impl McpServer {
     }
 
     pub async fn init(mut self) -> anyhow::Result<Self> {
+        if matches!(self.mode(), McpMode::Workflow(_)) {
+            // The durable backend binding, never cwd, supplies current ancestry.
+            // Revalidate on every call: the first submission can add an instance.
+            self.workflow_request("workflow_context", &serde_json::json!({}))
+                .await
+                .map_err(|error| anyhow::anyhow!("{}: {}", error.code, error.message))?;
+            return Ok(self);
+        }
         let context = self.fetch_context_at_startup().await?;
 
         if context.is_none() {

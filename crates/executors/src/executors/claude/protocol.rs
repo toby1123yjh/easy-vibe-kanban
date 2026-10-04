@@ -6,7 +6,7 @@ use std::sync::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout},
-    sync::Mutex,
+    sync::{Mutex, oneshot},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -14,7 +14,7 @@ use super::types::{CLIMessage, ControlRequestType, ControlResponseMessage, Contr
 use crate::{
     approvals::ExecutorApprovalError,
     executors::{
-        ExecutorError,
+        ExecutorError, ExecutorExitResult,
         claude::{
             client::ClaudeAgentClient,
             types::{Message, PermissionMode, SDKControlRequest, SDKControlRequestType},
@@ -27,6 +27,26 @@ use crate::{
 pub struct ProtocolPeer {
     stdin: Arc<Mutex<ChildStdin>>,
     interrupt_sent: Arc<AtomicBool>,
+    startup_failure: Option<StartupFailureSignal>,
+}
+
+/// A failure-only signal retained by the real peer/control lifetime. Successful
+/// startup must not drop its sender: the host interprets a closed channel as a
+/// crashed executor, not as "initialization finished".
+#[derive(Clone, Debug)]
+pub(crate) struct StartupFailureSignal(Arc<Mutex<Option<oneshot::Sender<ExecutorExitResult>>>>);
+
+impl StartupFailureSignal {
+    pub(crate) fn channel() -> (Self, oneshot::Receiver<ExecutorExitResult>) {
+        let (sender, receiver) = oneshot::channel();
+        (Self(Arc::new(Mutex::new(Some(sender)))), receiver)
+    }
+
+    async fn fail(&self) {
+        if let Some(sender) = self.0.lock().await.take() {
+            let _ = sender.send(ExecutorExitResult::Failure);
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -71,15 +91,17 @@ impl crate::executors::ExecutorControl for ProtocolPeer {
 }
 
 impl ProtocolPeer {
-    pub fn spawn(
+    pub(crate) fn spawn(
         stdin: ChildStdin,
         stdout: ChildStdout,
         client: Arc<ClaudeAgentClient>,
         cancel: CancellationToken,
+        startup_failure: Option<StartupFailureSignal>,
     ) -> Self {
         let peer = Self {
             stdin: Arc::new(Mutex::new(stdin)),
             interrupt_sent: Arc::new(AtomicBool::new(false)),
+            startup_failure,
         };
 
         let reader_peer = peer.clone();
@@ -90,6 +112,12 @@ impl ProtocolPeer {
         });
 
         peer
+    }
+
+    pub(crate) async fn fail_startup(&self) {
+        if let Some(signal) = &self.startup_failure {
+            signal.fail().await;
+        }
     }
 
     async fn read_loop(
@@ -291,5 +319,41 @@ impl ProtocolPeer {
             SDKControlRequestType::SetPermissionMode { mode },
         ))
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn workflow_claude_successful_startup_keeps_exit_signal_pending_for_peer_lifetime() {
+        let (peer_signal, mut receiver) = StartupFailureSignal::channel();
+        let startup_signal = peer_signal.clone();
+        tokio::spawn(async move {
+            drop(startup_signal);
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        drop(peer_signal);
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(oneshot::error::TryRecvError::Closed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn workflow_claude_startup_failure_is_signalled_exactly_once() {
+        let (signal, receiver) = StartupFailureSignal::channel();
+        signal.fail().await;
+        signal.clone().fail().await;
+        assert!(matches!(
+            receiver.await.unwrap(),
+            ExecutorExitResult::Failure
+        ));
     }
 }

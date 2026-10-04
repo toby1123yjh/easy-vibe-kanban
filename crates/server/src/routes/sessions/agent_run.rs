@@ -82,6 +82,12 @@ pub(super) async fn validate_session_executor(
     session: &Session,
     executor_config: &ExecutorConfig,
 ) -> Result<(), ApiError> {
+    crate::workflow_runtime::mcp_launch::validate_main_agent_config(
+        pool,
+        session.id,
+        executor_config,
+    )
+    .await?;
     let requested = executor_config.executor.to_string();
     if let Some(expected) = session.executor.as_ref()
         && expected != &requested
@@ -378,6 +384,13 @@ pub(super) async fn create_agent_run(
     launch: AgentRunLaunch,
     dispatch: AgentRunDispatch,
 ) -> Result<AgentRunPortSnapshot, ApiError> {
+    crate::workflow_runtime::mcp_launch::validate_main_agent_launch(
+        deployment,
+        session.id,
+        workspace.id,
+        &launch.executor_config,
+    )
+    .await?;
     let provider = direct_provider(&launch.executor_config)?;
     let runtime_profile_id = launch.executor_config.profile_id().cache_key();
     let capability_snapshot =

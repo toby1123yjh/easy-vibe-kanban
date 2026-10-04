@@ -175,6 +175,24 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
     ) -> Result<Uuid, ApiError> {
         let pool = &self.deployment.db().pool;
 
+        let main_session_marker = request
+            .branch_name
+            .starts_with("vk/main-session/")
+            .then(|| format!("Workflow main session {}", request.run_id));
+        if request.existing_workspace_id.is_none() {
+            if let Some(marker) = &main_session_marker {
+                if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM workspaces WHERE name=? ORDER BY created_at,id LIMIT 1",
+                )
+                .bind(marker)
+                .fetch_optional(pool)
+                .await?
+                {
+                    return Ok(id);
+                }
+            }
+        }
+
         if request.directory_path.is_some() && !request.repo_overrides.is_empty() {
             return Err(ApiError::BadRequest(
                 "Choose either a direct folder or worktree repositories, not both.".to_string(),
@@ -208,7 +226,11 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
         if let Some(directory_path) = directory_path {
             return create_direct_folder_workspace_record(
                 &self.deployment,
-                Some(format!("Workflow {}", short_run_id(request.run_id))),
+                Some(
+                    main_session_marker
+                        .clone()
+                        .unwrap_or_else(|| format!("Workflow {}", short_run_id(request.run_id))),
+                ),
                 Some(directory_path),
             )
             .await
@@ -230,7 +252,10 @@ impl WorkflowWorkspaceResolver for DeploymentWorkflowWorkspaceResolver {
             pool,
             &CreateWorkspace {
                 branch: request.branch_name,
-                name: Some(format!("Workflow {}", short_run_id(request.run_id))),
+                name: Some(
+                    main_session_marker
+                        .unwrap_or_else(|| format!("Workflow {}", short_run_id(request.run_id))),
+                ),
             },
             workspace_id,
         )

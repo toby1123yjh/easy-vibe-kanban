@@ -6,6 +6,7 @@ import {
   deriveConversationTurns,
   type ConversationScriptTurn,
 } from './deriveConversationTurns';
+import { mergeWorkflowNotifications } from '@/features/workflow/model/workflowNotifications';
 
 export interface DerivedConversationEntriesResult {
   readonly entries: PatchTypeWithKey[];
@@ -18,6 +19,7 @@ export interface DerivedConversationEntriesResult {
 interface DeriveConversationEntriesParams {
   readonly source: import('@/shared/hooks/useConversationHistory/types').ConversationTimelineSource;
   readonly scriptOutputCache: Map<string, { count: number; output: string }>;
+  readonly workflowSystemEntries?: readonly PatchTypeWithKey[];
 }
 
 function patchWithKey(
@@ -110,6 +112,7 @@ function appendScriptTurnEntries(
 export function deriveConversationEntries({
   source,
   scriptOutputCache,
+  workflowSystemEntries = [],
 }: DeriveConversationEntriesParams): DerivedConversationEntriesResult {
   const conversationTurns = deriveConversationTurns(source);
 
@@ -161,11 +164,10 @@ export function deriveConversationEntries({
     }
   }
 
-  const entries = [
-    ...setupEntries,
-    ...source.canonical.entries,
-    ...trailingScriptEntries,
-  ];
+  const entries = mergeWorkflowNotifications(
+    [...setupEntries, ...source.canonical.entries, ...trailingScriptEntries],
+    workflowSystemEntries
+  );
   hasRunningProcess ||= source.canonical.isRunning;
   hasPendingApproval ||= source.canonical.entries.some(
     (entry) =>

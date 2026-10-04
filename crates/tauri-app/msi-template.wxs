@@ -60,6 +60,12 @@
             <Component Id="Path" Guid="{{path_component_guid}}" Win64="$(var.Win64)">
                 <File Id="Path" Source="{{main_binary_path}}" KeyPath="yes"/>
             </Component>
+            <Component Id="AgentProcessHost" Guid="*" Win64="$(var.Win64)">
+                <File Id="AgentProcessHostFile" Source="{{process_host_path}}" KeyPath="yes"/>
+            </Component>
+            <Component Id="WorkflowMcp" Guid="*" Win64="$(var.Win64)">
+                <File Id="WorkflowMcpFile" Source="{{workflow_mcp_path}}" KeyPath="yes"/>
+            </Component>
         </DirectoryRef>
 
         <DirectoryRef Id="ApplicationProgramsFolder">
@@ -88,6 +94,8 @@
                  Display="expand"
                  Absent="disallow">
 
+            <ComponentRef Id="AgentProcessHost" />
+            <ComponentRef Id="WorkflowMcp" />
             <Feature Id="ShortcutsFeature" Title="Shortcuts" Level="1">
                 <ComponentRef Id="Path"/>
                 <ComponentRef Id="ApplicationShortcut" />

@@ -3,13 +3,19 @@ use std::sync::Arc;
 use codex_app_server_protocol::{ReviewTarget, ThreadStartParams};
 
 use super::{client::AppServerClient, resume_params_from};
-use crate::executors::ExecutorError;
+use crate::{
+    executors::ExecutorError,
+    workflow_mcp::{WorkflowMcpReadiness, WorkflowPromptGate},
+};
 
 pub async fn launch_codex_review(
     thread_start_params: ThreadStartParams,
     resume_session: Option<String>,
     review_target: ReviewTarget,
     client: Arc<AppServerClient>,
+    readiness: Option<WorkflowMcpReadiness>,
+    cancel: tokio_util::sync::CancellationToken,
+    prompt_gate: WorkflowPromptGate,
 ) -> Result<(), ExecutorError> {
     let account = client.get_account().await?;
     if account.requires_openai_auth && account.account.is_none() {
@@ -36,7 +42,9 @@ pub async fn launch_codex_review(
     };
 
     client.register_session(&thread_id).await?;
+    WorkflowMcpReadiness::wait_optional(readiness, &cancel).await?;
     client.start_review(thread_id, review_target).await?;
+    prompt_gate.open();
 
     Ok(())
 }

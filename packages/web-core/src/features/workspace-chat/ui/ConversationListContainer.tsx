@@ -45,6 +45,9 @@ import type { RepoWithTargetBranch } from 'shared/types';
 import { ChatEmptyState } from '@vibe/ui/components/ChatEmptyState';
 import { ChatScriptPlaceholder } from '@vibe/ui/components/ChatScriptPlaceholder';
 import { ScriptFixerDialog } from '@/shared/dialogs/scripts/ScriptFixerDialog';
+import { useWorkflowNotifications } from '@/shared/hooks/useWorkflowManagement';
+import { workflowNotificationEntries } from '@/features/workflow/model/workflowNotifications';
+import { Button } from '@vibe/ui/components/Button';
 
 interface ConversationListProps {
   attempt: WorkspaceWithSession;
@@ -175,6 +178,27 @@ export const ConversationList = forwardRef<
   ref
 ) {
   const { t } = useTranslation('common');
+  const { context: workflowContext, notifications: workflowNotifications } =
+    useWorkflowNotifications(attempt.session?.id);
+  const workflowSystemEntries = useMemo(
+    () =>
+      workflowNotificationEntries(
+        workflowNotifications.data ?? [],
+        attempt.session?.id ?? '',
+        {
+          heading: t('workflow.management.notification'),
+          resolved: t('workflow.management.resolved'),
+          pending: t('workflow.management.pending'),
+          status: (status) =>
+            t(`workflow.management.status.${status}`, { defaultValue: status }),
+        }
+      ),
+    [workflowNotifications.data, attempt.session?.id, t]
+  );
+  const workflowSystemEntriesRef = useRef(workflowSystemEntries);
+  workflowSystemEntriesRef.current = workflowSystemEntries;
+  const lastTimelineSourceRef = useRef<ConversationTimelineSource | null>(null);
+  const flushTimelineRef = useRef<(() => void) | null>(null);
   const agentWorkbenchTimelineCopy = useMemo(
     () => ({
       fileChanges: t('agentWorkbench.timeline.fileChanges', {
@@ -281,6 +305,7 @@ export const ConversationList = forwardRef<
       rafIdRef.current = null;
     }
     pendingUpdateRef.current = null;
+    lastTimelineSourceRef.current = null;
     scriptOutputCacheRef.current.clear();
     if (planRevealSpacerRef.current) {
       planRevealSpacerRef.current.style.height = '0px';
@@ -385,6 +410,7 @@ export const ConversationList = forwardRef<
     const derivedEntries = deriveConversationEntries({
       source: pending.source,
       scriptOutputCache: scriptOutputCacheRef.current,
+      workflowSystemEntries: workflowSystemEntriesRef.current,
     });
 
     setHasSetupScriptRun(derivedEntries.hasSetupScriptRun);
@@ -412,12 +438,32 @@ export const ConversationList = forwardRef<
       setLoading(pending.loading);
     }
   };
+  flushTimelineRef.current = flushPendingUpdate;
+
+  useEffect(() => {
+    const source = lastTimelineSourceRef.current;
+    if (!source) return;
+    // Notification-only updates reuse the current conversation source and its
+    // existing frame batch. They do not start a turn or touch the send queue.
+    pendingUpdateRef.current ??= {
+      source,
+      addType: 'historic',
+      loading: false,
+      isInitialLoad: false,
+    };
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() =>
+        flushTimelineRef.current?.()
+      );
+    }
+  }, [workflowSystemEntries]);
 
   const onTimelineUpdated = (
     source: ConversationTimelineSource,
     addType: AddEntryType,
     newLoading: boolean
   ) => {
+    lastTimelineSourceRef.current = source;
     pendingUpdateRef.current = {
       source,
       addType,
@@ -806,6 +852,29 @@ export const ConversationList = forwardRef<
           onClickCapture={handleConversationClickCapture}
         >
           <div className="pt-2">
+            {workflowContext.error || workflowNotifications.error ? (
+              <div
+                role="status"
+                className="mx-double mb-base flex items-center gap-base text-base text-low"
+              >
+                <span>{t('workflow.management.notificationsFailed')}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={
+                    workflowContext.isFetching ||
+                    workflowNotifications.isFetching
+                  }
+                  onClick={() => {
+                    void workflowContext.refetch();
+                    if (workflowContext.data)
+                      void workflowNotifications.refetch();
+                  }}
+                >
+                  {t('buttons.retry')}
+                </Button>
+              </div>
+            ) : null}
             {showSetupPlaceholder && (
               <div className="my-base px-double">
                 <ChatScriptPlaceholder

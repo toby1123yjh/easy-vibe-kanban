@@ -17,6 +17,7 @@ use db::{
             AgentEventRecord, AgentProviderSessionRecord, AgentRunRecord, NativeAuditStreamRecord,
         },
         session::Session,
+        workflow_management::WorkflowMainSessionBinding,
         workspace::Workspace,
         workspace_repo::WorkspaceRepo,
     },
@@ -42,11 +43,12 @@ use executors::{
         NativeAuditIntegrityStatus, NativeAuditMetadata, NativeAuditReference, NativeAuditWriter,
         ProviderSessionReference, RunAttemptMode, RunAttemptRequest,
     },
+    workflow_mcp,
 };
 use futures::{StreamExt, stream};
 use rand::{RngCore, rngs::OsRng};
 use serde::Serialize;
-use sqlx::types::Json;
+use sqlx::{Row, types::Json};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -100,6 +102,7 @@ pub struct LocalAgentRunPort {
     event_write_lock: Arc<Mutex<()>>,
     command_lock: Arc<Mutex<()>>,
     cancellation_reconciliation_locks: Arc<Mutex<HashMap<Uuid, Weak<Mutex<()>>>>>,
+    workflow_backend_url: Arc<RwLock<Option<String>>>,
 }
 
 #[derive(Debug)]
@@ -151,7 +154,7 @@ struct AuditedDirectProviderLaunchSpec<'a> {
 
 #[derive(Serialize)]
 struct AuditedExecutionEnv<'a> {
-    vars: &'a HashMap<String, String>,
+    vars: HashMap<&'a str, &'a str>,
     workspace_root: &'a Path,
     repo_names: &'a [String],
     commit_reminder: bool,
@@ -177,6 +180,16 @@ impl FrozenDirectProviderLaunchSpec {
             current_dir: PathBuf::from(&attempt.workspace.path),
             env,
         }
+    }
+
+    fn with_workflow_prompt(mut self, main_prompt: Option<String>) -> Self {
+        if let Some(main_prompt) = main_prompt {
+            self.prompt = format!(
+                "{main_prompt}\n\nWorkflow management instructions:\nUse workflow_context and workflow_get for current verified facts. Submit work only for an explicit user execution/retry/rework request; keep the same request_id on an uncertain reply. The runtime, not this Agent, dispatches Nodes and controls graph transitions. Notifications and reading results do not authorise another execution or human approval. Stop confirmation is separate from business outcome. Never ask the user for the scoped MCP credential or expose it.\n\nUser input:\n{}",
+                self.prompt,
+            );
+        }
+        self
     }
 
     fn launch_request(&self) -> DirectProviderLaunchRequest<'_> {
@@ -207,7 +220,13 @@ impl FrozenDirectProviderLaunchSpec {
             approval_behavior: "noop",
             current_dir: &self.current_dir,
             env: AuditedExecutionEnv {
-                vars: &self.env.vars,
+                vars: self
+                    .env
+                    .vars
+                    .iter()
+                    .filter(|(key, _)| !workflow_mcp::is_token_env_key(key))
+                    .map(|(key, value)| (key.as_str(), value.as_str()))
+                    .collect(),
                 workspace_root: &self.env.repo_context.workspace_root,
                 repo_names: &self.env.repo_context.repo_names,
                 commit_reminder: self.env.commit_reminder,
@@ -246,7 +265,37 @@ impl LocalAgentRunPort {
             event_write_lock: Arc::new(Mutex::new(())),
             command_lock: Arc::new(Mutex::new(())),
             cancellation_reconciliation_locks: Arc::new(Mutex::new(HashMap::new())),
+            workflow_backend_url: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_workflow_backend_address(&self, address: std::net::SocketAddr) {
+        *self.workflow_backend_url.write().await = Some(workflow_mcp::local_backend_url(address));
+    }
+
+    /// Read-only preflight. Issuance belongs to the actual launch, after a real
+    /// User turn and an unhanded-off process reservation have been persisted.
+    pub async fn validate_workflow_mcp_launch(
+        &self,
+    ) -> Result<(PathBuf, String), AgentRunPortError> {
+        let url = self
+            .workflow_backend_url
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| {
+                AgentRunPortError::Unavailable(
+                    "Current workflow backend address is unavailable".into(),
+                )
+            })?;
+        let server = std::env::current_exe()
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        let executable = workflow_mcp::bundled_executable_next_to(&server)
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        workflow_mcp::verify_bundled_executable(&executable)
+            .await
+            .map_err(|error| AgentRunPortError::Unavailable(error.to_string()))?;
+        Ok((executable, url))
     }
 
     pub(crate) fn subscribe_terminal_events(&self) -> broadcast::Receiver<AgentRunTerminalEvent> {
@@ -785,7 +834,7 @@ impl LocalAgentRunPort {
         request: &AgentRunRequestEnvelope,
         attempt: &RunAttemptRequest,
         workspace: &Workspace,
-    ) -> Result<ExecutionEnv, AgentRunPortError> {
+    ) -> Result<Option<(ExecutionEnv, Option<String>)>, AgentRunPortError> {
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id)
             .await
             .map_err(port_database)?;
@@ -799,7 +848,164 @@ impl LocalAgentRunPort {
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
         env.insert("VK_AGENT_RUN_ID", request.agent_run_id.to_string());
         env.insert("VK_RUN_ATTEMPT_ID", attempt.run_attempt_id.to_string());
-        Ok(env)
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&self.db.pool, request.session_id)
+                .await
+                .map_err(port_database)?;
+        let Some(binding) = binding else {
+            return Ok(Some((env, None)));
+        };
+        if binding.actual_main_run_attempt_id == Some(attempt.run_attempt_id) {
+            return Ok(None);
+        }
+        let captured: ExecutorConfig = serde_json::from_str(&binding.main_agent_config_json)
+            .map_err(|_| {
+                AgentRunPortError::Rejected(
+                    "Captured workflow main Agent configuration is invalid".into(),
+                )
+            })?;
+        if !workflow_mcp::matches_snapshot(&captured, &attempt.executor_config) {
+            return Err(AgentRunPortError::Rejected(
+                "Workflow main Agent configuration cannot change after preparation".into(),
+            ));
+        }
+        let (executable, backend_url) = self.validate_workflow_mcp_launch().await?;
+        // Settle previous terminal attempts through the actual process registry.
+        // A completed reply alone is not proof that its MCP can no longer act.
+        let prior: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT a.id FROM agent_run_attempts a JOIN agent_runs r ON r.id=a.agent_run_id WHERE r.session_id=? AND a.id<>? AND a.status IN ('succeeded','failed','cancelled','crashed','audit_failed')",
+        ).bind(request.session_id).bind(attempt.run_attempt_id).fetch_all(&self.db.pool).await.map_err(port_database)?;
+        for attempt_id in prior {
+            self.reconcile_terminal_process(attempt_id).await?;
+        }
+        let Some((token, prompt)) = self.issue_workflow_mcp_token(request, attempt).await? else {
+            return Ok(None);
+        };
+        env.insert(workflow_mcp::EXECUTABLE_ENV, executable.to_string_lossy());
+        env.insert(workflow_mcp::BACKEND_URL_ENV, backend_url);
+        env.insert(workflow_mcp::SESSION_ID_ENV, request.session_id.to_string());
+        env.insert(
+            workflow_mcp::AGENT_RUN_ID_ENV,
+            request.agent_run_id.to_string(),
+        );
+        env.insert(workflow_mcp::TURN_ID_ENV, request.turn_id.to_string());
+        env.insert(workflow_mcp::TOKEN_ENV, token);
+        Ok(Some((env, Some(prompt))))
+    }
+
+    /// Raw credentials are only returned to this ephemeral launch. A write
+    /// transaction fences deletion, competing turns and uncertain host handoff.
+    /// None means this attempt's handoff already belongs to another launcher:
+    /// do not rotate, dispatch again, or overwrite that launcher's run state.
+    async fn issue_workflow_mcp_token(
+        &self,
+        request: &AgentRunRequestEnvelope,
+        attempt: &RunAttemptRequest,
+    ) -> Result<Option<(String, String)>, AgentRunPortError> {
+        let rejected = || {
+            AgentRunPortError::Rejected("Workflow main Agent scope is inconsistent, or an earlier process has not confirmed exit".into())
+        };
+        if request.input.role != AgentRuntimeMessageRole::User
+            || request.session_id != attempt.session_id
+            || request.agent_run_id != attempt.agent_run_id
+            || request.turn_id != attempt.turn_id
+            || request.workspace != attempt.workspace
+        {
+            return Err(rejected());
+        }
+        let mut tx = self
+            .db
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(port_database)?;
+        let row = sqlx::query(
+            "SELECT b.*,m.project_id,s.workspace_id,w.project_id AS template_project_id FROM workflow_main_session_bindings b JOIN sessions s ON s.id=b.session_id JOIN session_project_memberships m ON m.session_id=s.id JOIN workflows w ON w.id=b.workflow_id WHERE b.session_id=?",
+        ).bind(request.session_id).fetch_optional(&mut *tx).await.map_err(port_database)?.ok_or_else(rejected)?;
+        let project_id: Uuid = row.try_get("project_id").map_err(port_database)?;
+        let workspace_id: Uuid = row.try_get("workspace_id").map_err(port_database)?;
+        let workflow_id: Uuid = row.try_get("workflow_id").map_err(port_database)?;
+        if workspace_id != request.workspace.workspace_id
+            || row
+                .try_get::<Option<Uuid>, _>("template_project_id")
+                .map_err(port_database)?
+                .is_some_and(|id| id != project_id)
+        {
+            return Err(rejected());
+        }
+        let captured: ExecutorConfig = serde_json::from_str(
+            row.try_get::<&str, _>("main_agent_config_json")
+                .map_err(port_database)?,
+        )
+        .map_err(|_| rejected())?;
+        if !workflow_mcp::matches_snapshot(&captured, &attempt.executor_config) {
+            return Err(rejected());
+        }
+        let instance = sqlx::query(
+            "SELECT a.workflow_id,a.workspace_id,t.project_id,src.template_id FROM workflow_attempts a JOIN tasks t ON t.id=a.task_id LEFT JOIN workflow_attempt_sources src ON src.attempt_id=a.id WHERE a.main_session_id=?",
+        ).bind(request.session_id).fetch_optional(&mut *tx).await.map_err(port_database)?;
+        if let Some(instance) = instance {
+            let publication_id = instance
+                .try_get::<Option<Uuid>, _>("template_id")
+                .map_err(port_database)?
+                .unwrap_or(instance.try_get("workflow_id").map_err(port_database)?);
+            if publication_id != workflow_id
+                || instance
+                    .try_get::<Uuid, _>("project_id")
+                    .map_err(port_database)?
+                    != project_id
+                || instance
+                    .try_get::<Option<Uuid>, _>("workspace_id")
+                    .map_err(port_database)?
+                    != Some(workspace_id)
+            {
+                return Err(rejected());
+            }
+        }
+        let persisted: Option<(Json<CanonicalMessage>, Json<RunAttemptRequest>)> = sqlx::query_as(
+            "SELECT t.input_message,a.request_envelope FROM agent_runs r JOIN agent_turns t ON t.agent_run_id=r.id JOIN agent_run_attempts a ON a.agent_run_id=r.id AND a.turn_id=t.id JOIN agent_process_registry p ON p.run_attempt_id=a.id WHERE r.id=? AND r.session_id=? AND r.workspace_id=? AND t.id=? AND a.id=? AND r.status NOT IN ('succeeded','failed','cancelled','crashed','audit_failed') AND a.status NOT IN ('succeeded','failed','cancelled','crashed','audit_failed') AND p.registry_status='reserved' AND p.pid IS NULL AND p.host_pid IS NULL AND p.host_endpoint IS NULL AND p.host_token IS NULL",
+        ).bind(request.agent_run_id).bind(request.session_id).bind(workspace_id).bind(request.turn_id)
+            .bind(attempt.run_attempt_id).fetch_optional(&mut *tx).await.map_err(port_database)?;
+        let Some((input, persisted_attempt)) = persisted else {
+            return Err(rejected());
+        };
+        if input.0 != request.input || persisted_attempt.0 != *attempt {
+            return Err(rejected());
+        }
+        let blocked: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM agent_run_attempts a JOIN agent_runs r ON r.id=a.agent_run_id LEFT JOIN agent_process_registry p ON p.run_attempt_id=a.id WHERE r.session_id=? AND a.id<>? AND (a.status NOT IN ('succeeded','failed','cancelled','crashed','audit_failed') OR p.id IS NULL OR (p.registry_status<>'exited' AND NOT(p.registry_status='reserved' AND p.pid IS NULL AND p.host_pid IS NULL AND p.host_endpoint IS NULL AND p.host_token IS NULL))))",
+        ).bind(request.session_id).bind(attempt.run_attempt_id).fetch_one(&mut *tx).await.map_err(port_database)?;
+        if blocked {
+            return Err(rejected());
+        }
+        let old_hash: Option<String> = row.try_get("token_hash").map_err(port_database)?;
+        let old_run: Option<Uuid> = row
+            .try_get("actual_main_agent_run_id")
+            .map_err(port_database)?;
+        let old_turn: Option<Uuid> = row.try_get("actual_main_turn_id").map_err(port_database)?;
+        let old_attempt: Option<Uuid> = row
+            .try_get("actual_main_run_attempt_id")
+            .map_err(port_database)?;
+        // The raw credential is deliberately not recoverable. Once committed,
+        // this attempt cannot issue again, even if its host reservation is still
+        // empty: another backend may already be handing off the first token.
+        if old_attempt == Some(attempt.run_attempt_id) {
+            return Ok(None);
+        }
+        let prompt: String = row.try_get("main_agent_prompt").map_err(port_database)?;
+        let mut bytes = [0_u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let changed = sqlx::query(
+            "UPDATE workflow_main_session_bindings SET token_hash=?,actual_main_agent_run_id=?,actual_main_turn_id=?,actual_main_run_attempt_id=?,source_message_id=?,updated_at=? WHERE session_id=? AND token_hash IS ? AND actual_main_agent_run_id IS ? AND actual_main_turn_id IS ? AND actual_main_run_attempt_id IS ?",
+        ).bind(workflow_mcp::token_hash(&token)).bind(request.agent_run_id).bind(request.turn_id)
+            .bind(attempt.run_attempt_id).bind(request.input.message_id).bind(Utc::now()).bind(request.session_id)
+            .bind(old_hash).bind(old_run).bind(old_turn).bind(old_attempt).execute(&mut *tx).await.map_err(port_database)?;
+        if changed.rows_affected() != 1 {
+            return Err(rejected());
+        }
+        tx.commit().await.map_err(port_database)?;
+        Ok(Some((token, prompt)))
     }
 
     async fn setup_audit(
@@ -1657,10 +1863,10 @@ impl LocalAgentRunPort {
         &self,
         attempt_id: Uuid,
     ) -> Result<bool, AgentRunPortError> {
-        let row: Option<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
-            "SELECT registry.registry_status, registry.host_pid, registry.pid FROM agent_process_registry registry JOIN agent_run_attempts attempt ON attempt.id = registry.run_attempt_id WHERE attempt.id = ? AND attempt.status IN ('succeeded','failed','cancelled','crashed','audit_failed')",
+        let row: Option<(String, Option<i64>, Option<i64>, Option<String>)> = sqlx::query_as(
+            "SELECT registry.registry_status, registry.host_pid, registry.pid, registry.host_endpoint FROM agent_process_registry registry JOIN agent_run_attempts attempt ON attempt.id = registry.run_attempt_id WHERE attempt.id = ? AND attempt.status IN ('succeeded','failed','cancelled','crashed','audit_failed')",
         ).bind(attempt_id).fetch_optional(&self.db.pool).await.map_err(port_database)?;
-        let Some((status, host_pid, provider_pid)) = row else {
+        let Some((status, host_pid, provider_pid, host_endpoint)) = row else {
             return Ok(false);
         };
         if status == "exited" {
@@ -1672,6 +1878,11 @@ impl LocalAgentRunPort {
         }
         // Missing provider PID is only expected before the provider was spawned.
         if provider_pid.is_none() && status != "reserved" {
+            return Ok(false);
+        }
+        // A crash between spawning the host and persisting its PID can leave
+        // a live authenticated endpoint. No PID is not confirmed absence.
+        if status == "reserved" && host_endpoint.is_some() && host_pid.is_none() {
             return Ok(false);
         }
         for pid in [host_pid, provider_pid].into_iter().flatten() {
@@ -2092,20 +2303,49 @@ impl LocalAgentRunPort {
         {
             return;
         }
-        let registry: Option<(String, Option<i64>)> = sqlx::query_as(
-            "SELECT registry_status, pid FROM agent_process_registry WHERE run_attempt_id = ?",
+        let registry: Option<(String, Option<i64>, Option<String>, Option<i64>)> = match sqlx::query_as(
+            "SELECT registry_status, pid, host_endpoint, host_pid FROM agent_process_registry WHERE run_attempt_id = ?",
         )
         .bind(attempt.run_attempt_id)
         .fetch_optional(&self.db.pool)
-        .await
-        .ok()
-        .flatten();
-        if let Some((status, pid)) = registry {
+        .await {
+            Ok(registry) => registry,
+            Err(error) => {
+                self.terminalize_failure(&request, &attempt, AgentRunStatus::Failed,
+                    AgentRuntimeError::new(AgentRuntimeErrorKind::StartupFailed, error.to_string())).await;
+                return;
+            }
+        };
+        if let Some((status, pid, endpoint, host_pid)) = registry {
             if matches!(status.as_str(), "spawned" | "running" | "unreachable") && pid.is_some() {
                 return;
             }
             if status == "exited" {
                 return;
+            }
+            if endpoint.is_some() || host_pid.is_some() {
+                match WorkflowMainSessionBinding::find_by_session_id(
+                    &self.db.pool,
+                    request.session_id,
+                )
+                .await
+                {
+                    Ok(Some(_)) => {
+                        // The raw credential cannot be recovered from its
+                        // hash. Observe a handed-off host without reissuing a
+                        // token or resending a different launch environment.
+                        let port = self.clone();
+                        tokio::spawn(async move {
+                            port.observe_process_host(request, attempt).await;
+                        });
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(run_attempt_id=%attempt.run_attempt_id, %error, "cannot verify reserved workflow host; preserving launch reservation");
+                        return;
+                    }
+                }
             }
         }
 
@@ -2122,8 +2362,16 @@ impl LocalAgentRunPort {
                 return;
             }
         };
-        let env = match self.execution_env(&request, &attempt, &workspace).await {
-            Ok(env) => env,
+        let (env, workflow_prompt) = match self.execution_env(&request, &attempt, &workspace).await
+        {
+            Ok(Some(env)) => env,
+            Ok(None) => {
+                tracing::warn!(
+                    run_attempt_id = %attempt.run_attempt_id,
+                    "workflow MCP credential already issued; preserving existing handoff without re-launching"
+                );
+                return;
+            }
             Err(error) => {
                 self.terminalize_failure(
                     &request,
@@ -2136,7 +2384,8 @@ impl LocalAgentRunPort {
                 return;
             }
         };
-        let launch = FrozenDirectProviderLaunchSpec::new(&request, &attempt, provider, env);
+        let launch = FrozenDirectProviderLaunchSpec::new(&request, &attempt, provider, env)
+            .with_workflow_prompt(workflow_prompt);
         self.append_recoverable(
             &request,
             &attempt,
@@ -3465,6 +3714,18 @@ mod tests {
                 workspace_id BLOB NOT NULL,
                 FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
             );
+            CREATE TABLE session_project_memberships (session_id BLOB PRIMARY KEY, project_id BLOB NOT NULL);
+            CREATE TABLE workflows (id BLOB PRIMARY KEY, project_id BLOB);
+            CREATE TABLE tasks (id BLOB PRIMARY KEY, project_id BLOB NOT NULL);
+            CREATE TABLE workflow_attempts (id BLOB PRIMARY KEY,workflow_id BLOB,workspace_id BLOB,main_session_id BLOB,task_id BLOB);
+            CREATE TABLE workflow_attempt_sources (attempt_id BLOB PRIMARY KEY,template_id BLOB);
+            CREATE TABLE workflow_main_session_bindings (
+                session_id BLOB PRIMARY KEY,workflow_id BLOB NOT NULL,prepared_issue_id BLOB,
+                main_agent_config_json TEXT NOT NULL,main_agent_prompt TEXT NOT NULL,
+                token_hash TEXT,actual_main_agent_run_id BLOB,actual_main_turn_id BLOB,actual_main_run_attempt_id BLOB,source_message_id BLOB,
+                created_at TEXT NOT NULL DEFAULT (datetime('now','subsec')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now','subsec'))
+            );
             "#,
         )
         .execute(&pool)
@@ -3567,6 +3828,265 @@ mod tests {
         );
         env.insert("VK_AGENT_RUN_ID", "frozen-run");
         env
+    }
+
+    async fn bind_workflow_main(
+        port: &LocalAgentRunPort,
+        request: &AgentRunRequestEnvelope,
+        attempt: &RunAttemptRequest,
+    ) {
+        let project_id = Uuid::new_v4();
+        let workflow_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO session_project_memberships VALUES (?,?)")
+            .bind(request.session_id)
+            .bind(project_id)
+            .execute(&port.db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workflows VALUES (?,?)")
+            .bind(workflow_id)
+            .bind(project_id)
+            .execute(&port.db.pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO workflow_main_session_bindings (session_id,workflow_id,main_agent_config_json,main_agent_prompt) VALUES (?,?,?,?)")
+            .bind(request.session_id).bind(workflow_id).bind(Json(&attempt.executor_config))
+            .bind("Manage the prepared workflow").execute(&port.db.pool).await.unwrap();
+    }
+
+    async fn next_main_turn(
+        port: &LocalAgentRunPort,
+        original: &AgentRunRequestEnvelope,
+        previous: &RunAttemptRequest,
+    ) -> (AgentRunRequestEnvelope, RunAttemptRequest) {
+        let mut request = original.clone();
+        request.request_id = Uuid::new_v4();
+        request.agent_run_id = Uuid::new_v4();
+        request.turn_id = Uuid::new_v4();
+        request.correlation_id = Uuid::new_v4();
+        request.idempotency_key = format!("main-next-{}", request.request_id);
+        request.input.message_id = Uuid::new_v4();
+        request.input.content = "Read the previous result".into();
+        let mut attempt = previous.clone();
+        attempt.request_id = request.request_id;
+        attempt.agent_run_id = request.agent_run_id;
+        attempt.turn_id = request.turn_id;
+        attempt.correlation_id = request.correlation_id;
+        attempt.run_attempt_id = Uuid::new_v4();
+        attempt.idempotency_key = format!("{}:attempt", request.idempotency_key);
+        AgentRunRecord::persist_identity_before_launch(&port.db.pool, &request, &attempt)
+            .await
+            .unwrap();
+        (request, attempt)
+    }
+
+    #[tokio::test]
+    async fn workflow_token_tracks_real_user_identity_without_persisting_secret() {
+        let port = LocalAgentRunPort::new(setup_runtime_db().await);
+        let (request, attempt) = persisted_codex_run(&port.db).await;
+        bind_workflow_main(&port, &request, &attempt).await;
+        let (token, prompt) = port
+            .issue_workflow_mcp_token(&request, &attempt)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(prompt, "Manage the prepared workflow");
+        let restarted = LocalAgentRunPort::new(port.db.clone());
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&restarted.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(binding.token_hash, Some(workflow_mcp::token_hash(&token)));
+        assert_eq!(binding.actual_main_agent_run_id, Some(request.agent_run_id));
+        assert_eq!(binding.actual_main_turn_id, Some(request.turn_id));
+        assert_eq!(
+            binding.actual_main_run_attempt_id,
+            Some(attempt.run_attempt_id)
+        );
+        assert_eq!(binding.source_message_id, Some(request.input.message_id));
+        assert!(!format!("{binding:?}").contains(&token));
+        // A restart has no in-memory lock/secret but must not replace the token
+        // between its durable issuance and native-host reservation.
+        assert!(
+            restarted
+                .issue_workflow_mcp_token(&request, &attempt)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let mut wrong_input = request.clone();
+        wrong_input.input.message_id = Uuid::new_v4();
+        assert!(
+            port.issue_workflow_mcp_token(&wrong_input, &attempt)
+                .await
+                .is_err()
+        );
+        wrong_input = request.clone();
+        wrong_input.input.role = AgentRuntimeMessageRole::System;
+        assert!(
+            port.issue_workflow_mcp_token(&wrong_input, &attempt)
+                .await
+                .is_err()
+        );
+        let mut wrong_config = attempt.clone();
+        wrong_config.executor_config.model_id = Some("switched-model".into());
+        assert!(
+            port.issue_workflow_mcp_token(&request, &wrong_config)
+                .await
+                .is_err()
+        );
+        AgentRunRecord::reserve_process_host(
+            &port.db.pool,
+            attempt.run_attempt_id,
+            "127.0.0.1:12345",
+            "host-auth",
+            Uuid::new_v4(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            port.issue_workflow_mcp_token(&request, &attempt)
+                .await
+                .is_err()
+        );
+        let after =
+            WorkflowMainSessionBinding::find_by_session_id(&port.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(after.token_hash, binding.token_hash);
+    }
+
+    #[tokio::test]
+    async fn workflow_rotation_requires_previous_process_exit_not_finished_reply() {
+        let port = LocalAgentRunPort::new(setup_runtime_db().await);
+        let (previous, previous_attempt) = persisted_codex_run(&port.db).await;
+        bind_workflow_main(&port, &previous, &previous_attempt).await;
+        let (old_token, _) = port
+            .issue_workflow_mcp_token(&previous, &previous_attempt)
+            .await
+            .unwrap()
+            .unwrap();
+        AgentRunRecord::mark_process_started(
+            &port.db.pool,
+            previous_attempt.run_attempt_id,
+            std::process::id(),
+            Some(std::process::id()),
+            Some("test-main"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE agent_run_attempts SET status='succeeded' WHERE id=?")
+            .bind(previous_attempt.run_attempt_id)
+            .execute(&port.db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agent_runs SET status='succeeded' WHERE id=?")
+            .bind(previous.agent_run_id)
+            .execute(&port.db.pool)
+            .await
+            .unwrap();
+        let (request, attempt) = next_main_turn(&port, &previous, &previous_attempt).await;
+        assert!(
+            port.issue_workflow_mcp_token(&request, &attempt)
+                .await
+                .is_err()
+        );
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&port.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            binding.token_hash,
+            Some(workflow_mcp::token_hash(&old_token))
+        );
+        AgentRunRecord::mark_process_exited(
+            &port.db.pool,
+            previous_attempt.run_attempt_id,
+            Some(0),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        let (new_token, _) = port
+            .issue_workflow_mcp_token(&request, &attempt)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(new_token, old_token);
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&port.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(binding.actual_main_agent_run_id, Some(request.agent_run_id));
+        assert_eq!(
+            binding.actual_main_run_attempt_id,
+            Some(attempt.run_attempt_id)
+        );
+        assert_eq!(binding.source_message_id, Some(request.input.message_id));
+    }
+
+    #[tokio::test]
+    async fn workflow_token_competing_backends_issue_only_once_per_attempt() {
+        let port = LocalAgentRunPort::new(setup_runtime_db().await);
+        let (request, attempt) = persisted_codex_run(&port.db).await;
+        bind_workflow_main(&port, &request, &attempt).await;
+        let competing = LocalAgentRunPort::new(port.db.clone());
+        let (first, second) = tokio::join!(
+            port.issue_workflow_mcp_token(&request, &attempt),
+            competing.issue_workflow_mcp_token(&request, &attempt),
+        );
+        let (token, _) = match (first, second) {
+            (Ok(Some(issued)), Ok(None)) | (Ok(None), Ok(Some(issued))) => issued,
+            _ => panic!("Exactly one backend must issue the attempt credential"),
+        };
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&port.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(binding.token_hash, Some(workflow_mcp::token_hash(&token)));
+        assert_eq!(
+            binding.actual_main_run_attempt_id,
+            Some(attempt.run_attempt_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_prompt_and_native_audit_preserve_provenance_without_token() {
+        let port = LocalAgentRunPort::new(setup_runtime_db().await);
+        let (request, attempt) = persisted_codex_run(&port.db).await;
+        let secret = "a".repeat(64);
+        let mut env = test_execution_env(&attempt.workspace.path);
+        env.insert(workflow_mcp::TOKEN_ENV, &secret);
+        let host_env = HostExecutionEnv::from(&env);
+        assert!(!format!("{host_env:?}").contains(&secret));
+        let launch =
+            FrozenDirectProviderLaunchSpec::new(&request, &attempt, DirectProvider::Codex, env)
+                .with_workflow_prompt(Some("Captured manager instructions".into()));
+        assert!(launch.prompt.contains("Captured manager instructions"));
+        assert!(launch.prompt.ends_with(&request.input.content));
+        let audit = launch.audit_payload().unwrap();
+        assert!(!String::from_utf8_lossy(&audit).contains(&secret));
+        let payload: serde_json::Value = serde_json::from_slice(&audit).unwrap();
+        assert!(
+            payload["env"]["vars"]
+                .get(workflow_mcp::TOKEN_ENV)
+                .is_none()
+        );
+        // Only the native launch prompt is augmented. The persisted canonical
+        // User input retains the exact real content and message identity.
+        let saved: Json<CanonicalMessage> =
+            sqlx::query_scalar("SELECT input_message FROM agent_turns WHERE id=?")
+                .bind(request.turn_id)
+                .fetch_one(&port.db.pool)
+                .await
+                .unwrap();
+        assert_eq!(saved.0, request.input);
     }
 
     #[tokio::test]
@@ -3803,6 +4323,76 @@ mod tests {
         assert_eq!(
             serde_json::to_value(before).unwrap(),
             serde_json::to_value(after).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_reserved_endpoint_without_host_pid_is_not_confirmed_exit() {
+        let mut port = LocalAgentRunPort::new(setup_runtime_db().await);
+        let registry_dir = tempfile::TempDir::new().unwrap();
+        port.process_registry =
+            AgentProcessRegistry::new(registry_dir.path().join("registry.json"));
+        let (request, attempt) = persisted_codex_run(&port.db).await;
+        bind_workflow_main(&port, &request, &attempt).await;
+        let (token, _) = port
+            .issue_workflow_mcp_token(&request, &attempt)
+            .await
+            .unwrap()
+            .unwrap();
+        let host_instance_id = Uuid::new_v4();
+        AgentRunRecord::reserve_process_host(
+            &port.db.pool,
+            attempt.run_attempt_id,
+            "127.0.0.1:12345",
+            "fixture-host-auth",
+            host_instance_id,
+        )
+        .await
+        .unwrap();
+        // No real process is started. The durable handoff is uncertain because
+        // a host may have started before its PID could be recorded.
+        port.terminalize_failure(
+            &request,
+            &attempt,
+            AgentRunStatus::Failed,
+            AgentRuntimeError::new(
+                AgentRuntimeErrorKind::StartupFailed,
+                "fixture interrupted handoff",
+            ),
+        )
+        .await;
+        let before = port.query(request.agent_run_id).await.unwrap().state;
+        assert!(
+            !port
+                .reconcile_terminal_process(attempt.run_attempt_id)
+                .await
+                .unwrap()
+        );
+        let row: (String, Option<i64>, String, String) = sqlx::query_as(
+            "SELECT registry_status,host_pid,host_endpoint,host_token FROM agent_process_registry WHERE run_attempt_id=?",
+        ).bind(attempt.run_attempt_id).fetch_one(&port.db.pool).await.unwrap();
+        assert_eq!(
+            row,
+            (
+                "reserved".into(),
+                None,
+                "127.0.0.1:12345".into(),
+                "fixture-host-auth".into()
+            )
+        );
+        let binding =
+            WorkflowMainSessionBinding::find_by_session_id(&port.db.pool, request.session_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(binding.token_hash, Some(workflow_mcp::token_hash(&token)));
+        assert_eq!(
+            binding.actual_main_run_attempt_id,
+            Some(attempt.run_attempt_id)
+        );
+        assert_eq!(
+            serde_json::to_value(before).unwrap(),
+            serde_json::to_value(port.query(request.agent_run_id).await.unwrap().state).unwrap()
         );
     }
 
