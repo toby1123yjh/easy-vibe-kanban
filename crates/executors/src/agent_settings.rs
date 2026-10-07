@@ -24,6 +24,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
+    agent_tools::native_assets,
     executors::{
         codex::codex_home_for, oh_my_pi::oh_my_pi_agent_root_for, provider_adapter::DirectProvider,
     },
@@ -46,10 +47,19 @@ pub enum AgentSettingsProvider {
     ClaudeCode,
     Gemini,
     OhMyPi,
+    Opencode,
+    DeepseekHarness,
 }
 
 impl AgentSettingsProvider {
-    pub const ALL: [Self; 4] = [Self::Codex, Self::ClaudeCode, Self::Gemini, Self::OhMyPi];
+    pub const ALL: [Self; 6] = [
+        Self::Codex,
+        Self::ClaudeCode,
+        Self::Gemini,
+        Self::OhMyPi,
+        Self::Opencode,
+        Self::DeepseekHarness,
+    ];
 
     pub const fn id(self) -> &'static str {
         match self {
@@ -57,6 +67,8 @@ impl AgentSettingsProvider {
             Self::ClaudeCode => "claude_code",
             Self::Gemini => "gemini",
             Self::OhMyPi => "oh_my_pi",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "deepseek_harness",
         }
     }
 
@@ -66,6 +78,8 @@ impl AgentSettingsProvider {
             Self::ClaudeCode => "claude",
             Self::Gemini => "gemini",
             Self::OhMyPi => "omp",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "dsh",
         }
     }
 }
@@ -77,6 +91,8 @@ impl From<DirectProvider> for AgentSettingsProvider {
             DirectProvider::ClaudeCode => Self::ClaudeCode,
             DirectProvider::Gemini => Self::Gemini,
             DirectProvider::OhMyPi => Self::OhMyPi,
+            DirectProvider::Opencode => Self::Opencode,
+            DirectProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -88,6 +104,8 @@ impl From<AgentSettingsProvider> for DirectProvider {
             AgentSettingsProvider::ClaudeCode => Self::ClaudeCode,
             AgentSettingsProvider::Gemini => Self::Gemini,
             AgentSettingsProvider::OhMyPi => Self::OhMyPi,
+            AgentSettingsProvider::Opencode => Self::Opencode,
+            AgentSettingsProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -1365,6 +1383,7 @@ fn validate_profile(
 #[derive(Debug, Clone)]
 pub struct ProviderSettingsManager {
     provider: AgentSettingsProvider,
+    home_dir: PathBuf,
     user_root: PathBuf,
     project_path: Option<PathBuf>,
 }
@@ -1377,6 +1396,15 @@ struct NativeFileSpec {
     scope: SettingScope,
     writable: bool,
     raw_editable: bool,
+    dialect: NativeDialect,
+    inline_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeDialect {
+    Document,
+    Cordis,
+    Credentials,
 }
 
 #[derive(Debug, Clone)]
@@ -1408,9 +1436,12 @@ impl ProviderSettingsManager {
             AgentSettingsProvider::ClaudeCode => home_dir.join(".claude"),
             AgentSettingsProvider::Gemini => home_dir.join(".gemini"),
             AgentSettingsProvider::OhMyPi => oh_my_pi_agent_root_for(&home_dir),
+            AgentSettingsProvider::Opencode => native_assets::opencode_root_for(&home_dir),
+            AgentSettingsProvider::DeepseekHarness => native_assets::deepseek_home_for(&home_dir),
         };
         Self {
             provider,
+            home_dir,
             user_root,
             project_path,
         }
@@ -1446,8 +1477,50 @@ impl ProviderSettingsManager {
                     .unwrap_or_else(|| "openai".to_string())
             }
             AgentSettingsProvider::ClaudeCode | AgentSettingsProvider::Gemini => String::new(),
+            AgentSettingsProvider::Opencode => effective_string_at_path(parsed_files, &["model"])
+                .and_then(|model| {
+                    model
+                        .split_once('/')
+                        .map(|(provider, _)| provider.to_string())
+                })
+                .unwrap_or_default(),
+            AgentSettingsProvider::DeepseekHarness => {
+                effective_string_at_path(parsed_files, &["llm-deepseek", "config", "apiKeyEnv"])
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "DEEPSEEK_API_KEY".into())
+            }
         };
-        provider_descriptors(self.provider, &connection_provider)
+        let mut descriptors = provider_descriptors(self.provider, &connection_provider);
+        if matches!(
+            self.provider,
+            AgentSettingsProvider::Opencode | AgentSettingsProvider::DeepseekHarness
+        ) {
+            for descriptor in &mut descriptors {
+                let original = std::mem::take(&mut descriptor.native_locations);
+                for location in &original {
+                    for file in parsed_files {
+                        let matches_config =
+                            matches!(location.file_id.as_str(), "user_config" | "project_config")
+                                && file.spec.scope == location.scope
+                                && (file.spec.id.ends_with("config")
+                                    || file.spec.dialect == NativeDialect::Cordis);
+                        if matches_config || file.spec.id == location.file_id {
+                            let mut mapped = location.clone();
+                            mapped.file_id = file.spec.id.clone();
+                            descriptor.native_locations.push(mapped);
+                        }
+                    }
+                }
+                descriptor.supported_scopes = descriptor
+                    .native_locations
+                    .iter()
+                    .map(|location| location.scope)
+                    .collect();
+                descriptor.supported_scopes.sort();
+                descriptor.supported_scopes.dedup();
+            }
+        }
+        descriptors
     }
 
     fn validate_project_path(&self) -> Result<(), AgentSettingError> {
@@ -1518,8 +1591,16 @@ impl ProviderSettingsManager {
                     SettingScope::User,
                 ),
             ],
+            AgentSettingsProvider::Opencode => self.opencode_file_specs(),
+            AgentSettingsProvider::DeepseekHarness => self.deepseek_file_specs(),
         };
         if let Some(project_path) = &self.project_path {
+            if matches!(
+                self.provider,
+                AgentSettingsProvider::Opencode | AgentSettingsProvider::DeepseekHarness
+            ) {
+                return files;
+            }
             let spec = match self.provider {
                 AgentSettingsProvider::Codex => file_spec(
                     "project_config",
@@ -1553,6 +1634,9 @@ impl ProviderSettingsManager {
                     spec.raw_editable = false;
                     spec
                 }
+                AgentSettingsProvider::Opencode | AgentSettingsProvider::DeepseekHarness => {
+                    unreachable!("provider-specific file specs are complete")
+                }
             };
             files.push(spec);
             if self.provider == AgentSettingsProvider::Gemini {
@@ -1563,6 +1647,188 @@ impl ProviderSettingsManager {
                     SettingScope::Project,
                 ));
             }
+        }
+        files
+    }
+
+    fn opencode_file_specs(&self) -> Vec<NativeFileSpec> {
+        let mut files = vec![file_spec(
+            "user_auth",
+            native_assets::opencode_auth_path(&self.home_dir),
+            NativeConfigFormat::Json,
+            SettingScope::User,
+        )];
+        let roots = native_assets::opencode_config_roots(&self.home_dir);
+        self.push_opencode_directory(
+            &mut files,
+            &self.user_root,
+            "user",
+            SettingScope::User,
+            true,
+        );
+        if let Some(path) = native_assets::opencode_custom_config(&self.home_dir) {
+            files.push(file_spec(
+                "custom_config",
+                path,
+                NativeConfigFormat::Jsonc,
+                SettingScope::User,
+            ));
+        }
+        if let Some(project) = &self.project_path {
+            // Parent project files are loaded in native precedence order. Do
+            // not traverse beyond the nearest Git worktree when one exists.
+            let root = native_assets::deepseek_project_root(project);
+            let mut ancestors: Vec<_> = project
+                .ancestors()
+                .take_while(|path| path.starts_with(root))
+                .collect();
+            ancestors.reverse();
+            for (index, path) in ancestors.iter().enumerate() {
+                self.push_opencode_directory(
+                    &mut files,
+                    path,
+                    &format!("project_{index}"),
+                    SettingScope::Project,
+                    false,
+                );
+            }
+            for (index, path) in ancestors.iter().enumerate() {
+                self.push_opencode_directory(
+                    &mut files,
+                    &path.join(".opencode"),
+                    &format!("asset_{index}"),
+                    SettingScope::Project,
+                    false,
+                );
+            }
+        }
+        for (index, root) in roots.iter().skip(1).enumerate() {
+            self.push_opencode_directory(
+                &mut files,
+                root,
+                &format!("custom_dir_{index}"),
+                SettingScope::User,
+                false,
+            );
+        }
+        if let Ok(content) = std::env::var("OPENCODE_CONFIG_CONTENT") {
+            if !content.trim().is_empty() {
+                let mut spec = file_spec(
+                    "inline_config",
+                    self.user_root.join(".inline"),
+                    NativeConfigFormat::Jsonc,
+                    SettingScope::User,
+                );
+                spec.writable = false;
+                spec.raw_editable = false;
+                spec.inline_content = Some(content);
+                files.push(spec);
+            }
+        }
+        files
+    }
+
+    fn push_opencode_directory(
+        &self,
+        files: &mut Vec<NativeFileSpec>,
+        root: &Path,
+        prefix: &str,
+        scope: SettingScope,
+        legacy: bool,
+    ) {
+        let target = native_assets::opencode_write_target(root, legacy);
+        for (index, path) in native_assets::opencode_config_candidates(root, legacy)
+            .into_iter()
+            .enumerate()
+        {
+            let mut spec = file_spec(
+                &format!("{prefix}_{index}_config"),
+                path.clone(),
+                NativeConfigFormat::Jsonc,
+                scope,
+            );
+            spec.writable = path == target;
+            spec.raw_editable = false;
+            files.push(spec);
+        }
+    }
+
+    fn deepseek_file_specs(&self) -> Vec<NativeFileSpec> {
+        let mut profile = file_spec(
+            "acp_profile_config",
+            self.user_root.join("profiles/acp/cordis.patch.yml"),
+            NativeConfigFormat::Yaml,
+            SettingScope::User,
+        );
+        profile.dialect = NativeDialect::Cordis;
+        profile.writable = false;
+        profile.raw_editable = false;
+        let mut home = file_spec(
+            "user_config",
+            self.user_root.join("cordis.patch.yml"),
+            NativeConfigFormat::Yaml,
+            SettingScope::User,
+        );
+        home.dialect = NativeDialect::Cordis;
+        home.raw_editable = false;
+        let mut credentials = file_spec(
+            "user_credentials",
+            self.user_root.join(".credentials.yaml"),
+            NativeConfigFormat::Yaml,
+            SettingScope::User,
+        );
+        credentials.dialect = NativeDialect::Credentials;
+        credentials.raw_editable = false;
+        let mut files = vec![profile, home];
+        let mut env = file_spec(
+            "home_env",
+            self.user_root.join(".env"),
+            NativeConfigFormat::Dotenv,
+            SettingScope::User,
+        );
+        env.writable = false;
+        env.raw_editable = false;
+        files.push(env);
+        if let Some(project) = &self.project_path {
+            let mut env = file_spec(
+                "project_env",
+                project.join(".env"),
+                NativeConfigFormat::Dotenv,
+                SettingScope::Project,
+            );
+            env.writable = false;
+            env.raw_editable = false;
+            files.push(env);
+        }
+        files.push(credentials);
+        let key = effective_string_at_path(
+            &files
+                .iter()
+                .cloned()
+                .map(read_native_file)
+                .collect::<Vec<_>>(),
+            &["llm-deepseek", "config", "apiKeyEnv"],
+        )
+        .unwrap_or_else(|| "DEEPSEEK_API_KEY".into());
+        let values: Map<String, Value> = [key.as_str(), "DEEPSEEK_BASE_URL"]
+            .into_iter()
+            .filter_map(|name| {
+                std::env::var(name)
+                    .ok()
+                    .map(|value| (name.to_string(), Value::String(value)))
+            })
+            .collect();
+        if !values.is_empty() {
+            let mut env = file_spec(
+                "launch_environment",
+                self.user_root.join(".launch-env"),
+                NativeConfigFormat::Json,
+                SettingScope::User,
+            );
+            env.writable = false;
+            env.raw_editable = false;
+            env.inline_content = Some(Value::Object(values).to_string());
+            files.push(env);
         }
         files
     }
@@ -1637,7 +1903,7 @@ impl ProviderSettingsManager {
                     NativeParseStatus::Parsed
                 },
                 revision: Some(file.revision.clone()),
-                writable: file.spec.writable,
+                writable: file.spec.writable && file.error.is_none(),
                 managed_setting_keys,
             });
         }
@@ -1740,7 +2006,7 @@ impl ProviderSettingsManager {
         match self
             .discover_with_sensitive_values(true)
             .and_then(|snapshot| {
-                verify_operations(&snapshot, &patch.operations)?;
+                verify_operations(&snapshot, &patch.operations, &rendered)?;
                 Ok(snapshot.with_sensitive_values_redacted())
             }) {
             Ok(snapshot) => Ok(snapshot),
@@ -1779,7 +2045,16 @@ impl ProviderSettingsManager {
         let location = descriptor
             .native_locations
             .iter()
-            .find(|location| location.scope == scope)
+            .rev()
+            .find(|location| {
+                location.scope == scope
+                    && parsed_files.iter().any(|file| {
+                        file.spec.id == location.file_id
+                            && file.value.as_ref().is_some_and(|value| {
+                                value_at_path(value, &location.native_path).is_some()
+                            })
+                    })
+            })
             .ok_or_else(|| {
                 AgentSettingError::Unsupported(format!(
                     "{key_id} is not available at {} scope",
@@ -1863,6 +2138,11 @@ impl ProviderSettingsManager {
 
     fn render_patch(&self, patch: &SettingsPatch) -> Result<Vec<RenderedFile>, AgentSettingError> {
         self.validate_project_path()?;
+        if patch.provider != self.provider {
+            return Err(AgentSettingError::InvalidRequest(
+                "patch provider does not match settings manager".into(),
+            ));
+        }
         if patch.operations.is_empty() {
             return Err(AgentSettingError::InvalidRequest(
                 "settings patch must contain at least one operation".to_string(),
@@ -1916,7 +2196,13 @@ impl ProviderSettingsManager {
             let location = descriptor
                 .native_locations
                 .iter()
-                .find(|location| location.scope == scope)
+                .rev()
+                .find(|location| {
+                    location.scope == scope
+                        && specs
+                            .get(&location.file_id)
+                            .is_some_and(|file| file.writable)
+                })
                 .ok_or_else(|| {
                     AgentSettingError::Unsupported(format!(
                         "{key_id} is not writable at {} scope",
@@ -1967,7 +2253,7 @@ impl ProviderSettingsManager {
                     let path = descriptor
                         .native_locations
                         .iter()
-                        .find(|location| location.scope == scope)
+                        .find(|location| location.scope == scope && location.file_id == spec.id)
                         .expect("validated location remains available")
                         .native_path
                         .clone();
@@ -2001,7 +2287,7 @@ impl ProviderSettingsManager {
                     ))
                 })
                 .collect::<Result<Vec<_>, AgentSettingError>>()?;
-            let after = render_document(spec.format, &parsed.content, native_operations)?;
+            let after = self.render_provider_document(&spec, &parsed, native_operations)?;
             rendered.push(RenderedFile {
                 spec,
                 before: parsed.bytes,
@@ -2009,6 +2295,120 @@ impl ProviderSettingsManager {
             });
         }
         Ok(rendered)
+    }
+
+    fn render_provider_document(
+        &self,
+        spec: &NativeFileSpec,
+        parsed: &ParsedNativeFile,
+        operations: Vec<(Vec<String>, Option<Value>)>,
+    ) -> Result<String, AgentSettingError> {
+        let fail = AgentSettingError::InvalidConfiguration;
+        match spec.dialect {
+            NativeDialect::Document => {
+                // Replacing a native API key must never turn an OAuth entry
+                // into an incomplete or mixed authentication record.
+                if self.provider == AgentSettingsProvider::Opencode && spec.id == "user_auth" {
+                    let mut operations = operations;
+                    let mut types = Vec::new();
+                    for (path, replacement) in &mut operations {
+                        if path.len() == 2 && path[1] == "key" {
+                            if parsed
+                                .value
+                                .as_ref()
+                                .and_then(|value| value.get(&path[0]))
+                                .and_then(|entry| entry.get("type"))
+                                .and_then(Value::as_str)
+                                .is_some_and(|kind| kind != "api")
+                            {
+                                return Err(AgentSettingError::Unsupported("OAuth authentication is managed by native OpenCode; it is not replaced by API-key edits".into()));
+                            }
+                            if replacement.is_some() {
+                                types.push((
+                                    vec![path[0].clone(), "type".into()],
+                                    Some(Value::String("api".into())),
+                                ));
+                            } else {
+                                path.pop();
+                            }
+                        }
+                    }
+                    operations.extend(types);
+                    return render_document(spec.format, &parsed.content, operations);
+                }
+                render_document(spec.format, &parsed.content, operations)
+            }
+            NativeDialect::Cordis => {
+                let mut desired = parsed
+                    .value
+                    .clone()
+                    .unwrap_or_else(|| Value::Object(Map::new()));
+                // A new home override copies the entire preceding native row
+                // config before editing it: Cordis replaces config wholesale.
+                let profile = read_native_file(self.deepseek_file_specs().remove(0));
+                for (path, _) in &operations {
+                    let id = &path[0];
+                    if desired.get(id).and_then(|row| row.get("config")).is_none() {
+                        if profile.error.is_some() {
+                            return Err(fail(
+                                "ACP profile configuration cannot be safely preserved by a home override"
+                                    .into(),
+                            ));
+                        }
+                        let inherited_config = profile
+                            .value
+                            .as_ref()
+                            .and_then(|value| value.get(id))
+                            .and_then(|row| row.get("config"))
+                            .cloned()
+                            .unwrap_or_else(|| Value::Object(Map::new()));
+                        let mut row = desired
+                            .get(id)
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({"id": id}));
+                        // A home row may override disabled or other metadata
+                        // without its own config. Preserve that metadata and
+                        // seed only config, never the profile's plugin insert.
+                        update_json_path(&mut row, &["config".into()], Some(inherited_config))?;
+                        update_json_path(&mut desired, std::slice::from_ref(id), Some(row))?;
+                    }
+                }
+                for (path, replacement) in operations {
+                    if path == ["acp", "config", "model"] {
+                        let pair = replacement.as_ref().map(deepseek_model_pair).transpose()?;
+                        update_json_path(
+                            &mut desired,
+                            &["acp".into(), "config".into(), "provider".into()],
+                            pair.as_ref().map(|pair| Value::String(pair[0].clone())),
+                        )?;
+                        update_json_path(
+                            &mut desired,
+                            &path,
+                            pair.map(|pair| Value::String(pair[1].clone())),
+                        )?;
+                    } else {
+                        update_json_path(&mut desired, &path, replacement)?;
+                    }
+                }
+                native_assets::render_cordis_patch(&parsed.content, &desired).map_err(fail)
+            }
+            NativeDialect::Credentials => {
+                let before = parsed
+                    .value
+                    .clone()
+                    .unwrap_or_else(|| Value::Object(Map::new()));
+                let mut desired = before.clone();
+                if desired.as_object().is_some_and(Map::is_empty) {
+                    desired = serde_json::json!({"version": 1, "refs": {}, "records": {}});
+                }
+                for (path, replacement) in operations {
+                    update_json_path(&mut desired, &path, replacement)?;
+                }
+                validate_deepseek_credentials(&desired)?;
+                native_assets::render_yaml_mapping(&parsed.content, &before, &desired, 0)
+                    .map_err(fail)
+            }
+        }
     }
 
     fn render_native_file(
@@ -2068,6 +2468,8 @@ fn file_spec(
         scope,
         writable: true,
         raw_editable: !matches!(format, NativeConfigFormat::Opaque),
+        dialect: NativeDialect::Document,
+        inline_content: None,
     }
 }
 
@@ -2080,6 +2482,8 @@ fn provider_descriptors(
         AgentSettingsProvider::ClaudeCode => claude_descriptors(),
         AgentSettingsProvider::Gemini => gemini_descriptors(),
         AgentSettingsProvider::OhMyPi => oh_my_pi_descriptors(connection_provider),
+        AgentSettingsProvider::Opencode => opencode_descriptors(connection_provider),
+        AgentSettingsProvider::DeepseekHarness => deepseek_descriptors(connection_provider),
     }
 }
 
@@ -2686,11 +3090,202 @@ fn provider_limitations(provider: AgentSettingsProvider) -> Vec<String> {
             "Management targets the active Oh My Pi agent profile resolved by the runtime; project config remains discovery-only.".to_string(),
             "Model registry and prompt-template files are reported as native extensions rather than guessed into config.yml fields.".to_string(),
         ],
+        AgentSettingsProvider::Opencode => vec![
+            "OpenCode configuration uses native JSONC layers and the selected provider/model route. Effort and mode choices are negotiated with the running ACP session.".into(),
+            "OAuth entries are native-owned; API-key edits never replace them. Organization/system policy and inline overrides can outrank local edits.".into(),
+        ],
+        AgentSettingsProvider::DeepseekHarness => vec![
+            "DeepSeek Harness is a developer preview. Native ACP/home Cordis patches are read without launching or initializing the CLI.".into(),
+            "Only the home patch is writable; project settings are not a native ACP layer. Tagged, aliased or composed YAML stays read-only.".into(),
+            "Credentials from the launch environment outrank stored refs. Native changes take effect in a new CLI process; other provider routes remain native-managed.".into(),
+        ],
+    }
+}
+
+fn opencode_descriptors(provider: &str) -> Vec<SettingDescriptor> {
+    let mut descriptors = vec![
+        descriptor(
+            "common",
+            "model",
+            SettingSection::General,
+            "Model",
+            "OpenCode provider/model route, preserved verbatim.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &common_locations(&["model"]),
+            true,
+        ),
+        descriptor(
+            "opencode",
+            "small_model",
+            SettingSection::General,
+            "Small model",
+            "Native route used for lightweight tasks.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &common_locations(&["small_model"]),
+            false,
+        ),
+        descriptor(
+            "opencode",
+            "default_agent",
+            SettingSection::General,
+            "Default agent",
+            "Native OpenCode agent/mode for new sessions.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &common_locations(&["default_agent"]),
+            true,
+        ),
+        descriptor(
+            "opencode",
+            "permission",
+            SettingSection::PermissionsSandbox,
+            "Permissions",
+            "Native permission rules, including per-tool and per-skill rules.",
+            SettingValueType::Json,
+            SettingControl::Json,
+            &common_locations(&["permission"]),
+            false,
+        ),
+    ];
+    if !provider.is_empty() {
+        descriptors.push(api_address_descriptor(
+            "Base URL for the provider selected by the native model route.",
+            &common_locations(&["provider", provider, "options", "baseURL"]),
+        ));
+        descriptors.push(credential_descriptor(
+            "common",
+            "api_key",
+            "API key",
+            "Native auth.json API entry for the selected route; OAuth entries remain native-owned.",
+            &[("user_auth", SettingScope::User, &[provider, "key"])],
+        ));
+        descriptors.push(credential_descriptor("opencode", "config_api_key", "Configuration API key", "Route-specific config override or literal native env/file reference; references are never expanded by discovery.", &common_locations(&["provider", provider, "options", "apiKey"])));
+    }
+    descriptors
+}
+
+fn deepseek_descriptors(credential_key: &str) -> Vec<SettingDescriptor> {
+    let user = |path: &[&str]| {
+        descriptor(
+            "common",
+            "model",
+            SettingSection::General,
+            "Model",
+            "Opaque native ACP route encoded as [provider, model].",
+            SettingValueType::String,
+            SettingControl::Text,
+            &[("user_config", SettingScope::User, path)],
+            true,
+        )
+    };
+    let mut model = user(&["acp", "config", "model"]);
+    model.validation.pattern = Some("deepseek_model_pair".into());
+    vec![
+        model,
+        descriptor(
+            "common",
+            "reasoning_effort",
+            SettingSection::General,
+            "Reasoning effort",
+            "Native DeepSeek reasoning default; valid runtime choices depend on the selected ACP route.",
+            SettingValueType::String,
+            SettingControl::Text,
+            &[(
+                "user_config",
+                SettingScope::User,
+                &["llm-deepseek", "config", "reasoningEffort"],
+            )],
+            true,
+        ),
+        api_address_descriptor(
+            "DeepSeek Messages-compatible base URL, not an OpenAI chat/completions endpoint.",
+            &[
+                ("home_env", SettingScope::User, &["DEEPSEEK_BASE_URL"]),
+                ("project_env", SettingScope::Project, &["DEEPSEEK_BASE_URL"]),
+                (
+                    "launch_environment",
+                    SettingScope::User,
+                    &["DEEPSEEK_BASE_URL"],
+                ),
+                (
+                    "user_config",
+                    SettingScope::User,
+                    &["llm-deepseek", "config", "baseURL"],
+                ),
+            ],
+        ),
+        credential_descriptor(
+            "common",
+            "api_key",
+            "API key",
+            "Native credential ref selected by llm-deepseek.apiKeyEnv. Environment credentials take precedence.",
+            &[
+                ("home_env", SettingScope::User, &[credential_key]),
+                ("project_env", SettingScope::Project, &[credential_key]),
+                (
+                    "user_credentials",
+                    SettingScope::User,
+                    &["refs", credential_key],
+                ),
+                ("launch_environment", SettingScope::User, &[credential_key]),
+            ],
+        ),
+    ]
+}
+
+fn deepseek_model_pair(value: &Value) -> Result<[String; 2], AgentSettingError> {
+    let pair: Vec<String> = value
+        .as_str()
+        .and_then(|value| serde_json::from_str(value).ok())
+        .ok_or_else(|| {
+            AgentSettingError::ValidationFailed(
+                "DeepSeek Harness model must be the opaque advertised [provider, model] value"
+                    .into(),
+            )
+        })?;
+    pair.try_into()
+        .ok()
+        .filter(|pair: &[String; 2]| pair.iter().all(|value| !value.trim().is_empty()))
+        .ok_or_else(|| {
+            AgentSettingError::ValidationFailed(
+                "DeepSeek Harness model requires two nonempty route components".into(),
+            )
+        })
+}
+
+fn validate_deepseek_credentials(value: &Value) -> Result<(), AgentSettingError> {
+    let valid = value.as_object().is_some_and(|document| {
+        document.get("version") == Some(&Value::from(1))
+            && document
+                .keys()
+                .all(|key| matches!(key.as_str(), "version" | "refs" | "records"))
+            && document
+                .get("refs")
+                .and_then(Value::as_object)
+                .is_some_and(|refs| {
+                    refs.values()
+                        .all(|value| value.as_str().is_some_and(|value| !value.trim().is_empty()))
+                })
+            && document.get("records").is_none_or(Value::is_object)
+    });
+    if valid {
+        Ok(())
+    } else {
+        Err(AgentSettingError::InvalidConfiguration(
+            "unsupported DeepSeek Harness credential document".into(),
+        ))
     }
 }
 
 fn read_native_file(spec: NativeFileSpec) -> ParsedNativeFile {
-    let bytes = match fs::read(&spec.path) {
+    let bytes = match spec
+        .inline_content
+        .as_ref()
+        .map(|content| Ok(content.as_bytes().to_vec()))
+        .unwrap_or_else(|| fs::read(&spec.path))
+    {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
@@ -2714,7 +3309,17 @@ fn read_native_file(spec: NativeFileSpec) -> ParsedNativeFile {
         .unwrap_or_default()
         .into_owned();
     let parsed = if bytes.is_some() {
-        parse_document(spec.format, &content)
+        match spec.dialect {
+            NativeDialect::Cordis => native_assets::parse_cordis_patch(&content)
+                .map_err(AgentSettingError::InvalidConfiguration),
+            NativeDialect::Credentials => native_assets::parse_yaml(&content)
+                .map_err(AgentSettingError::InvalidConfiguration)
+                .and_then(|value| {
+                    validate_deepseek_credentials(&value)?;
+                    Ok(value)
+                }),
+            NativeDialect::Document => parse_document(spec.format, &content),
+        }
     } else {
         Ok(Value::Object(Map::new()))
     };
@@ -2822,7 +3427,11 @@ fn render_document(
             for (path, replacement) in &operations {
                 update_json_path(&mut value, path, replacement.clone())?;
             }
-            serde_yaml::to_string(&json_to_yaml(&value)?).map_err(|error| {
+            serde_yaml::to_string(
+                &native_assets::json_to_yaml(&value)
+                    .map_err(AgentSettingError::ValidationFailed)?,
+            )
+            .map_err(|error| {
                 AgentSettingError::InvalidConfiguration(format!("YAML serialization: {error}"))
             })
         }
@@ -2915,42 +3524,6 @@ fn render_toml(
     Ok(rendered)
 }
 
-fn json_to_yaml(value: &Value) -> Result<serde_yaml::Value, AgentSettingError> {
-    Ok(match value {
-        Value::Null => serde_yaml::Value::Null,
-        Value::Bool(value) => serde_yaml::Value::Bool(*value),
-        Value::Number(value) => {
-            let number = if let Some(value) = value.as_i64() {
-                serde_yaml::Number::from(value)
-            } else if let Some(value) = value.as_u64() {
-                serde_yaml::Number::from(value)
-            } else if let Some(value) = value.as_f64() {
-                serde_yaml::Number::from(value)
-            } else {
-                return Err(AgentSettingError::ValidationFailed(
-                    "number cannot be represented in YAML".to_string(),
-                ));
-            };
-            serde_yaml::Value::Number(number)
-        }
-        Value::String(value) => serde_yaml::Value::String(value.clone()),
-        Value::Array(values) => serde_yaml::Value::Sequence(
-            values
-                .iter()
-                .map(json_to_yaml)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        Value::Object(object) => serde_yaml::Value::Mapping(
-            object
-                .iter()
-                .map(|(key, value)| {
-                    Ok((serde_yaml::Value::String(key.clone()), json_to_yaml(value)?))
-                })
-                .collect::<Result<serde_yaml::Mapping, AgentSettingError>>()?,
-        ),
-    })
-}
-
 fn ensure_object_root(value: &mut Value) -> Result<(), AgentSettingError> {
     if value.is_null() {
         *value = Value::Object(Map::new());
@@ -3010,15 +3583,34 @@ fn value_at_segments<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
 }
 
 fn effective_string_at_path(files: &[ParsedNativeFile], path: &[&str]) -> Option<String> {
-    files.iter().rev().find_map(|file| {
-        file.value
+    for file in files.iter().rev() {
+        let value = file
+            .value
             .as_ref()
             .and_then(|value| value_at_segments(value, path))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    })
+            .map(str::to_string);
+        if value.is_some() {
+            return value;
+        }
+        if file.spec.dialect == NativeDialect::Cordis
+            && path.get(1) == Some(&"config")
+            && file
+                .value
+                .as_ref()
+                .and_then(|value| value.get(path[0]))
+                .and_then(|row| row.get("config"))
+                .is_some()
+        {
+            // A present later Cordis config replaces the complete earlier
+            // config. A missing/empty field uses the native default, not a
+            // value from the shadowed profile's config.
+            return None;
+        }
+    }
+    None
 }
 
 fn managed_descendant_paths(
@@ -3141,12 +3733,49 @@ fn effective_setting(
             ));
             continue;
         }
+        if file.spec.dialect == NativeDialect::Cordis
+            && location
+                .native_path
+                .get(1)
+                .is_some_and(|key| key == "config")
+        {
+            let id = &location.native_path[0];
+            // A later Cordis config replaces the entire earlier config. A
+            // missing key in that later row is not inherited from this file.
+            let later = files
+                .iter()
+                .skip_while(|candidate| candidate.spec.id != file.spec.id)
+                .skip(1)
+                .any(|candidate| {
+                    candidate.spec.dialect == NativeDialect::Cordis
+                        && candidate
+                            .value
+                            .as_ref()
+                            .and_then(|value| value.get(id))
+                            .and_then(|row| row.get("config"))
+                            .is_some()
+                });
+            if later {
+                continue;
+            }
+        }
         if let Some(value) = file
             .value
             .as_ref()
             .and_then(|value| value_at_path(value, &location.native_path))
         {
-            let value = if descriptor.sensitive {
+            let value = if descriptor.key.id() == "common.model"
+                && file.spec.dialect == NativeDialect::Cordis
+            {
+                file.value
+                    .as_ref()
+                    .and_then(|value| value_at_segments(value, &["acp", "config", "provider"]))
+                    .and_then(Value::as_str)
+                    .zip(value.as_str())
+                    .map(|(provider, model)| {
+                        Value::String(serde_json::json!([provider, model]).to_string())
+                    })
+            } else if descriptor.sensitive {
                 include_sensitive_values.then(|| value.clone())
             } else {
                 projected_setting_value(
@@ -3270,6 +3899,9 @@ fn validate_setting_value(
             descriptor.value_type
         )));
     }
+    if descriptor.validation.pattern.as_deref() == Some("deepseek_model_pair") {
+        deepseek_model_pair(value)?;
+    }
     if descriptor.sensitive {
         let credential = value.as_str().ok_or_else(|| {
             AgentSettingError::ValidationFailed(format!(
@@ -3386,6 +4018,7 @@ fn require_expected_revision(
 fn verify_operations(
     snapshot: &SettingsSnapshot,
     operations: &[SettingOperation],
+    rendered: &[RenderedFile],
 ) -> Result<(), AgentSettingError> {
     for operation in operations {
         let (key, scope, expected) = match operation {
@@ -3397,7 +4030,12 @@ fn verify_operations(
             .effective_settings
             .iter()
             .find(|setting| setting.key == *key)
-            .and_then(|setting| setting.sources.iter().find(|source| source.scope == *scope));
+            .and_then(|setting| {
+                setting.sources.iter().rev().find(|source| {
+                    source.scope == *scope
+                        && rendered.iter().any(|file| file.spec.id == source.file_id)
+                })
+            });
         let matches = match expected {
             Some(expected) => observed
                 .and_then(|source| source.value.as_ref())
@@ -3416,6 +4054,21 @@ fn verify_operations(
 }
 
 fn write_all_or_restore(files: &[RenderedFile]) -> Result<(), AgentSettingError> {
+    for file in files {
+        crate::agent_tools::ensure_native_root_safe(&file.spec.path).map_err(|_| {
+            AgentSettingError::UnsafePath(
+                "native configuration path contains a symbolic link or reparse point".into(),
+            )
+        })?;
+        let observed = match fs::read(&file.spec.path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        if observed != file.before {
+            return Err(AgentSettingError::StaleRevision);
+        }
+    }
     let mut written = Vec::new();
     for file in files {
         if file.before.as_deref() == Some(file.after.as_slice()) {
@@ -3539,6 +4192,393 @@ mod tests {
             .unwrap()
     }
 
+    fn native_patch(
+        snapshot: &SettingsSnapshot,
+        operations: Vec<SettingOperation>,
+    ) -> SettingsPatch {
+        SettingsPatch {
+            provider: snapshot.provider,
+            project_path: None,
+            expected_file_revisions: snapshot
+                .native_files
+                .iter()
+                .filter_map(|file| {
+                    file.revision
+                        .as_ref()
+                        .map(|revision| (file.file_id.clone(), revision.clone()))
+                })
+                .collect(),
+            operations,
+        }
+    }
+
+    #[test]
+    fn opencode_json_extensions_use_lossless_jsonc_and_selected_route() {
+        let harness = harness();
+        let config = harness.home.join(".config/opencode/opencode.json");
+        write(
+            &config,
+            "{\n// preserved comment\n\"model\": \"vendor/old\",\n\"provider\": {\"vendor\": {\"options\": {\"baseURL\": \"https://example.test/v1\"}}},\n\"unknown\": {\"retained\": true}\n}\n",
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::Opencode, None);
+        let snapshot = manager.discover().unwrap();
+        assert_eq!(
+            setting(&snapshot, "common.model").effective_value,
+            Some(json!("vendor/old"))
+        );
+        assert_eq!(
+            setting(&snapshot, "common.api_address").effective_value,
+            Some(json!("https://example.test/v1"))
+        );
+        let patch = native_patch(
+            &snapshot,
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "model"),
+                scope: SettingScope::User,
+                value: json!("vendor/new"),
+            }],
+        );
+        manager.apply(&patch).unwrap();
+        let observed = fs::read_to_string(&config).unwrap();
+        assert!(observed.contains("// preserved comment"));
+        assert!(observed.contains("retained"));
+        assert!(matches!(
+            manager.apply(&patch),
+            Err(AgentSettingError::StaleRevision)
+        ));
+        assert!(
+            !harness
+                .home
+                .join(".config/opencode/opencode.jsonc")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn opencode_credentials_are_redacted_and_oauth_entries_are_protected() {
+        let harness = harness();
+        write(
+            &harness.home.join(".config/opencode/opencode.jsonc"),
+            "{\"model\":\"vendor/model\"}",
+        );
+        let auth = harness.home.join(".local/share/opencode/auth.json");
+        write(
+            &auth,
+            r#"{"vendor":{"type":"api","key":"fixture-key"},"other":{"type":"oauth","refresh":"keep-refresh"}}"#,
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::Opencode, None);
+        let snapshot = manager.discover().unwrap();
+        let serialized = serde_json::to_string(&snapshot).unwrap();
+        assert!(!serialized.contains("fixture-key"));
+        assert!(!serialized.contains("keep-refresh"));
+        let patch = native_patch(
+            &snapshot,
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "api_key"),
+                scope: SettingScope::User,
+                value: json!("replacement-key"),
+            }],
+        );
+        manager.apply(&patch).unwrap();
+        let value: Value = serde_json::from_slice(&fs::read(&auth).unwrap()).unwrap();
+        assert_eq!(value["vendor"]["type"], "api");
+        assert_eq!(value["other"]["refresh"], "keep-refresh");
+        write(
+            &auth,
+            r#"{"vendor":{"type":"oauth","refresh":"native-token"}}"#,
+        );
+        let before = fs::read(&auth).unwrap();
+        let patch = native_patch(
+            &manager.discover().unwrap(),
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "api_key"),
+                scope: SettingScope::User,
+                value: json!("replacement-key"),
+            }],
+        );
+        assert!(matches!(
+            manager.apply(&patch),
+            Err(AgentSettingError::Unsupported(_))
+        ));
+        assert_eq!(fs::read(&auth).unwrap(), before);
+    }
+
+    #[test]
+    fn dsh_model_pair_write_preserves_entire_inherited_config_and_comments() {
+        let harness = harness();
+        let home = harness.home.join(".dsh");
+        let profile = home.join("profiles/acp/cordis.patch.yml");
+        let original = "# native profile\n- id: acp\n  config:\n    provider: deepseek-official\n    model: old\n    sessionListPageSize: 23\n- id: llm-deepseek\n  config:\n    reasoningEffort: high\n    apiKeyEnv: VK_DSH_FIXTURE_CRED\n";
+        write(&profile, original);
+        let patch_file = home.join("cordis.patch.yml");
+        write(
+            &patch_file,
+            "# home comment\n- id: unrelated\n  config:\n    keep: true\n",
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::DeepseekHarness, None);
+        let snapshot = manager.discover().unwrap();
+        assert_eq!(
+            setting(&snapshot, "common.model").effective_value,
+            Some(json!("[\"deepseek-official\",\"old\"]"))
+        );
+        assert_eq!(
+            setting(&snapshot, "common.reasoning_effort").effective_value,
+            Some(json!("high"))
+        );
+        let patch = native_patch(
+            &snapshot,
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "model"),
+                scope: SettingScope::User,
+                value: json!("[\"deepseek-official\",\"new\"]"),
+            }],
+        );
+        let after = manager.apply(&patch).unwrap();
+        assert_eq!(
+            setting(&after, "common.model").effective_value,
+            Some(json!("[\"deepseek-official\",\"new\"]"))
+        );
+        let output = fs::read_to_string(&patch_file).unwrap();
+        assert!(output.contains("# home comment"));
+        let native = native_assets::parse_cordis_patch(&output).unwrap();
+        assert_eq!(native["acp"]["config"]["sessionListPageSize"], 23);
+        assert_eq!(native["unrelated"]["config"]["keep"], true);
+        assert_eq!(fs::read_to_string(profile).unwrap(), original);
+        let invalid = native_patch(
+            &after,
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "model"),
+                scope: SettingScope::User,
+                value: json!("unadvertised-model"),
+            }],
+        );
+        assert!(matches!(
+            manager.diff(&invalid),
+            Err(AgentSettingError::ValidationFailed(_))
+        ));
+    }
+
+    #[test]
+    fn dsh_new_home_config_rejects_unsafe_inherited_profiles_without_writes() {
+        for original in [
+            "- id: acp\n  config: !expr native-config\n",
+            "- id: acp\n  config: &route\n    provider: route\n    model: old\n- id: other\n  config: *route\n",
+            "- include: native-profile\n",
+        ] {
+            for existing_home in [
+                None,
+                Some("# keep\n- id: unrelated\n  config:\n    keep: true\n"),
+            ] {
+                let harness = harness();
+                let home = harness.home.join(".dsh");
+                let profile = home.join("profiles/acp/cordis.patch.yml");
+                let patch_file = home.join("cordis.patch.yml");
+                write(&profile, original);
+                if let Some(content) = existing_home {
+                    write(&patch_file, content);
+                }
+                let manager = harness
+                    .service
+                    .manager(AgentSettingsProvider::DeepseekHarness, None);
+                let snapshot = manager.discover().unwrap();
+                let patch = native_patch(
+                    &snapshot,
+                    vec![SettingOperation::Replace {
+                        key: SettingKey::new("common", "model"),
+                        scope: SettingScope::User,
+                        value: json!("[\"route\",\"new\"]"),
+                    }],
+                );
+                assert!(matches!(
+                    manager.diff(&patch),
+                    Err(AgentSettingError::InvalidConfiguration(_))
+                ));
+                assert!(matches!(
+                    manager.apply(&patch),
+                    Err(AgentSettingError::InvalidConfiguration(_))
+                ));
+                assert_eq!(fs::read_to_string(&profile).unwrap(), original);
+                if let Some(content) = existing_home {
+                    assert_eq!(fs::read_to_string(&patch_file).unwrap(), content);
+                } else {
+                    assert!(!patch_file.exists());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dsh_home_config_seeding_preserves_row_metadata_without_copying_plugin_insert() {
+        let harness = harness();
+        let home = harness.home.join(".dsh");
+        let profile = home.join("profiles/acp/cordis.patch.yml");
+        let original = "- insert:\n  - id: acp\n    name: native-acp\n    config:\n      provider: route\n      model: old\n      sessionListPageSize: 23\n";
+        write(&profile, original);
+        let patch_file = home.join("cordis.patch.yml");
+        write(
+            &patch_file,
+            "# home metadata\n- id: acp\n  disabled: true\n  customMetadata: retained\n",
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::DeepseekHarness, None);
+        let patch = native_patch(
+            &manager.discover().unwrap(),
+            vec![SettingOperation::Replace {
+                key: SettingKey::new("common", "model"),
+                scope: SettingScope::User,
+                value: json!("[\"route\",\"new\"]"),
+            }],
+        );
+        manager.apply(&patch).unwrap();
+        let output = fs::read_to_string(&patch_file).unwrap();
+        let native = native_assets::parse_cordis_patch(&output).unwrap();
+        assert!(output.contains("# home metadata"));
+        assert!(!output.contains("insert:"));
+        assert_eq!(native["acp"]["disabled"], true);
+        assert_eq!(native["acp"]["customMetadata"], "retained");
+        assert_eq!(native["acp"]["config"]["model"], "new");
+        assert_eq!(native["acp"]["config"]["sessionListPageSize"], 23);
+        assert!(native["acp"].get("name").is_none());
+        assert_eq!(fs::read_to_string(profile).unwrap(), original);
+    }
+
+    #[test]
+    fn dsh_replaced_config_without_api_key_env_selects_default_credential() {
+        let harness = harness();
+        let home = harness.home.join(".dsh");
+        write(
+            &home.join("profiles/acp/cordis.patch.yml"),
+            "- id: llm-deepseek\n  config:\n    apiKeyEnv: VK_DSH_SHADOWED_CRED\n",
+        );
+        write(
+            &home.join("cordis.patch.yml"),
+            "- id: llm-deepseek\n  config:\n    baseURL: https://example.test/anthropic\n",
+        );
+        write(
+            &home.join(".env"),
+            "VK_DSH_SHADOWED_CRED=shadowed-env\nDEEPSEEK_API_KEY=default-env\n",
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::DeepseekHarness, None);
+        let snapshot = manager.discover().unwrap();
+        let key = descriptor_for(&snapshot, "common.api_key");
+        assert!(!key.native_locations.is_empty());
+        assert!(key.native_locations.iter().all(|location| {
+            location.native_path.last().map(String::as_str) == Some("DEEPSEEK_API_KEY")
+        }));
+        let resolve_native_credential = || {
+            // Keep this fixture independent from credentials in the test
+            // runner's real environment; native launch specs still use the
+            // same credential-key resolver as the descriptors.
+            let files: Vec<_> = manager
+                .file_specs()
+                .into_iter()
+                .filter(|file| file.id != "launch_environment")
+                .map(read_native_file)
+                .collect();
+            let descriptors = manager.descriptors_for_files(&files);
+            let key = descriptors
+                .iter()
+                .find(|descriptor| descriptor.key.id() == "common.api_key")
+                .unwrap();
+            effective_setting(key, &descriptors, &files, true)
+        };
+        assert_eq!(
+            resolve_native_credential().effective_value,
+            Some(json!("default-env"))
+        );
+        write(
+            &home.join(".credentials.yaml"),
+            "version: 1\nrefs:\n  VK_DSH_SHADOWED_CRED: shadowed-key\n  DEEPSEEK_API_KEY: default-key\nrecords: {}\n",
+        );
+        assert_eq!(
+            resolve_native_credential().effective_value,
+            Some(json!("default-key"))
+        );
+        for file in manager
+            .file_specs()
+            .into_iter()
+            .filter(|file| file.id == "launch_environment")
+        {
+            let value = read_native_file(file).value.unwrap();
+            assert!(value.get("VK_DSH_SHADOWED_CRED").is_none());
+        }
+    }
+
+    #[test]
+    fn dsh_whole_config_shadowing_and_credential_clear_follow_native_semantics() {
+        let harness = harness();
+        let home = harness.home.join(".dsh");
+        write(
+            &home.join("profiles/acp/cordis.patch.yml"),
+            "- id: llm-deepseek\n  config:\n    reasoningEffort: high\n    apiKeyEnv: VK_DSH_FIXTURE_CRED\n",
+        );
+        write(
+            &home.join("cordis.patch.yml"),
+            "- id: llm-deepseek\n  config:\n    apiKeyEnv: VK_DSH_FIXTURE_CRED\n    baseURL: https://example.test/anthropic\n",
+        );
+        let credentials = home.join(".credentials.yaml");
+        write(
+            &credentials,
+            "# credentials\nversion: 1\nrefs:\n  VK_DSH_FIXTURE_CRED: fixture-key # secret comment\nrecords: {} # native grants\n",
+        );
+        let manager = harness
+            .service
+            .manager(AgentSettingsProvider::DeepseekHarness, None);
+        let snapshot = manager.discover().unwrap();
+        assert!(!setting(&snapshot, "common.reasoning_effort").configured);
+        assert!(setting(&snapshot, "common.api_key").configured);
+        assert!(
+            !serde_json::to_string(&snapshot)
+                .unwrap()
+                .contains("fixture-key")
+        );
+        let revision = snapshot
+            .native_files
+            .iter()
+            .find(|file| file.file_id == "user_credentials")
+            .unwrap()
+            .revision
+            .as_deref()
+            .unwrap();
+        assert_eq!(
+            manager
+                .reveal(
+                    &SettingKey::new("common", "api_key"),
+                    SettingScope::User,
+                    revision
+                )
+                .unwrap()
+                .value,
+            "fixture-key"
+        );
+        let patch = native_patch(
+            &snapshot,
+            vec![SettingOperation::Clear {
+                key: SettingKey::new("common", "api_key"),
+                scope: SettingScope::User,
+            }],
+        );
+        manager.apply(&patch).unwrap();
+        let output = fs::read_to_string(credentials).unwrap();
+        assert!(output.contains("# credentials"));
+        assert!(output.contains("# native grants"));
+        assert!(
+            native_assets::parse_yaml(&output).unwrap()["refs"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn four_provider_discovery_is_read_only_and_isolates_malformed_files() {
         let harness = harness();
@@ -3562,7 +4602,7 @@ mod tests {
 
         let inventory = harness.service.discover(None, Some(&harness.project));
 
-        assert_eq!(inventory.providers.len(), 4);
+        assert_eq!(inventory.providers.len(), 6);
         assert_eq!(
             snapshot(&inventory, AgentSettingsProvider::Codex)
                 .errors

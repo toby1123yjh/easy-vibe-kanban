@@ -1,5 +1,7 @@
 import { BaseCodingAgent } from 'shared/types';
+import { CircuitryIcon, CodeIcon } from '@phosphor-icons/react';
 import { useTheme, getResolvedTheme } from '@/shared/hooks/useTheme';
+import { AGENT_PROVIDER_BY_EXECUTOR } from '@/shared/lib/agentProviders';
 
 type AgentIconProps = {
   agent: BaseCodingAgent | null | undefined;
@@ -9,17 +11,9 @@ type AgentIconProps = {
 export function getAgentName(
   agent: BaseCodingAgent | null | undefined
 ): string {
-  if (!agent) return 'Agent';
-  switch (agent) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      return 'Claude Code';
-    case BaseCodingAgent.GEMINI:
-      return 'Gemini';
-    case BaseCodingAgent.CODEX:
-      return 'Codex';
-    case BaseCodingAgent.OH_MY_PI:
-      return 'Oh My Pi';
-  }
+  return agent
+    ? (AGENT_PROVIDER_BY_EXECUTOR[agent]?.label ?? 'Agent')
+    : 'Agent';
 }
 
 export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
@@ -47,6 +41,10 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
     case BaseCodingAgent.OH_MY_PI:
       iconPath = `/agents/oh-my-pi${suffix}.svg`;
       break;
+    case BaseCodingAgent.OPENCODE:
+      return <CodeIcon aria-hidden="true" className={className} />;
+    case BaseCodingAgent.DEEPSEEK_HARNESS:
+      return <CircuitryIcon aria-hidden="true" className={className} />;
     default:
       return null;
   }

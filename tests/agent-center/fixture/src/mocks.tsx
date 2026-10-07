@@ -1,17 +1,32 @@
-import * as React from 'react';
+import * as React from "react";
 import {
   AgentProviderCapability,
   AgentProviderReadiness,
-  AgentSettingsProvider,
+  type AgentSettingsProvider,
+  type AgentCommandInventoryView,
+  type AgentToolInventoryView,
+  type AgentToolView,
+  type CreateAgentCommandRequest,
+  type CreateAgentToolRequest,
+  type ExecutorConfig,
+  type ModelSelectorConfig,
+  type SettingsSnapshot,
+  NativeConfigFormat,
+  NativeParseStatus,
+  SettingActivation,
+  SettingControl,
+  SettingScope,
+  SettingSection,
+  SettingValueType,
   BaseCodingAgent,
-} from 'shared/types';
+} from "shared/types";
+import {
+  AGENT_PROVIDERS,
+  AGENT_PROVIDER_BY_EXECUTOR,
+  agentProviderForSettings,
+} from "../../../../packages/web-core/src/shared/lib/agentProviders";
 
-const providers = [
-  BaseCodingAgent.CODEX,
-  BaseCodingAgent.CLAUDE_CODE,
-  BaseCodingAgent.GEMINI,
-  BaseCodingAgent.OH_MY_PI,
-];
+const providers = AGENT_PROVIDERS.map((provider) => provider.executor);
 
 const params = new URLSearchParams(window.location.search);
 export class ApiError extends Error {}
@@ -23,14 +38,24 @@ const installProbe = {
   installed: false,
 };
 Object.assign(window, { agentInstallProbe: installProbe });
-export const useAppRuntime = () => params.get('runtime') ?? 'local';
+const installJobs = new Map<
+  string,
+  { executor: BaseCodingAgent; logs: string }
+>();
+const installJobProbe = {
+  startedExecutors: [] as BaseCodingAgent[],
+  polledExecutors: [] as BaseCodingAgent[],
+};
+Object.assign(window, { agentInstallJobProbe: installJobProbe });
+const missingProviders = (params.get("missing") ?? "").split(",");
+export const useAppRuntime = () => params.get("runtime") ?? "local";
 export const useAuth = () => ({
   isLoaded: true,
-  isSignedIn: params.get('signedOut') !== 'true',
+  isSignedIn: params.get("signedOut") !== "true",
 });
-export const useHostId = () => params.get('host');
+export const useHostId = () => params.get("host");
 const pairedHosts = [
-  { host_id: 'remote-fixture', host_name: 'Remote fixture', paired_at: '' },
+  { host_id: "remote-fixture", host_name: "Remote fixture", paired_at: "" },
 ];
 export const relayApi = {
   listPairedRelayHosts: async () => {
@@ -42,8 +67,8 @@ export const listPairedRelayHosts = async () => pairedHosts;
 export const subscribeRelayPairingChanges = () => () => undefined;
 export async function listRelayHosts() {
   calls.relay++;
-  if (params.has('cloudError')) throw new Error('PRIVATE_CLOUD_ERROR');
-  return [{ id: 'remote-fixture', name: 'Remote fixture', status: 'online' }];
+  if (params.has("cloudError")) throw new Error("PRIVATE_CLOUD_ERROR");
+  return [{ id: "remote-fixture", name: "Remote fixture", status: "online" }];
 }
 export const createMachineClient = (_runtime: unknown, target: unknown) => ({
   ...machineClient,
@@ -51,25 +76,17 @@ export const createMachineClient = (_runtime: unknown, target: unknown) => ({
 });
 
 const settingsProviderFor = (executor: BaseCodingAgent) => {
-  switch (executor) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      return AgentSettingsProvider.claude_code;
-    case BaseCodingAgent.GEMINI:
-      return AgentSettingsProvider.gemini;
-    case BaseCodingAgent.OH_MY_PI:
-      return AgentSettingsProvider.oh_my_pi;
-    default:
-      return AgentSettingsProvider.codex;
-  }
+  return AGENT_PROVIDER_BY_EXECUTOR[executor].settingsProvider;
 };
 
 const garage = providers.map((executor) => ({
   executor,
-  availability: { type: 'INSTALLATION_FOUND' as const },
+  availability: { type: "INSTALLATION_FOUND" as const },
   capabilities: [
     AgentProviderCapability.INITIAL_RUN,
     AgentProviderCapability.FOLLOW_UP,
     AgentProviderCapability.MCP,
+    AgentProviderCapability.WORKFLOW_AGENT_STEP,
   ],
   policy: {
     executor,
@@ -78,6 +95,7 @@ const garage = providers.map((executor) => ({
       AgentProviderCapability.INITIAL_RUN,
       AgentProviderCapability.FOLLOW_UP,
       AgentProviderCapability.MCP,
+      AgentProviderCapability.WORKFLOW_AGENT_STEP,
     ],
     legacy: false,
     disabled: false,
@@ -85,57 +103,163 @@ const garage = providers.map((executor) => ({
   },
 }));
 
-const toolProviders = providers.map((executor) => {
-  const provider =
-    executor === BaseCodingAgent.CLAUDE_CODE
-      ? 'claude_code'
-      : executor === BaseCodingAgent.GEMINI
-        ? 'gemini'
-        : executor === BaseCodingAgent.OH_MY_PI
-          ? 'oh_my_pi'
-          : 'codex';
-  return { provider, installed: true, items: [], limitations: [], errors: [] };
-});
-
-const commandProviders = toolProviders.map((entry) => ({
-  ...entry,
-  capabilities: {
-    discoverable: true,
-    creatable: true,
-    supported_scopes: ['user', 'project'],
-    writable_formats: ['codex_legacy_markdown', 'claude_markdown'],
+const toolProviders: AgentToolInventoryView["providers"] = AGENT_PROVIDERS.map(
+  ({ toolProvider: provider }) => {
+    return {
+      provider,
+      installed: true,
+      mcp_scopes:
+        provider === "deepseek_harness" ? ["user"] : ["user", "project"],
+      skill_scopes: ["user", "project"],
+      items: [],
+      limitations: [],
+      errors: [],
+    };
   },
-}));
+);
 
-function settingsSnapshot(provider: AgentSettingsProvider) {
+const commandProviders: AgentCommandInventoryView["providers"] =
+  toolProviders.map((entry) => ({
+    ...entry,
+    items: [],
+    capabilities: {
+      discoverable: entry.provider !== "deepseek_harness",
+      creatable: entry.provider !== "deepseek_harness",
+      supported_scopes:
+        entry.provider === "deepseek_harness" ? [] : ["user", "project"],
+      writable_formats:
+        entry.provider === "opencode" ? ["opencode_markdown"] : [],
+    },
+    limitations:
+      entry.provider === "deepseek_harness"
+        ? ["Native prompt commands are not supported"]
+        : [],
+  }));
+
+const modelConfigByExecutor: Partial<
+  Record<BaseCodingAgent, ModelSelectorConfig>
+> = {
+  [BaseCodingAgent.OPENCODE]: {
+    providers: [{ id: "FixtureProvider", name: "Fixture Provider" }],
+    models: [
+      {
+        id: "FixtureModel",
+        name: "OpenCode Fixture Model",
+        provider_id: "FixtureProvider",
+        reasoning_options: [
+          { id: "", label: "No variant", is_default: true },
+          { id: "high", label: "High", is_default: false },
+        ],
+      },
+    ],
+    default_model: "FixtureProvider/FixtureModel",
+    agents: [],
+    permissions: [],
+  },
+  [BaseCodingAgent.DEEPSEEK_HARNESS]: {
+    providers: [],
+    models: [
+      {
+        id: "FixtureDshModel",
+        name: "DeepSeek Harness Fixture Model",
+        reasoning_options: [],
+      },
+    ],
+    default_model: "FixtureDshModel",
+    agents: [],
+    permissions: [],
+  },
+};
+
+const managementProbe = {
+  createdTools: [] as CreateAgentToolRequest[],
+  createdCommands: [] as CreateAgentCommandRequest[],
+  discoveredSettings: [] as AgentSettingsProvider[],
+  savedProfiles: [] as string[],
+};
+Object.assign(window, { agentManagementProbe: managementProbe });
+
+function settingsSnapshot(provider: AgentSettingsProvider): SettingsSnapshot {
+  const fileId = `${provider}/fixture-config`;
+  const nativeModel =
+    modelConfigByExecutor[agentProviderForSettings(provider).executor]
+      ?.default_model ??
+    `${agentProviderForSettings(provider).label} fixture-model`;
+  const keys = ["model", "api_address"].map((name) => ({
+    namespace: "common",
+    name,
+  }));
   return {
     provider,
     installed: true,
-    provider_version: 'fixture-1.0',
-    schema_revision: 'fixture-revision',
+    provider_version: "fixture-1.0",
+    schema_revision: "fixture-revision",
     capabilities: {
       readable: true,
       native_writable: true,
       profile_storage: true,
       per_run_overrides: true,
     },
-    descriptors: [],
-    native_files: [],
+    descriptors: keys.map((key) => ({
+      key,
+      section: SettingSection.general,
+      label:
+        key.name === "model" ? "Fixture native model" : "Fixture API address",
+      description: "Native configuration fixture",
+      value_type: SettingValueType.string,
+      control: SettingControl.text,
+      options: [],
+      validation: {},
+      supported_scopes: [SettingScope.user, SettingScope.project],
+      capabilities: {
+        readable: true,
+        writable: true,
+        resettable: true,
+        profile_storable: true,
+        run_override: true,
+      },
+      native_locations: [
+        { file_id: fileId, scope: SettingScope.user, native_path: [key.name] },
+      ],
+      activation: SettingActivation.next_session,
+      sensitive: false,
+    })),
+    native_files: [
+      {
+        file_id: fileId,
+        format: NativeConfigFormat.json,
+        scope: SettingScope.user,
+        exists: true,
+        parse_status: NativeParseStatus.parsed,
+        revision: "fixture-native-revision",
+        writable: true,
+        managed_setting_keys: keys,
+      },
+    ],
     effective_settings: [
       {
-        key: { namespace: 'common', name: 'model' },
-        sources: [],
-        effective_value: 'gpt-5.6-codex-long-context',
-        effective_source: 'native_user',
+        key: { namespace: "common", name: "model" },
+        sources: [
+          {
+            source: "native_user",
+            scope: SettingScope.user,
+            file_id: fileId,
+            value: nativeModel,
+            configured: true,
+            revision: "fixture-native-revision",
+          },
+        ],
+        effective_value: nativeModel,
+        effective_source: "native_user",
         configured: true,
         warnings: [],
       },
       {
-        key: { namespace: 'common', name: 'api_address' },
+        key: { namespace: "common", name: "api_address" },
         sources: [],
         effective_value:
-          'https://api.fixture.example.com/v1/agent-runtime/configuration',
-        effective_source: 'native_user',
+          "https://api.fixture.example.com/v1/agent-runtime/configuration",
+        effective_source: "native_user",
         configured: true,
         warnings: [],
       },
@@ -155,19 +279,26 @@ const settingsInventory = {
 
 export const machineClient = {
   target: {
-    kind: 'local' as const,
-    id: 'local' as const,
+    kind: "local" as const,
+    id: "local" as const,
     apiHostId: null,
-    label: 'This machine',
+    label: "This machine",
   },
-  queryScopeKey: ['machine', 'local'] as const,
+  queryScopeKey: ["machine", "local"] as const,
   getAgentGarage: async () => {
     calls.garage++;
-    if (params.has('scanError') && calls.garage > 1)
-      throw new Error('PRIVATE_SCAN_ERROR');
+    if (params.has("scanError") && calls.garage > 1)
+      throw new Error("PRIVATE_SCAN_ERROR");
     return garage.map((entry) =>
-      params.get('missing') === entry.executor && !installProbe.installed
-        ? { ...entry, availability: { type: 'NOT_FOUND' as const } }
+      missingProviders.includes(entry.executor) && !installProbe.installed
+        ? {
+            ...entry,
+            availability: { type: "NOT_FOUND" as const },
+            policy: {
+              ...entry.policy,
+              readiness: AgentProviderReadiness.MISSING_EXECUTABLE,
+            },
+          }
         : entry,
     );
   },
@@ -177,28 +308,91 @@ export const machineClient = {
   }) => {
     installProbe.starts++;
     installProbe.registry = request.npm_registry ?? null;
+    installJobProbe.startedExecutors.push(request.executor);
+    const id = `install-fixture-${request.executor}-${installProbe.starts}`;
+    const logs = `${request.executor}: downloading fixture installer`;
+    installJobs.set(id, { executor: request.executor, logs });
     return {
-      id: 'install-fixture',
+      id,
       executor: request.executor,
-      status: 'running',
-      logs: 'Downloading fixture installer',
+      status: "running",
+      logs,
       error: null,
     };
   },
-  getAgentInstall: async () => {
-    const failed = params.has('installFails');
+  getAgentInstall: async (id: string) => {
+    const job = installJobs.get(id);
+    if (!job) throw new Error("Unknown fixture installation job");
+    installJobProbe.polledExecutors.push(job.executor);
+    if (params.has("installPending")) {
+      return { id, ...job, status: "running", error: null };
+    }
+    const failed = params.has("installFails");
     if (!failed) installProbe.installed = true;
     return {
-      id: 'install-fixture',
-      executor: params.get('missing'),
-      status: failed ? 'failed' : 'succeeded',
-      logs: 'Fixture installation log',
-      error: failed ? 'Fixture download failed' : null,
+      id,
+      executor: job.executor,
+      status: failed ? "failed" : "succeeded",
+      logs: "Fixture installation log",
+      error: failed ? "Fixture download failed" : null,
     };
   },
   listAgentTools: async () => ({ providers: toolProviders, errors: [] }),
   listAgentCommands: async () => ({ providers: commandProviders, errors: [] }),
-  discoverAgentSettings: async () => settingsInventory,
+  discoverAgentSettings: async (request?: {
+    provider?: AgentSettingsProvider;
+  }) => {
+    if (request?.provider)
+      managementProbe.discoveredSettings.push(request.provider);
+    return settingsInventory;
+  },
+  createAgentTool: async (request: CreateAgentToolRequest) => {
+    managementProbe.createdTools.push(request);
+    const item: AgentToolView = {
+      ...request.target,
+      installation_id: `fixture-${request.target.name}`,
+      state: "enabled",
+      revision: "fixture-revision",
+      capabilities: {
+        editable: true,
+        removable: true,
+        toggleable: true,
+        exportable: true,
+        installable: true,
+      },
+      definition:
+        request.definition.type === "skill"
+          ? {
+              type: "skill",
+              data: {
+                contract_configured: true,
+                file_count: 1,
+                has_assets: false,
+              },
+            }
+          : {
+              type: "mcp_server",
+              data: {
+                transport: request.definition.data.transport,
+                command_configured: true,
+                args_count: 0,
+                cwd_configured: false,
+                url_configured: false,
+                env_count: 0,
+                header_count: 0,
+                has_provider_extensions: false,
+              },
+            },
+    };
+    toolProviders
+      .find((entry) => entry.provider === request.target.provider)
+      ?.items.push(item);
+    return item;
+  },
+  createAgentCommand: async (request: CreateAgentCommandRequest) => {
+    managementProbe.createdCommands.push(request);
+    return undefined;
+  },
   listAgentSettingsProfiles: async () => [],
   getConfig: async () => ({ config: configValue }),
   saveConfig: async (config: unknown) => config,
@@ -207,9 +401,53 @@ export const machineClient = {
   updateAndSaveConfig: async () => true,
 };
 
+export function formatAgentSettingOperationError(error: unknown): string {
+  return error instanceof Error ? error.message : "Fixture operation failed";
+}
+
+export const profilesApi = {
+  save: async (value: string) => {
+    managementProbe.savedProfiles.push(value);
+  },
+};
+
+export const agentsApi = {
+  getGarage: machineClient.getAgentGarage,
+  getPresetOptions: async ({
+    executor,
+    variant,
+  }: {
+    executor: BaseCodingAgent;
+    variant: string | null;
+  }): Promise<ExecutorConfig> => ({ executor, variant }),
+};
+
+export function useModelSelectorConfig(executor?: BaseCodingAgent | null) {
+  return {
+    config: executor
+      ? (modelConfigByExecutor[executor] ?? {
+          providers: [],
+          models: [],
+          default_model: null,
+          agents: [],
+          permissions: [],
+        })
+      : null,
+    loadingModels: false,
+    loadingAgents: false,
+    error: null,
+    isConnected: true,
+    isInitialized: true,
+  };
+}
+
+export function useSettingsNavigation() {
+  return { openAgentCenter: () => undefined };
+}
+
 const configValue = {
-  config_version: 'fixture',
-  theme: 'system',
+  config_version: "fixture",
+  theme: "system",
   executor_profile: { executor: BaseCodingAgent.CODEX, variant: null },
   disclaimer_acknowledged: true,
   onboarding_acknowledged: true,
@@ -221,14 +459,14 @@ const configValue = {
   workspace_dir: null,
   last_app_version: null,
   show_release_notes: false,
-  language: 'en',
-  git_branch_prefix: '',
+  language: "en",
+  git_branch_prefix: "",
   showcases: {},
   pr_auto_description_enabled: false,
   pr_auto_description_prompt: null,
   commit_reminder_enabled: false,
   commit_reminder_prompt: null,
-  send_message_shortcut: 'enter',
+  send_message_shortcut: "enter",
   relay_enabled: false,
   host_nickname: null,
   hidden_agents: [],
@@ -239,11 +477,11 @@ export function useSettingsHost() {
     availableHosts: [
       machineClient.target,
       {
-        kind: 'remote' as const,
-        id: 'remote-fixture',
-        apiHostId: 'remote-fixture',
-        label: 'Remote fixture',
-        status: 'online' as const,
+        kind: "remote" as const,
+        id: "remote-fixture",
+        apiHostId: "remote-fixture",
+        label: "Remote fixture",
+        status: "online" as const,
       },
     ],
     hostsResolved: true,
@@ -255,7 +493,7 @@ export function useSettingsHost() {
       canRetry: true,
       retry: async () => undefined,
     },
-    selectedHostId: 'local',
+    selectedHostId: "local",
     selectedHost: machineClient.target,
     setSelectedHostId: () => undefined,
   };
@@ -284,39 +522,34 @@ export function useSettingsMachineState() {
   };
 }
 
+const fixtureProfiles = Object.fromEntries(
+  providers.map((executor) => [executor, { DEFAULT: { [executor]: {} } }]),
+);
+
 export function useUserSystem() {
   return {
     config: configValue,
     updateAndSaveConfig: async () => true,
+    profiles: fixtureProfiles,
+    setProfiles: () => undefined,
+    reloadSystem: async () => undefined,
   };
 }
 
 export function useBlocker() {
   return {
-    status: 'unblocked' as const,
+    status: "unblocked" as const,
     proceed: () => undefined,
     reset: () => undefined,
   };
 }
 
 export function useLocation() {
-  return { pathname: '/' };
+  return { pathname: "/" };
 }
 
 export function AgentIcon({ agent }: { agent: BaseCodingAgent }) {
   return <span aria-hidden="true" data-agent-icon={agent} />;
-}
-
-export function AgentConfigurationSettingsPanel() {
-  return <div data-testid="configuration-panel" />;
-}
-
-export function AgentToolsSettingsSection() {
-  return <div data-testid="tools-panel" />;
-}
-
-export function AgentCommandsSettingsSection() {
-  return <div data-testid="commands-panel" />;
 }
 
 export function LoadingState({ title }: { title: React.ReactNode }) {
@@ -389,4 +622,4 @@ export function DegradedState({
   );
 }
 
-export const ConfirmDialog = { show: async () => 'cancelled' as const };
+export const ConfirmDialog = { show: async () => "cancelled" as const };

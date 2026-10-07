@@ -37,7 +37,9 @@
               "agents/claude-code",
               "agents/openai-codex",
               "agents/gemini-cli",
-              "agents/oh-my-pi"
+              "agents/oh-my-pi",
+              "agents/opencode",
+              "agents/deepseek-harness"
             ]
           }
         ]
@@ -82,10 +84,7 @@
           "settings/index",
           {
             "group": "General",
-            "pages": [
-              "settings/general",
-              "settings/creating-task-tags"
-            ]
+            "pages": ["settings/general", "settings/creating-task-tags"]
           },
           "settings/projects-repositories",
           "settings/organization-settings",
@@ -114,10 +113,7 @@
       },
       {
         "group": "Help",
-        "pages": [
-          "troubleshooting",
-          "responsible-disclosure"
-        ]
+        "pages": ["troubleshooting", "responsible-disclosure"]
       }
     ]
   },

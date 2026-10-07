@@ -168,7 +168,9 @@ fn capabilities_for_agent(agent: &CodingAgent) -> Vec<AgentProviderCapability> {
         CodingAgent::ClaudeCode(_)
         | CodingAgent::Codex(_)
         | CodingAgent::Gemini(_)
-        | CodingAgent::OhMyPi(_) => {
+        | CodingAgent::OhMyPi(_)
+        | CodingAgent::Opencode(_)
+        | CodingAgent::DeepseekHarness(_) => {
             push_unique(&mut capabilities, AgentProviderCapability::ToolPermissions);
         }
         #[cfg(feature = "qa-mode")]
@@ -179,7 +181,9 @@ fn capabilities_for_agent(agent: &CodingAgent) -> Vec<AgentProviderCapability> {
         CodingAgent::ClaudeCode(_)
         | CodingAgent::Codex(_)
         | CodingAgent::Gemini(_)
-        | CodingAgent::OhMyPi(_) => {
+        | CodingAgent::OhMyPi(_)
+        | CodingAgent::Opencode(_)
+        | CodingAgent::DeepseekHarness(_) => {
             push_unique(&mut capabilities, AgentProviderCapability::ModelSelector);
         }
         #[cfg(feature = "qa-mode")]
@@ -207,6 +211,8 @@ fn agent_supports_graceful_cancel(agent: &CodingAgent) -> bool {
             | CodingAgent::Codex(_)
             | CodingAgent::Gemini(_)
             | CodingAgent::OhMyPi(_)
+            | CodingAgent::Opencode(_)
+            | CodingAgent::DeepseekHarness(_)
     )
 }
 

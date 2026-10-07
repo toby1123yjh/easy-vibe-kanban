@@ -559,3 +559,59 @@ impl ExecutorConfigs {
         Ok(ExecutorProfileId::new(selected))
     }
 }
+
+#[cfg(test)]
+mod provider_expansion_tests {
+    use super::*;
+    use crate::{
+        agent_commands::AgentCommandProvider, agent_settings::AgentSettingsProvider,
+        agent_tools::AgentToolProvider, executors::provider_adapter::DirectProvider,
+    };
+
+    #[test]
+    fn six_provider_defaults_and_manager_ids_round_trip() {
+        let defaults = ExecutorConfigs::from_defaults();
+        let providers = [
+            (BaseCodingAgent::ClaudeCode, "CLAUDE_CODE", "claude_code"),
+            (BaseCodingAgent::Codex, "CODEX", "codex"),
+            (BaseCodingAgent::Gemini, "GEMINI", "gemini"),
+            (BaseCodingAgent::OhMyPi, "OH_MY_PI", "oh_my_pi"),
+            (BaseCodingAgent::Opencode, "OPENCODE", "opencode"),
+            (
+                BaseCodingAgent::DeepseekHarness,
+                "DEEPSEEK_HARNESS",
+                "deepseek_harness",
+            ),
+        ];
+
+        assert_eq!(DirectProvider::ALL.len(), providers.len());
+        assert_eq!(AgentSettingsProvider::ALL.len(), providers.len());
+        assert_eq!(AgentToolProvider::ALL.len(), providers.len());
+        assert_eq!(AgentCommandProvider::ALL.len(), providers.len());
+
+        for (executor, executor_id, provider_id) in providers {
+            assert_eq!(serde_json::to_value(executor).unwrap(), executor_id);
+            let profile_id = ExecutorProfileId::new(executor);
+            let agent = defaults
+                .get_coding_agent(&profile_id)
+                .unwrap_or_else(|| panic!("missing default profile for {executor_id}"));
+            assert_eq!(BaseCodingAgent::from(&agent), executor);
+            let value = serde_json::to_value(&agent).unwrap();
+            assert!(value.get(executor_id).is_some(), "{value}");
+            let restored: CodingAgent = serde_json::from_value(value).unwrap();
+            assert_eq!(BaseCodingAgent::from(&restored), executor);
+
+            let direct = DirectProvider::from_base_agent(executor).unwrap();
+            assert_eq!(direct.id(), provider_id);
+            let settings = AgentSettingsProvider::from(direct);
+            let tools = AgentToolProvider::from(direct);
+            let commands = AgentCommandProvider::from(direct);
+            assert_eq!(serde_json::to_value(settings).unwrap(), provider_id);
+            assert_eq!(serde_json::to_value(tools).unwrap(), provider_id);
+            assert_eq!(serde_json::to_value(commands).unwrap(), provider_id);
+            assert_eq!(DirectProvider::from(settings), direct);
+            assert_eq!(DirectProvider::from(tools), direct);
+            assert_eq!(DirectProvider::from(commands), direct);
+        }
+    }
+}

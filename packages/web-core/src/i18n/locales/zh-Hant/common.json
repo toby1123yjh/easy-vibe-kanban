@@ -1736,6 +1736,7 @@
     "providerListTitle": "智能體",
     "providerListLabel": "智能體",
     "selectedProvider": "目前智能體",
+    "developerPreview": "DeepSeek Harness 處於開發預覽階段，可用操作以已安裝 CLI 實際回報的能力為準。",
     "bundledVersion": "內建版本 {{version}}",
     "versionUnavailable": "未回報版本",
     "defaultProvider": "預設智能體",
@@ -1884,7 +1885,9 @@
         "claude_markdown": "Claude Markdown",
         "gemini_toml": "Gemini TOML",
         "oh_my_pi_prompt_markdown": "Pi 提示詞 Markdown",
-        "oh_my_pi_executable_module": "Pi 可執行 TypeScript"
+        "oh_my_pi_executable_module": "Pi 可執行 TypeScript",
+        "opencode_markdown": "OpenCode Markdown",
+        "opencode_inline": "OpenCode 內嵌設定"
       },
       "editor": {
         "addTitle": "新增命令",
@@ -1931,7 +1934,9 @@
         "codex": "Codex 自訂提示詞已棄用且僅支援使用者層級。新的可重用指令應優先使用技能；變更需要新工作階段或重新啟動才會生效。",
         "claude_code": "外掛提供的命令仍由對應外掛管理。",
         "gemini": "擴充功能提供的命令仍由對應擴充功能管理。",
-        "oh_my_pi": "提示詞命令可編輯；可執行 TypeScript 命令僅供探索和唯讀顯示，其原始碼不會載入瀏覽器。"
+        "oh_my_pi": "提示詞命令可編輯；可執行 TypeScript 命令僅供探索和唯讀顯示，其原始碼不會載入瀏覽器。",
+        "opencode": "Markdown 命令可編輯；原生設定中的內嵌命令僅供唯讀顯示。編輯 Markdown 命令時會保留智能體專屬中繼資料。",
+        "deepseek_harness": "DeepSeek Harness 不提供原生提示詞命令，因此不顯示命令檔案或寫入操作。"
       },
       "summaries": {
         "entrypointConfigured": "已偵測到可執行入口，原始碼仍保留在本機。",

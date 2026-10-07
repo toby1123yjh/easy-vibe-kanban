@@ -1,4 +1,4 @@
-//! Provider-neutral entry points for the four direct V1 runtime adapters.
+//! Provider-neutral entry points for the direct V1 runtime adapters.
 //!
 //! Legacy product paths may still use `StandardCodingAgentExecutor`, while the
 //! V1 runtime launches the same concrete providers through the narrow API in
@@ -112,6 +112,32 @@ pub async fn launch_direct_provider(
         }
         CodingAgent::OhMyPi(agent) => {
             agent.apply_direct_overrides(request.executor_config);
+            agent
+                .launch_direct(
+                    request.intent,
+                    request.current_dir,
+                    request.prompt,
+                    provider_session_id(request.provider_session),
+                    request.env,
+                )
+                .await
+        }
+        CodingAgent::Opencode(agent) => {
+            agent.apply_direct_overrides(request.executor_config);
+            agent.use_direct_approvals(request.approvals);
+            agent
+                .launch_direct(
+                    request.intent,
+                    request.current_dir,
+                    request.prompt,
+                    provider_session_id(request.provider_session),
+                    request.env,
+                )
+                .await
+        }
+        CodingAgent::DeepseekHarness(agent) => {
+            agent.apply_direct_overrides(request.executor_config);
+            agent.use_direct_approvals(request.approvals);
             agent
                 .launch_direct(
                     request.intent,
@@ -252,10 +278,19 @@ pub enum DirectProvider {
     Codex,
     ClaudeCode,
     OhMyPi,
+    Opencode,
+    DeepseekHarness,
 }
 
 impl DirectProvider {
-    pub const ALL: [Self; 4] = [Self::Gemini, Self::Codex, Self::ClaudeCode, Self::OhMyPi];
+    pub const ALL: [Self; 6] = [
+        Self::Gemini,
+        Self::Codex,
+        Self::ClaudeCode,
+        Self::OhMyPi,
+        Self::Opencode,
+        Self::DeepseekHarness,
+    ];
 
     pub const fn id(self) -> &'static str {
         match self {
@@ -263,6 +298,8 @@ impl DirectProvider {
             Self::Codex => "codex",
             Self::ClaudeCode => "claude_code",
             Self::OhMyPi => "oh_my_pi",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "deepseek_harness",
         }
     }
 
@@ -299,6 +336,8 @@ impl DirectProvider {
             crate::executors::BaseCodingAgent::Codex => Some(Self::Codex),
             crate::executors::BaseCodingAgent::ClaudeCode => Some(Self::ClaudeCode),
             crate::executors::BaseCodingAgent::OhMyPi => Some(Self::OhMyPi),
+            crate::executors::BaseCodingAgent::Opencode => Some(Self::Opencode),
+            crate::executors::BaseCodingAgent::DeepseekHarness => Some(Self::DeepseekHarness),
             #[cfg(feature = "qa-mode")]
             crate::executors::BaseCodingAgent::QaMock => None,
         }
@@ -310,7 +349,7 @@ impl DirectProvider {
 
     pub const fn transport(self) -> AgentTransportKind {
         match self {
-            Self::Gemini => AgentTransportKind::Acp,
+            Self::Gemini | Self::Opencode | Self::DeepseekHarness => AgentTransportKind::Acp,
             Self::Codex => AgentTransportKind::AppServerJsonrpc,
             Self::ClaudeCode => AgentTransportKind::StdioRpc,
             Self::OhMyPi => AgentTransportKind::StdioRpc,
@@ -349,6 +388,20 @@ impl DirectProvider {
                 adapter: "oh-my-pi-adapter-v1",
                 mapper: "oh-my-pi-mapper-v1",
             },
+            Self::Opencode => DirectAdapterVersions {
+                executable: "opencode",
+                runtime: None,
+                protocol: Some("acp-v1"),
+                adapter: "opencode-adapter-v1",
+                mapper: "opencode-mapper-v1",
+            },
+            Self::DeepseekHarness => DirectAdapterVersions {
+                executable: "dsh",
+                runtime: None,
+                protocol: Some("acp-v1"),
+                adapter: "deepseek-harness-adapter-v1",
+                mapper: "deepseek-harness-mapper-v1",
+            },
         }
     }
 
@@ -366,6 +419,42 @@ impl DirectProvider {
     pub fn capabilities(self, runtime_profile_id: impl Into<String>) -> CapabilitySnapshot {
         let versions = self.versions();
         let states = match self {
+            Self::Opencode | Self::DeepseekHarness => capability_states(&[
+                (
+                    crate::runtime::AgentCapability::SessionResume,
+                    CapabilityState::Native,
+                ),
+                (
+                    crate::runtime::AgentCapability::Steering,
+                    CapabilityState::Unsupported,
+                ),
+                (
+                    crate::runtime::AgentCapability::Approval,
+                    CapabilityState::Native,
+                ),
+                // The current prompt bridge only sends text. Do not claim
+                // image support until an actual content mapping is present.
+                (
+                    crate::runtime::AgentCapability::Images,
+                    CapabilityState::Unsupported,
+                ),
+                (
+                    crate::runtime::AgentCapability::Review,
+                    CapabilityState::Native,
+                ),
+                (
+                    crate::runtime::AgentCapability::Mcp,
+                    CapabilityState::Native,
+                ),
+                (
+                    crate::runtime::AgentCapability::Subagents,
+                    CapabilityState::Unknown,
+                ),
+                (
+                    crate::runtime::AgentCapability::TokenUsage,
+                    CapabilityState::Unknown,
+                ),
+            ]),
             Self::Gemini => capability_states(&[
                 (
                     crate::runtime::AgentCapability::SessionResume,
@@ -584,6 +673,10 @@ pub fn encode_control(
         DirectProvider::Codex => super::codex::command_adapter::encode_control(control),
         DirectProvider::ClaudeCode => super::claude::command_adapter::encode_control(control),
         DirectProvider::OhMyPi => super::oh_my_pi::command_adapter::encode_control(control),
+        DirectProvider::Opencode => super::opencode::command_adapter::encode_control(control),
+        DirectProvider::DeepseekHarness => {
+            super::deepseek_harness::command_adapter::encode_control(control)
+        }
     }
     .map_err(DirectControlError::Json)
 }
@@ -728,7 +821,7 @@ impl DirectProvider {
     }
 }
 
-/// Replay mapper used by `AuditBundle::replay`; all four adapters share the
+/// Replay mapper used by `AuditBundle::replay`; all six adapters share the
 /// canonical envelope construction while retaining provider-specific names.
 #[derive(Debug, Clone, Copy)]
 pub struct DirectProviderMapper {
@@ -957,6 +1050,12 @@ fn classify_payload(
             message_id: None,
         });
     };
+
+    if provider.transport() == AgentTransportKind::Acp
+        && let Ok(acp_event) = serde_json::from_value::<super::acp::AcpEvent>(payload.clone())
+    {
+        return Ok(classify_acp_event(provider, acp_event, payload));
+    }
 
     let object = payload.as_object();
     let event_type = object
@@ -1243,6 +1342,124 @@ fn classify_payload(
     }
 }
 
+fn classify_acp_event(
+    provider: DirectProvider,
+    event: super::acp::AcpEvent,
+    payload: &Value,
+) -> TypedProviderEvent {
+    use agent_client_protocol::{ContentBlock, ToolCallStatus};
+
+    use super::acp::AcpEvent;
+
+    let unknown = || TypedProviderEvent::Unknown {
+        event_type: "acp_notification".to_string(),
+        payload: payload.clone(),
+    };
+    let text = |content: ContentBlock| match content {
+        ContentBlock::Text(text) => Some(text.text),
+        _ => None,
+    };
+    let status = |status: ToolCallStatus| match status {
+        ToolCallStatus::Completed => AgentRuntimeToolStatus::Succeeded,
+        ToolCallStatus::Failed => AgentRuntimeToolStatus::Failed,
+        _ => AgentRuntimeToolStatus::Running,
+    };
+    match event {
+        AcpEvent::SessionStart(session) => TypedProviderEvent::SessionObserved(session),
+        AcpEvent::CatalogObserved(observation) => TypedProviderEvent::Unknown {
+            event_type: super::acp::session_config::ACP_CATALOG_EVENT.to_string(),
+            payload: serde_json::to_value(observation).unwrap_or(Value::Null),
+        },
+        AcpEvent::User(content) => TypedProviderEvent::Message {
+            role: AgentRuntimeMessageRole::User,
+            content,
+            final_output: false,
+            message_id: None,
+        },
+        AcpEvent::Message(content) => text(content)
+            .map(|content| TypedProviderEvent::Message {
+                role: AgentRuntimeMessageRole::Assistant,
+                content,
+                final_output: false,
+                message_id: None,
+            })
+            .unwrap_or_else(unknown),
+        AcpEvent::Thought(content) => text(content)
+            .map(TypedProviderEvent::Thinking)
+            .unwrap_or_else(unknown),
+        AcpEvent::ToolCall(call) => TypedProviderEvent::ToolCall {
+            id: Some(call.tool_call_id.0.to_string()),
+            name: call.title,
+            status: status(call.status),
+            arguments: call.raw_input,
+            result: call.raw_output,
+        },
+        AcpEvent::ToolUpdate(update) => TypedProviderEvent::ToolCall {
+            id: Some(update.tool_call_id.0.to_string()),
+            name: update.fields.title.unwrap_or_else(|| "tool".to_string()),
+            status: update
+                .fields
+                .status
+                .map(status)
+                .unwrap_or(AgentRuntimeToolStatus::Running),
+            arguments: update.fields.raw_input,
+            result: update.fields.raw_output,
+        },
+        AcpEvent::RequestPermission(request) => TypedProviderEvent::ToolCall {
+            id: Some(request.tool_call.tool_call_id.0.to_string()),
+            name: request
+                .tool_call
+                .fields
+                .title
+                .unwrap_or_else(|| "tool".to_string()),
+            status: AgentRuntimeToolStatus::WaitingApproval,
+            arguments: request.tool_call.fields.raw_input,
+            result: None,
+        },
+        AcpEvent::ApprovalRequested {
+            tool_call_id,
+            approval_id,
+        } => TypedProviderEvent::ApprovalRequested {
+            id: approval_id,
+            tool_call_id: Some(tool_call_id),
+            tool_name: "tool".to_string(),
+        },
+        AcpEvent::ApprovalResponse(response) => TypedProviderEvent::ApprovalResolved {
+            id: response.approval_id.unwrap_or(response.tool_call_id),
+            approved: matches!(
+                response.status,
+                workspace_utils::approvals::ApprovalStatus::Approved
+            ),
+            reason: match response.status {
+                workspace_utils::approvals::ApprovalStatus::Denied { reason } => reason,
+                _ => None,
+            },
+        },
+        AcpEvent::Usage(usage) => TypedProviderEvent::TokenUsage {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cached_input_tokens: usage.cached_read_tokens,
+        },
+        AcpEvent::Error(message) => TypedProviderEvent::Error(
+            AgentRuntimeError::new(AgentRuntimeErrorKind::Unknown, message)
+                .with_provider(Some(provider.id())),
+        ),
+        AcpEvent::Done(reason) => {
+            let reason = serde_json::from_str::<String>(&reason).unwrap_or(reason);
+            match reason.as_str() {
+                "cancelled" | "canceled" => {
+                    TypedProviderEvent::Lifecycle(AgentRunStatus::Cancelled)
+                }
+                "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" => {
+                    TypedProviderEvent::Lifecycle(AgentRunStatus::Succeeded)
+                }
+                _ => unknown(),
+            }
+        }
+        _ => unknown(),
+    }
+}
+
 fn map_typed_event(
     provider: DirectProvider,
     event: &DecodedProviderEvent,
@@ -1502,12 +1719,12 @@ mod tests {
     }
 
     #[test]
-    fn all_four_versions_use_local_executables() {
+    fn all_six_versions_use_local_executables() {
         let versions = DirectProvider::ALL.map(DirectProvider::versions);
 
         assert_eq!(
             versions.map(|version| version.executable),
-            ["gemini", "codex", "claude", "omp"]
+            ["gemini", "codex", "claude", "omp", "opencode", "dsh"]
         );
         assert!(versions.iter().all(|version| version.runtime.is_none()));
         assert_eq!(versions[1].protocol, Some("rust-v0.144.1"));
@@ -1519,12 +1736,17 @@ mod tests {
     }
 
     #[test]
-    fn all_four_profile_identities_map_to_their_direct_provider() {
+    fn all_six_profile_identities_map_to_their_direct_provider() {
         let mappings = [
             (BaseCodingAgent::Gemini, DirectProvider::Gemini),
             (BaseCodingAgent::Codex, DirectProvider::Codex),
             (BaseCodingAgent::ClaudeCode, DirectProvider::ClaudeCode),
             (BaseCodingAgent::OhMyPi, DirectProvider::OhMyPi),
+            (BaseCodingAgent::Opencode, DirectProvider::Opencode),
+            (
+                BaseCodingAgent::DeepseekHarness,
+                DirectProvider::DeepseekHarness,
+            ),
         ];
 
         for (agent, provider) in mappings {
@@ -1604,11 +1826,15 @@ mod tests {
             DirectProvider::Gemini,
             DirectProvider::Codex,
             DirectProvider::OhMyPi,
+            DirectProvider::Opencode,
+            DirectProvider::DeepseekHarness,
         ] {
             let agent = match provider {
                 DirectProvider::Gemini => BaseCodingAgent::Gemini,
                 DirectProvider::Codex => BaseCodingAgent::Codex,
                 DirectProvider::OhMyPi => BaseCodingAgent::OhMyPi,
+                DirectProvider::Opencode => BaseCodingAgent::Opencode,
+                DirectProvider::DeepseekHarness => BaseCodingAgent::DeepseekHarness,
                 DirectProvider::ClaudeCode => unreachable!(),
             };
             let config = ExecutorConfig::new(agent);

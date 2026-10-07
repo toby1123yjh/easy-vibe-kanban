@@ -447,7 +447,7 @@
         "addServerFailed": "Échec de l'ajout du serveur préconfiguré",
         "mcpError": "Erreur de configuration MCP : {{error}}",
         "notSupported": "MCP non pris en charge",
-        "supportMessage": "Pour utiliser les serveurs MCP, veuillez sélectionner un exécuteur prenant en charge MCP (Claude Code, Gemini, Codex ou Oh My Pi) ci-dessus."
+        "supportMessage": "Pour utiliser les serveurs MCP, sélectionnez ci-dessus un agent compatible MCP. Les actions disponibles dépendent des capacités de l’agent."
       },
       "save": {
         "button": "Enregistrer la configuration MCP",

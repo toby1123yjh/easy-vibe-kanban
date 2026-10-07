@@ -980,6 +980,7 @@
     "providerListTitle": "Provider",
     "providerListLabel": "Providers de Agent",
     "selectedProvider": "Provider seleccionado",
+    "developerPreview": "DeepSeek Harness es una versión preliminar para desarrolladores. Las acciones disponibles dependen de las capacidades que comunica el CLI instalado.",
     "bundledVersion": "Versión incluida {{version}}",
     "versionUnavailable": "Versión no indicada",
     "defaultProvider": "Provider predeterminado",
@@ -1128,7 +1129,9 @@
         "claude_markdown": "Markdown de Claude",
         "gemini_toml": "TOML de Gemini",
         "oh_my_pi_prompt_markdown": "Markdown de prompt de Pi",
-        "oh_my_pi_executable_module": "TypeScript ejecutable de Pi"
+        "oh_my_pi_executable_module": "TypeScript ejecutable de Pi",
+        "opencode_markdown": "Markdown de OpenCode",
+        "opencode_inline": "Configuración integrada de OpenCode"
       },
       "editor": {
         "addTitle": "Añadir comando",
@@ -1175,7 +1178,9 @@
         "codex": "Los prompts personalizados de Codex están obsoletos y solo admiten el ámbito de usuario. Usa Skills para nuevas instrucciones reutilizables. Los cambios requieren una sesión nueva o reiniciar.",
         "claude_code": "Los comandos de plugins siguen gestionados por su plugin.",
         "gemini": "Los comandos de extensiones siguen gestionados por su extensión.",
-        "oh_my_pi": "Los comandos de prompt se pueden editar. Los comandos TypeScript ejecutables son de solo lectura y su código nunca se carga en el navegador."
+        "oh_my_pi": "Los comandos de prompt se pueden editar. Los comandos TypeScript ejecutables son de solo lectura y su código nunca se carga en el navegador.",
+        "opencode": "Los comandos Markdown se pueden editar. Los comandos integrados en la configuración nativa son de solo lectura. Los metadatos propios del proveedor se conservan al editar comandos Markdown.",
+        "deepseek_harness": "DeepSeek Harness no ofrece comandos de prompt nativos. No se proporcionan archivos de comandos ni acciones de escritura."
       },
       "summaries": {
         "entrypointConfigured": "Punto de entrada ejecutable detectado; el código permanece en la máquina.",

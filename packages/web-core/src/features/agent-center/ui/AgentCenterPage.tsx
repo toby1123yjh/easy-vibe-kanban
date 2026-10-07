@@ -13,10 +13,8 @@ import {
   AgentProviderReadiness,
   AgentSettingsProvider,
   BaseCodingAgent,
-  type AgentCommandProvider,
   type AgentGarageEntry,
   type AgentProviderCapability,
-  type AgentToolProvider,
 } from 'shared/types';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import {
@@ -49,6 +47,10 @@ import { useSettingsMachineState } from '@/shared/dialogs/settings/settings/Sett
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { isAgentProviderReady } from '@/shared/lib/agentProviderOptions';
 import { effectiveStringSetting } from '@/shared/lib/agentSettingsModel';
+import {
+  AGENT_PROVIDERS as PROVIDERS,
+  type AgentProviderDefinition as ProviderDefinition,
+} from '@/shared/lib/agentProviders';
 import './agent-center.css';
 import { AgentInstallPanel } from './AgentInstallPanel';
 
@@ -75,45 +77,6 @@ type DefaultMutationOwner = {
   executor: BaseCodingAgent;
   canMutate: boolean;
 };
-
-type ProviderDefinition = {
-  executor: BaseCodingAgent;
-  settingsProvider: AgentSettingsProvider;
-  toolProvider: AgentToolProvider;
-  commandProvider: AgentCommandProvider;
-  label: string;
-};
-
-const PROVIDERS: ProviderDefinition[] = [
-  {
-    executor: BaseCodingAgent.CODEX,
-    settingsProvider: AgentSettingsProvider.codex,
-    toolProvider: 'codex',
-    commandProvider: 'codex',
-    label: 'Codex',
-  },
-  {
-    executor: BaseCodingAgent.CLAUDE_CODE,
-    settingsProvider: AgentSettingsProvider.claude_code,
-    toolProvider: 'claude_code',
-    commandProvider: 'claude_code',
-    label: 'Claude Code',
-  },
-  {
-    executor: BaseCodingAgent.GEMINI,
-    settingsProvider: AgentSettingsProvider.gemini,
-    toolProvider: 'gemini',
-    commandProvider: 'gemini',
-    label: 'Gemini',
-  },
-  {
-    executor: BaseCodingAgent.OH_MY_PI,
-    settingsProvider: AgentSettingsProvider.oh_my_pi,
-    toolProvider: 'oh_my_pi',
-    commandProvider: 'oh_my_pi',
-    label: 'Oh My Pi',
-  },
-];
 
 const TABS: AgentCenterTab[] = [
   'providers',
@@ -195,7 +158,9 @@ function settingsPayloadErrors(
   ];
 }
 
-export function AgentCenterPage() {
+export function AgentCenterPage({
+  initialExecutor,
+}: { initialExecutor?: BaseCodingAgent } = {}) {
   const { t } = useTranslation('common');
   const {
     availableHosts,
@@ -211,8 +176,11 @@ export function AgentCenterPage() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const [activeTab, setActiveTab] = useState<AgentCenterTab>('providers');
   const [selectedExecutor, setSelectedExecutor] = useState<BaseCodingAgent>(
-    BaseCodingAgent.CODEX
+    initialExecutor ?? BaseCodingAgent.CODEX
   );
+  useEffect(() => {
+    if (initialExecutor) setSelectedExecutor(initialExecutor);
+  }, [initialExecutor]);
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(
     null
   );
@@ -923,7 +891,7 @@ export function AgentCenterPage() {
                   garageProjection.canMutate &&
                   selectedGarageEntry?.availability.type === 'NOT_FOUND' && (
                     <AgentInstallPanel
-                      key={`${scopeIdentity}:${activeScopeRef.current.epoch}`}
+                      key={`${scopeIdentity}:${activeScopeRef.current.epoch}:${selectedExecutor}`}
                       client={machineClient}
                       executor={selectedExecutor}
                       onRescan={() => runRefresh(['garage'])}
@@ -1179,6 +1147,10 @@ function ProviderOverview({
           </button>
         </div>
       </div>
+
+      {provider.developerPreview && (
+        <p className="text-sm text-low">{t('agentCenter.developerPreview')}</p>
+      )}
 
       {garageProjection.state === 'loading' ? (
         <LoadingState title={t('agentCenter.states.loadingProvider')} />

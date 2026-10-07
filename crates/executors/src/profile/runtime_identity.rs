@@ -18,7 +18,14 @@ mod tests {
 
     #[test]
     fn explicit_and_omitted_default_are_the_same_profile() {
-        for provider in ["CODEX", "CLAUDE_CODE", "GEMINI", "OH_MY_PI"] {
+        for provider in [
+            "CODEX",
+            "CLAUDE_CODE",
+            "GEMINI",
+            "OH_MY_PI",
+            "OPENCODE",
+            "DEEPSEEK_HARNESS",
+        ] {
             let explicit = format!("{provider}:DEFAULT");
             assert!(runtime_profile_ids_match(provider, &explicit));
             assert!(runtime_profile_ids_match(&explicit, provider));

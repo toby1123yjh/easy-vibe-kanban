@@ -447,7 +447,7 @@
         "addServerFailed": "事前設定サーバーの追加に失敗しました",
         "mcpError": "MCP設定エラー：{{error}}",
         "notSupported": "MCPはサポートされていません",
-        "supportMessage": "MCPサーバーを使用するには、MCPをサポートする実行器（Claude Code、Gemini、Codex、またはOh My Pi）を上記で選択してください。"
+        "supportMessage": "MCP サーバーを使用するには、上記で MCP 対応のエージェントを選択してください。利用可能な操作はエージェントの機能によって異なります。"
       },
       "save": {
         "button": "MCP設定を保存",

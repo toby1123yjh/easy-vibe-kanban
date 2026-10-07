@@ -686,6 +686,10 @@ impl LocalAgentRunPort {
             }
             _ => None,
         };
+        let catalog_observation =
+            matches!(&mapped.payload, AgentEventPayload::ProviderExtension { provider_event, .. }
+            if provider_event == executors::executors::acp::session_config::ACP_CATALOG_EVENT)
+            .then(|| mapped.payload.clone());
         if let AgentEventPayload::LifecycleChanged { status } = &mapped.payload {
             // A failed snapshot read must not drop the audited canonical
             // lifecycle event.  Persist/reduce it and let the append path
@@ -711,6 +715,12 @@ impl LocalAgentRunPort {
         )
         .await?;
 
+        if let Some(payload) = catalog_observation {
+            executors::executors::acp::session_config::cache_catalog_extension(
+                &attempt.provider_id,
+                &payload,
+            );
+        }
         if let Some(provider_session) = observed_provider_session {
             if let Err(error) = AgentProviderSessionRecord::upsert(
                 &self.db.pool,
@@ -778,6 +788,8 @@ impl LocalAgentRunPort {
             "codex" => Ok(DirectProvider::Codex),
             "claude_code" | "claude" => Ok(DirectProvider::ClaudeCode),
             "oh_my_pi" | "omp" => Ok(DirectProvider::OhMyPi),
+            "opencode" => Ok(DirectProvider::Opencode),
+            "deepseek_harness" | "dsh" => Ok(DirectProvider::DeepseekHarness),
             _ => Err(AgentRunPortError::Rejected(format!(
                 "unsupported provider {provider_id}"
             ))),
@@ -3688,9 +3700,20 @@ fn port_audit(error: executors::runtime::NativeAuditError) -> AgentRunPortError 
 
 #[cfg(test)]
 mod tests {
-    use executors::runtime::{
-        AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentRuntimeMessageRole,
-        AgentTransportKind, CanonicalMessage, WorkspaceMode, WorkspaceReference,
+    use executors::{
+        command::CmdOverrides,
+        executors::{
+            BaseCodingAgent, CodingAgent, StandardCodingAgentExecutor,
+            acp::{
+                AcpEvent,
+                session_config::{AcpCatalogObservation, catalog_identity},
+            },
+        },
+        model_selector::{ModelInfo, ModelSelectorConfig, ReasoningOption},
+        runtime::{
+            AGENT_REQUEST_PAYLOAD_VERSION, AGENT_REQUEST_SCHEMA_VERSION, AgentRuntimeMessageRole,
+            CanonicalMessage, NativeAuditDirection, WorkspaceMode, WorkspaceReference,
+        },
     };
     use sqlx::sqlite::SqlitePoolOptions;
 
@@ -3741,6 +3764,15 @@ mod tests {
     }
 
     async fn persisted_codex_run(db: &DBService) -> (AgentRunRequestEnvelope, RunAttemptRequest) {
+        persisted_provider_run(db, BaseCodingAgent::Codex).await
+    }
+
+    async fn persisted_provider_run(
+        db: &DBService,
+        executor: BaseCodingAgent,
+    ) -> (AgentRunRequestEnvelope, RunAttemptRequest) {
+        let provider = DirectProvider::from_base_agent(executor).expect("direct provider");
+        let runtime_profile_id = format!("{executor}:default");
         let workspace_id = Uuid::new_v4();
         let session_id = Uuid::new_v4();
         sqlx::query("INSERT INTO workspaces (id) VALUES (?)")
@@ -3771,8 +3803,8 @@ mod tests {
             turn_id: Uuid::new_v4(),
             correlation_id: Uuid::new_v4(),
             intent: AgentRunIntent::Initial,
-            runtime_profile_id: "CODEX:default".to_string(),
-            provider_id: "codex".to_string(),
+            runtime_profile_id: runtime_profile_id.clone(),
+            provider_id: provider.id().to_string(),
             workspace: workspace.clone(),
             input: CanonicalMessage {
                 message_id: Uuid::new_v4(),
@@ -3793,13 +3825,13 @@ mod tests {
             attempt_number: 1,
             correlation_id: request.correlation_id,
             mode: RunAttemptMode::Launch,
-            transport: AgentTransportKind::AppServerJsonrpc,
+            transport: provider.transport(),
             runtime_profile_id: request.runtime_profile_id.clone(),
             provider_id: request.provider_id.clone(),
             workspace,
-            capability_snapshot: DirectProvider::Codex.capabilities("CODEX:default"),
+            capability_snapshot: provider.capabilities(runtime_profile_id),
             executor_config: executors::profile::ExecutorConfig {
-                executor: executors::executors::BaseCodingAgent::Codex,
+                executor,
                 variant: Some("default".to_string()),
                 model_id: None,
                 agent_id: None,
@@ -3815,6 +3847,204 @@ mod tests {
             .await
             .expect("persist AgentRun identity");
         (request, attempt)
+    }
+
+    fn catalog_test_agent(
+        executor: BaseCodingAgent,
+        cmd: &CmdOverrides,
+        model: Option<&str>,
+    ) -> CodingAgent {
+        serde_json::from_value(serde_json::json!({(executor.to_string()): {
+            "base_command_override": cmd.base_command_override,
+            "additional_params": cmd.additional_params,
+            "env": cmd.env,
+            "model": model,
+        }}))
+        .expect("provider profile")
+    }
+
+    async fn picker_catalog(agent: &CodingAgent, cwd: &Path) -> serde_json::Value {
+        let mut patches = agent.discover_options(Some(cwd), None).await.unwrap();
+        let patch = serde_json::to_value(patches.next().await.expect("discovery patch")).unwrap();
+        assert_eq!(patch[0]["path"], "/options");
+        patch[0]["value"]["model_selector"].clone()
+    }
+
+    #[tokio::test]
+    async fn acp_catalog_host_observation_reaches_picker_discovery() {
+        for executor in [BaseCodingAgent::Opencode, BaseCodingAgent::DeepseekHarness] {
+            let directory = tempfile::tempdir().unwrap();
+            let cwd = directory.path();
+            let provider = DirectProvider::from_base_agent(executor).unwrap();
+            let port = LocalAgentRunPort::new(setup_runtime_db().await);
+            let (request, attempt) = persisted_provider_run(&port.db, executor).await;
+            let cmd = CmdOverrides {
+                // Discovery must not start this command or create an ACP session.
+                base_command_override: Some("must-never-run".into()),
+                env: Some(HashMap::from([(
+                    "CUSTOM_MODEL_ROUTE".into(),
+                    "native-route-a".into(),
+                )])),
+                ..Default::default()
+            };
+            let agent = catalog_test_agent(executor, &cmd, None);
+            assert_eq!(
+                picker_catalog(&agent, cwd).await["models"],
+                serde_json::json!([])
+            );
+            assert_eq!(std::fs::read_dir(cwd).unwrap().count(), 0);
+
+            let mut launched_cmd = cmd.clone();
+            launched_cmd.env.as_mut().unwrap().extend([
+                ("VK_AGENT_RUN_ID".into(), request.agent_run_id.to_string()),
+                (
+                    "VK_RUN_ATTEMPT_ID".into(),
+                    attempt.run_attempt_id.to_string(),
+                ),
+                ("VK_WORKSPACE_BRANCH".into(), "auto-run-branch".into()),
+                (
+                    workflow_mcp::TOKEN_ENV.into(),
+                    "private-workflow-secret".into(),
+                ),
+            ]);
+            assert_eq!(catalog_identity(&launched_cmd), catalog_identity(&cmd));
+            let model = if executor == BaseCodingAgent::DeepseekHarness {
+                r#"["provider/name","Model/name"]"#
+            } else {
+                "provider/name/Model/name"
+            };
+            // Construct directly: observe_catalog would seed the server-side
+            // cache before the serialized independent-host boundary is tested.
+            let observation = AcpCatalogObservation {
+                working_dir: cwd.to_path_buf(),
+                scope_id: catalog_identity(&launched_cmd),
+                model_selector: ModelSelectorConfig {
+                    models: vec![
+                        ModelInfo {
+                            id: model.into(),
+                            name: "Native model".into(),
+                            provider_id: None,
+                            reasoning_options: vec![ReasoningOption {
+                                id: "".into(),
+                                label: "No effort".into(),
+                                is_default: true,
+                            }],
+                        },
+                        ModelInfo {
+                            id: model.to_lowercase(),
+                            name: "Other model".into(),
+                            provider_id: None,
+                            reasoning_options: Vec::new(),
+                        },
+                    ],
+                    default_model: Some(model.into()),
+                    ..Default::default()
+                },
+            };
+            let versions = provider.versions();
+            let mut writer = NativeAuditWriter::create_in(
+                cwd,
+                NativeAuditMetadata {
+                    session_id: request.session_id,
+                    agent_run_id: request.agent_run_id,
+                    turn_id: request.turn_id,
+                    run_attempt_id: attempt.run_attempt_id,
+                    run_attempt_number: attempt.attempt_number,
+                    provider_id: provider.id().into(),
+                    runtime_profile_id: request.runtime_profile_id.clone(),
+                    workspace_path: cwd.display().to_string(),
+                    runtime_version: versions.runtime.map(str::to_owned),
+                    protocol_version: versions.protocol.map(str::to_owned),
+                    adapter_version: versions.adapter.into(),
+                    mapper_version: versions.mapper.into(),
+                    created_at: Utc::now(),
+                },
+            )
+            .unwrap();
+            let frame = NativeAuditFrame::from_bytes(
+                1,
+                Utc::now(),
+                NativeAuditDirection::Output,
+                NativeAuditChannel::Stdout,
+                "application/json",
+                request.correlation_id,
+                AcpEvent::CatalogObserved(observation.clone())
+                    .to_string()
+                    .as_bytes(),
+                None,
+            );
+            let native_ref = writer.append(frame.clone()).unwrap();
+            let manifest = writer.close().unwrap();
+            let decoded = provider.decode_native_frame(&frame).unwrap();
+            let mut mapped = provider.map_provider_event(&decoded, &manifest).unwrap();
+            assert_eq!(mapped.len(), 1);
+            let host_event = crate::process_host::HostEvent {
+                sequence: 1,
+                event_id: Uuid::new_v4(),
+                timestamp: frame.timestamp,
+                payload: HostEventPayload::Mapped {
+                    event: mapped.remove(0),
+                    native_ref,
+                },
+            };
+            let wire = serde_json::to_string(&host_event).unwrap();
+            assert!(!wire.contains("private-workflow-secret"));
+            assert!(!wire.contains(workflow_mcp::TOKEN_ENV));
+            let transported = serde_json::from_str(&wire).unwrap();
+            port.ensure_audit_stream(&manifest).await.unwrap();
+            port.apply_host_events(&request, &attempt, vec![transported])
+                .await
+                .unwrap();
+            assert_eq!(port.load_host_cursor(&attempt).await.unwrap(), 1);
+
+            let catalog = picker_catalog(&agent, cwd).await;
+            assert_eq!(
+                catalog,
+                serde_json::to_value(&observation.model_selector).unwrap()
+            );
+            assert_eq!(catalog["default_model"], model);
+            assert_eq!(catalog["models"][0]["reasoning_options"][0]["id"], "");
+            assert_eq!(
+                catalog["models"][1]["reasoning_options"],
+                serde_json::json!([])
+            );
+            // Selection changes do not invent a different native authority.
+            let selected = catalog_test_agent(executor, &cmd, Some("different-selection"));
+            assert_eq!(picker_catalog(&selected, cwd).await, catalog);
+            let other_executor = if executor == BaseCodingAgent::Opencode {
+                BaseCodingAgent::DeepseekHarness
+            } else {
+                BaseCodingAgent::Opencode
+            };
+            let other_provider = catalog_test_agent(other_executor, &cmd, None);
+            assert_eq!(
+                picker_catalog(&other_provider, cwd).await["models"],
+                serde_json::json!([])
+            );
+            let other_directory = tempfile::tempdir().unwrap();
+            assert_eq!(
+                picker_catalog(&agent, other_directory.path()).await["models"],
+                serde_json::json!([])
+            );
+            let mut other_cmd = cmd.clone();
+            other_cmd.base_command_override = Some("other-must-never-run".into());
+            let other_agent = catalog_test_agent(executor, &other_cmd, None);
+            assert_eq!(
+                picker_catalog(&other_agent, cwd).await["models"],
+                serde_json::json!([])
+            );
+            other_cmd = cmd;
+            other_cmd
+                .env
+                .as_mut()
+                .unwrap()
+                .insert("CUSTOM_MODEL_ROUTE".into(), "native-route-b".into());
+            let other_agent = catalog_test_agent(executor, &other_cmd, None);
+            assert_eq!(
+                picker_catalog(&other_agent, cwd).await["models"],
+                serde_json::json!([])
+            );
+        }
     }
 
     fn test_execution_env(workspace_path: &str) -> ExecutionEnv {

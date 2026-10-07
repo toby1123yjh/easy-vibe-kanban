@@ -72,6 +72,7 @@ import {
   type MachineClient,
 } from '@/shared/lib/machineClient';
 import { cn } from '@/shared/lib/utils';
+import { agentProviderForSettings } from '@/shared/lib/agentProviders';
 import { AgentToolsSettingsSection } from './AgentToolsSettingsSection';
 import {
   SettingsCard,
@@ -169,16 +170,7 @@ function newProfileId(): string {
 }
 
 function executorForProvider(provider: AgentSettingsProvider): BaseCodingAgent {
-  switch (provider) {
-    case AgentSettingsProvider.claude_code:
-      return BaseCodingAgent.CLAUDE_CODE;
-    case AgentSettingsProvider.gemini:
-      return BaseCodingAgent.GEMINI;
-    case AgentSettingsProvider.oh_my_pi:
-      return BaseCodingAgent.OH_MY_PI;
-    default:
-      return BaseCodingAgent.CODEX;
-  }
+  return agentProviderForSettings(provider).executor;
 }
 
 function displayJson(value: JsonValue | undefined, unsetLabel: string): string {

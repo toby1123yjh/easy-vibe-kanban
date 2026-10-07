@@ -1,0 +1,60 @@
+---
+title: "DeepSeek Harness"
+description: "Use DeepSeek Harness through its native ACP profile"
+---
+
+Vibe Kanban launches your installed `dsh --profile acp` executable. You can use
+DeepSeek Harness in ordinary sessions, workflow Nodes and the main Agent.
+
+<Warning>
+  DeepSeek Harness is a developer preview. Upstream may make breaking protocol
+  or configuration changes. Vibe Kanban uses your locally installed version;
+  installation alone does not confirm that model authentication works.
+</Warning>
+
+## Install and configure
+
+Install it from the Agent page, or use the official package:
+
+```bash
+npm install --global @deepseek-ai/dsh
+```
+
+Configure a model route and its credentials following the
+[DeepSeek Harness provider guide](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md).
+The server process must have the same environment and user directory that hold
+your native configuration. After a manual installation, rescan the host in
+Vibe Kanban. Use a command override if `dsh` is not on the server's PATH.
+
+## Native configuration
+
+The default home is `~/.dsh`, overridden by `DSH_HOME`. The ACP profile uses
+`profiles/acp/cordis.patch.yml`; home `cordis.patch.yml` takes precedence.
+These are plugin-based YAML patches, not a `settings.json` file. Credentials
+use the native `.credentials.yaml` store. Environment credentials can override
+stored credentials.
+
+MCP servers are native MCP-client plugin entries with a `disabled` switch.
+Skills use provider-owned `.dsh/skills` directories and compatible shared
+skill roots. Generic project settings and project MCP configuration are not
+invented by Vibe Kanban. Complex custom plugin expressions may require editing
+in the native application.
+
+## ACP behaviour
+
+Sessions created through Vibe Kanban can continue using their native session
+ID. Importing pre-existing DSH history into Vibe Kanban is not yet supported.
+
+- Continuation uses `session/resume`. Native transcript replay and
+  `session/load` are unavailable.
+- Model IDs and reasoning effort values come from advertised config options;
+  they are not interchangeable with Gemini or OpenCode identifiers.
+- Messages and thoughts arrive as committed updates. This is not raw token
+  streaming, so responses may appear in larger chunks.
+- Native slash commands, modes, session forks and native-history deletion are
+  not exposed by the ACP profile.
+- Session-mounted MCP supports stdio and Streamable HTTP. Remote OAuth tokens
+  are not portable when copying definitions between agents.
+
+See the [official ACP contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)
+for the current supported surfaces.

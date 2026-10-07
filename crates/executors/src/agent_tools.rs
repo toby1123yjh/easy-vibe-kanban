@@ -27,6 +27,9 @@ use crate::{
     mcp_config::{direct_provider_mcp_config, update_jsonc_content},
 };
 
+#[path = "native_assets.rs"]
+pub(crate) mod native_assets;
+
 const DISABLED_STORE_VERSION: u32 = 1;
 const MAX_SKILL_FILES: usize = 256;
 const MAX_SKILL_BYTES: usize = 10 * 1024 * 1024;
@@ -38,10 +41,19 @@ pub enum AgentToolProvider {
     ClaudeCode,
     Gemini,
     OhMyPi,
+    Opencode,
+    DeepseekHarness,
 }
 
 impl AgentToolProvider {
-    pub const ALL: [Self; 4] = [Self::Codex, Self::ClaudeCode, Self::Gemini, Self::OhMyPi];
+    pub const ALL: [Self; 6] = [
+        Self::Codex,
+        Self::ClaudeCode,
+        Self::Gemini,
+        Self::OhMyPi,
+        Self::Opencode,
+        Self::DeepseekHarness,
+    ];
 
     pub const fn id(self) -> &'static str {
         match self {
@@ -49,6 +61,8 @@ impl AgentToolProvider {
             Self::ClaudeCode => "claude_code",
             Self::Gemini => "gemini",
             Self::OhMyPi => "oh_my_pi",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "deepseek_harness",
         }
     }
 
@@ -58,6 +72,8 @@ impl AgentToolProvider {
             Self::ClaudeCode => "claude",
             Self::Gemini => "gemini",
             Self::OhMyPi => "omp",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "dsh",
         }
     }
 }
@@ -69,6 +85,8 @@ impl From<DirectProvider> for AgentToolProvider {
             DirectProvider::ClaudeCode => Self::ClaudeCode,
             DirectProvider::Gemini => Self::Gemini,
             DirectProvider::OhMyPi => Self::OhMyPi,
+            DirectProvider::Opencode => Self::Opencode,
+            DirectProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -80,6 +98,8 @@ impl From<AgentToolProvider> for DirectProvider {
             AgentToolProvider::ClaudeCode => Self::ClaudeCode,
             AgentToolProvider::Gemini => Self::Gemini,
             AgentToolProvider::OhMyPi => Self::OhMyPi,
+            AgentToolProvider::Opencode => Self::Opencode,
+            AgentToolProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -570,6 +590,8 @@ fn safe_url_display(value: &str) -> Option<String> {
 pub struct AgentToolProviderInventoryView {
     pub provider: AgentToolProvider,
     pub installed: bool,
+    pub mcp_scopes: Vec<AgentToolScope>,
+    pub skill_scopes: Vec<AgentToolScope>,
     pub items: Vec<AgentToolView>,
     #[serde(default)]
     pub limitations: Vec<String>,
@@ -593,6 +615,12 @@ impl From<AgentToolInventory> for AgentToolInventoryView {
                 .map(|provider| AgentToolProviderInventoryView {
                     provider: provider.provider,
                     installed: provider.installed,
+                    mcp_scopes: if provider.provider == AgentToolProvider::DeepseekHarness {
+                        vec![AgentToolScope::User]
+                    } else {
+                        vec![AgentToolScope::User, AgentToolScope::Project]
+                    },
+                    skill_scopes: vec![AgentToolScope::User, AgentToolScope::Project],
                     items: provider
                         .items
                         .into_iter()
@@ -992,7 +1020,10 @@ impl ProviderToolManager {
             if scope == AgentToolScope::Project && self.project_path.is_none() {
                 continue;
             }
-            if let Err(error) = self.discover_mcp(scope, &mut items) {
+            if !(self.provider == AgentToolProvider::DeepseekHarness
+                && scope == AgentToolScope::Project)
+                && let Err(error) = self.discover_mcp(scope, &mut items)
+            {
                 errors.push(format!("{} MCP: {error}", scope.store_name()));
             }
             if let Err(error) = self.discover_skills(scope, &mut items) {
@@ -1074,12 +1105,14 @@ impl ProviderToolManager {
             AgentToolDefinition::McpServer(definition) => {
                 validate_mcp_definition(definition)?;
                 let path = self.resolve_mcp_path(&request.target, false)?;
-                self.write_mcp_entry(&path, &request.target.name, Some(definition))?;
+                self.write_mcp_entry(&path, &request.target.name, Some(definition), None)?;
             }
             AgentToolDefinition::Skill(definition) => {
                 let root = self.skill_root(request.target.scope)?;
                 let target = root.join(&request.target.name);
-                write_skill_directory(&target, definition, false)?;
+                let definition =
+                    prepare_provider_skill(self.provider, &request.target.name, definition)?;
+                write_skill_directory(&target, &definition, false)?;
             }
         }
         self.find(&request.target).map_err(|error| {
@@ -1090,6 +1123,11 @@ impl ProviderToolManager {
     fn update(&self, request: ResolvedUpdateAgentToolRequest) -> Result<AgentTool, AgentToolError> {
         let current = self.find(&request.target)?;
         ensure_revision(&current.revision, &request.expected_revision)?;
+        if !current.capabilities.editable {
+            return Err(AgentToolError::Unsupported(
+                "this native installation is read-only".into(),
+            ));
+        }
         if current.state != AgentToolState::Enabled {
             return Err(AgentToolError::Unsupported(
                 "enable an item before editing it".into(),
@@ -1102,10 +1140,12 @@ impl ProviderToolManager {
                     Path::new(&current.native_path),
                     &request.target.name,
                     Some(definition),
+                    Some(&request.expected_revision),
                 )?;
             }
             AgentToolDefinition::Skill(definition) => {
-                write_skill_directory(Path::new(&current.native_path), definition, true)?;
+                let definition = prepare_provider_skill(self.provider, &current.name, definition)?;
+                write_skill_directory(Path::new(&current.native_path), &definition, true)?;
             }
         }
         self.find(&request.target).map_err(|error| {
@@ -1116,14 +1156,24 @@ impl ProviderToolManager {
     pub fn remove(&self, request: RemoveAgentToolRequest) -> Result<(), AgentToolError> {
         let current = self.find(&request.target)?;
         ensure_revision(&current.revision, &request.expected_revision)?;
-        if current.state == AgentToolState::Disabled {
+        if !current.capabilities.removable {
+            return Err(AgentToolError::Unsupported(
+                "this shared/native installation cannot be removed here".into(),
+            ));
+        }
+        if current.state == AgentToolState::Disabled
+            && !(current.kind == AgentToolKind::McpServer && uses_native_mcp_toggle(self.provider))
+        {
             remove_disabled_path(Path::new(&current.native_path), current.kind)?;
             return Ok(());
         }
         match current.kind {
-            AgentToolKind::McpServer => {
-                self.write_mcp_entry(Path::new(&current.native_path), &request.target.name, None)?
-            }
+            AgentToolKind::McpServer => self.write_mcp_entry(
+                Path::new(&current.native_path),
+                &request.target.name,
+                None,
+                Some(&request.expected_revision),
+            )?,
             AgentToolKind::Skill => {
                 validate_skill_tree(Path::new(&current.native_path))?;
                 fs::remove_dir_all(&current.native_path)?;
@@ -1143,12 +1193,17 @@ impl ProviderToolManager {
     ) -> Result<AgentTool, AgentToolError> {
         let current = self.find(&request.target)?;
         ensure_revision(&current.revision, &request.expected_revision)?;
+        if !current.capabilities.toggleable {
+            return Err(AgentToolError::Unsupported(
+                "this shared/native installation cannot be toggled here".into(),
+            ));
+        }
         let already_enabled = current.state == AgentToolState::Enabled;
         if already_enabled == request.enabled {
             return Ok(current);
         }
 
-        if current.kind == AgentToolKind::McpServer && self.provider == AgentToolProvider::OhMyPi {
+        if current.kind == AgentToolKind::McpServer && uses_native_mcp_toggle(self.provider) {
             let AgentToolDefinition::McpServer(mut definition) = current.definition else {
                 unreachable!("MCP item has MCP definition")
             };
@@ -1157,13 +1212,27 @@ impl ProviderToolManager {
                 .as_object()
                 .cloned()
                 .unwrap_or_default();
-            source.insert("enabled".into(), Value::Bool(request.enabled));
+            if self.provider == AgentToolProvider::DeepseekHarness {
+                source.insert("__dsh_disabled".into(), Value::Bool(!request.enabled));
+            } else {
+                source.insert("enabled".into(), Value::Bool(request.enabled));
+            }
             definition.source_metadata = Value::Object(source);
-            self.write_mcp_entry(
-                Path::new(&current.native_path),
-                &request.target.name,
-                Some(&definition),
-            )?;
+            if self.provider == AgentToolProvider::DeepseekHarness {
+                self.write_dsh_toggle(
+                    Path::new(&current.native_path),
+                    &definition,
+                    !request.enabled,
+                    &request.expected_revision,
+                )?;
+            } else {
+                self.write_mcp_entry(
+                    Path::new(&current.native_path),
+                    &request.target.name,
+                    Some(&definition),
+                    Some(&request.expected_revision),
+                )?;
+            }
             return self.find(&request.target);
         }
 
@@ -1186,6 +1255,8 @@ impl ProviderToolManager {
             AgentToolProvider::ClaudeCode => self.home_dir.join(".claude"),
             AgentToolProvider::Gemini => self.home_dir.join(".gemini"),
             AgentToolProvider::OhMyPi => self.home_dir.join(".omp"),
+            AgentToolProvider::Opencode => native_assets::opencode_root_for(&self.home_dir),
+            AgentToolProvider::DeepseekHarness => native_assets::deepseek_home_for(&self.home_dir),
         }
     }
 
@@ -1236,6 +1307,39 @@ impl ProviderToolManager {
                 project()?.join(".omp/mcp.json"),
                 project()?.join(".omp/.mcp.json"),
             ],
+            (AgentToolProvider::Opencode, AgentToolScope::User) => {
+                let mut candidates: Vec<_> = native_assets::opencode_config_roots(&self.home_dir)
+                    .into_iter()
+                    .flat_map(|root| native_assets::opencode_config_candidates(&root, true))
+                    .collect();
+                if let Some(path) = native_assets::opencode_custom_config(&self.home_dir) {
+                    if !candidates.contains(&path) {
+                        candidates.push(path);
+                    }
+                }
+                candidates
+            }
+            (AgentToolProvider::Opencode, AgentToolScope::Project) => {
+                native_assets::opencode_config_candidates(project()?, false)
+                    .into_iter()
+                    .chain(native_assets::opencode_config_candidates(
+                        &project()?.join(".opencode"),
+                        false,
+                    ))
+                    .collect()
+            }
+            (AgentToolProvider::DeepseekHarness, AgentToolScope::User) => {
+                let root = native_assets::deepseek_home_for(&self.home_dir);
+                vec![
+                    root.join("profiles/acp/cordis.patch.yml"),
+                    root.join("cordis.patch.yml"),
+                ]
+            }
+            (AgentToolProvider::DeepseekHarness, AgentToolScope::Project) => {
+                return Err(AgentToolError::Unsupported(
+                    "DeepSeek Harness has no automatic project MCP configuration".into(),
+                ));
+            }
         })
     }
 
@@ -1267,8 +1371,24 @@ impl ProviderToolManager {
             (AgentToolProvider::OhMyPi, AgentToolScope::Project) => {
                 self.project_root()?.join(".omp/skills")
             }
+            (AgentToolProvider::Opencode, AgentToolScope::User) => {
+                native_assets::opencode_asset_root_for(&self.home_dir).join("skills")
+            }
+            (AgentToolProvider::Opencode, AgentToolScope::Project) => {
+                self.project_root()?.join(".opencode/skills")
+            }
+            (AgentToolProvider::DeepseekHarness, AgentToolScope::User) => {
+                native_assets::deepseek_home_for(&self.home_dir).join("skills")
+            }
+            (AgentToolProvider::DeepseekHarness, AgentToolScope::Project) => {
+                native_assets::deepseek_project_root(self.project_root()?).join(".dsh/skills")
+            }
         };
-        ensure_no_symlink_components(boundary, &root)?;
+        if root.starts_with(boundary) {
+            ensure_no_symlink_components(boundary, &root)?;
+        } else {
+            ensure_native_root_safe(&root)?;
+        }
         Ok(root)
     }
 
@@ -1291,6 +1411,23 @@ impl ProviderToolManager {
             }
             return Ok(requested);
         }
+        if self.provider == AgentToolProvider::Opencode {
+            return Ok(match locator.scope {
+                AgentToolScope::User => native_assets::opencode_custom_config(&self.home_dir)
+                    .unwrap_or_else(|| {
+                        native_assets::opencode_write_target(
+                            &native_assets::opencode_asset_root_for(&self.home_dir),
+                            true,
+                        )
+                    }),
+                AgentToolScope::Project => {
+                    native_assets::opencode_write_target(self.project_root()?, false)
+                }
+            });
+        }
+        if self.provider == AgentToolProvider::DeepseekHarness {
+            return Ok(native_assets::deepseek_home_for(&self.home_dir).join("cordis.patch.yml"));
+        }
         if let Some(existing) = candidates.iter().find(|candidate| candidate.is_file()) {
             return Ok(existing.clone());
         }
@@ -1311,6 +1448,9 @@ impl ProviderToolManager {
         scope: AgentToolScope,
         output: &mut Vec<AgentTool>,
     ) -> Result<(), AgentToolError> {
+        if self.provider == AgentToolProvider::DeepseekHarness {
+            return self.discover_dsh_mcp(scope, output);
+        }
         let mut failures = Vec::new();
         for path in self
             .mcp_candidates(scope)?
@@ -1352,7 +1492,15 @@ impl ProviderToolManager {
                                 } else {
                                     AgentToolState::Disabled
                                 },
-                                capabilities: AgentToolCapabilities::default(),
+                                capabilities: AgentToolCapabilities {
+                                    removable: self.provider != AgentToolProvider::DeepseekHarness
+                                        || definition
+                                            .source_metadata
+                                            .get("__dsh_plugin")
+                                            .and_then(Value::as_str)
+                                            == Some("@deepseek-ai/dsh-mcp-client"),
+                                    ..AgentToolCapabilities::default()
+                                },
                                 revision: revision.clone(),
                                 definition: AgentToolDefinition::McpServer(definition),
                                 error: None,
@@ -1387,6 +1535,111 @@ impl ProviderToolManager {
         }
     }
 
+    fn discover_dsh_mcp(
+        &self,
+        scope: AgentToolScope,
+        output: &mut Vec<AgentTool>,
+    ) -> Result<(), AgentToolError> {
+        let mut rows: BTreeMap<String, (Value, PathBuf, String, bool)> = BTreeMap::new();
+        let mut failures = Vec::new();
+        for path in self.mcp_candidates(scope)? {
+            if !path.is_file() {
+                continue;
+            }
+            ensure_native_root_safe(&path)?;
+            let content = fs::read_to_string(&path)?;
+            let parsed = match native_assets::parse_cordis_patch(&content) {
+                Ok(value) => value,
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let revision = format!("{:x}", Sha256::digest(content.as_bytes()));
+            for (id, row) in parsed.as_object().expect("Cordis parser returns object") {
+                let previous = rows.remove(id);
+                let shadowed = previous.is_some();
+                let mut merged = previous
+                    .map(|(row, _, _, _)| row)
+                    .unwrap_or_else(|| Value::Object(Map::new()));
+                let object = merged.as_object_mut().expect("Cordis plugin is an object");
+                for (key, value) in row.as_object().expect("Cordis plugin is an object") {
+                    object.insert(key.clone(), value.clone());
+                }
+                let removable = !shadowed
+                    && row.get("name").and_then(Value::as_str)
+                        == Some("@deepseek-ai/dsh-mcp-client");
+                rows.insert(
+                    id.clone(),
+                    (merged, path.clone(), revision.clone(), removable),
+                );
+            }
+        }
+        for (id, (row, path, revision, removable)) in rows {
+            let Some(config) = row.get("config").and_then(Value::as_object) else {
+                continue;
+            };
+            if row.get("name").and_then(Value::as_str) != Some("@deepseek-ai/dsh-mcp-client")
+                && !(config.contains_key("serverName") && config.contains_key("transport"))
+            {
+                continue;
+            }
+            let Some(name) = config.get("serverName").and_then(Value::as_str) else {
+                continue;
+            };
+            let mut native = config.clone();
+            native.insert("__dsh_id".into(), Value::String(id));
+            native.insert(
+                "__dsh_disabled".into(),
+                row.get("disabled").cloned().unwrap_or(Value::Bool(false)),
+            );
+            if let Some(plugin) = row.get("name") {
+                native.insert("__dsh_plugin".into(), plugin.clone());
+            }
+            let (definition, state, error) =
+                match normalize_mcp(self.provider, &Value::Object(native)) {
+                    Ok((definition, enabled)) => (
+                        definition,
+                        if enabled {
+                            AgentToolState::Enabled
+                        } else {
+                            AgentToolState::Disabled
+                        },
+                        None,
+                    ),
+                    Err(error) => (
+                        empty_mcp_definition(),
+                        AgentToolState::Error,
+                        Some(error.to_string()),
+                    ),
+                };
+            let managed = error.is_none() && failures.is_empty();
+            output.push(AgentTool {
+                provider: self.provider,
+                scope,
+                kind: AgentToolKind::McpServer,
+                name: name.to_string(),
+                native_path: path.to_string_lossy().into_owned(),
+                state,
+                capabilities: AgentToolCapabilities {
+                    editable: managed,
+                    toggleable: managed,
+                    removable: managed && removable,
+                    exportable: error.is_none(),
+                    installable: true,
+                },
+                revision,
+                definition: AgentToolDefinition::McpServer(definition),
+                error,
+            });
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(AgentToolError::InvalidConfiguration(failures.join("; ")))
+        }
+    }
+
     fn discover_skills(
         &self,
         scope: AgentToolScope,
@@ -1395,12 +1648,55 @@ impl ProviderToolManager {
         let roots = if scope == AgentToolScope::Project {
             self.project_skill_roots_for_discovery()?
         } else {
-            vec![self.skill_root(scope)?]
+            self.user_skill_roots_for_discovery()?
         };
+        let owned_root = self.skill_root(scope)?;
         for root in roots.into_iter().filter(|root| root.is_dir()) {
             for entry in fs::read_dir(&root)? {
                 let entry = entry?;
                 let file_type = entry.file_type()?;
+                if self.provider == AgentToolProvider::DeepseekHarness
+                    && file_type.is_file()
+                    && entry
+                        .path()
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        == Some("md")
+                {
+                    let path = entry.path();
+                    ensure_native_root_safe(&path)?;
+                    let bytes = fs::read(&path)?;
+                    if bytes.len() > MAX_SKILL_BYTES {
+                        continue;
+                    }
+                    let definition = SkillDefinition {
+                        description: skill_description(&String::from_utf8_lossy(&bytes)),
+                        files: vec![SkillFile {
+                            path: "SKILL.md".into(),
+                            content_base64: BASE64.encode(&bytes),
+                        }],
+                    };
+                    let name = native_skill_name(&definition)?;
+                    output.push(AgentTool {
+                        provider: self.provider,
+                        scope,
+                        kind: AgentToolKind::Skill,
+                        name,
+                        native_path: path.to_string_lossy().into_owned(),
+                        state: AgentToolState::Enabled,
+                        capabilities: AgentToolCapabilities {
+                            editable: false,
+                            removable: false,
+                            toggleable: false,
+                            exportable: true,
+                            installable: false,
+                        },
+                        revision: format!("{:x}", Sha256::digest(&bytes)),
+                        definition: AgentToolDefinition::Skill(definition),
+                        error: None,
+                    });
+                    continue;
+                }
                 if file_type.is_symlink() || !file_type.is_dir() {
                     continue;
                 }
@@ -1409,7 +1705,21 @@ impl ProviderToolManager {
                     continue;
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
-                match read_skill_definition(&path) {
+                match read_skill_definition(&path).and_then(|(definition, revision)| {
+                    if matches!(
+                        self.provider,
+                        AgentToolProvider::Opencode | AgentToolProvider::DeepseekHarness
+                    ) {
+                        let native_name = native_skill_name(&definition)?;
+                        if self.provider == AgentToolProvider::Opencode && native_name != name {
+                            return Err(AgentToolError::InvalidConfiguration(
+                                "OpenCode Skill name must match its directory".into(),
+                            ));
+                        }
+                        prepare_provider_skill(self.provider, &name, &definition)?;
+                    }
+                    Ok((definition, revision))
+                }) {
                     Ok((definition, revision)) => output.push(AgentTool {
                         provider: self.provider,
                         scope,
@@ -1417,7 +1727,21 @@ impl ProviderToolManager {
                         name,
                         native_path: path.to_string_lossy().into_owned(),
                         state: AgentToolState::Enabled,
-                        capabilities: AgentToolCapabilities::default(),
+                        capabilities: if matches!(
+                            self.provider,
+                            AgentToolProvider::Opencode | AgentToolProvider::DeepseekHarness
+                        ) && root != owned_root
+                        {
+                            AgentToolCapabilities {
+                                editable: false,
+                                removable: false,
+                                toggleable: false,
+                                exportable: true,
+                                installable: false,
+                            }
+                        } else {
+                            AgentToolCapabilities::default()
+                        },
                         revision,
                         definition: AgentToolDefinition::Skill(definition),
                         error: None,
@@ -1448,6 +1772,33 @@ impl ProviderToolManager {
         Ok(())
     }
 
+    fn user_skill_roots_for_discovery(&self) -> Result<Vec<PathBuf>, AgentToolError> {
+        let mut roots = vec![self.skill_root(AgentToolScope::User)?];
+        match self.provider {
+            AgentToolProvider::Opencode => {
+                roots.extend(
+                    native_assets::opencode_config_roots(&self.home_dir)
+                        .into_iter()
+                        .map(|root| root.join("skills")),
+                );
+                roots.extend([
+                    self.home_dir.join(".agents/skills"),
+                    self.home_dir.join(".claude/skills"),
+                ]);
+            }
+            AgentToolProvider::DeepseekHarness => {
+                roots.push(native_assets::deepseek_agents_home_for(&self.home_dir).join("skills"))
+            }
+            _ => {}
+        }
+        roots.sort();
+        roots.dedup();
+        for root in &roots {
+            ensure_native_root_safe(root)?;
+        }
+        Ok(roots)
+    }
+
     fn project_skill_roots_for_discovery(&self) -> Result<Vec<PathBuf>, AgentToolError> {
         let project = self.project_root()?;
         let mut roots = Vec::new();
@@ -1457,10 +1808,38 @@ impl ProviderToolManager {
                 AgentToolProvider::ClaudeCode => ancestor.join(".claude/skills"),
                 AgentToolProvider::Gemini => ancestor.join(".gemini/skills"),
                 AgentToolProvider::OhMyPi => ancestor.join(".omp/skills"),
+                AgentToolProvider::Opencode => ancestor.join(".opencode/skills"),
+                AgentToolProvider::DeepseekHarness => {
+                    native_assets::deepseek_project_root(project).join(".dsh/skills")
+                }
             };
-            ensure_no_symlink_components(ancestor, &root)?;
+            ensure_native_root_safe(&root)?;
             if !roots.contains(&root) {
                 roots.push(root);
+            }
+            if matches!(
+                self.provider,
+                AgentToolProvider::Opencode | AgentToolProvider::DeepseekHarness
+            ) {
+                let base = if self.provider == AgentToolProvider::DeepseekHarness {
+                    native_assets::deepseek_project_root(project)
+                } else {
+                    ancestor
+                };
+                for relative in if self.provider == AgentToolProvider::Opencode {
+                    vec![".agents/skills", ".claude/skills"]
+                } else {
+                    vec![".agents/skills"]
+                } {
+                    let root = base.join(relative);
+                    ensure_native_root_safe(&root)?;
+                    if !roots.contains(&root) {
+                        roots.push(root);
+                    }
+                }
+            }
+            if self.provider == AgentToolProvider::DeepseekHarness {
+                break;
             }
             if ancestor.join(".git").exists() {
                 break;
@@ -1520,18 +1899,88 @@ impl ProviderToolManager {
         path: &Path,
         name: &str,
         definition: Option<&McpServerDefinition>,
+        expected_revision: Option<&str>,
     ) -> Result<(), AgentToolError> {
         validate_name(name)?;
+        ensure_native_root_safe(path)?;
         let parent = path.parent().ok_or_else(|| {
             AgentToolError::UnsafePath("MCP config has no parent directory".into())
         })?;
-        fs::create_dir_all(parent)?;
-        let current = match fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        // Parse/validate before creating anything. An invalid native file
+        // remains byte-for-byte unchanged.
+        let (current, before_revision) = match fs::read_to_string(path) {
+            Ok(content) => {
+                let revision = format!("{:x}", Sha256::digest(content.as_bytes()));
+                (content, revision)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                (String::new(), "missing".into())
+            }
             Err(error) => return Err(AgentToolError::Io(error)),
         };
-        let output = if self.provider == AgentToolProvider::Codex {
+        if let Some(expected) = expected_revision {
+            ensure_revision(&before_revision, expected)?;
+        }
+        let output = if self.provider == AgentToolProvider::DeepseekHarness {
+            validate_dsh_mcp_name(name)?;
+            let mut desired = native_assets::parse_cordis_patch(&current)
+                .map_err(AgentToolError::InvalidConfiguration)?;
+            let existing = desired
+                .as_object()
+                .and_then(|rows| {
+                    rows.iter().find(|(_, row)| {
+                        row.get("config")
+                            .and_then(|config| config.get("serverName"))
+                            .and_then(Value::as_str)
+                            == Some(name)
+                    })
+                })
+                .map(|(id, _)| id.clone());
+            let id = existing
+                .or_else(|| {
+                    definition.and_then(|definition| {
+                        definition
+                            .source_metadata
+                            .get("__dsh_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                })
+                .unwrap_or_else(|| format!("vk-mcp-{name}"));
+            if let Some(definition) = definition {
+                let mut native = render_mcp(self.provider, definition)?;
+                let object = native.as_object_mut().ok_or_else(|| {
+                    AgentToolError::InvalidConfiguration("invalid native MCP config".into())
+                })?;
+                let disabled = object
+                    .remove("__dsh_disabled")
+                    .unwrap_or(Value::Bool(false));
+                object.remove("__dsh_id");
+                object.remove("__dsh_plugin");
+                object.insert("serverName".into(), Value::String(name.into()));
+                let rows = desired
+                    .as_object_mut()
+                    .expect("Cordis parser returns object");
+                let row = rows.entry(id.clone()).or_insert_with(
+                    || serde_json::json!({"id":id,"name":"@deepseek-ai/dsh-mcp-client"}),
+                );
+                row["config"] = native;
+                row["disabled"] = disabled;
+            } else {
+                let row = desired
+                    .get(&id)
+                    .ok_or_else(|| AgentToolError::NotFound(name.into()))?;
+                if row.get("name").and_then(Value::as_str) != Some("@deepseek-ai/dsh-mcp-client") {
+                    return Err(AgentToolError::Unsupported("inherited MCP plugin cannot be removed from an override; remove its original insert in the native profile".into()));
+                }
+                desired
+                    .as_object_mut()
+                    .expect("Cordis parser returns object")
+                    .remove(&id);
+            }
+            native_assets::render_cordis_patch(&current, &desired)
+                .map_err(AgentToolError::Unsupported)?
+        } else if self.provider == AgentToolProvider::Codex {
             let mut document = if current.trim().is_empty() {
                 toml_edit::DocumentMut::new()
             } else {
@@ -1563,16 +2012,19 @@ impl ProviderToolManager {
             }
             document.to_string()
         } else {
-            let mut config = if current.trim().is_empty() {
-                direct_provider_mcp_config(self.provider.into()).template
-            } else if is_jsonc(path) {
-                jsonc_parser::parse_to_serde_value(&current, &ParseOptions::default())
-                    .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
-                    .unwrap_or_else(|| Value::Object(Map::new()))
-            } else {
-                serde_json::from_str(&current)
-                    .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
-            };
+            let mut config =
+                if current.trim().is_empty() && self.provider == AgentToolProvider::Opencode {
+                    Value::Object(Map::new())
+                } else if current.trim().is_empty() {
+                    direct_provider_mcp_config(self.provider.into()).template
+                } else if is_jsonc(path) || self.provider == AgentToolProvider::Opencode {
+                    jsonc_parser::parse_to_serde_value(&current, &ParseOptions::default())
+                        .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
+                        .unwrap_or_else(|| Value::Object(Map::new()))
+                } else {
+                    serde_json::from_str(&current)
+                        .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
+                };
             let servers = config
                 .as_object_mut()
                 .ok_or_else(|| {
@@ -1589,13 +2041,20 @@ impl ProviderToolManager {
             } else {
                 servers.remove(name);
             }
-            if is_jsonc(path) {
+            if is_jsonc(path) || self.provider == AgentToolProvider::Opencode {
                 update_jsonc_content(&current, &config)
             } else {
                 serde_json::to_string_pretty(&config)
                     .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
             }
         };
+        let observed_revision = if path.is_file() {
+            hash_file(path)?
+        } else {
+            "missing".into()
+        };
+        ensure_revision(&observed_revision, &before_revision)?;
+        fs::create_dir_all(parent)?;
         atomic_write(path, output.as_bytes())?;
 
         let observed = read_native_config(path, self.provider)?;
@@ -1609,6 +2068,40 @@ impl ProviderToolManager {
             )));
         }
         Ok(())
+    }
+
+    fn write_dsh_toggle(
+        &self,
+        path: &Path,
+        definition: &McpServerDefinition,
+        disabled: bool,
+        expected: &str,
+    ) -> Result<(), AgentToolError> {
+        ensure_native_root_safe(path)?;
+        let bytes = fs::read(path)?;
+        ensure_revision(&format!("{:x}", Sha256::digest(&bytes)), expected)?;
+        let source = std::str::from_utf8(&bytes).map_err(|_| {
+            AgentToolError::InvalidConfiguration("native Cordis patch must be UTF-8".into())
+        })?;
+        let mut desired = native_assets::parse_cordis_patch(source)
+            .map_err(AgentToolError::InvalidConfiguration)?;
+        let id = definition
+            .source_metadata
+            .get("__dsh_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                AgentToolError::InvalidConfiguration("native MCP plugin identity is missing".into())
+            })?;
+        let row = desired
+            .as_object_mut()
+            .expect("Cordis parser returns object")
+            .entry(id.to_string())
+            .or_insert_with(|| serde_json::json!({"id": id}));
+        row["disabled"] = Value::Bool(disabled);
+        let output = native_assets::render_cordis_patch(source, &desired)
+            .map_err(AgentToolError::Unsupported)?;
+        ensure_revision(&hash_file(path)?, expected)?;
+        atomic_write(path, output.as_bytes())
     }
 
     fn move_to_disabled(
@@ -1633,9 +2126,12 @@ impl ProviderToolManager {
                     return Err(AgentToolError::Collision(locator.name.clone()));
                 }
                 atomic_write_json(&record_path, &record)?;
-                if let Err(error) =
-                    self.write_mcp_entry(Path::new(&current.native_path), &locator.name, None)
-                {
+                if let Err(error) = self.write_mcp_entry(
+                    Path::new(&current.native_path),
+                    &locator.name,
+                    None,
+                    Some(&current.revision),
+                ) {
                     let _ = fs::remove_file(record_path);
                     return Err(error);
                 }
@@ -1684,7 +2180,7 @@ impl ProviderToolManager {
                         "disabled MCP record contains the wrong kind".into(),
                     ));
                 };
-                self.write_mcp_entry(&target_path, &locator.name, Some(&definition))?;
+                self.write_mcp_entry(&target_path, &locator.name, Some(&definition), None)?;
                 fs::remove_file(record_path)?;
             }
             AgentToolKind::Skill => {
@@ -1767,6 +2263,8 @@ fn provider_limitations(provider: AgentToolProvider) -> Vec<String> {
             "Oh My Pi management targets the canonical agent profile at ~/.omp/agent; alternate OMP profiles are not managed."
                 .to_string(),
         ],
+        AgentToolProvider::Opencode => vec!["OpenCode uses native enabled switches. Compatible .agents/.claude Skills are shared physical installations and read-only here; copy to the OpenCode root to manage independently. OAuth grants are not portable MCP credentials. Inline/managed configuration and per-agent permissions may override file settings.".into()],
+        AgentToolProvider::DeepseekHarness => vec!["DeepSeek Harness is a developer preview. MCP management targets native ACP/home Cordis patches, not project config. Executable YAML/include/custom-profile compositions are read-only. Shared .agents Skills are read-only; flat Markdown Skills are not editable bundle installations. Deleting inherited plugin overrides is unsupported; disable the native plugin instead.".into()],
         _ => Vec::new(),
     }
 }
@@ -1801,6 +2299,8 @@ fn mcp_servers_key(provider: AgentToolProvider) -> &'static str {
         AgentToolProvider::ClaudeCode | AgentToolProvider::Gemini | AgentToolProvider::OhMyPi => {
             "mcpServers"
         }
+        AgentToolProvider::Opencode => "mcp",
+        AgentToolProvider::DeepseekHarness => "mcpServers",
     }
 }
 
@@ -1820,7 +2320,9 @@ fn read_native_config(path: &Path, provider: AgentToolProvider) -> Result<Value,
             .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?;
         serde_json::to_value(value)
             .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))
-    } else if is_jsonc(path) {
+    } else if provider == AgentToolProvider::DeepseekHarness {
+        native_assets::cordis_mcp_config(&content).map_err(AgentToolError::InvalidConfiguration)
+    } else if is_jsonc(path) || provider == AgentToolProvider::Opencode {
         jsonc_parser::parse_to_serde_value(&content, &ParseOptions::default())
             .map_err(|error| AgentToolError::InvalidConfiguration(error.to_string()))?
             .ok_or_else(|| AgentToolError::InvalidConfiguration("empty JSONC document".into()))
@@ -1864,6 +2366,70 @@ fn normalize_mcp(
     let object = native.as_object().ok_or_else(|| {
         AgentToolError::InvalidConfiguration("MCP server entry must be an object".into())
     })?;
+    if provider == AgentToolProvider::Opencode {
+        let enabled = match object.get("enabled") {
+            None => true,
+            Some(Value::Bool(enabled)) => *enabled,
+            _ => {
+                return Err(AgentToolError::InvalidConfiguration(
+                    "OpenCode MCP enabled must be boolean".into(),
+                ));
+            }
+        };
+        let native_type = object.get("type").and_then(Value::as_str);
+        let (transport, command, args, url) = match native_type {
+            Some("local") => {
+                let mut command = string_array(object.get("command"), "command")?.into_iter();
+                let executable = command
+                    .next()
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| {
+                        AgentToolError::InvalidConfiguration(
+                            "OpenCode local MCP requires a command array".into(),
+                        )
+                    })?;
+                (
+                    McpTransport::Stdio,
+                    Some(executable),
+                    command.collect(),
+                    None,
+                )
+            }
+            Some("remote") => (
+                McpTransport::Http,
+                None,
+                Vec::new(),
+                optional_string(object.get("url"), "url")?,
+            ),
+            _ => {
+                return Err(AgentToolError::InvalidConfiguration(
+                    "OpenCode MCP type must be local or remote".into(),
+                ));
+            }
+        };
+        let definition = McpServerDefinition {
+            transport,
+            command,
+            args,
+            cwd: optional_string(object.get("cwd"), "cwd")?,
+            env: string_map(object.get("environment"), "environment")?,
+            url,
+            headers: string_map(object.get("headers"), "headers")?,
+            source_metadata: native.clone(),
+        };
+        validate_mcp_definition(&definition)?;
+        return Ok((definition, enabled));
+    }
+    if provider == AgentToolProvider::DeepseekHarness {
+        match object.get("transport").and_then(Value::as_str) {
+            Some("stdio" | "streamable-http") => {}
+            _ => {
+                return Err(AgentToolError::InvalidConfiguration(
+                    "DeepSeek Harness ACP MCP supports stdio and streamable-http only".into(),
+                ));
+            }
+        }
+    }
     let remote_url = optional_string(
         match provider {
             AgentToolProvider::Gemini => object.get("httpUrl").or_else(|| object.get("url")),
@@ -1892,7 +2458,17 @@ fn normalize_mcp(
         },
         "headers",
     )?;
-    let enabled = if provider == AgentToolProvider::OhMyPi {
+    let enabled = if provider == AgentToolProvider::DeepseekHarness {
+        match object.get("__dsh_disabled") {
+            None => true,
+            Some(Value::Bool(disabled)) => !*disabled,
+            _ => {
+                return Err(AgentToolError::InvalidConfiguration(
+                    "DeepSeek Harness plugin disabled must be boolean".into(),
+                ));
+            }
+        }
+    } else if provider == AgentToolProvider::OhMyPi {
         !matches!(object.get("enabled"), Some(Value::Bool(false)))
             && !object
                 .get("enabled")
@@ -2026,6 +2602,8 @@ fn render_mcp(
         "args",
         "cwd",
         "env",
+        "environment",
+        "transport",
         "url",
         "httpUrl",
         "headers",
@@ -2035,18 +2613,36 @@ fn render_mcp(
     }
     match definition.transport {
         McpTransport::Stdio => {
-            object.insert(
-                "command".into(),
-                Value::String(definition.command.clone().unwrap_or_default()),
-            );
-            if !definition.args.is_empty() {
-                object.insert("args".into(), serde_json::json!(definition.args));
+            if provider == AgentToolProvider::Opencode {
+                object.insert("type".into(), Value::String("local".into()));
+                let mut command = vec![definition.command.clone().unwrap_or_default()];
+                command.extend(definition.args.iter().cloned());
+                object.insert("command".into(), serde_json::json!(command));
+            } else {
+                object.insert(
+                    "command".into(),
+                    Value::String(definition.command.clone().unwrap_or_default()),
+                );
+                if !definition.args.is_empty() {
+                    object.insert("args".into(), serde_json::json!(definition.args));
+                }
+            }
+            if provider == AgentToolProvider::DeepseekHarness {
+                object.insert("transport".into(), Value::String("stdio".into()));
             }
             if let Some(cwd) = &definition.cwd {
                 object.insert("cwd".into(), Value::String(cwd.clone()));
             }
             if !definition.env.is_empty() {
-                object.insert("env".into(), serde_json::json!(definition.env));
+                object.insert(
+                    if provider == AgentToolProvider::Opencode {
+                        "environment"
+                    } else {
+                        "env"
+                    }
+                    .into(),
+                    serde_json::json!(definition.env),
+                );
             }
         }
         McpTransport::Http => {
@@ -2060,6 +2656,17 @@ fn render_mcp(
                 }
                 AgentToolProvider::ClaudeCode | AgentToolProvider::OhMyPi => {
                     object.insert("type".into(), Value::String("http".into()));
+                    object.insert("url".into(), url);
+                }
+                AgentToolProvider::Opencode => {
+                    object.insert("type".into(), Value::String("remote".into()));
+                    object.insert("url".into(), url);
+                    if !definition.headers.is_empty() && !object.contains_key("oauth") {
+                        object.insert("oauth".into(), Value::Bool(false));
+                    }
+                }
+                AgentToolProvider::DeepseekHarness => {
+                    object.insert("transport".into(), Value::String("streamable-http".into()));
                     object.insert("url".into(), url);
                 }
             }
@@ -2087,10 +2694,190 @@ fn render_mcp(
             }
         }
     }
-    if provider == AgentToolProvider::OhMyPi && !object.contains_key("enabled") {
+    if matches!(
+        provider,
+        AgentToolProvider::OhMyPi | AgentToolProvider::Opencode
+    ) && !object.contains_key("enabled")
+    {
         object.insert("enabled".into(), Value::Bool(true));
     }
     Ok(Value::Object(object))
+}
+
+fn uses_native_mcp_toggle(provider: AgentToolProvider) -> bool {
+    matches!(
+        provider,
+        AgentToolProvider::OhMyPi
+            | AgentToolProvider::Opencode
+            | AgentToolProvider::DeepseekHarness
+    )
+}
+
+fn validate_dsh_mcp_name(name: &str) -> Result<(), AgentToolError> {
+    if name.is_empty()
+        || name.len() > 32
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
+        return Err(AgentToolError::InvalidConfiguration(
+            "DeepSeek Harness MCP names use 1–32 ASCII letters, digits, '_' or '-'".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_native_root_safe(root: &Path) -> Result<(), AgentToolError> {
+    if !root.is_absolute() {
+        return Err(AgentToolError::UnsafePath(
+            "native root must be absolute".into(),
+        ));
+    }
+    for component in root.ancestors() {
+        match fs::symlink_metadata(component) {
+            Ok(metadata) if metadata.file_type().is_symlink() || is_reparse_point(&metadata) => {
+                return Err(AgentToolError::UnsafePath(
+                    "native root contains a link/reparse point".into(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_: &fs::Metadata) -> bool {
+    false
+}
+
+fn native_skill_name(definition: &SkillDefinition) -> Result<String, AgentToolError> {
+    let manifest = definition
+        .files
+        .iter()
+        .find(|file| file.path == "SKILL.md")
+        .ok_or_else(|| AgentToolError::InvalidConfiguration("Skill requires SKILL.md".into()))?;
+    let bytes = BASE64
+        .decode(&manifest.content_base64)
+        .map_err(|_| AgentToolError::InvalidConfiguration("invalid Skill encoding".into()))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| AgentToolError::InvalidConfiguration("SKILL.md must be UTF-8".into()))?;
+    let newline = if text.starts_with("---\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let prefix = format!("---{newline}");
+    let marker = format!("{newline}---{newline}");
+    let body = text.strip_prefix(&prefix).ok_or_else(|| {
+        AgentToolError::InvalidConfiguration("native Skill requires YAML frontmatter".into())
+    })?;
+    let end = body.find(&marker).ok_or_else(|| {
+        AgentToolError::InvalidConfiguration("Skill frontmatter is not closed".into())
+    })?;
+    let value =
+        native_assets::parse_yaml(&body[..end]).map_err(AgentToolError::InvalidConfiguration)?;
+    if value
+        .get("description")
+        .and_then(Value::as_str)
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err(AgentToolError::InvalidConfiguration(
+            "native Skill requires a description".into(),
+        ));
+    }
+    value
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| AgentToolError::InvalidConfiguration("native Skill requires a name".into()))
+}
+
+fn prepare_provider_skill(
+    provider: AgentToolProvider,
+    name: &str,
+    definition: &SkillDefinition,
+) -> Result<SkillDefinition, AgentToolError> {
+    if !matches!(
+        provider,
+        AgentToolProvider::Opencode | AgentToolProvider::DeepseekHarness
+    ) {
+        return Ok(definition.clone());
+    }
+    if provider == AgentToolProvider::Opencode
+        && (name.len() > 64
+            || name.starts_with('-')
+            || name.ends_with('-')
+            || name.contains("--")
+            || !name
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-'))
+    {
+        return Err(AgentToolError::InvalidConfiguration(
+            "OpenCode Skill names must be lower-kebab-case, 1–64 characters".into(),
+        ));
+    }
+    let mut definition = definition.clone();
+    let manifest = definition
+        .files
+        .iter_mut()
+        .find(|file| file.path == "SKILL.md")
+        .ok_or_else(|| AgentToolError::InvalidConfiguration("Skill requires SKILL.md".into()))?;
+    let bytes = BASE64.decode(&manifest.content_base64).map_err(|_| {
+        AgentToolError::InvalidConfiguration("invalid Skill content encoding".into())
+    })?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| AgentToolError::InvalidConfiguration("SKILL.md must be UTF-8".into()))?;
+    let newline = if text.starts_with("---\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let prefix = format!("---{newline}");
+    let body = text.strip_prefix(&prefix).ok_or_else(|| {
+        AgentToolError::InvalidConfiguration(
+            "Skill requires YAML name and description frontmatter".into(),
+        )
+    })?;
+    let marker = format!("{newline}---{newline}");
+    let end = body.find(&marker).ok_or_else(|| {
+        AgentToolError::InvalidConfiguration("Skill frontmatter is not closed".into())
+    })?;
+    let frontmatter = &body[..end];
+    let parsed =
+        native_assets::parse_yaml(frontmatter).map_err(AgentToolError::InvalidConfiguration)?;
+    let description = parsed
+        .get("description")
+        .and_then(Value::as_str)
+        .filter(|description| !description.trim().is_empty())
+        .ok_or_else(|| {
+            AgentToolError::InvalidConfiguration("Skill requires a non-empty description".into())
+        })?;
+    if provider == AgentToolProvider::Opencode && description.len() > 1024 {
+        return Err(AgentToolError::InvalidConfiguration(
+            "OpenCode Skill description exceeds 1024 characters".into(),
+        ));
+    }
+    let mut desired = parsed.clone();
+    desired["name"] = Value::String(name.into());
+    let rendered = native_assets::render_yaml_mapping(frontmatter, &parsed, &desired, 0)
+        .map_err(AgentToolError::Unsupported)?;
+    let content = format!(
+        "{prefix}{}{marker}{}",
+        rendered.trim_end_matches(['\r', '\n']),
+        &body[end + marker.len()..]
+    );
+    manifest.content_base64 = BASE64.encode(content.as_bytes());
+    Ok(definition)
 }
 
 fn validate_relative_skill_path(path: &str) -> Result<PathBuf, AgentToolError> {
@@ -2436,7 +3223,14 @@ mod tests {
             home.clone(),
             root.path().join("assets/agent-tools/disabled/v1"),
         );
-        for provider_root in [".codex", ".claude", ".gemini", ".omp"] {
+        for provider_root in [
+            ".codex",
+            ".claude",
+            ".gemini",
+            ".omp",
+            ".config/opencode",
+            ".dsh",
+        ] {
             fs::create_dir_all(home.join(provider_root)).unwrap();
         }
         (root, service)
@@ -2515,6 +3309,223 @@ mod tests {
         AgentToolWriteDefinition::Skill(SkillWriteDefinition::Replace {
             value: native_skill_with_binary(),
         })
+    }
+
+    #[test]
+    fn new_providers_toggle_native_mcp_without_moving_entries() {
+        let (_root, service) = harness();
+        for provider in [
+            AgentToolProvider::Opencode,
+            AgentToolProvider::DeepseekHarness,
+        ] {
+            let target = locator(provider, AgentToolKind::McpServer, "native-toggle");
+            let created = service
+                .create(CreateAgentToolRequest {
+                    target: target.clone(),
+                    definition: stdio("npx"),
+                    replace: false,
+                    expected_revision: None,
+                })
+                .unwrap();
+            let disabled = service
+                .set_enabled(ToggleAgentToolRequest {
+                    target: target.clone(),
+                    expected_revision: created.revision.clone(),
+                    enabled: false,
+                })
+                .unwrap();
+            assert_eq!(disabled.state, AgentToolState::Disabled);
+            let native = service.get(&target).unwrap();
+            assert!(Path::new(&native.native_path).is_file());
+            if provider == AgentToolProvider::Opencode {
+                let config = read_native_config(Path::new(&native.native_path), provider).unwrap();
+                assert_eq!(config["mcp"]["native-toggle"]["enabled"], false);
+                assert_eq!(config["mcp"]["native-toggle"]["command"][0], "npx");
+            } else {
+                let config = native_assets::parse_cordis_patch(
+                    &fs::read_to_string(&native.native_path).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["vk-mcp-native-toggle"]["disabled"], true);
+            }
+            assert!(matches!(
+                service.set_enabled(ToggleAgentToolRequest {
+                    target: target.clone(),
+                    expected_revision: created.revision,
+                    enabled: true
+                }),
+                Err(AgentToolError::StaleRevision)
+            ));
+            let enabled = service
+                .set_enabled(ToggleAgentToolRequest {
+                    target: target.clone(),
+                    expected_revision: disabled.revision,
+                    enabled: true,
+                })
+                .unwrap();
+            service
+                .remove(RemoveAgentToolRequest {
+                    target,
+                    expected_revision: enabled.revision,
+                })
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn opencode_json_file_mcp_edits_preserve_comments_and_unknown_settings() {
+        let (_root, service) = harness();
+        let path = service.home_dir.join(".config/opencode/opencode.json");
+        fs::write(&path, "{\n// preserved\n\"model\":\"vendor/model\",\n\"mcp\": {\"example\":{\"type\":\"local\",\"command\":[\"npx\",\"serve\"],\"timeout\":30}}\n}").unwrap();
+        let target = locator(
+            AgentToolProvider::Opencode,
+            AgentToolKind::McpServer,
+            "example",
+        );
+        let current = service.get(&target).unwrap();
+        service
+            .set_enabled(ToggleAgentToolRequest {
+                target,
+                expected_revision: current.revision,
+                enabled: false,
+            })
+            .unwrap();
+        let source = fs::read_to_string(path).unwrap();
+        assert!(source.contains("// preserved"));
+        let value = jsonc_parser::parse_to_serde_value(&source, &ParseOptions::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(value["mcp"]["example"]["timeout"], 30);
+        assert_eq!(value["model"], "vendor/model");
+    }
+
+    #[test]
+    fn dsh_mcp_patch_toggle_preserves_unrelated_yaml_and_has_no_project_scope() {
+        let (_root, service) = harness();
+        let path = service.home_dir.join(".dsh/cordis.patch.yml");
+        fs::write(&path, "# native doc\n- insert:\n    - id: my-tool\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: example\n        transport: stdio\n        command: npx\n        timeout: 30 # keep timeout\n- id: unrelated\n  config:\n    keep: true\n").unwrap();
+        let target = locator(
+            AgentToolProvider::DeepseekHarness,
+            AgentToolKind::McpServer,
+            "example",
+        );
+        let current = service.get(&target).unwrap();
+        service
+            .set_enabled(ToggleAgentToolRequest {
+                target,
+                expected_revision: current.revision,
+                enabled: false,
+            })
+            .unwrap();
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(source.contains("# native doc"));
+        assert!(source.contains("timeout: 30 # keep timeout"));
+        assert_eq!(
+            native_assets::parse_cordis_patch(&source).unwrap()["unrelated"]["config"]["keep"],
+            true
+        );
+        let project = service.home_dir.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let manager = service.manager(AgentToolProvider::DeepseekHarness, Some(&project));
+        assert!(matches!(
+            manager.mcp_candidates(AgentToolScope::Project),
+            Err(AgentToolError::Unsupported(_))
+        ));
+        assert!(!project.join(".dsh/cordis.patch.yml").exists());
+    }
+
+    #[test]
+    fn shared_native_skills_are_exportable_but_not_mutable() {
+        let (_root, service) = harness();
+        let path = service.home_dir.join(".agents/skills/shared-skill");
+        fs::create_dir_all(&path).unwrap();
+        fs::write(
+            path.join("SKILL.md"),
+            "---\nname: shared-skill\ndescription: shared native skill\n---\n# Native\n",
+        )
+        .unwrap();
+        for provider in [
+            AgentToolProvider::Opencode,
+            AgentToolProvider::DeepseekHarness,
+        ] {
+            let target = locator(provider, AgentToolKind::Skill, "shared-skill");
+            let item = service.get(&target).unwrap();
+            assert!(item.capabilities.exportable);
+            assert!(!item.capabilities.removable);
+            assert!(!item.capabilities.toggleable);
+            assert!(matches!(
+                service.remove(RemoveAgentToolRequest {
+                    target,
+                    expected_revision: item.revision
+                }),
+                Err(AgentToolError::Unsupported(_))
+            ));
+        }
+        assert!(path.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn dsh_flat_skill_is_discovered_with_read_only_capabilities() {
+        let (_root, service) = harness();
+        let root = service.home_dir.join(".dsh/skills");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("flat.md"),
+            "---\nname: flat\ndescription: native flat skill\n---\nInstructions\n",
+        )
+        .unwrap();
+        let item = service
+            .get(&locator(
+                AgentToolProvider::DeepseekHarness,
+                AgentToolKind::Skill,
+                "flat",
+            ))
+            .unwrap();
+        assert_eq!(item.state, AgentToolState::Enabled);
+        assert!(item.capabilities.exportable);
+        assert!(!item.capabilities.editable);
+        assert!(!item.capabilities.toggleable);
+    }
+
+    #[test]
+    fn dsh_mcp_native_home_disabled_override_shadows_profile_without_resurrection() {
+        let (_root, service) = harness();
+        let profile = service.home_dir.join(".dsh/profiles/acp/cordis.patch.yml");
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        fs::write(&profile, "- insert:\n    - id: profile-tool\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: example\n        transport: stdio\n        command: npx\n").unwrap();
+        let home = service.home_dir.join(".dsh/cordis.patch.yml");
+        fs::write(
+            &home,
+            "# user override\n- id: profile-tool\n  disabled: true\n",
+        )
+        .unwrap();
+        let target = locator(
+            AgentToolProvider::DeepseekHarness,
+            AgentToolKind::McpServer,
+            "example",
+        );
+        let item = service.get(&target).unwrap();
+        assert_eq!(item.state, AgentToolState::Disabled);
+        assert_eq!(Path::new(&item.native_path), home);
+        assert!(!item.capabilities.removable);
+        assert!(matches!(
+            service.remove(RemoveAgentToolRequest {
+                target: target.clone(),
+                expected_revision: item.revision.clone()
+            }),
+            Err(AgentToolError::Unsupported(_))
+        ));
+        let enabled = service
+            .set_enabled(ToggleAgentToolRequest {
+                target,
+                expected_revision: item.revision,
+                enabled: true,
+            })
+            .unwrap();
+        assert_eq!(enabled.state, AgentToolState::Enabled);
+        let source = fs::read_to_string(home).unwrap();
+        assert!(source.contains("# user override"));
+        assert!(!source.contains("config:"));
     }
 
     #[test]
@@ -2655,7 +3666,7 @@ mod tests {
             unreachable!()
         };
         manager
-            .write_mcp_entry(&path, "added", Some(&definition))
+            .write_mcp_entry(&path, "added", Some(&definition), None)
             .unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("// keep me"));
@@ -3034,7 +4045,7 @@ mod tests {
     fn mcp_and_skill_copy_cover_every_provider_direction() {
         let (_root, service) = harness();
         for source_provider in AgentToolProvider::ALL {
-            let source_name = format!("source-{}", source_provider.id());
+            let source_name = format!("source-{}", source_provider.id().replace('_', "-"));
             let source_mcp = service
                 .create(CreateAgentToolRequest {
                     target: locator(source_provider, AgentToolKind::McpServer, &source_name),
@@ -3056,7 +4067,11 @@ mod tests {
                 .into_iter()
                 .filter(|provider| *provider != source_provider)
             {
-                let target_name = format!("{}-to-{}", source_provider.id(), target_provider.id());
+                let target_name = format!(
+                    "{}-to-{}",
+                    source_provider.id().replace('_', "-"),
+                    target_provider.id().replace('_', "-")
+                );
                 let copied = service
                     .copy(CopyAgentToolRequest {
                         source: locator(source_provider, AgentToolKind::McpServer, &source_name),

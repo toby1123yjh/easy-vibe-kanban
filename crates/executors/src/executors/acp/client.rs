@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use workspace_utils::approvals::ApprovalStatus;
 
+use super::control::{APPROVAL_META_KEY, AcpControl};
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     executors::acp::{AcpEvent, ApprovalResponse},
@@ -24,6 +25,7 @@ pub struct AcpClient {
     cancel: CancellationToken,
     events_enabled: Arc<AtomicBool>,
     suppressed_events: Arc<AtomicU64>,
+    native_control: Option<Arc<AcpControl>>,
 }
 
 impl AcpClient {
@@ -40,7 +42,13 @@ impl AcpClient {
             cancel,
             events_enabled: Arc::new(AtomicBool::new(true)),
             suppressed_events: Arc::new(AtomicU64::new(0)),
+            native_control: None,
         }
+    }
+
+    pub(super) fn with_native_control(mut self, control: Arc<AcpControl>) -> Self {
+        self.native_control = Some(control);
+        self
     }
 
     pub fn record_user_prompt_event(&self, prompt: &str) {
@@ -112,6 +120,24 @@ mod tests {
             matches!(event_rx.recv().await, Some(AcpEvent::User(prompt)) if prompt == "adoption prompt")
         );
     }
+
+    #[tokio::test]
+    async fn auto_permission_never_selects_an_arbitrary_rejection_option() {
+        let (tx, _) = mpsc::unbounded_channel();
+        let client = AcpClient::new(tx, None, CancellationToken::new());
+        let request = serde_json::from_value(serde_json::json!({
+            "sessionId":"permission-test", "toolCall":{"toolCallId":"tool-test", "title":"Run"},
+            "options":[{"optionId":"reject", "name":"Reject", "kind":"reject_once"}]
+        }))
+        .unwrap();
+        let response = acp::Client::request_permission(&client, request)
+            .await
+            .unwrap();
+        assert!(matches!(
+            response.outcome,
+            acp::RequestPermissionOutcome::Cancelled
+        ));
+    }
 }
 
 #[async_trait(?Send)]
@@ -132,8 +158,7 @@ impl acp::Client for AcpClient {
                     args.options
                         .iter()
                         .find(|o| matches!(o.kind, acp::PermissionOptionKind::AllowOnce))
-                })
-                .or_else(|| args.options.first());
+                });
 
             let outcome = if let Some(opt) = chosen_option {
                 debug!("Auto-approving permission with option: {}", opt.option_id);
@@ -149,6 +174,57 @@ impl acp::Client for AcpClient {
         }
 
         let tool_call_id = args.tool_call.tool_call_id.0.to_string();
+        if let Some(control) = &self.native_control {
+            let (approval_id, decision) = control
+                .register_permission(&args.options)
+                .map_err(|_| acp::Error::internal_error())?;
+            self.send_event(AcpEvent::ApprovalRequested {
+                tool_call_id: tool_call_id.clone(),
+                approval_id: approval_id.clone(),
+            });
+            let resolution = tokio::select! {
+                _ = self.cancel.cancelled() => None,
+                result = decision => result.ok(),
+            };
+            let (outcome, status) = match resolution {
+                Some(decision) => {
+                    if !decision.approved
+                        && let Some(reason) = &decision.reason
+                    {
+                        self.enqueue_feedback(reason.clone()).await;
+                    }
+                    let status = if decision.approved {
+                        ApprovalStatus::Approved
+                    } else {
+                        ApprovalStatus::Denied {
+                            reason: decision.reason,
+                        }
+                    };
+                    (decision.outcome, status)
+                }
+                None => {
+                    control.abandon_permission(&approval_id);
+                    (
+                        acp::RequestPermissionOutcome::Cancelled,
+                        ApprovalStatus::Denied { reason: None },
+                    )
+                }
+            };
+            self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
+                tool_call_id,
+                approval_id: Some(approval_id.clone()),
+                status,
+            }));
+            // A client-owned _meta tag lets the stdin writer acknowledge the
+            // exact SDK response and its real JSON-RPC request id. No guessed
+            // native id, positional option or second stdin stream.
+            return Ok(acp::RequestPermissionResponse::new(outcome).meta(
+                serde_json::Map::from_iter([(
+                    APPROVAL_META_KEY.to_string(),
+                    serde_json::Value::String(approval_id),
+                )]),
+            ));
+        }
         let tool_name = args.tool_call.fields.title.as_deref().unwrap_or("tool");
         let approval_service = self
             .approvals
@@ -221,6 +297,7 @@ impl acp::Client for AcpClient {
 
         self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
             tool_call_id: tool_call_id.clone(),
+            approval_id: Some(approval_id),
             status: status.clone(),
         }));
 
@@ -235,6 +312,15 @@ impl acp::Client for AcpClient {
             acp::SessionUpdate::ToolCall(tc) => Some(AcpEvent::ToolCall(tc)),
             acp::SessionUpdate::ToolCallUpdate(update) => Some(AcpEvent::ToolUpdate(update)),
             acp::SessionUpdate::Plan(plan) => Some(AcpEvent::Plan(plan)),
+            acp::SessionUpdate::AvailableCommandsUpdate(update) => {
+                Some(AcpEvent::AvailableCommands(update.available_commands))
+            }
+            acp::SessionUpdate::CurrentModeUpdate(update) => {
+                Some(AcpEvent::CurrentMode(update.current_mode_id))
+            }
+            // Model/effort configuration is validated from setup responses.
+            // Never dump unknown native configuration selectors to audit.
+            acp::SessionUpdate::ConfigOptionUpdate(_) => None,
             _ => Some(AcpEvent::Other(args)),
         };
 
@@ -289,10 +375,10 @@ impl acp::Client for AcpClient {
         Err(acp::Error::method_not_found())
     }
 
-    async fn kill_terminal_command(
+    async fn kill_terminal(
         &self,
-        _args: acp::KillTerminalCommandRequest,
-    ) -> Result<acp::KillTerminalCommandResponse, acp::Error> {
+        _args: acp::KillTerminalRequest,
+    ) -> Result<acp::KillTerminalResponse, acp::Error> {
         Err(acp::Error::method_not_found())
     }
 
@@ -324,6 +410,7 @@ impl AcpClient {
             );
             self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
                 tool_call_id: tool_call_id.to_string(),
+                approval_id: None,
                 status: ApprovalStatus::TimedOut,
             }));
             Err(acp::Error::internal_error())

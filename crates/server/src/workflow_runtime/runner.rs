@@ -1471,6 +1471,8 @@ fn direct_provider_for_agent(agent: BaseCodingAgent) -> Result<DirectProvider, A
         BaseCodingAgent::Codex => Ok(DirectProvider::Codex),
         BaseCodingAgent::ClaudeCode => Ok(DirectProvider::ClaudeCode),
         BaseCodingAgent::OhMyPi => Ok(DirectProvider::OhMyPi),
+        BaseCodingAgent::Opencode => Ok(DirectProvider::Opencode),
+        BaseCodingAgent::DeepseekHarness => Ok(DirectProvider::DeepseekHarness),
         #[cfg(feature = "qa-mode")]
         BaseCodingAgent::QaMock => Err(ApiError::BadRequest(
             "QA mock is not a production Agent Runtime provider".to_string(),

@@ -31,18 +31,16 @@ export function getSelectedModel(
   selectedModelId: string | null
 ): ModelInfo | null {
   if (!selectedModelId) return null;
-  const selectedId = selectedModelId.toLowerCase();
   if (selectedProviderId) {
-    const providerId = selectedProviderId.toLowerCase();
     return (
       models.find(
         (model) =>
-          model.id.toLowerCase() === selectedId &&
-          model.provider_id?.toLowerCase() === providerId
+          model.id === selectedModelId &&
+          model.provider_id === selectedProviderId
       ) ?? null
     );
   }
-  return models.find((model) => model.id.toLowerCase() === selectedId) ?? null;
+  return models.find((model) => model.id === selectedModelId) ?? null;
 }
 
 export function findModelForSelection(
@@ -57,7 +55,7 @@ export function getReasoningLabel(
   options: ReasoningOption[],
   selectedId: string | null
 ): string | null {
-  if (!selectedId) return null;
+  if (selectedId == null) return null;
   return (
     options.find((option) => option.id === selectedId)?.label ??
     toPrettyCase(selectedId)
@@ -118,9 +116,7 @@ export function appendPresetModel(
   if (!modelId) return config;
 
   const exists = config.models.some(
-    (m) =>
-      m.id.toLowerCase() === modelId.toLowerCase() &&
-      (!providerId || m.provider_id?.toLowerCase() === providerId.toLowerCase())
+    (m) => m.id === modelId && (!providerId || m.provider_id === providerId)
   );
   if (exists) return config;
 
@@ -172,12 +168,8 @@ export function isModelAvailable(
   providerId: string,
   modelId: string
 ): boolean {
-  const providerLower = providerId.toLowerCase();
-  const modelLower = modelId.toLowerCase();
   return config.models.some(
-    (model) =>
-      model.id.toLowerCase() === modelLower &&
-      model.provider_id?.toLowerCase() === providerLower
+    (model) => model.id === modelId && model.provider_id === providerId
   );
 }
 
@@ -191,8 +183,8 @@ export function isReasoningOptionAvailable(
   options: ReasoningOption[],
   reasoningId: string | null | undefined
 ): boolean {
-  return Boolean(
-    reasoningId && options.some((option) => option.id === reasoningId)
+  return (
+    reasoningId != null && options.some((option) => option.id === reasoningId)
   );
 }
 
@@ -222,7 +214,6 @@ export function getReasoningOverrideRepair(
   hasConfiguredReasoning: boolean
 ): { reasoning_id: null } | null {
   if (!hasConfiguredReasoning || configuredReasoningId == null) return null;
-  if (configuredReasoningId === '') return { reasoning_id: null };
   if (options.length === 0) return { reasoning_id: null };
   return resolveReasoningIdForOptions(options, configuredReasoningId) ===
     configuredReasoningId

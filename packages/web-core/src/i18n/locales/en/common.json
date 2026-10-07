@@ -1651,6 +1651,7 @@
     "providerListTitle": "Provider",
     "providerListLabel": "Agent providers",
     "selectedProvider": "Selected provider",
+    "developerPreview": "DeepSeek Harness is a developer preview. Available actions follow the installed CLI's reported capabilities.",
     "bundledVersion": "Bundled version {{version}}",
     "versionUnavailable": "Version not reported",
     "defaultProvider": "Default provider",
@@ -1799,7 +1800,9 @@
         "claude_markdown": "Claude Markdown",
         "gemini_toml": "Gemini TOML",
         "oh_my_pi_prompt_markdown": "Pi prompt Markdown",
-        "oh_my_pi_executable_module": "Pi executable TypeScript"
+        "oh_my_pi_executable_module": "Pi executable TypeScript",
+        "opencode_markdown": "OpenCode Markdown",
+        "opencode_inline": "OpenCode inline configuration"
       },
       "editor": {
         "addTitle": "Add command",
@@ -1846,7 +1849,9 @@
         "codex": "Codex custom prompts are deprecated and user-scoped only. Prefer Skills for new reusable instructions. Changes require a new session or restart.",
         "claude_code": "Plugin-owned commands remain managed by their plugin.",
         "gemini": "Extension-owned commands remain managed by their extension.",
-        "oh_my_pi": "Prompt commands are editable. Executable TypeScript commands are discovered read-only and their source is never loaded into the browser."
+        "oh_my_pi": "Prompt commands are editable. Executable TypeScript commands are discovered read-only and their source is never loaded into the browser.",
+        "opencode": "Markdown commands are editable. Inline commands in native configuration are read-only. Provider-specific metadata is preserved when editing Markdown commands.",
+        "deepseek_harness": "DeepSeek Harness does not expose native prompt commands. No command files or write actions are provided."
       },
       "summaries": {
         "entrypointConfigured": "Executable entrypoint detected; source remains on the machine.",

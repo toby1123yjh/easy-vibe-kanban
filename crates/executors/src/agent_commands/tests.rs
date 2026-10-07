@@ -12,7 +12,14 @@ fn harness() -> (TempDir, AgentCommandService, PathBuf) {
     let home = root.path().join("home");
     let project = root.path().join("project");
     fs::create_dir_all(&project).unwrap();
-    for provider_root in [".codex", ".claude", ".gemini", ".omp/agent"] {
+    for provider_root in [
+        ".codex",
+        ".claude",
+        ".gemini",
+        ".omp/agent",
+        ".config/opencode",
+        ".dsh",
+    ] {
         fs::create_dir_all(home.join(provider_root)).unwrap();
     }
     let service =
@@ -42,6 +49,121 @@ fn claude_definition(body: &str) -> AgentCommandWriteDefinition {
         },
         body: CommandTextWrite::Replace { value: body.into() },
     }
+}
+
+#[test]
+fn opencode_commands_crud_and_inline_provenance_remain_native() {
+    let (root, service, _project) = harness();
+    let target = locator(
+        AgentCommandProvider::Opencode,
+        AgentCommandScope::User,
+        "review",
+        None,
+    );
+    let definition = AgentCommandWriteDefinition::Opencode {
+        description: OptionalCommandTextWrite::Replace {
+            value: "Review changes".into(),
+        },
+        body: CommandTextWrite::Replace {
+            value: "Inspect $ARGUMENTS".into(),
+        },
+    };
+    let created = service
+        .create(CreateAgentCommandRequest {
+            target: target.clone(),
+            definition,
+            replace: false,
+            expected_revision: None,
+        })
+        .unwrap();
+    let manager = service.manager(AgentCommandProvider::Opencode, None);
+    let item = manager.find(&target).unwrap();
+    let path = item.native_path.clone();
+    fs::write(
+        &path,
+        fs::read_to_string(&path).unwrap().replacen(
+            "---\n",
+            "---\nagent: build\nsubtask: true\n# provider field\n",
+            1,
+        ),
+    )
+    .unwrap();
+    let item = manager.find(&target).unwrap();
+    service
+        .update(UpdateAgentCommandRequest {
+            target: target.clone(),
+            expected_revision: item.revision,
+            definition: AgentCommandWriteDefinition::Opencode {
+                description: OptionalCommandTextWrite::Preserve,
+                body: CommandTextWrite::Replace {
+                    value: "Literal !`git status` $ARGUMENTS".into(),
+                },
+            },
+        })
+        .unwrap();
+    let source = fs::read_to_string(&path).unwrap();
+    assert!(source.contains("agent: build"));
+    assert!(source.contains("subtask: true"));
+    assert!(source.contains("# provider field"));
+    assert!(source.contains("!`git status` $ARGUMENTS"));
+    assert!(matches!(
+        service.set_enabled(ToggleAgentCommandRequest {
+            target: target.clone(),
+            expected_revision: created.revision,
+            enabled: false
+        }),
+        Err(AgentCommandError::StaleRevision)
+    ));
+    let current = manager.find(&target).unwrap();
+    let disabled = service
+        .set_enabled(ToggleAgentCommandRequest {
+            target: target.clone(),
+            expected_revision: current.revision,
+            enabled: false,
+        })
+        .unwrap();
+    assert_eq!(disabled.state, AgentCommandState::Disabled);
+    service
+        .set_enabled(ToggleAgentCommandRequest {
+            target: target.clone(),
+            expected_revision: disabled.revision,
+            enabled: true,
+        })
+        .unwrap();
+    let config = root.path().join("home/.config/opencode/opencode.jsonc");
+    fs::write(
+        config,
+        "{\"command\":{\"review\":{\"template\":\"Inline $ARGUMENTS\"}}}",
+    )
+    .unwrap();
+    let inventory = manager.discover().unwrap();
+    let duplicates: Vec<_> = inventory
+        .items
+        .iter()
+        .filter(|item| item.name == "review")
+        .collect();
+    assert_eq!(duplicates.len(), 2);
+    assert_ne!(duplicates[0].installation_id, duplicates[1].installation_id);
+    assert!(
+        duplicates
+            .iter()
+            .find(|item| item.format == AgentCommandFormat::OpencodeInline)
+            .is_some_and(|item| !item.capabilities.editable)
+    );
+}
+
+#[test]
+fn deepseek_harness_has_no_fabricated_slash_command_assets() {
+    let (root, service, _project) = harness();
+    let inventory = service
+        .manager(AgentCommandProvider::DeepseekHarness, None)
+        .discover()
+        .unwrap();
+    assert!(!inventory.capabilities.discoverable);
+    assert!(!inventory.capabilities.creatable);
+    assert!(inventory.capabilities.supported_scopes.is_empty());
+    assert!(inventory.items.is_empty());
+    assert!(!root.path().join("home/.dsh/commands").exists());
 }
 
 #[test]

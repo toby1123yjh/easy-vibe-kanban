@@ -9,6 +9,7 @@ mod codex;
 mod gemini;
 mod markdown;
 mod oh_my_pi;
+mod opencode;
 mod service;
 mod storage;
 mod types;

@@ -215,8 +215,13 @@ pub(super) fn validate_native_resume_identity(
     provider_session_id: &str,
     scope_path: &Path,
 ) -> Result<(), ApiError> {
-    let provider_uses_authoritative_resume =
-        matches!(provider, DirectProvider::Gemini | DirectProvider::OhMyPi);
+    let provider_uses_authoritative_resume = matches!(
+        provider,
+        DirectProvider::Gemini
+            | DirectProvider::OhMyPi
+            | DirectProvider::Opencode
+            | DirectProvider::DeepseekHarness
+    );
     let provider_session_id = provider_session_id.trim();
     executors::executors::provider_adapter::validate_native_session_id(
         provider,
@@ -644,6 +649,11 @@ mod tests {
             (BaseCodingAgent::Codex, DirectProvider::Codex),
             (BaseCodingAgent::ClaudeCode, DirectProvider::ClaudeCode),
             (BaseCodingAgent::OhMyPi, DirectProvider::OhMyPi),
+            (BaseCodingAgent::Opencode, DirectProvider::Opencode),
+            (
+                BaseCodingAgent::DeepseekHarness,
+                DirectProvider::DeepseekHarness,
+            ),
         ];
         for (agent, expected) in cases {
             assert_eq!(
@@ -863,7 +873,12 @@ mod tests {
     #[test]
     fn explicit_gemini_and_omp_resume_ids_remain_provider_authoritative() {
         let scope = std::path::Path::new("C:/native-source");
-        for provider in [DirectProvider::Gemini, DirectProvider::OhMyPi] {
+        for provider in [
+            DirectProvider::Gemini,
+            DirectProvider::OhMyPi,
+            DirectProvider::Opencode,
+            DirectProvider::DeepseekHarness,
+        ] {
             assert!(
                 validate_native_resume_identity(
                     provider,

@@ -980,6 +980,7 @@
     "providerListTitle": "Provider",
     "providerListLabel": "Agent Providers",
     "selectedProvider": "選択中の Provider",
+    "developerPreview": "DeepSeek Harness は開発者向けプレビューです。利用可能な操作は、インストール済み CLI が報告する機能に基づきます。",
     "bundledVersion": "同梱バージョン {{version}}",
     "versionUnavailable": "バージョン未報告",
     "defaultProvider": "既定の Provider",
@@ -1128,7 +1129,9 @@
         "claude_markdown": "Claude Markdown",
         "gemini_toml": "Gemini TOML",
         "oh_my_pi_prompt_markdown": "Pi プロンプト Markdown",
-        "oh_my_pi_executable_module": "Pi 実行可能 TypeScript"
+        "oh_my_pi_executable_module": "Pi 実行可能 TypeScript",
+        "opencode_markdown": "OpenCode Markdown",
+        "opencode_inline": "OpenCode インライン設定"
       },
       "editor": {
         "addTitle": "コマンドを追加",
@@ -1175,7 +1178,9 @@
         "codex": "Codex カスタムプロンプトは非推奨で、ユーザースコープのみです。新しい再利用可能な指示には Skills を優先してください。変更には新しいセッションまたは再起動が必要です。",
         "claude_code": "プラグイン所有のコマンドは引き続きプラグインが管理します。",
         "gemini": "拡張機能所有のコマンドは引き続き拡張機能が管理します。",
-        "oh_my_pi": "プロンプトコマンドは編集できます。実行可能 TypeScript コマンドは読み取り専用で検出され、ソースはブラウザに読み込まれません。"
+        "oh_my_pi": "プロンプトコマンドは編集できます。実行可能 TypeScript コマンドは読み取り専用で検出され、ソースはブラウザに読み込まれません。",
+        "opencode": "Markdown コマンドは編集できます。ネイティブ設定内のインラインコマンドは読み取り専用です。Markdown コマンドの編集時にはプロバイダー固有のメタデータが保持されます。",
+        "deepseek_harness": "DeepSeek Harness はネイティブのプロンプトコマンドを公開していません。コマンドファイルや書き込み操作は提供されません。"
       },
       "summaries": {
         "entrypointConfigured": "実行可能エントリポイントを検出しました。ソースはマシン上に保持されます。",

@@ -1,4 +1,5 @@
 import type { ProjectListItem, SessionListItem } from 'shared/types';
+import { AGENT_PROVIDERS } from '@/shared/lib/agentProviders';
 import {
   deriveActiveShellModule,
   type AppShellCapabilityAdapter,
@@ -130,14 +131,14 @@ function createStaticDestinations(
       route: '/agents',
       keywords: ['providers', 'models'],
     },
-    ...['Codex', 'Claude Code', 'Gemini', 'Oh My Pi'].map(
-      (title): SearchableDestination => ({
+    ...AGENT_PROVIDERS.map(
+      ({ label: title, settingsProvider }): SearchableDestination => ({
         id: `provider-${title.toLowerCase().replaceAll(' ', '-')}`,
         kind: 'provider',
         group: 'agent',
         title,
         path: copy.providerPath(title),
-        route: `/agents?provider=${encodeURIComponent(title)}`,
+        route: `/agents?provider=${settingsProvider}`,
         keywords: ['agent', 'provider'],
       })
     ),

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use ts_rs::TS;
 
-use super::{claude, codex, gemini, oh_my_pi};
+use super::{claude, codex, gemini, oh_my_pi, opencode};
 use crate::executors::provider_adapter::DirectProvider;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -14,10 +14,19 @@ pub enum AgentCommandProvider {
     ClaudeCode,
     Gemini,
     OhMyPi,
+    Opencode,
+    DeepseekHarness,
 }
 
 impl AgentCommandProvider {
-    pub const ALL: [Self; 4] = [Self::Codex, Self::ClaudeCode, Self::Gemini, Self::OhMyPi];
+    pub const ALL: [Self; 6] = [
+        Self::Codex,
+        Self::ClaudeCode,
+        Self::Gemini,
+        Self::OhMyPi,
+        Self::Opencode,
+        Self::DeepseekHarness,
+    ];
 
     pub const fn id(self) -> &'static str {
         match self {
@@ -25,6 +34,8 @@ impl AgentCommandProvider {
             Self::ClaudeCode => "claude_code",
             Self::Gemini => "gemini",
             Self::OhMyPi => "oh_my_pi",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "deepseek_harness",
         }
     }
 
@@ -34,6 +45,8 @@ impl AgentCommandProvider {
             Self::ClaudeCode => "claude",
             Self::Gemini => "gemini",
             Self::OhMyPi => "omp",
+            Self::Opencode => "opencode",
+            Self::DeepseekHarness => "dsh",
         }
     }
 }
@@ -45,6 +58,8 @@ impl From<DirectProvider> for AgentCommandProvider {
             DirectProvider::ClaudeCode => Self::ClaudeCode,
             DirectProvider::Gemini => Self::Gemini,
             DirectProvider::OhMyPi => Self::OhMyPi,
+            DirectProvider::Opencode => Self::Opencode,
+            DirectProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -56,6 +71,8 @@ impl From<AgentCommandProvider> for DirectProvider {
             AgentCommandProvider::ClaudeCode => Self::ClaudeCode,
             AgentCommandProvider::Gemini => Self::Gemini,
             AgentCommandProvider::OhMyPi => Self::OhMyPi,
+            AgentCommandProvider::Opencode => Self::Opencode,
+            AgentCommandProvider::DeepseekHarness => Self::DeepseekHarness,
         }
     }
 }
@@ -93,19 +110,25 @@ pub enum AgentCommandFormat {
     GeminiToml,
     OhMyPiPromptMarkdown,
     OhMyPiExecutableModule,
+    OpencodeMarkdown,
+    OpencodeInline,
 }
 
 impl AgentCommandFormat {
     pub(super) const fn extension(self) -> &'static str {
         match self {
-            Self::CodexLegacyMarkdown | Self::ClaudeMarkdown | Self::OhMyPiPromptMarkdown => "md",
+            Self::CodexLegacyMarkdown
+            | Self::ClaudeMarkdown
+            | Self::OhMyPiPromptMarkdown
+            | Self::OpencodeMarkdown => "md",
             Self::GeminiToml => "toml",
             Self::OhMyPiExecutableModule => "ts",
+            Self::OpencodeInline => "jsonc",
         }
     }
 
     pub(super) const fn is_managed_prompt(self) -> bool {
-        !matches!(self, Self::OhMyPiExecutableModule)
+        !matches!(self, Self::OhMyPiExecutableModule | Self::OpencodeInline)
     }
 }
 
@@ -150,6 +173,13 @@ pub(super) fn provider_capabilities(
         AgentCommandProvider::ClaudeCode => claude::capabilities(),
         AgentCommandProvider::Gemini => gemini::capabilities(),
         AgentCommandProvider::OhMyPi => oh_my_pi::capabilities(),
+        AgentCommandProvider::Opencode => opencode::capabilities(),
+        AgentCommandProvider::DeepseekHarness => AgentCommandProviderCapabilities {
+            discoverable: false,
+            creatable: false,
+            supported_scopes: Vec::new(),
+            writable_formats: Vec::new(),
+        },
     }
 }
 
@@ -175,6 +205,10 @@ pub(super) enum AgentCommandDefinition {
     OhMyPiExecutable {
         entrypoint_configured: bool,
     },
+    Opencode {
+        description: Option<String>,
+        body: String,
+    },
     Invalid {
         content_configured: bool,
     },
@@ -183,6 +217,11 @@ pub(super) enum AgentCommandDefinition {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AgentCommandDefinitionView {
+    Opencode {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        body: String,
+    },
     CodexLegacy {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
@@ -216,6 +255,9 @@ pub enum AgentCommandDefinitionView {
 impl From<AgentCommandDefinition> for AgentCommandDefinitionView {
     fn from(value: AgentCommandDefinition) -> Self {
         match value {
+            AgentCommandDefinition::Opencode { description, body } => {
+                Self::Opencode { description, body }
+            }
             AgentCommandDefinition::CodexLegacy {
                 description,
                 argument_hint,
@@ -363,6 +405,10 @@ pub enum OptionalCommandTextWrite {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum AgentCommandWriteDefinition {
+    Opencode {
+        description: OptionalCommandTextWrite,
+        body: CommandTextWrite,
+    },
     CodexLegacy {
         description: OptionalCommandTextWrite,
         argument_hint: OptionalCommandTextWrite,
@@ -385,6 +431,7 @@ pub enum AgentCommandWriteDefinition {
 impl AgentCommandWriteDefinition {
     pub(super) const fn provider(&self) -> AgentCommandProvider {
         match self {
+            Self::Opencode { .. } => AgentCommandProvider::Opencode,
             Self::CodexLegacy { .. } => AgentCommandProvider::Codex,
             Self::ClaudeCode { .. } => AgentCommandProvider::ClaudeCode,
             Self::Gemini { .. } => AgentCommandProvider::Gemini,
@@ -397,6 +444,21 @@ impl AgentCommandWriteDefinition {
         current: Option<&AgentCommandDefinition>,
     ) -> Result<AgentCommandDefinition, AgentCommandError> {
         match self {
+            Self::Opencode { description, body } => {
+                let current = current.and_then(|value| match value {
+                    AgentCommandDefinition::Opencode { description, body } => {
+                        Some((description, body))
+                    }
+                    _ => None,
+                });
+                Ok(AgentCommandDefinition::Opencode {
+                    description: resolve_optional_text(
+                        description,
+                        current.map(|(description, _)| description.as_deref()),
+                    )?,
+                    body: resolve_text(body, current.map(|(_, body)| body.as_str()))?,
+                })
+            }
             Self::CodexLegacy {
                 description,
                 argument_hint,

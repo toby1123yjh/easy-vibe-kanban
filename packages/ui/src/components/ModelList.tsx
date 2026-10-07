@@ -1,13 +1,13 @@
-import type { Ref } from 'react';
-import { useTranslation } from 'react-i18next';
-import { BrainIcon, CaretDownIcon, CheckIcon } from '@phosphor-icons/react';
-import { cn } from '../lib/cn';
+import type { Ref } from "react";
+import { useTranslation } from "react-i18next";
+import { BrainIcon, CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { cn } from "../lib/cn";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from './Dropdown';
+} from "./Dropdown";
 
 export interface ModelReasoningOption {
   id: string;
@@ -24,16 +24,16 @@ export interface ModelListModel {
 
 function toPrettyCase(value: string): string {
   return value
-    .split('_')
+    .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
+    .join(" ");
 }
 
 function getReasoningLabel(
   options: ModelReasoningOption[],
-  selectedId: string | null
+  selectedId: string | null,
 ): string | null {
-  if (!selectedId) return null;
+  if (selectedId == null) return null;
   return (
     options.find((option) => option.id === selectedId)?.label ??
     toPrettyCase(selectedId)
@@ -55,12 +55,12 @@ function ReasoningDropdown({
   selectedId,
   onSelect,
 }: ReasoningDropdownProps) {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation("common");
   if (!options.length) return null;
 
   const selectedLabel =
     getReasoningLabel(options, selectedId) ??
-    t('modelSelector.followCliConfig');
+    t("modelSelector.followCliConfig");
   const isDefaultSelected = selectedId === null;
 
   return (
@@ -69,10 +69,10 @@ function ReasoningDropdown({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1 rounded-sm border border-border',
-            'bg-secondary/60 px-1.5 py-0.5 text-[10px] font-semibold text-low',
-            'hover:border-brand/40 hover:text-normal transition-colors',
-            'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+            "inline-flex items-center gap-1 rounded-sm border border-border",
+            "bg-secondary/60 px-1.5 py-0.5 text-[10px] font-semibold text-low",
+            "hover:border-brand/40 hover:text-normal transition-colors",
+            "focus:outline-none focus-visible:ring-1 focus-visible:ring-brand",
           )}
         >
           <BrainIcon className="size-icon-xs" weight="fill" />
@@ -94,7 +94,7 @@ function ReasoningDropdown({
           icon={isDefaultSelected ? CheckIcon : undefined}
           onClick={() => onSelect(null)}
         >
-          {t('modelSelector.followCliConfig')}
+          {t("modelSelector.followCliConfig")}
         </DropdownMenuItem>
         {options.map((option) => (
           <DropdownMenuItem
@@ -139,48 +139,47 @@ export function ModelList({
   onSelectDefault,
   scrollRef,
 }: ModelListProps) {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation("common");
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
   const filteredModels = normalizedSearch
     ? models.filter((model) => {
-        const name = model.name?.toLowerCase() ?? '';
-        const id = model.id?.toLowerCase() ?? '';
+        const name = model.name?.toLowerCase() ?? "";
+        const id = model.id?.toLowerCase() ?? "";
         return name.includes(normalizedSearch) || id.includes(normalizedSearch);
       })
     : models;
 
   const showEmptyState = filteredModels.length === 0 && !showDefaultOption;
   const isDefaultSelected = selectedModelId === null;
-  const normalizedSelectedId = selectedModelId?.toLowerCase() ?? null;
 
   const defaultRow = showDefaultOption ? (
     <div
       key="__default__"
       className={cn(
-        'group flex items-center rounded-sm mx-half',
-        'transition-colors duration-100',
-        'focus-within:bg-secondary',
+        "group flex items-center rounded-sm mx-half",
+        "transition-colors duration-100",
+        "focus-within:bg-secondary",
         isDefaultSelected
-          ? 'bg-secondary text-high'
-          : cn('text-normal', 'hover:bg-secondary/60')
+          ? "bg-secondary text-high"
+          : cn("text-normal", "hover:bg-secondary/60"),
       )}
     >
       <button
         type="button"
         onClick={() => onSelectDefault?.()}
         className={cn(
-          'flex-1 min-w-0 py-half pl-base pr-half text-left',
-          'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+          "flex-1 min-w-0 py-half pl-base pr-half text-left",
+          "focus:outline-none focus-visible:ring-1 focus-visible:ring-brand",
         )}
       >
         <span
           className={cn(
-            'block text-sm whitespace-normal [overflow-wrap:anywhere]',
-            isDefaultSelected && 'font-semibold'
+            "block text-sm whitespace-normal [overflow-wrap:anywhere]",
+            isDefaultSelected && "font-semibold",
           )}
         >
-          {t('modelSelector.unspecified')}
+          {t("modelSelector.unspecified")}
         </span>
       </button>
     </div>
@@ -190,26 +189,25 @@ export function ModelList({
     <div
       ref={scrollRef}
       className={cn(
-        'flex-1 min-h-0 overflow-y-auto overflow-x-hidden',
-        className
+        "flex-1 min-h-0 overflow-y-auto overflow-x-hidden",
+        className,
       )}
     >
       {showEmptyState ? (
         <div className="flex h-full items-center justify-center px-base text-sm text-low">
-          {normalizedSearch ? 'No matches.' : 'No models available.'}
+          {normalizedSearch ? "No matches." : "No models available."}
         </div>
       ) : (
         <div
           className={cn(
-            'flex min-h-full flex-col',
-            justifyEnd && 'justify-end'
+            "flex min-h-full flex-col",
+            justifyEnd && "justify-end",
           )}
         >
           {filteredModels.map((model) => {
             const modelKey = getModelKey(model);
             const isSelected =
-              Boolean(normalizedSelectedId) &&
-              model.id.toLowerCase() === normalizedSelectedId;
+              selectedModelId !== null && model.id === selectedModelId;
             const isReasoningConfigurable = model.reasoning_options.length > 0;
             const showReasoningSelector =
               isSelected &&
@@ -218,17 +216,17 @@ export function ModelList({
 
             return (
               <div
-                key={`${model.provider_id ?? 'default'}/${model.id}`}
+                key={`${model.provider_id ?? "default"}/${model.id}`}
                 data-model-key={modelKey}
                 data-model-id={model.id}
-                data-provider-id={model.provider_id ?? ''}
+                data-provider-id={model.provider_id ?? ""}
                 className={cn(
-                  'group flex items-center rounded-sm mx-half',
-                  'transition-colors duration-100',
-                  'focus-within:bg-secondary',
+                  "group flex items-center rounded-sm mx-half",
+                  "transition-colors duration-100",
+                  "focus-within:bg-secondary",
                   isSelected
-                    ? 'bg-secondary text-high'
-                    : cn('text-normal', 'hover:bg-secondary/60')
+                    ? "bg-secondary text-high"
+                    : cn("text-normal", "hover:bg-secondary/60"),
                 )}
               >
                 <button
@@ -237,14 +235,14 @@ export function ModelList({
                     onSelect(model.id, model.provider_id ?? undefined)
                   }
                   className={cn(
-                    'flex-1 min-w-0 py-half pl-base pr-half text-left',
-                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-brand'
+                    "flex-1 min-w-0 py-half pl-base pr-half text-left",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-brand",
                   )}
                 >
                   <span
                     className={cn(
-                      'block text-sm whitespace-normal [overflow-wrap:anywhere]',
-                      isSelected && 'font-semibold'
+                      "block text-sm whitespace-normal [overflow-wrap:anywhere]",
+                      isSelected && "font-semibold",
                     )}
                     title={modelKey}
                   >
@@ -262,9 +260,9 @@ export function ModelList({
                   {!showReasoningSelector && isReasoningConfigurable ? (
                     <span
                       className={cn(
-                        'inline-flex items-center justify-center',
-                        'size-5 rounded-sm bg-border/80 text-normal',
-                        'dark:bg-secondary/70'
+                        "inline-flex items-center justify-center",
+                        "size-5 rounded-sm bg-border/80 text-normal",
+                        "dark:bg-secondary/70",
                       )}
                       title="Reasoning supported"
                     >

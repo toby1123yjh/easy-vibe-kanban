@@ -67,6 +67,9 @@ export function writeDefinition(
       };
     case 'oh_my_pi_prompt_markdown':
       return { type: 'oh_my_pi_prompt', data: { description, body } };
+    case 'opencode_markdown':
+      return { type: 'opencode', data: { description, body } };
+    case 'opencode_inline':
     case 'oh_my_pi_executable_module':
       throw new Error('read_only_format');
   }
@@ -93,6 +96,7 @@ export function editorFromItem(item: AgentCommandView): CommandEditorState {
       body = definition.data.prompt;
       break;
     case 'oh_my_pi_prompt':
+    case 'opencode':
       description = definition.data.description ?? '';
       body = definition.data.body;
       break;
@@ -124,6 +128,7 @@ export function definitionDescription(
     case 'claude_code':
     case 'gemini':
     case 'oh_my_pi_prompt':
+    case 'opencode':
       return definition.data.description ?? null;
     case 'oh_my_pi_executable':
     case 'invalid':

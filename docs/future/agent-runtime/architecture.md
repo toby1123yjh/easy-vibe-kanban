@@ -78,13 +78,13 @@ Turn: "实现登录功能"
 
 四个项目可以分别为不同模块提供参考，不需要整套照搬：
 
-| 目标模块 | 主要参考 | 可借鉴内容 |
-|---|---|---|
-| Session 生命周期、恢复和进程回收 | AionUI | ACP session 能力、重连、空闲释放、Agent process registry |
-| Backend、Runtime Profile、真实 CLI 执行 | MultiCA | `Backend → Session → Messages + Result`、custom runtime profile、版本检测 |
-| Adapter、Transport、Registry | Happy | `AgentBackend / TransportHandler / AgentRegistry` 分层和 Provider heuristic 隔离 |
-| Turn 输入、Run/Tape/Task、回放 | QM | rich turn input、运行记录、tape fold、replay、子任务状态 |
-| Native/Canonical 双轨 | QM Tape + VK raw logs | 原始事实留存、状态投影和回放之间的关联方式 |
+| 目标模块                                | 主要参考              | 可借鉴内容                                                                       |
+| --------------------------------------- | --------------------- | -------------------------------------------------------------------------------- |
+| Session 生命周期、恢复和进程回收        | AionUI                | ACP session 能力、重连、空闲释放、Agent process registry                         |
+| Backend、Runtime Profile、真实 CLI 执行 | MultiCA               | `Backend → Session → Messages + Result`、custom runtime profile、版本检测        |
+| Adapter、Transport、Registry            | Happy                 | `AgentBackend / TransportHandler / AgentRegistry` 分层和 Provider heuristic 隔离 |
+| Turn 输入、Run/Tape/Task、回放          | QM                    | rich turn input、运行记录、tape fold、replay、子任务状态                         |
+| Native/Canonical 双轨                   | QM Tape + VK raw logs | 原始事实留存、状态投影和回放之间的关联方式                                       |
 
 ### 实现自由度
 
@@ -164,12 +164,12 @@ Managed AgentRun
   └── Provider-native Agent Topology
 ```
 
-| 层级 | 所有者 | 负责 | 不负责 |
-|---|---|---|---|
-| Platform Product | Workflow/Arena 等产品模块 | 流程图、工作区、Human Gate、候选方案、winner 选择 | Provider 协议和进程管理 |
-| OrchestrationRun | Orchestration Runtime | 父子 identity、依赖、fan-out/join、取消传播、失败策略、恢复、结果聚合 | Workflow/Arena 的产品规则 |
-| Managed AgentRun | AgentRun Runtime | 一个可独立启动、寻址、取消和观察的真实 Agent 执行 | 跨 Agent 产品编排 |
-| Provider-native Agent Topology | Gemini/Codex/Claude Code/Oh My Pi | Provider 自己的 team/subagent 行为 | 默认不接受 VK 的独立调度假设 |
+| 层级                           | 所有者                            | 负责                                                                  | 不负责                       |
+| ------------------------------ | --------------------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| Platform Product               | Workflow/Arena 等产品模块         | 流程图、工作区、Human Gate、候选方案、winner 选择                     | Provider 协议和进程管理      |
+| OrchestrationRun               | Orchestration Runtime             | 父子 identity、依赖、fan-out/join、取消传播、失败策略、恢复、结果聚合 | Workflow/Arena 的产品规则    |
+| Managed AgentRun               | AgentRun Runtime                  | 一个可独立启动、寻址、取消和观察的真实 Agent 执行                     | 跨 Agent 产品编排            |
+| Provider-native Agent Topology | Gemini/Codex/Claude Code/Oh My Pi | Provider 自己的 team/subagent 行为                                    | 默认不接受 VK 的独立调度假设 |
 
 代码依赖保持单向：
 
@@ -286,12 +286,12 @@ version_detector
 
 capability 不是简单的“支持/不支持”布尔值，而是带来源和执行约束的声明：
 
-| 状态 | 含义 | 运行时行为 |
-|---|---|---|
-| `native` | Provider 当前版本直接支持该能力 | Adapter 只负责协议适配，按原生语义执行 |
-| `emulated` | VK Adapter 使用兼容策略模拟该能力 | 仅在 profile/run policy 明确允许时执行，并记录模拟策略、限制和审计引用 |
-| `unsupported` | 已确认当前 Provider/版本不支持 | 在启动或控制请求发送前显式拒绝 |
-| `unknown` | 尚未确认，或版本/探测结果不足 | 可安全探测时先探测；仍未知则拒绝依赖该能力的操作 |
+| 状态          | 含义                              | 运行时行为                                                             |
+| ------------- | --------------------------------- | ---------------------------------------------------------------------- |
+| `native`      | Provider 当前版本直接支持该能力   | Adapter 只负责协议适配，按原生语义执行                                 |
+| `emulated`    | VK Adapter 使用兼容策略模拟该能力 | 仅在 profile/run policy 明确允许时执行，并记录模拟策略、限制和审计引用 |
+| `unsupported` | 已确认当前 Provider/版本不支持    | 在启动或控制请求发送前显式拒绝                                         |
+| `unknown`     | 尚未确认，或版本/探测结果不足     | 可安全探测时先探测；仍未知则拒绝依赖该能力的操作                       |
 
 Runtime Profile 提供静态基线，Adapter 可以结合 executable/protocol 版本与 capability probe 解析实际能力。Runtime Core 在 RunAttempt 启动前校验请求所需能力，并将最终解析结果连同来源、版本和探测信息固化为本次执行的 capability snapshot，避免同一次运行中语义漂移。
 
@@ -492,11 +492,11 @@ native_ref
 
 Request、Event 和 State 使用三个独立版本，不能用一个应用版本号代替持久化契约版本：
 
-| 契约 | 版本字段 | 兼容规则 |
-|---|---|---|
-| `AgentRunRequestEnvelope` / `RunAttemptRequest` | `schema_version` | 当前 writer 只创建当前主版本；reader 可通过显式 upcaster 读取受支持旧版本 |
-| `AgentEventEnvelope` | `schema_version`，事件 payload 可带 `payload_version` | 已落盘事件不原地改写；新增可选字段和新事件种类保持向后读取，删除、改义或改变必填字段时升级主版本 |
-| `RunState` | `state_schema_version` + `reducer_version` | State 只是投影；任一版本变化都从 canonical event log 重算，不迁改历史事件来迎合新快照 |
+| 契约                                            | 版本字段                                              | 兼容规则                                                                                         |
+| ----------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `AgentRunRequestEnvelope` / `RunAttemptRequest` | `schema_version`                                      | 当前 writer 只创建当前主版本；reader 可通过显式 upcaster 读取受支持旧版本                        |
+| `AgentEventEnvelope`                            | `schema_version`，事件 payload 可带 `payload_version` | 已落盘事件不原地改写；新增可选字段和新事件种类保持向后读取，删除、改义或改变必填字段时升级主版本 |
+| `RunState`                                      | `state_schema_version` + `reducer_version`            | State 只是投影；任一版本变化都从 canonical event log 重算，不迁改历史事件来迎合新快照            |
 
 版本使用单调整数主版本，而不是跟随 crate/npm 语义版本。`adapter_version`、`runtime_version`、`protocol_version` 和 `mapper_version` 独立固化在 RunAttempt 与事件来源信息中；它们描述“怎样得到这个事件”，不替代 canonical schema version。
 
@@ -590,20 +590,20 @@ Runtime Core 的评价重点可以放在：
 
 项目尚未正式发布，因此本节描述代码职责如何被新组件接管，而不是历史数据如何迁移。V1 不保留旧运行记录，不建立双写、兼容投影或旧执行路径回退开关；开发数据库可以在 schema 变更后重置并重建。
 
-| 当前能力 | 新权威组件 | 直接替换规则 |
-|---|---|---|
-| `StandardCodingAgentExecutor` | AgentRun Runtime Core + Provider Adapter | 抽取公共运行语义后删除旧聚合入口；四个目标 Runtime 都必须直接实现新端口 |
-| 各 executor 的启动参数 | Runtime Profile + Provider Adapter | 公共字段进入 profile，协议私有字段留在对应 Adapter |
-| `execution_processes` 与内存 watcher | RunAttempt + persistent process registry + Supervisor | 新 RunAttempt 直接拥有进程引用和观测状态，不回填旧进程记录 |
-| `coding_agent_turns` | Agent Turn + canonical event/state | canonical input、最终输出和 provider session observation 直接写新事实源 |
-| provider `normalize_logs` | Provider Decoder + Canonical Mapper | 原始 frame 先写 Native Audit，再解码为 ProviderEvent 并映射 canonical event；旧 normalizer 在消费者切换后删除 |
-| `MsgStore` Agent timeline | Canonical Event Store + RunState projection | UI、WebSocket、通知、统计和历史回放直接读取 canonical API |
-| `AgentRuntimeEvent` | versioned Canonical Event Envelope | 用新 envelope、native references 和 provider extension 替换旧事件定义 |
-| provider session id | Session provider reference | 与平台 Session、AgentRun 和 Turn 解耦存储 |
-| transcript backfill | Adapter resume policy | 只允许显式声明的 `emulated` 能力；native resume 失败不得静默切换 |
-| approval bridge | Runtime control plane | 保留审批能力，但不接管 Agent 的全部原生工具 |
-| `workflow_runtime` Agent Step | Platform Product + Orchestration Runtime | 保留 graph、workspace 和 Human Gate 产品语义，直接通过新 `AgentRunPort` 创建和观察 AgentRun |
-| Arena group/attempt | Platform Product + Orchestration Runtime | 保留候选 workspace、winner 和 diff apply，直接复用父子运行、取消、失败和聚合事件 |
+| 当前能力                             | 新权威组件                                            | 直接替换规则                                                                                                  |
+| ------------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `StandardCodingAgentExecutor`        | AgentRun Runtime Core + Provider Adapter              | 抽取公共运行语义后删除旧聚合入口；四个目标 Runtime 都必须直接实现新端口                                       |
+| 各 executor 的启动参数               | Runtime Profile + Provider Adapter                    | 公共字段进入 profile，协议私有字段留在对应 Adapter                                                            |
+| `execution_processes` 与内存 watcher | RunAttempt + persistent process registry + Supervisor | 新 RunAttempt 直接拥有进程引用和观测状态，不回填旧进程记录                                                    |
+| `coding_agent_turns`                 | Agent Turn + canonical event/state                    | canonical input、最终输出和 provider session observation 直接写新事实源                                       |
+| provider `normalize_logs`            | Provider Decoder + Canonical Mapper                   | 原始 frame 先写 Native Audit，再解码为 ProviderEvent 并映射 canonical event；旧 normalizer 在消费者切换后删除 |
+| `MsgStore` Agent timeline            | Canonical Event Store + RunState projection           | UI、WebSocket、通知、统计和历史回放直接读取 canonical API                                                     |
+| `AgentRuntimeEvent`                  | versioned Canonical Event Envelope                    | 用新 envelope、native references 和 provider extension 替换旧事件定义                                         |
+| provider session id                  | Session provider reference                            | 与平台 Session、AgentRun 和 Turn 解耦存储                                                                     |
+| transcript backfill                  | Adapter resume policy                                 | 只允许显式声明的 `emulated` 能力；native resume 失败不得静默切换                                              |
+| approval bridge                      | Runtime control plane                                 | 保留审批能力，但不接管 Agent 的全部原生工具                                                                   |
+| `workflow_runtime` Agent Step        | Platform Product + Orchestration Runtime              | 保留 graph、workspace 和 Human Gate 产品语义，直接通过新 `AgentRunPort` 创建和观察 AgentRun                   |
+| Arena group/attempt                  | Platform Product + Orchestration Runtime              | 保留候选 workspace、winner 和 diff apply，直接复用父子运行、取消、失败和聚合事件                              |
 
 ### 新存储事实源
 
@@ -651,9 +651,9 @@ Orchestration Runtime
 
 ### V1 Runtime 清单
 
-- Gemini、Codex、Claude Code 和 Oh My Pi 是唯一的一等 Runtime，四者作为同一个 V1 交付门槛。
+- Gemini、Codex、Claude Code 和 Oh My Pi 是最初四家 V1 的同批交付门槛。2026-10-05 扩展批准新增 OpenCode 和 DeepSeek Harness，两家也直接复用同一 Runtime、Native Audit、会话绑定和工作流调度。
 - Oh My Pi 使用 `can1357/oh-my-pi` 的真实 `omp --mode rpc` 外部进程和 `stdio_rpc` NDJSON，不嵌入 Node SDK。
-- Amp、OpenCode、Cursor Agent、Qwen Code、Copilot 和 Droid 从产品入口、Runtime registry、配置、生成契约和测试 fixture 中删除；引用清理完成后删除对应旧 Adapter/Executor。
+- Amp、Cursor Agent、Qwen Code、Copilot 和 Droid 保持移除。OpenCode 的旧接入曾清理，本轮按新的 provider-owned ACP Adapter 重新接入；DeepSeek Harness 使用同一 ACP 传输但独立处理 resume/config-option 协议，不套用 Gemini 的 load/mode 语义。
 - 删除非目标 Runtime 后不得保留不可达的 enum variant、默认配置、安装检测、图标、命令构造或 UI 选择项。
 
 ### V1 验收门槛

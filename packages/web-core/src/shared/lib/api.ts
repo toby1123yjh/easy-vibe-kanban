@@ -119,6 +119,7 @@ import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { resolveHostRequestScope } from '@/shared/lib/hostRequestScope';
 import { makeRequest as makeRemoteRequest } from '@/shared/lib/remoteApi';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
+import { buildExecutorDiscoveryStreamUrl } from '@/shared/lib/executorDiscovery';
 
 export class ApiError<E = unknown> extends Error {
   public status?: number;
@@ -1760,18 +1761,7 @@ export const agentsApi = {
     return handleApiResponse<AgentGarageEntry[]>(response);
   },
 
-  getDiscoveredOptionsStreamUrl: (
-    agent: BaseCodingAgent,
-    opts?: { workspaceId?: string; sessionId?: string; repoId?: string }
-  ): string => {
-    const params = new URLSearchParams();
-    params.set('executor', agent);
-    if (opts?.workspaceId) params.set('workspace_id', opts.workspaceId);
-    if (opts?.sessionId) params.set('session_id', opts.sessionId);
-    if (opts?.repoId) params.set('repo_id', opts.repoId);
-
-    return `/api/agents/discovered-options/ws?${params.toString()}`;
-  },
+  getDiscoveredOptionsStreamUrl: buildExecutorDiscoveryStreamUrl,
 
   getPresetOptions: async (
     query: AgentPresetOptionsQuery

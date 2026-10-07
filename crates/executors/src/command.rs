@@ -14,6 +14,8 @@ pub const GEMINI_DEFAULT_BASE_COMMAND: &str = "gemini";
 pub const CODEX_DEFAULT_BASE_COMMAND: &str = "codex";
 pub const CLAUDE_DEFAULT_BASE_COMMAND: &str = "claude";
 pub const OH_MY_PI_DEFAULT_BASE_COMMAND: &str = "omp";
+pub const OPENCODE_DEFAULT_BASE_COMMAND: &str = "opencode";
+pub const DEEPSEEK_HARNESS_DEFAULT_BASE_COMMAND: &str = "dsh";
 
 /// Detect the same executable that launch will use, without running the CLI or
 /// interpreting configuration/authentication files as installation evidence.

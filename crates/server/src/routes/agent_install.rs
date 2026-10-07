@@ -137,6 +137,8 @@ fn install_command(request: &AgentInstallRequest) -> Result<Command, ApiError> {
     let package = match request.executor {
         BaseCodingAgent::Codex => Some("@openai/codex"),
         BaseCodingAgent::Gemini => Some("@google/gemini-cli"),
+        BaseCodingAgent::Opencode => Some("opencode-ai"),
+        BaseCodingAgent::DeepseekHarness => Some("@deepseek-ai/dsh"),
         BaseCodingAgent::ClaudeCode | BaseCodingAgent::OhMyPi => None,
         #[cfg(feature = "qa-mode")]
         BaseCodingAgent::QaMock => {
@@ -167,7 +169,7 @@ fn install_command(request: &AgentInstallRequest) -> Result<Command, ApiError> {
     } else {
         if registry.is_some() {
             return Err(ApiError::BadRequest(
-                "npm registry is only supported for Codex and Gemini".into(),
+                "npm registry is only supported for npm-based agent installers".into(),
             ));
         }
         #[cfg(windows)]
@@ -395,6 +397,28 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn acp_provider_installers_use_official_packages_and_registry_environment() {
+        for (executor, package) in [
+            (BaseCodingAgent::Opencode, "opencode-ai"),
+            (BaseCodingAgent::DeepseekHarness, "@deepseek-ai/dsh"),
+        ] {
+            let command = install_command(&AgentInstallRequest {
+                executor,
+                npm_registry: Some("https://registry.npmjs.org/".into()),
+            })
+            .unwrap();
+            let args: Vec<_> = command.as_std().get_args().collect();
+            assert!(args.contains(&std::ffi::OsStr::new("install")));
+            assert!(args.contains(&std::ffi::OsStr::new("-g")));
+            assert!(args.contains(&std::ffi::OsStr::new(package)));
+            assert!(command.as_std().get_envs().any(|(key, value)| {
+                key == "npm_config_registry"
+                    && value == Some(std::ffi::OsStr::new("https://registry.npmjs.org/"))
+            }));
+        }
     }
 
     #[test]

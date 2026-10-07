@@ -19,7 +19,7 @@ export function getRecentModelEntries(
 ): string[] {
   if (!profiles || !executor) return [];
   const entries = profiles[executor]?.recently_used_models?.models ?? [];
-  return entries.map((e) => e.trim()).filter(Boolean);
+  return entries.filter((entry) => entry.length > 0);
 }
 
 export function getRecentReasoningByModel(
@@ -31,7 +31,7 @@ export function getRecentReasoningByModel(
   if (!raw) return {};
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (v) out[k] = v;
+    if (typeof v === 'string') out[k] = v;
   }
   return out;
 }
@@ -45,8 +45,7 @@ export function touchRecentModel(
   model: ModelInfo
 ): string[] {
   const key = getModelKey(model);
-  const keyLower = key.toLowerCase();
-  const filtered = entries.filter((e) => e.toLowerCase() !== keyLower);
+  const filtered = entries.filter((entry) => entry !== key);
   const updated = [...filtered, key];
   if (updated.length > MAX_RECENT_MODELS) {
     return updated.slice(updated.length - MAX_RECENT_MODELS);
@@ -60,7 +59,7 @@ export function updateRecentModelEntries(
   entries: string[],
   reasoningByModel?: Record<string, string>
 ): Record<string, ExecutorProfile> {
-  const normalized = entries.map((e) => e.trim()).filter(Boolean);
+  const normalized = entries.filter((entry) => entry.length > 0);
   const existing = profiles[executor]?.recently_used_models;
   const mergedReasoning = reasoningByModel ?? existing?.reasoning_by_model;
   const recentModels =
@@ -93,7 +92,7 @@ export function setRecentReasoning(
   const existing = getRecentReasoningByModel(profiles, executor);
   const key = getModelKey(model);
   const updated = { ...existing };
-  if (reasoningId) {
+  if (reasoningId != null) {
     updated[key] = reasoningId;
   } else {
     delete updated[key];
@@ -110,8 +109,8 @@ export function getRecentIndex(
   recentEntries: string[],
   model: ModelInfo
 ): number {
-  const key = getModelKey(model).toLowerCase();
-  return recentEntries.findIndex((e) => e.toLowerCase() === key);
+  const key = getModelKey(model);
+  return recentEntries.findIndex((entry) => entry === key);
 }
 
 /**
@@ -128,14 +127,16 @@ export function sortByRecency(
   if (recentEntries.length === 0) {
     return align === 'bottom' ? [...models].reverse() : [...models];
   }
-  const recentMap = new Map(recentEntries.map((e, i) => [e.toLowerCase(), i]));
+  const recentMap = new Map(
+    recentEntries.map((entry, index) => [entry, index])
+  );
 
   // Separate into non-recent and recent groups
   const nonRecent: ModelInfo[] = [];
   const recent: { model: ModelInfo; idx: number }[] = [];
 
   for (const model of models) {
-    const key = getModelKey(model).toLowerCase();
+    const key = getModelKey(model);
     const idx = recentMap.get(key) ?? -1;
     if (idx === -1) {
       nonRecent.push(model);

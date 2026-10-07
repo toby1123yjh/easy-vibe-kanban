@@ -7,7 +7,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use super::{claude, codex, gemini, oh_my_pi, *};
+use super::{claude, codex, gemini, oh_my_pi, opencode, *};
+use crate::agent_tools::native_assets;
 #[derive(Debug, Clone)]
 pub struct AgentCommandService {
     home_dir: PathBuf,
@@ -401,6 +402,10 @@ impl ProviderCommandAssetManager {
             AgentCommandProvider::ClaudeCode => self.home_dir.join(".claude"),
             AgentCommandProvider::Gemini => self.home_dir.join(".gemini"),
             AgentCommandProvider::OhMyPi => self.home_dir.join(".omp"),
+            AgentCommandProvider::Opencode => native_assets::opencode_root_for(&self.home_dir),
+            AgentCommandProvider::DeepseekHarness => {
+                native_assets::deepseek_home_for(&self.home_dir)
+            }
         }
     }
 
@@ -442,6 +447,12 @@ impl ProviderCommandAssetManager {
             AgentCommandProvider::OhMyPi => {
                 oh_my_pi::managed_root(&self.home_dir, project_root, scope)
             }
+            AgentCommandProvider::Opencode => {
+                opencode::managed_root(&self.home_dir, project_root, scope)
+            }
+            AgentCommandProvider::DeepseekHarness => Err(AgentCommandError::Unsupported(
+                "DeepSeek Harness ACP has no native slash-command assets".into(),
+            )),
         }
     }
 
@@ -463,6 +474,10 @@ impl ProviderCommandAssetManager {
             AgentCommandProvider::ClaudeCode => Ok(AgentCommandFormat::ClaudeMarkdown),
             AgentCommandProvider::Gemini => Ok(AgentCommandFormat::GeminiToml),
             AgentCommandProvider::OhMyPi => Ok(AgentCommandFormat::OhMyPiPromptMarkdown),
+            AgentCommandProvider::Opencode => Ok(AgentCommandFormat::OpencodeMarkdown),
+            AgentCommandProvider::DeepseekHarness => Err(AgentCommandError::Unsupported(
+                "DeepSeek Harness ACP has no native slash-command assets".into(),
+            )),
         }
     }
 
@@ -489,48 +504,126 @@ impl ProviderCommandAssetManager {
         scope: AgentCommandScope,
         output: &mut Vec<AgentCommand>,
     ) -> Result<(), AgentCommandError> {
-        let root = self.managed_root(scope)?;
-        let format = self.managed_format()?;
-        if !root.exists() {
-            return Ok(());
-        }
-        ensure_directory_not_symlink(&root)?;
-        let walker = if matches!(
-            self.provider,
-            AgentCommandProvider::Codex | AgentCommandProvider::OhMyPi
-        ) {
-            WalkDir::new(&root).max_depth(1)
+        let canonical_root = self.managed_root(scope)?;
+        let roots = if self.provider == AgentCommandProvider::Opencode {
+            opencode::discovery_roots(&self.home_dir, self.project_path.as_deref(), scope)?
         } else {
-            WalkDir::new(&root)
+            vec![canonical_root.clone()]
         };
-        for entry in walker.follow_links(false) {
-            let entry = entry.map_err(|_| {
-                AgentCommandError::InvalidConfiguration("failed to scan command directory".into())
-            })?;
-            if entry.file_type().is_symlink() {
+        for root in roots {
+            let format = self.managed_format()?;
+            if !root.exists() {
                 continue;
             }
-            if ensure_no_link_components(entry.path()).is_err() {
-                continue;
-            }
-            if !entry.file_type().is_file()
-                || entry.path().extension().and_then(|value| value.to_str())
-                    != Some(format.extension())
-            {
-                continue;
-            }
-            let relative = entry.path().strip_prefix(&root).map_err(|_| {
-                AgentCommandError::UnsafePath("command escaped its provider root".into())
-            })?;
-            let name = display_name(self.provider, relative)?;
-            output.push(read_enabled_item(
+            ensure_directory_not_symlink(&root)?;
+            let walker = if matches!(
                 self.provider,
-                scope,
-                name,
-                format,
-                entry.path(),
-                relative,
-            ));
+                AgentCommandProvider::Codex
+                    | AgentCommandProvider::OhMyPi
+                    | AgentCommandProvider::Opencode
+            ) {
+                WalkDir::new(&root).max_depth(1)
+            } else {
+                WalkDir::new(&root)
+            };
+            for entry in walker.follow_links(false) {
+                let entry = entry.map_err(|_| {
+                    AgentCommandError::InvalidConfiguration(
+                        "failed to scan command directory".into(),
+                    )
+                })?;
+                if entry.file_type().is_symlink() {
+                    continue;
+                }
+                if ensure_no_link_components(entry.path()).is_err() {
+                    continue;
+                }
+                if !entry.file_type().is_file()
+                    || entry.path().extension().and_then(|value| value.to_str())
+                        != Some(format.extension())
+                {
+                    continue;
+                }
+                let relative = entry.path().strip_prefix(&root).map_err(|_| {
+                    AgentCommandError::UnsafePath("command escaped its provider root".into())
+                })?;
+                let name = display_name(self.provider, relative)?;
+                let mut item =
+                    read_enabled_item(self.provider, scope, name, format, entry.path(), relative);
+                if root != canonical_root {
+                    item.capabilities.toggleable = false;
+                }
+                output.push(item);
+            }
+        }
+        if self.provider == AgentCommandProvider::Opencode {
+            self.discover_opencode_inline(scope, output)?;
+        }
+        Ok(())
+    }
+
+    fn discover_opencode_inline(
+        &self,
+        scope: AgentCommandScope,
+        output: &mut Vec<AgentCommand>,
+    ) -> Result<(), AgentCommandError> {
+        for path in
+            opencode::config_candidates(&self.home_dir, self.project_path.as_deref(), scope)?
+        {
+            if !path.is_file() {
+                continue;
+            }
+            ensure_safe_file(&path)?;
+            let bytes = read_command_bytes(&path)?;
+            let source = std::str::from_utf8(&bytes).map_err(|_| {
+                AgentCommandError::InvalidConfiguration("native config is not UTF-8".into())
+            })?;
+            let value =
+                jsonc_parser::parse_to_serde_value(source, &jsonc_parser::ParseOptions::default())
+                    .map_err(|_| {
+                        AgentCommandError::InvalidConfiguration(
+                            "native command config is invalid".into(),
+                        )
+                    })?
+                    .unwrap_or_default();
+            let Some(commands) = value.get("command").and_then(serde_json::Value::as_object) else {
+                continue;
+            };
+            for (name, native) in commands {
+                if validate_name(self.provider, name).is_err() {
+                    continue;
+                }
+                let definition = native
+                    .get("template")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|body| AgentCommandDefinition::Opencode {
+                        description: native
+                            .get("description")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                        body: body.to_string(),
+                    })
+                    .unwrap_or(AgentCommandDefinition::Invalid {
+                        content_configured: true,
+                    });
+                output.push(AgentCommand {
+                    provider: self.provider,
+                    scope,
+                    name: name.clone(),
+                    state: if matches!(&definition, AgentCommandDefinition::Invalid { .. }) {
+                        AgentCommandState::Error
+                    } else {
+                        AgentCommandState::Enabled
+                    },
+                    format: AgentCommandFormat::OpencodeInline,
+                    capabilities: AgentCommandCapabilities::read_only(),
+                    revision: hash_bytes(&bytes),
+                    definition,
+                    native_path: path.clone(),
+                    relative_path: PathBuf::new(),
+                    error: None,
+                });
+            }
         }
         Ok(())
     }
@@ -735,6 +828,8 @@ fn provider_limitations(provider: AgentCommandProvider) -> Vec<String> {
             AgentCommandProvider::ClaudeCode => claude::LIMITATION,
             AgentCommandProvider::Gemini => gemini::LIMITATION,
             AgentCommandProvider::OhMyPi => oh_my_pi::LIMITATION,
+            AgentCommandProvider::Opencode => opencode::LIMITATION,
+            AgentCommandProvider::DeepseekHarness => "DeepSeek Harness ACP does not expose native slash commands or a user command-file directory. Ordinary prompt text is supported; no command assets are invented.",
         }
         .into(),
     ]
@@ -773,7 +868,10 @@ pub(super) fn validate_name(
     if name.is_empty()
         || (matches!(
             provider,
-            AgentCommandProvider::Codex | AgentCommandProvider::OhMyPi
+            AgentCommandProvider::Codex
+                | AgentCommandProvider::OhMyPi
+                | AgentCommandProvider::Opencode
+                | AgentCommandProvider::DeepseekHarness
         ) && segments.len() != 1)
         || segments.iter().any(|segment| {
             segment.is_empty()
@@ -783,7 +881,7 @@ pub(super) fn validate_name(
         })
     {
         return Err(AgentCommandError::UnsafePath(
-            "command names use letters, numbers, '-' and '_'; only Claude/Gemini namespaces use ':'"
+            "command names use ASCII letters, numbers, '-' and '_'; OpenCode uses flat names, while Claude Code and Gemini allow ':' namespaces"
                 .into(),
         ));
     }
@@ -850,6 +948,7 @@ fn definition_format(
         AgentCommandDefinition::ClaudeCode { .. } => Ok(AgentCommandFormat::ClaudeMarkdown),
         AgentCommandDefinition::Gemini { .. } => Ok(AgentCommandFormat::GeminiToml),
         AgentCommandDefinition::OhMyPiPrompt { .. } => Ok(AgentCommandFormat::OhMyPiPromptMarkdown),
+        AgentCommandDefinition::Opencode { .. } => Ok(AgentCommandFormat::OpencodeMarkdown),
         AgentCommandDefinition::OhMyPiExecutable { .. } => {
             Ok(AgentCommandFormat::OhMyPiExecutableModule)
         }
@@ -909,6 +1008,10 @@ fn parse_definition(
         AgentCommandFormat::ClaudeMarkdown => claude::parse(bytes),
         AgentCommandFormat::GeminiToml => gemini::parse(bytes),
         AgentCommandFormat::OhMyPiPromptMarkdown => oh_my_pi::parse_prompt(bytes),
+        AgentCommandFormat::OpencodeMarkdown => opencode::parse(bytes),
+        AgentCommandFormat::OpencodeInline => Err(AgentCommandError::Unsupported(
+            "inline OpenCode commands are discovery-only".into(),
+        )),
         AgentCommandFormat::OhMyPiExecutableModule => {
             Ok(AgentCommandDefinition::OhMyPiExecutable {
                 entrypoint_configured: !bytes.is_empty(),
@@ -929,6 +1032,10 @@ fn render_definition(
         AgentCommandFormat::OhMyPiPromptMarkdown => {
             oh_my_pi::render_prompt(current_source, definition)
         }
+        AgentCommandFormat::OpencodeMarkdown => opencode::render(current_source, definition),
+        AgentCommandFormat::OpencodeInline => Err(AgentCommandError::Unsupported(
+            "inline OpenCode commands are discovery-only".into(),
+        )),
         AgentCommandFormat::OhMyPiExecutableModule => Err(AgentCommandError::Unsupported(
             "executable Oh My Pi commands are read-only".into(),
         )),

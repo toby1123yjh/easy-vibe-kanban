@@ -36,22 +36,16 @@ import type {
 } from 'shared/types';
 import { ApiError } from '@/shared/lib/api';
 import { cn } from '@/shared/lib/utils';
+import { AGENT_PROVIDERS } from '@/shared/lib/agentProviders';
+import { supportedAgentToolScopes } from '@/shared/lib/agentToolScopes';
 import { SettingsCard, SettingsInput } from './SettingsComponents';
 import { useSettingsMachineClient } from './SettingsHostContext';
 
-const PROVIDERS: AgentToolProvider[] = [
-  'codex',
-  'claude_code',
-  'gemini',
-  'oh_my_pi',
-];
+const PROVIDERS = AGENT_PROVIDERS.map((provider) => provider.toolProvider);
 
-const PROVIDER_LABELS: Record<AgentToolProvider, string> = {
-  codex: 'Codex',
-  claude_code: 'Claude Code',
-  gemini: 'Gemini',
-  oh_my_pi: 'Oh My Pi',
-};
+const PROVIDER_LABELS = Object.fromEntries(
+  AGENT_PROVIDERS.map((provider) => [provider.toolProvider, provider.label])
+) as Record<AgentToolProvider, string>;
 
 const DEFAULT_MCP_DEFINITION: McpServerWriteDefinition = {
   transport: 'stdio',
@@ -273,6 +267,8 @@ export function AgentToolsSettingsSection({
           ) ?? {
             provider: providerId,
             installed: false,
+            mcp_scopes: [],
+            skill_scopes: [],
             items: [],
             limitations: [],
             errors: [],
@@ -290,10 +286,31 @@ export function AgentToolsSettingsSection({
   const installedProviders = useMemo(
     () =>
       allInventories
-        .filter((providerInventory) => providerInventory.installed)
+        .filter(
+          (providerInventory) =>
+            providerInventory.installed &&
+            supportedAgentToolScopes(providerInventory, kind).length > 0
+        )
         .map((providerInventory) => providerInventory.provider),
-    [allInventories]
+    [allInventories, kind]
   );
+  const supportedScopesFor = (
+    providerId: AgentToolProvider,
+    toolKind: AgentToolKind
+  ) =>
+    supportedAgentToolScopes(
+      allInventories.find((entry) => entry.provider === providerId),
+      toolKind
+    );
+  const copyTargetsFor = (item: AgentToolView) =>
+    allInventories
+      .filter(
+        (entry) =>
+          entry.installed &&
+          entry.provider !== item.provider &&
+          supportedAgentToolScopes(entry, item.kind).includes(item.scope)
+      )
+      .map((entry) => entry.provider);
   const addProviderAvailable = provider
     ? installedProviders.includes(provider)
     : installedProviders.length > 0;
@@ -364,7 +381,7 @@ export function AgentToolsSettingsSection({
       mode: 'add',
       kind,
       provider: selectedProvider,
-      scope: 'user',
+      scope: supportedScopesFor(selectedProvider, kind)[0],
       name: '',
       definitionText: definitionText(kind),
       item: null,
@@ -387,6 +404,15 @@ export function AgentToolsSettingsSection({
 
   const submitEditor = async () => {
     if (!machineClient || !editor) return;
+    if (
+      !supportedScopesFor(editor.provider, editor.kind).includes(editor.scope)
+    ) {
+      setEditor({
+        ...editor,
+        validationError: t('agentCenter.tools.errors.operationFailed'),
+      });
+      return;
+    }
     const name = editor.name.trim();
     if (!name) {
       setEditor((current) =>
@@ -465,9 +491,7 @@ export function AgentToolsSettingsSection({
   };
 
   const openCopyDialog = (item: AgentToolView) => {
-    const target = installedProviders.find(
-      (providerId) => providerId !== item.provider
-    );
+    const target = copyTargetsFor(item)[0];
     if (!target) {
       setError(t('agentCenter.tools.errors.noCopyTarget'));
       return;
@@ -489,6 +513,7 @@ export function AgentToolsSettingsSection({
 
   const submitCopy = async () => {
     if (!machineClient || !copyState) return;
+    if (!copyTargetsFor(copyState.item).includes(copyState.target)) return;
     const targetItem = targetItemFor(copyState);
     const { item, target } = copyState;
     const succeeded = await run(
@@ -753,9 +778,7 @@ export function AgentToolsSettingsSection({
                       const busy = busyKey?.endsWith(
                         `:${item.provider}:${item.name}`
                       );
-                      const hasCopyTarget = installedProviders.some(
-                        (providerId) => providerId !== item.provider
-                      );
+                      const hasCopyTarget = copyTargetsFor(item).length > 0;
                       const editDisabledReason = busyKey
                         ? t('agentCenter.tools.disabled.operationPending')
                         : !item.capabilities.editable
@@ -941,13 +964,22 @@ export function AgentToolsSettingsSection({
                   <select
                     value={editor.provider}
                     disabled={editor.mode === 'edit' || provider !== undefined}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const nextProvider = event.target
+                        .value as AgentToolProvider;
+                      const scopes = supportedScopesFor(
+                        nextProvider,
+                        editor.kind
+                      );
                       setEditor({
                         ...editor,
-                        provider: event.target.value as AgentToolProvider,
+                        provider: nextProvider,
+                        scope: scopes.includes(editor.scope)
+                          ? editor.scope
+                          : scopes[0],
                         validationError: null,
-                      })
-                    }
+                      });
+                    }}
                     className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60"
                   >
                     {installedProviders.map((providerId) => (
@@ -971,12 +1003,14 @@ export function AgentToolsSettingsSection({
                     }
                     className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60"
                   >
-                    <option value="user">
-                      {t('agentCenter.tools.scopes.user')}
-                    </option>
-                    <option value="project">
-                      {t('agentCenter.tools.scopes.project')}
-                    </option>
+                    {(editor.mode === 'edit'
+                      ? [editor.scope]
+                      : supportedScopesFor(editor.provider, editor.kind)
+                    ).map((scope) => (
+                      <option key={scope} value={scope}>
+                        {t(`agentCenter.tools.scopes.${scope}`)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="block space-y-2 text-sm font-medium text-normal">
@@ -1107,15 +1141,11 @@ export function AgentToolsSettingsSection({
                     }
                     className="min-h-11 w-full rounded-sm border border-border bg-panel px-3 text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
-                    {installedProviders
-                      .filter(
-                        (providerId) => providerId !== copyState.item.provider
-                      )
-                      .map((providerId) => (
-                        <option key={providerId} value={providerId}>
-                          {PROVIDER_LABELS[providerId]}
-                        </option>
-                      ))}
+                    {copyTargetsFor(copyState.item).map((providerId) => (
+                      <option key={providerId} value={providerId}>
+                        {PROVIDER_LABELS[providerId]}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <div className="rounded-sm border border-border bg-secondary/30 p-3 text-sm text-low">

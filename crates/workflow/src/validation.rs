@@ -257,7 +257,7 @@ fn is_known_executor(executor: &str) -> bool {
     let normalized = executor.trim().replace('-', "_").to_ascii_uppercase();
     matches!(
         normalized.as_str(),
-        "CLAUDE_CODE" | "GEMINI" | "CODEX" | "OH_MY_PI"
+        "CLAUDE_CODE" | "GEMINI" | "CODEX" | "OH_MY_PI" | "OPENCODE" | "DEEPSEEK_HARNESS"
     )
 }
 
@@ -525,12 +525,20 @@ mod tests {
                 edge("e4", "agent", "end"),
             ],
         );
-        graph.router_executor_config = Some(serde_json::json!({
-            "executor": "CODEX",
-            "variant": null
-        }));
-
-        validate_graph_for_run(&graph).unwrap();
+        for executor in [
+            "CODEX",
+            "CLAUDE_CODE",
+            "GEMINI",
+            "OH_MY_PI",
+            "OPENCODE",
+            "DEEPSEEK_HARNESS",
+        ] {
+            graph.router_executor_config = Some(serde_json::json!({
+                "executor": executor,
+                "variant": null
+            }));
+            validate_graph_for_run(&graph).unwrap();
+        }
     }
 
     #[test]

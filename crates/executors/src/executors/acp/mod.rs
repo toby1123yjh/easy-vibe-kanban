@@ -1,7 +1,10 @@
 pub mod client;
+mod control;
 pub mod harness;
 pub mod normalize_logs;
+pub(crate) mod provider;
 pub mod session;
+pub mod session_config;
 
 use std::{fmt::Display, str::FromStr};
 
@@ -24,6 +27,7 @@ pub enum AcpEvent {
     Plan(agent_client_protocol::Plan),
     AvailableCommands(Vec<agent_client_protocol::AvailableCommand>),
     CurrentMode(agent_client_protocol::SessionModeId),
+    CatalogObserved(session_config::AcpCatalogObservation),
     RequestPermission(agent_client_protocol::RequestPermissionRequest),
     ApprovalRequested {
         tool_call_id: String,
@@ -31,6 +35,7 @@ pub enum AcpEvent {
     },
     ApprovalResponse(ApprovalResponse),
     Error(String),
+    Usage(agent_client_protocol::Usage),
     Done(String),
     Other(agent_client_protocol::SessionNotification),
 }
@@ -52,5 +57,7 @@ impl FromStr for AcpEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalResponse {
     pub tool_call_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
     pub status: ApprovalStatus,
 }

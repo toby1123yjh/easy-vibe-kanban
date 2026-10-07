@@ -20,7 +20,10 @@ pub(super) fn completed_file_changes(
     match provider {
         DirectProvider::Gemini => return gemini_completed_file_changes(payload),
         DirectProvider::Codex => {}
-        DirectProvider::ClaudeCode | DirectProvider::OhMyPi => return None,
+        DirectProvider::ClaudeCode
+        | DirectProvider::OhMyPi
+        | DirectProvider::Opencode
+        | DirectProvider::DeepseekHarness => return None,
     }
     if payload.get("method").and_then(Value::as_str) != Some("item/completed") {
         return None;

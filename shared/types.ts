@@ -867,7 +867,7 @@ export type SelectedSkill = { name: string, path: string, };
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
-export enum AgentSettingsProvider { codex = "codex", claude_code = "claude_code", gemini = "gemini", oh_my_pi = "oh_my_pi" }
+export enum AgentSettingsProvider { codex = "codex", claude_code = "claude_code", gemini = "gemini", oh_my_pi = "oh_my_pi", opencode = "opencode", deepseek_harness = "deepseek_harness" }
 
 export enum SettingScope { user = "user", project = "project" }
 
@@ -957,7 +957,7 @@ export type AgentSettingsDiscoveryQuery = { provider: AgentSettingsProvider | nu
 
 export type AgentSettingsProfilesQuery = { provider: AgentSettingsProvider | null, };
 
-export type AgentToolProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi";
+export type AgentToolProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi" | "opencode" | "deepseek_harness";
 
 export type AgentToolKind = "mcp_server" | "skill";
 
@@ -995,7 +995,7 @@ export type AgentToolDefinitionSummary = { "type": "mcp_server", "data": McpServ
 
 export type AgentToolView = { installation_id: string, provider: AgentToolProvider, scope: AgentToolScope, kind: AgentToolKind, name: string, state: AgentToolState, capabilities: AgentToolCapabilities, revision: string, definition: AgentToolDefinitionSummary, error?: string | null, };
 
-export type AgentToolProviderInventoryView = { provider: AgentToolProvider, installed: boolean, items: Array<AgentToolView>, limitations: Array<string>, errors: Array<string>, };
+export type AgentToolProviderInventoryView = { provider: AgentToolProvider, installed: boolean, mcp_scopes: Array<AgentToolScope>, skill_scopes: Array<AgentToolScope>, items: Array<AgentToolView>, limitations: Array<string>, errors: Array<string>, };
 
 export type AgentToolInventoryView = { providers: Array<AgentToolProviderInventoryView>, errors: Array<AgentToolProviderError>, };
 
@@ -1021,19 +1021,19 @@ export type AgentToolDiscoveryQuery = { project_path: string | null, };
 
 export type AgentToolRevealResponse = { native_path: string, };
 
-export type AgentCommandProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi";
+export type AgentCommandProvider = "codex" | "claude_code" | "gemini" | "oh_my_pi" | "opencode" | "deepseek_harness";
 
 export type AgentCommandScope = "user" | "project";
 
 export type AgentCommandState = "enabled" | "disabled" | "error" | "unsupported";
 
-export type AgentCommandFormat = "codex_legacy_markdown" | "claude_markdown" | "gemini_toml" | "oh_my_pi_prompt_markdown" | "oh_my_pi_executable_module";
+export type AgentCommandFormat = "codex_legacy_markdown" | "claude_markdown" | "gemini_toml" | "oh_my_pi_prompt_markdown" | "oh_my_pi_executable_module" | "opencode_markdown" | "opencode_inline";
 
 export type AgentCommandCapabilities = { editable: boolean, removable: boolean, toggleable: boolean, };
 
 export type AgentCommandProviderCapabilities = { discoverable: boolean, creatable: boolean, supported_scopes: Array<AgentCommandScope>, writable_formats: Array<AgentCommandFormat>, };
 
-export type AgentCommandDefinitionView = { "type": "codex_legacy", "data": { description?: string | null, argument_hint?: string | null, body: string, } } | { "type": "claude_code", "data": { description?: string | null, body: string, } } | { "type": "gemini", "data": { description?: string | null, prompt: string, } } | { "type": "oh_my_pi_prompt", "data": { description?: string | null, body: string, } } | { "type": "oh_my_pi_executable", "data": { entrypoint_configured: boolean, } } | { "type": "invalid", "data": { content_configured: boolean, } };
+export type AgentCommandDefinitionView = { "type": "opencode", "data": { description?: string | null, body: string, } } | { "type": "codex_legacy", "data": { description?: string | null, argument_hint?: string | null, body: string, } } | { "type": "claude_code", "data": { description?: string | null, body: string, } } | { "type": "gemini", "data": { description?: string | null, prompt: string, } } | { "type": "oh_my_pi_prompt", "data": { description?: string | null, body: string, } } | { "type": "oh_my_pi_executable", "data": { entrypoint_configured: boolean, } } | { "type": "invalid", "data": { content_configured: boolean, } };
 
 export type AgentCommandView = { installation_id: string, provider: AgentCommandProvider, scope: AgentCommandScope, name: string, state: AgentCommandState, format: AgentCommandFormat, capabilities: AgentCommandCapabilities, revision: string, definition: AgentCommandDefinitionView, error?: string | null, };
 
@@ -1049,7 +1049,7 @@ export type CommandTextWrite = { "type": "preserve" } | { "type": "replace", "da
 
 export type OptionalCommandTextWrite = { "type": "preserve" } | { "type": "replace", "data": { value: string, } } | { "type": "clear" };
 
-export type AgentCommandWriteDefinition = { "type": "codex_legacy", "data": { description: OptionalCommandTextWrite, argument_hint: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "claude_code", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "gemini", "data": { description: OptionalCommandTextWrite, prompt: CommandTextWrite, } } | { "type": "oh_my_pi_prompt", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } };
+export type AgentCommandWriteDefinition = { "type": "opencode", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "codex_legacy", "data": { description: OptionalCommandTextWrite, argument_hint: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "claude_code", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } } | { "type": "gemini", "data": { description: OptionalCommandTextWrite, prompt: CommandTextWrite, } } | { "type": "oh_my_pi_prompt", "data": { description: OptionalCommandTextWrite, body: CommandTextWrite, } };
 
 export type CreateAgentCommandRequest = { target: AgentCommandLocator, definition: AgentCommandWriteDefinition, replace: boolean, expected_revision?: string | null, };
 
@@ -1104,9 +1104,9 @@ working_dir: string | null, };
 
 export type ScriptRequestLanguage = "Bash";
 
-export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", GEMINI = "GEMINI", CODEX = "CODEX", OH_MY_PI = "OH_MY_PI" }
+export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", GEMINI = "GEMINI", CODEX = "CODEX", OH_MY_PI = "OH_MY_PI", OPENCODE = "OPENCODE", DEEPSEEK_HARNESS = "DEEPSEEK_HARNESS" }
 
-export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OH_MY_PI": OhMyPi };
+export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OH_MY_PI": OhMyPi } | { "OPENCODE": Opencode } | { "DEEPSEEK_HARNESS": DeepseekHarness };
 
 export type SlashCommandSource = "builtin" | "skill" | "plugin" | "custom" | "fallback";
 
@@ -1150,7 +1150,7 @@ models?: Array<string>,
  */
 reasoning_by_model?: { [key in string]?: string }, };
 
-export type ExecutorProfile = { recently_used_models?: ExecutorRecentModels | null, } & ({ [key in string]?: { "CLAUDE_CODE": ClaudeCode } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OH_MY_PI": OhMyPi } });
+export type ExecutorProfile = { recently_used_models?: ExecutorRecentModels | null, } & ({ [key in string]?: { "CLAUDE_CODE": ClaudeCode } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OH_MY_PI": OhMyPi } | { "OPENCODE": Opencode } | { "DEEPSEEK_HARNESS": DeepseekHarness } });
 
 export type ExecutorConfigs = { executors: { [key in BaseCodingAgent]?: ExecutorProfile }, };
 
@@ -1173,6 +1173,10 @@ export type ClaudeCode = { append_prompt: AppendPrompt, claude_code_router?: boo
 export type Gemini = { append_prompt: AppendPrompt, model?: string | null, yolo?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
 export type OhMyPi = { append_prompt: AppendPrompt, model?: string | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
+
+export type Opencode = { append_prompt: AppendPrompt, model?: string | null, reasoning_effort?: string | null, agent?: string | null, yolo?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
+
+export type DeepseekHarness = { append_prompt: AppendPrompt, model?: string | null, reasoning_effort?: string | null, yolo?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
 export type Codex = { append_prompt: AppendPrompt, sandbox?: SandboxMode | null, ask_for_approval?: AskForApproval | null, oss?: boolean | null, model?: string | null, model_reasoning_effort?: ReasoningEffort | null, model_reasoning_summary?: ReasoningSummary | null, model_reasoning_summary_format?: ReasoningSummaryFormat | null, profile?: string | null, base_instructions?: string | null, include_apply_patch_tool?: boolean | null, model_provider?: string | null, compact_prompt?: string | null, developer_instructions?: string | null, plan: boolean, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 

@@ -301,11 +301,30 @@ fn adapt_codex(mut servers: ServerMap, mut meta: Option<Value>) -> Value {
     attach_meta(servers, meta)
 }
 
+fn adapt_opencode(servers: ServerMap, _meta: Option<Value>) -> Value {
+    Value::Object(servers.into_iter().filter_map(|(name, value)| {
+        let server = value.as_object()?;
+        let adapted = if let Some(command) = server.get("command").and_then(Value::as_str) {
+            let mut command_parts = vec![Value::String(command.to_string())];
+            command_parts.extend(server.get("args").and_then(Value::as_array).into_iter().flatten().cloned());
+            let mut value = serde_json::json!({"type":"local", "command":command_parts, "enabled":true});
+            if let Some(env) = server.get("env") { value["environment"] = env.clone(); }
+            value
+        } else if let Some(url) = server.get("url").and_then(Value::as_str) {
+            let mut value = serde_json::json!({"type":"remote", "url":url, "enabled":true});
+            if let Some(headers) = server.get("headers") { value["headers"] = headers.clone(); }
+            value
+        } else { return None; };
+        Some((name, adapted))
+    }).collect())
+}
+
 enum Adapter {
     Passthrough,
     OhMyPi,
     Gemini,
     Codex,
+    Opencode,
 }
 
 fn apply_adapter(adapter: Adapter, canonical: Value) -> Value {
@@ -319,6 +338,7 @@ fn apply_adapter(adapter: Adapter, canonical: Value) -> Value {
         Adapter::OhMyPi => adapt_passthrough(servers_only, meta),
         Adapter::Gemini => adapt_gemini(servers_only, meta),
         Adapter::Codex => adapt_codex(servers_only, meta),
+        Adapter::Opencode => adapt_opencode(servers_only, meta),
     }
 }
 
@@ -331,6 +351,8 @@ impl CodingAgent {
             CodingAgent::OhMyPi(_) => OhMyPi,
             CodingAgent::Gemini(_) => Gemini,
             CodingAgent::Codex(_) => Codex,
+            CodingAgent::Opencode(_) => Opencode,
+            CodingAgent::DeepseekHarness(_) => return serde_json::json!({}),
             #[cfg(feature = "qa-mode")]
             CodingAgent::QaMock(_) => Passthrough, // QA mock doesn't need MCP
         };
@@ -343,6 +365,20 @@ impl CodingAgent {
 /// MCP configuration for direct runtime adapters.
 pub fn direct_provider_mcp_config(provider: DirectProvider) -> McpConfig {
     match provider {
+        DirectProvider::Opencode => McpConfig::new(
+            vec!["mcp".to_string()],
+            serde_json::json!({"mcp":{}}),
+            apply_adapter(Adapter::Opencode, PRECONFIGURED_MCP_SERVERS.clone()),
+            false,
+        ),
+        // DSH's native YAML lives behind ToolManager. This descriptor is not
+        // handed to the legacy JSON config reader (no default JSON path).
+        DirectProvider::DeepseekHarness => McpConfig::new(
+            vec!["mcp".to_string()],
+            serde_json::json!({"mcp":[]}),
+            serde_json::json!({}),
+            false,
+        ),
         DirectProvider::OhMyPi => McpConfig::new(
             vec!["mcpServers".to_string()],
             serde_json::json!({ "mcpServers": {} }),

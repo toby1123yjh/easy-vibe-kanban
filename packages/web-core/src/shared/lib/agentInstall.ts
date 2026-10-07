@@ -1,4 +1,5 @@
 import type { BaseCodingAgent } from 'shared/types';
+import { AGENT_PROVIDER_BY_EXECUTOR } from './agentProviders';
 
 // Wire contract owned by the server's agent installation routes.
 export interface AgentInstallRequest {
@@ -28,7 +29,7 @@ export function agentInstallRequest(
 }
 
 export function supportsNpmRegistry(executor: BaseCodingAgent): boolean {
-  return executor === 'CODEX' || executor === 'GEMINI';
+  return AGENT_PROVIDER_BY_EXECUTOR[executor].npmPackage !== undefined;
 }
 
 export function isValidInstallRegistry(registry: string): boolean {

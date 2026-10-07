@@ -51,7 +51,7 @@
 - 原生能力不能在运行时悄悄切换为模拟能力，例如 native resume 失败后不得自动改用 transcript backfill 或新会话。
 - V1 的一等 Runtime 范围缩为 Gemini、Codex、Claude Code 和 Oh My Pi，不设置单一试点；Oh My Pi 明确指向 `can1357/oh-my-pi` 的 `omp` CLI，首期通过外部进程 stdio RPC 接入，不嵌入 Node SDK。
 - 四个目标 Adapter 直接接入新契约、Native Audit 和 canonical event/state；四者都达到适用能力、fixture/replay、Reducer、重启恢复和产品消费者门槛后，V1 才完成验收。
-- Amp、OpenCode、Cursor Agent、Qwen Code、Copilot 和 Droid 从产品入口、Runtime registry、配置和生成契约中删除；清理引用后删除对应旧 Adapter/Executor 代码。
+- 原四家 V1 阶段曾移除 Amp、OpenCode、Cursor Agent、Qwen Code、Copilot 和 Droid 的旧接入。2026-10-05 已批准以现有底座重新接入 OpenCode，并新增 DeepSeek Harness；不是恢复旧 OpenCode Executor，也不改变其他已移除厂商的范围。接入方式及原生限制见 [OpenCode](../../agents/opencode.mdx) 和 [DeepSeek Harness](../../agents/deepseek-harness.mdx)。
 - 实施顺序固定为：新契约与 schema、Native Audit、Supervisor/Transport/reconciliation、四个 Adapter、Platform Orchestration、canonical 消费者、旧与非目标代码清理及完整验证。
 - 不建设 Legacy bridge、旧/新 normalizer 双写、shadow 状态机或运行时回退开关。开发失败通过 Git commit/tag 和重新部署回退；开发数据库可以重置并按新 schema 重建。
 - 当前启动时清理 registered Agent process、把 running Workflow node 直接判失败的行为必须改为 reconciliation；这是长任务跨服务重启验收的阻断门槛。

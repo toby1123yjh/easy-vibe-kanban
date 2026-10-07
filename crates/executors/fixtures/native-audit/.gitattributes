@@ -1,0 +1,2 @@
+# Audit stream checksums include newline bytes on every platform.
+*.jsonl text eol=lf

@@ -21,7 +21,10 @@ use crate::{
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
-    executors::{claude::ClaudeCode, codex::Codex, gemini::Gemini, oh_my_pi::OhMyPi},
+    executors::{
+        claude::ClaudeCode, codex::Codex, deepseek_harness::DeepseekHarness, gemini::Gemini,
+        oh_my_pi::OhMyPi, opencode::Opencode,
+    },
     logs::utils::patch,
     mcp_config::McpConfig,
     profile::ExecutorConfig,
@@ -30,8 +33,10 @@ use crate::{
 pub mod acp;
 pub mod claude;
 pub mod codex;
+pub mod deepseek_harness;
 pub mod gemini;
 pub mod oh_my_pi;
+pub mod opencode;
 pub mod provider_adapter;
 #[cfg(feature = "qa-mode")]
 pub mod qa_mock;
@@ -132,6 +137,8 @@ pub enum CodingAgent {
     Gemini,
     Codex,
     OhMyPi,
+    Opencode,
+    DeepseekHarness,
     #[cfg(feature = "qa-mode")]
     QaMock(QaMockExecutor),
 }
@@ -155,6 +162,12 @@ impl CodingAgent {
                 self.preconfigured_mcp(),
                 false,
             ),
+            Self::Opencode(_) => McpConfig::new(
+                vec!["mcp".to_string()],
+                serde_json::json!({ "mcp": {} }),
+                self.preconfigured_mcp(),
+                false,
+            ),
             _ => McpConfig::new(
                 vec!["mcpServers".to_string()],
                 serde_json::json!({
@@ -167,7 +180,10 @@ impl CodingAgent {
     }
 
     pub fn supports_mcp(&self) -> bool {
-        self.default_mcp_config_path().is_some()
+        // New ACP providers use their safe native ToolManager, not the legacy
+        // JSON/TOML editor (DSH is YAML; OpenCode has config overlays/JSONC).
+        matches!(self, Self::Opencode(_) | Self::DeepseekHarness(_))
+            || self.default_mcp_config_path().is_some()
     }
 
     pub fn capabilities(&self) -> Vec<BaseAgentCapability> {
@@ -183,6 +199,7 @@ impl CodingAgent {
             ],
             Self::OhMyPi(_) => vec![BaseAgentCapability::ContextUsage],
             Self::Gemini(_) => vec![BaseAgentCapability::SessionFork],
+            Self::Opencode(_) | Self::DeepseekHarness(_) => vec![],
             #[cfg(feature = "qa-mode")]
             Self::QaMock(_) => vec![], // QA mock doesn't need special capabilities
         }
@@ -423,13 +440,23 @@ mod tests {
 
     #[test]
     fn v1_registry_contains_only_supported_products() {
-        let names = [
-            BaseCodingAgent::ClaudeCode,
-            BaseCodingAgent::Gemini,
-            BaseCodingAgent::Codex,
-            BaseCodingAgent::OhMyPi,
-        ]
-        .map(|agent| agent.to_string());
-        assert_eq!(names, ["CLAUDE_CODE", "GEMINI", "CODEX", "OH_MY_PI"]);
+        use strum::VariantNames;
+
+        let names: Vec<_> = CodingAgent::VARIANTS
+            .iter()
+            .copied()
+            .filter(|name| *name != "QA_MOCK")
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "CLAUDE_CODE",
+                "GEMINI",
+                "CODEX",
+                "OH_MY_PI",
+                "OPENCODE",
+                "DEEPSEEK_HARNESS"
+            ]
+        );
     }
 }

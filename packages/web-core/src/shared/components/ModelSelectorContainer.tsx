@@ -33,6 +33,7 @@ import {
   resolveModelDisplayId,
 } from '@/shared/lib/modelSelector';
 import { profilesApi } from '@/shared/lib/api';
+import { resolveModelDiscoveryVariant } from '@/shared/lib/executorDiscovery';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { getResolvedTheme, useTheme } from '@/shared/hooks/useTheme';
 import { useModelSelectorConfig } from '@/shared/hooks/useExecutorDiscovery';
@@ -119,6 +120,7 @@ export function ModelSelectorContainer({
   } = useModelSelectorConfig(agent, {
     workspaceId: sessionId ? workspaceId : undefined,
     sessionId,
+    variant: resolveModelDiscoveryVariant(agent, resolvedPreset),
   });
 
   useEffect(() => {
@@ -139,11 +141,11 @@ export function ModelSelectorContainer({
   );
   const hasProviders = availableProviderIds.length > 0;
   const providerIdMap = useMemo(
-    () => new Map(availableProviderIds.map((id) => [id.toLowerCase(), id])),
+    () => new Map(availableProviderIds.map((id) => [id, id])),
     [availableProviderIds]
   );
   const resolveProviderId = (value?: string | null) =>
-    value ? (providerIdMap.get(value.toLowerCase()) ?? null) : null;
+    value ? (providerIdMap.get(value) ?? null) : null;
 
   const { providerId: configProviderId, modelId: configModelId } = useMemo(
     () => parseModelId(executorConfig?.model_id, hasProviders),
@@ -446,10 +448,8 @@ export function ModelSelectorContainer({
   const displayProviderId = displaySelection.providerId ?? selectedProviderId;
   const displayModelAmbiguous =
     !displayProviderId &&
-    config.models.filter(
-      (model) =>
-        model.id.toLowerCase() === displaySelection.modelId?.toLowerCase()
-    ).length > 1;
+    config.models.filter((model) => model.id === displaySelection.modelId)
+      .length > 1;
   const displaySelectedModel =
     showModelSelector && !displayModelAmbiguous
       ? getSelectedModel(

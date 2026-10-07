@@ -296,10 +296,27 @@ pub struct UpdateMcpServersBody {
     servers: HashMap<String, Value>,
 }
 
+fn legacy_mcp_management_error(executor: BaseCodingAgent) -> Option<&'static str> {
+    match executor {
+        BaseCodingAgent::Opencode => Some(
+            "OpenCode native JSON/JSONC configuration is unsupported by the legacy MCP editor. Use Agent Center MCP management (/api/agent-tools) for revision-safe native updates.",
+        ),
+        BaseCodingAgent::DeepseekHarness => Some(
+            "DeepSeek Harness native Cordis YAML configuration is unsupported by the legacy MCP editor. Use Agent Center MCP management (/api/agent-tools) for revision-safe native updates.",
+        ),
+        _ => None,
+    }
+}
+
 async fn get_mcp_servers(
     State(_deployment): State<DeploymentImpl>,
     Query(query): Query<McpServerQuery>,
 ) -> Result<ResponseJson<ApiResponse<GetMcpServerResponse>>, ApiError> {
+    // Runtime MCP support does not imply compatibility with this legacy
+    // whole-file editor. Native managers own precedence and targeted edits.
+    if let Some(error) = legacy_mcp_management_error(query.executor) {
+        return Ok(ResponseJson(ApiResponse::error(error)));
+    }
     let coding_agent = ExecutorConfigs::get_cached()
         .get_coding_agent(&ExecutorProfileId::new(query.executor))
         .ok_or(ConfigError::ValidationError(
@@ -337,6 +354,9 @@ async fn update_mcp_servers(
     Query(query): Query<McpServerQuery>,
     Json(payload): Json<UpdateMcpServersBody>,
 ) -> Result<ResponseJson<ApiResponse<String>>, ApiError> {
+    if let Some(error) = legacy_mcp_management_error(query.executor) {
+        return Ok(ResponseJson(ApiResponse::error(error)));
+    }
     let profiles = ExecutorConfigs::get_cached();
     let agent = profiles
         .get_coding_agent(&ExecutorProfileId::new(query.executor))
@@ -644,11 +664,45 @@ async fn get_agent_preset_options(
 pub struct ExecutorDiscoveredOptionsStreamQuery {
     executor: BaseCodingAgent,
     #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
     session_id: Option<Uuid>,
     #[serde(default)]
     workspace_id: Option<Uuid>,
     #[serde(default)]
     repo_id: Option<Uuid>,
+}
+
+impl ExecutorDiscoveredOptionsStreamQuery {
+    fn profile_id(&self) -> ExecutorProfileId {
+        ExecutorProfileId {
+            executor: self.executor,
+            variant: self
+                .variant
+                .as_ref()
+                .filter(|variant| !variant.trim().is_empty())
+                .cloned(),
+        }
+    }
+
+    fn resolve_profile(
+        &self,
+        profiles: &ExecutorConfigs,
+    ) -> Result<ExecutorProfileId, &'static str> {
+        let profile_id = self.profile_id();
+        if matches!(
+            self.executor,
+            BaseCodingAgent::Opencode | BaseCodingAgent::DeepseekHarness
+        ) && profiles.get_coding_agent(&profile_id).is_none()
+        {
+            // Do not label DEFAULT's native authority as a missing ACP profile.
+            // Other providers retain their existing fallback behavior.
+            return Err(
+                "The requested agent profile is unavailable; choose an existing configuration",
+            );
+        }
+        Ok(profile_id)
+    }
 }
 
 pub async fn stream_executor_discovered_options_ws(
@@ -670,10 +724,28 @@ async fn handle_executor_discovered_options_ws(
 ) -> anyhow::Result<()> {
     use futures_util::StreamExt;
 
+    let profile_id = match query.resolve_profile(&ExecutorConfigs::get_cached()) {
+        Ok(profile_id) => profile_id,
+        Err(message) => {
+            let options = executors::executor_discovery::ExecutorDiscoveredOptions {
+                error: Some(message.into()),
+                ..Default::default()
+            };
+            let patch = executors::logs::utils::patch::executor_discovered_options(options);
+            let _ = socket
+                .send(LogMsg::JsonPatch(patch).to_ws_message_unchecked())
+                .await;
+            let _ = socket.send(LogMsg::Ready.to_ws_message_unchecked()).await;
+            let _ = socket
+                .send(LogMsg::Finished.to_ws_message_unchecked())
+                .await;
+            return Ok(());
+        }
+    };
     match deployment
         .container()
         .discover_executor_options(
-            ExecutorProfileId::new(query.executor),
+            profile_id,
             query.session_id,
             query.workspace_id,
             query.repo_id,
@@ -726,4 +798,122 @@ async fn handle_executor_discovered_options_ws(
         .send(LogMsg::Finished.to_ws_message_unchecked())
         .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod discovered_options_tests {
+    use super::{
+        BaseCodingAgent, ExecutorConfigs, ExecutorDiscoveredOptionsStreamQuery, ExecutorProfileId,
+        Query,
+    };
+
+    #[test]
+    fn acp_discovery_query_preserves_selected_profile_variant() {
+        for executor in [BaseCodingAgent::Opencode, BaseCodingAgent::DeepseekHarness] {
+            let mut profiles = ExecutorConfigs::from_defaults();
+            let custom = profiles
+                .get_coding_agent(&ExecutorProfileId::new(executor))
+                .unwrap();
+            profiles
+                .executors
+                .get_mut(&executor)
+                .unwrap()
+                .configurations
+                .insert("CUSTOM_ROUTE".into(), custom);
+            let uri = format!(
+                "/api/agents/discovered-options/ws?executor={executor}&variant=CUSTOM_ROUTE"
+            )
+            .parse()
+            .unwrap();
+            let Query(query) =
+                Query::<ExecutorDiscoveredOptionsStreamQuery>::try_from_uri(&uri).unwrap();
+            assert_eq!(
+                query.profile_id(),
+                ExecutorProfileId::with_variant(executor, "CUSTOM_ROUTE".into())
+            );
+            assert_eq!(
+                query.resolve_profile(&profiles).unwrap(),
+                query.profile_id()
+            );
+            let uri = format!("/api/agents/discovered-options/ws?executor={executor}")
+                .parse()
+                .unwrap();
+            let Query(query) =
+                Query::<ExecutorDiscoveredOptionsStreamQuery>::try_from_uri(&uri).unwrap();
+            assert_eq!(query.profile_id(), ExecutorProfileId::new(executor));
+        }
+    }
+
+    #[test]
+    fn acp_discovery_blank_variant_is_default_and_missing_variant_fails_closed() {
+        let profiles = ExecutorConfigs::from_defaults();
+        for executor in [BaseCodingAgent::Opencode, BaseCodingAgent::DeepseekHarness] {
+            for value in ["", "%20%20"] {
+                let uri = format!(
+                    "/api/agents/discovered-options/ws?executor={executor}&variant={value}"
+                )
+                .parse()
+                .unwrap();
+                let Query(query) =
+                    Query::<ExecutorDiscoveredOptionsStreamQuery>::try_from_uri(&uri).unwrap();
+                assert_eq!(
+                    query.resolve_profile(&profiles).unwrap(),
+                    ExecutorProfileId::new(executor)
+                );
+            }
+            let uri = format!(
+                "/api/agents/discovered-options/ws?executor={executor}&variant=NO_SUCH_PROFILE"
+            )
+            .parse()
+            .unwrap();
+            let Query(query) =
+                Query::<ExecutorDiscoveredOptionsStreamQuery>::try_from_uri(&uri).unwrap();
+            assert!(query.resolve_profile(&profiles).is_err());
+        }
+        for executor in [
+            BaseCodingAgent::Codex,
+            BaseCodingAgent::ClaudeCode,
+            BaseCodingAgent::Gemini,
+            BaseCodingAgent::OhMyPi,
+        ] {
+            let uri = format!(
+                "/api/agents/discovered-options/ws?executor={executor}&variant=NO_SUCH_PROFILE"
+            )
+            .parse()
+            .unwrap();
+            let Query(query) =
+                Query::<ExecutorDiscoveredOptionsStreamQuery>::try_from_uri(&uri).unwrap();
+            assert_eq!(
+                query.resolve_profile(&profiles).unwrap(),
+                query.profile_id()
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod legacy_mcp_management_tests {
+    use super::{BaseCodingAgent, legacy_mcp_management_error};
+
+    #[test]
+    fn native_acp_managers_cannot_use_the_legacy_whole_file_editor() {
+        for executor in [BaseCodingAgent::Opencode, BaseCodingAgent::DeepseekHarness] {
+            let error = legacy_mcp_management_error(executor).unwrap();
+            assert!(error.contains("unsupported"));
+            assert!(error.contains("/api/agent-tools"));
+            assert!(error.contains("revision-safe"));
+        }
+    }
+
+    #[test]
+    fn existing_provider_legacy_mcp_management_is_unchanged() {
+        for executor in [
+            BaseCodingAgent::Codex,
+            BaseCodingAgent::ClaudeCode,
+            BaseCodingAgent::Gemini,
+            BaseCodingAgent::OhMyPi,
+        ] {
+            assert!(legacy_mcp_management_error(executor).is_none());
+        }
+    }
 }

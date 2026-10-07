@@ -319,7 +319,10 @@ pub fn normalize_logs_with_suppressed_stderr_patterns(
                                 .push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                         }
                     }
-                    AcpEvent::User(_) | AcpEvent::Other(_) => (),
+                    AcpEvent::User(_)
+                    | AcpEvent::Usage(_)
+                    | AcpEvent::Other(_)
+                    | AcpEvent::CatalogObserved(_) => (),
                 }
             }
         }

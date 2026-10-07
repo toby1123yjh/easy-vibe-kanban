@@ -195,6 +195,10 @@ export function getWorkflowNodeIdentityClass(
         return 'node-identity-gemini';
       case 'OH_MY_PI':
         return 'node-identity-oh-my-pi';
+      case 'OPENCODE':
+        return 'node-identity-opencode';
+      case 'DEEPSEEK_HARNESS':
+        return 'node-identity-deepseek-harness';
       default:
         return 'node-identity-default';
     }

@@ -69,9 +69,13 @@ impl SessionManager {
         let mut event = AcpEvent::from_str(raw_json).ok()?;
 
         match event {
+            // Picker observations are transport metadata, not conversation
+            // history or transcript-fork resume context.
+            AcpEvent::CatalogObserved(..) => return None,
             AcpEvent::SessionStart(..)
             | AcpEvent::Error(..)
             | AcpEvent::Done(..)
+            | AcpEvent::Usage(..)
             | AcpEvent::Other(..) => return None,
 
             AcpEvent::User(..)
@@ -157,5 +161,28 @@ impl SessionManager {
             ),
             session_context, current_prompt
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        executors::acp::session_config::AcpCatalogObservation, model_selector::ModelSelectorConfig,
+    };
+
+    #[test]
+    fn catalog_observation_is_not_persisted_in_resume_transcript() {
+        let event = AcpEvent::CatalogObserved(AcpCatalogObservation {
+            working_dir: PathBuf::from("catalog-metadata"),
+            scope_id: "a".repeat(64),
+            model_selector: ModelSelectorConfig::default(),
+        });
+
+        assert!(SessionManager::normalize_session_event(&event.to_string()).is_none());
+        assert_eq!(
+            SessionManager::normalize_session_event(&AcpEvent::User("prompt".into()).to_string()),
+            Some(r#"{"user":"prompt"}"#.into())
+        );
     }
 }

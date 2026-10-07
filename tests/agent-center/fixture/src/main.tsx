@@ -1,20 +1,31 @@
-import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AgentCenterPage } from '../../../../packages/web-core/src/features/agent-center/ui/AgentCenterPage';
+import { useState } from "react";
+import { createRoot } from "react-dom/client";
+import { HotkeysProvider } from "react-hotkeys-hook";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  AgentProviderCapability,
+  BaseCodingAgent,
+  type ExecutorConfig,
+} from "shared/types";
+import { AgentCenterPage } from "../../../../packages/web-core/src/features/agent-center/ui/AgentCenterPage";
+import { ModelSelectorContainer } from "../../../../packages/web-core/src/shared/components/ModelSelectorContainer";
+import { useAgentProviderOptions } from "../../../../packages/web-core/src/shared/hooks/useAgentProviderPolicy";
+import { WorkflowAgentExecutorField } from "../../../../packages/web-core/src/features/workflow/ui/WorkflowAgentExecutorField";
+import { SettingsDirtyProvider } from "../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsDirtyContext";
 import {
   SettingsHostProvider,
   useSettingsHost,
-} from '../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsHostContext';
-import '../../../../packages/web-core/src/i18n/config';
-import '../../../../packages/ui/src/styles/tokens.css';
-import './style.css';
+} from "../../../../packages/web-core/src/shared/dialogs/settings/settings/SettingsHostContext";
+import "../../../../packages/web-core/src/i18n/config";
+import "../../../../packages/ui/src/styles/tokens.css";
+import "./style.css";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-const root = document.getElementById('root');
-if (!root) throw new Error('Agent Center fixture root is missing');
+const root = document.getElementById("root");
+if (!root) throw new Error("Agent Center fixture root is missing");
 
 function HostDiscoveryProbe() {
   const { hostDiscovery, remoteHostDiscovery } = useSettingsHost();
@@ -29,13 +40,80 @@ function HostDiscoveryProbe() {
   );
 }
 
+const SESSION_CAPABILITIES = [AgentProviderCapability.INITIAL_RUN] as const;
+
+function SelectorsFixture() {
+  const [executorConfig, setExecutorConfig] = useState<ExecutorConfig>({
+    executor: BaseCodingAgent.OPENCODE,
+    variant: null,
+  });
+  const [workflowConfig, setWorkflowConfig] = useState<
+    ExecutorConfig | undefined
+  >();
+  const { options } = useAgentProviderOptions({
+    requiredCapabilities: SESSION_CAPABILITIES,
+  });
+
+  return (
+    <>
+      <section aria-label="Session agent selector">
+        {options.map((option) => (
+          <button
+            key={option.executor}
+            disabled={!option.enabled}
+            onClick={() =>
+              setExecutorConfig({ executor: option.executor, variant: null })
+            }
+          >
+            {option.executor}
+          </button>
+        ))}
+        <ModelSelectorContainer
+          key={executorConfig.executor}
+          agent={executorConfig.executor}
+          workspaceId={undefined}
+          onAdvancedSettings={() => undefined}
+          presets={["DEFAULT"]}
+          selectedPreset={null}
+          onPresetSelect={() => undefined}
+          onOverrideChange={(change) =>
+            setExecutorConfig((previous) => ({ ...previous, ...change }))
+          }
+          executorConfig={executorConfig}
+          presetOptions={null}
+        />
+        <output data-testid="session-selection">
+          {JSON.stringify(executorConfig)}
+        </output>
+      </section>
+      <section aria-label="Workflow agent selector">
+        <WorkflowAgentExecutorField
+          value={workflowConfig}
+          onChange={setWorkflowConfig}
+        />
+        <output data-testid="workflow-selection">
+          {JSON.stringify(workflowConfig)}
+        </output>
+      </section>
+    </>
+  );
+}
+
 createRoot(root).render(
-  <QueryClientProvider client={queryClient}>
-    <main className="fixture-shell">
-      <SettingsHostProvider>
-        <HostDiscoveryProbe />
-        <AgentCenterPage />
-      </SettingsHostProvider>
-    </main>
-  </QueryClientProvider>
+  <HotkeysProvider initiallyActiveScopes={["kanban", "projects"]}>
+    <QueryClientProvider client={queryClient}>
+      <main className="fixture-shell">
+        <SettingsHostProvider>
+          <SettingsDirtyProvider>
+            <HostDiscoveryProbe />
+            {new URLSearchParams(window.location.search).has("selectors") ? (
+              <SelectorsFixture />
+            ) : (
+              <AgentCenterPage />
+            )}
+          </SettingsDirtyProvider>
+        </SettingsHostProvider>
+      </main>
+    </QueryClientProvider>
+  </HotkeysProvider>,
 );

@@ -472,6 +472,8 @@ fn generate_types_content() -> String {
         executors::executors::claude::ClaudeCode::decl(),
         executors::executors::gemini::Gemini::decl(),
         executors::executors::oh_my_pi::OhMyPi::decl(),
+        executors::executors::opencode::Opencode::decl(),
+        executors::executors::deepseek_harness::DeepseekHarness::decl(),
         executors::executors::codex::Codex::decl(),
         executors::executors::codex::SandboxMode::decl(),
         executors::executors::codex::AskForApproval::decl(),
@@ -631,6 +633,14 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
         (
             "oh_my_pi",
             generate_json_schema::<executors::executors::oh_my_pi::OhMyPi>()?,
+        ),
+        (
+            "opencode",
+            generate_json_schema::<executors::executors::opencode::Opencode>()?,
+        ),
+        (
+            "deepseek_harness",
+            generate_json_schema::<executors::executors::deepseek_harness::DeepseekHarness>()?,
         ),
         (
             "codex",

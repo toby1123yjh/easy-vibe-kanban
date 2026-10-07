@@ -1,4 +1,5 @@
 import type {
+  AgentSettingsProvider,
   JsonValue,
   NativeConfigFile,
   SettingControl,
@@ -12,7 +13,8 @@ import type {
   SettingsSnapshot,
   UnknownNativeNode,
 } from 'shared/types';
-import { AgentSettingsProvider, SettingSection } from 'shared/types';
+import { SettingSection } from 'shared/types';
+import { AGENT_PROVIDERS } from './agentProviders';
 
 export type AgentSettingsSectionId =
   | 'overview'
@@ -56,19 +58,17 @@ export function agentSettingSourceKind(
   return source ? 'adapter_managed' : 'default';
 }
 
-export const PROVIDER_LABELS: Record<AgentSettingsProvider, string> = {
-  [AgentSettingsProvider.codex]: 'Codex',
-  [AgentSettingsProvider.claude_code]: 'Claude Code',
-  [AgentSettingsProvider.gemini]: 'Gemini',
-  [AgentSettingsProvider.oh_my_pi]: 'Oh My Pi',
-};
+export const PROVIDER_LABELS = Object.fromEntries(
+  AGENT_PROVIDERS.map((provider) => [provider.settingsProvider, provider.label])
+) as Record<AgentSettingsProvider, string>;
 
-export const PROVIDER_BY_EXECUTOR: Record<string, AgentSettingsProvider> = {
-  CODEX: AgentSettingsProvider.codex,
-  CLAUDE_CODE: AgentSettingsProvider.claude_code,
-  GEMINI: AgentSettingsProvider.gemini,
-  OH_MY_PI: AgentSettingsProvider.oh_my_pi,
-};
+export const PROVIDER_BY_EXECUTOR: Record<string, AgentSettingsProvider> =
+  Object.fromEntries(
+    AGENT_PROVIDERS.map((provider) => [
+      provider.executor,
+      provider.settingsProvider,
+    ])
+  );
 
 const SECTION_LABELS: Record<AgentSettingsSectionId, string> = {
   overview: 'Overview',
@@ -425,9 +425,15 @@ export function settingSourceForScope(
     (candidate) => settingKeyId(candidate) === settingKeyId(descriptor)
   );
   return (
-    setting?.sources.find(
-      (source) => source.scope === scope && fileIds.has(source.file_id)
-    ) ?? null
+    setting?.sources
+      .slice()
+      .reverse()
+      .find(
+        (source) =>
+          source.configured &&
+          source.scope === scope &&
+          fileIds.has(source.file_id)
+      ) ?? null
   );
 }
 

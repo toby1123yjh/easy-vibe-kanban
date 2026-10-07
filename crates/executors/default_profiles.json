@@ -25,6 +25,16 @@
       "DEFAULT": {
         "OH_MY_PI": {}
       }
+    },
+    "OPENCODE": {
+      "DEFAULT": {
+        "OPENCODE": { "yolo": true }
+      }
+    },
+    "DEEPSEEK_HARNESS": {
+      "DEFAULT": {
+        "DEEPSEEK_HARNESS": { "yolo": true }
+      }
     }
   }
 }

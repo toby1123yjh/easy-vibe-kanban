@@ -539,7 +539,7 @@
         "addServerFailed": "新增預設伺服器失敗",
         "mcpError": "MCP 設定錯誤：{{error}}",
         "notSupported": "不支援 MCP",
-        "supportMessage": "要使用 MCP 伺服器，請在上方選擇支援 MCP 的執行器（Claude Code、Gemini、Codex 或 Oh My Pi）。"
+        "supportMessage": "要使用 MCP 伺服器，請在上方選擇支援 MCP 的智能體，可用操作以智能體實際能力為準。"
       },
       "save": {
         "button": "儲存 MCP 設定",

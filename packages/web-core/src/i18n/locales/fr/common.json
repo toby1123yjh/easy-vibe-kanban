@@ -980,6 +980,7 @@
     "providerListTitle": "Provider",
     "providerListLabel": "Providers d’Agent",
     "selectedProvider": "Provider sélectionné",
+    "developerPreview": "DeepSeek Harness est en aperçu développeur. Les actions disponibles suivent les capacités annoncées par le CLI installé.",
     "bundledVersion": "Version intégrée {{version}}",
     "versionUnavailable": "Version non indiquée",
     "defaultProvider": "Provider par défaut",
@@ -1128,7 +1129,9 @@
         "claude_markdown": "Markdown Claude",
         "gemini_toml": "TOML Gemini",
         "oh_my_pi_prompt_markdown": "Markdown de prompt Pi",
-        "oh_my_pi_executable_module": "TypeScript exécutable Pi"
+        "oh_my_pi_executable_module": "TypeScript exécutable Pi",
+        "opencode_markdown": "Markdown OpenCode",
+        "opencode_inline": "Configuration intégrée OpenCode"
       },
       "editor": {
         "addTitle": "Ajouter une commande",
@@ -1175,7 +1178,9 @@
         "codex": "Les prompts personnalisés Codex sont obsolètes et limités à l’utilisateur. Préférez les Skills pour les nouvelles instructions réutilisables. Les changements nécessitent une nouvelle session ou un redémarrage.",
         "claude_code": "Les commandes de plugin restent gérées par leur plugin.",
         "gemini": "Les commandes d’extension restent gérées par leur extension.",
-        "oh_my_pi": "Les commandes de prompt sont modifiables. Les commandes TypeScript exécutables sont en lecture seule et leur source n’est jamais chargée dans le navigateur."
+        "oh_my_pi": "Les commandes de prompt sont modifiables. Les commandes TypeScript exécutables sont en lecture seule et leur source n’est jamais chargée dans le navigateur.",
+        "opencode": "Les commandes Markdown sont modifiables. Les commandes intégrées à la configuration native sont en lecture seule. Les métadonnées propres au fournisseur sont conservées lors de la modification des commandes Markdown.",
+        "deepseek_harness": "DeepSeek Harness n’expose pas de commandes de prompt natives. Aucun fichier de commande ni action d’écriture n’est proposé."
       },
       "summaries": {
         "entrypointConfigured": "Point d’entrée exécutable détecté ; la source reste sur la machine.",

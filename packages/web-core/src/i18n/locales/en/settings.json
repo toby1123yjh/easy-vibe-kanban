@@ -547,7 +547,7 @@
         "addServerFailed": "Failed to add preconfigured server",
         "mcpError": "MCP Configuration Error: {{error}}",
         "notSupported": "MCP Not Supported",
-        "supportMessage": "To use MCP servers, please select an executor that supports MCP (Claude Code, Gemini, Codex, or Oh My Pi) above."
+        "supportMessage": "To use MCP servers, select an agent with MCP support above. Available actions depend on the agent's capabilities."
       },
       "save": {
         "button": "Save MCP Configuration",
