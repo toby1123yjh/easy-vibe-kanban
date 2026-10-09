@@ -29,7 +29,8 @@ pub struct McpContext {
     pub organization_id: Option<Uuid>,
     #[schemars(description = "The remote project ID (if workspace is linked to remote)")]
     pub project_id: Option<Uuid>,
-    #[schemars(description = "The remote issue ID (if workspace is linked to a remote issue)")]
+    #[schemars(description = "The remote task ID (if workspace is linked to a remote task)")]
+    #[serde(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(description = "The orchestrator session ID when running in orchestrator mode")]

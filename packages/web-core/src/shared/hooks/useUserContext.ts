@@ -19,7 +19,7 @@ export interface UserContextValue {
   retry: () => void;
 
   // Lookup helpers
-  getWorkspacesForIssue: (issueId: string) => Workspace[];
+  getWorkspacesForTask: (taskId: string) => Workspace[];
 }
 
 export const UserContext = createHmrContext<UserContextValue | null>(

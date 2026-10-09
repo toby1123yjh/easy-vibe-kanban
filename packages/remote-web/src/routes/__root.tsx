@@ -16,7 +16,7 @@ import { TerminalProvider } from "@/shared/providers/TerminalProvider";
 import { LogsPanelProvider } from "@/shared/providers/LogsPanelProvider";
 import { ActionsProvider } from "@/shared/providers/ActionsProvider";
 import { useAuth } from "@/shared/hooks/auth/useAuth";
-import { useKanbanIssueComposerScratch } from "@/shared/hooks/useKanbanIssueComposerScratch";
+import { useKanbanTaskComposerScratch } from "@/shared/hooks/useKanbanTaskComposerScratch";
 import { useUiPreferencesScratch } from "@/shared/hooks/useUiPreferencesScratch";
 import { useWorkspaceContext } from "@/shared/hooks/useWorkspaceContext";
 import { AppNavigationProvider } from "@/shared/hooks/useAppNavigation";
@@ -24,7 +24,7 @@ import {
   SequenceTrackerProvider,
   SequenceIndicator,
   useWorkspaceShortcuts,
-  useIssueShortcuts,
+  useTaskShortcuts,
   useKeyShowHelp,
   Scope,
 } from "@/shared/keyboard";
@@ -84,7 +84,7 @@ function GlobalKeyboardShortcuts() {
  */
 function WorkspaceKeyboardShortcuts() {
   useWorkspaceShortcuts();
-  useIssueShortcuts();
+  useTaskShortcuts();
   return null;
 }
 
@@ -107,7 +107,7 @@ function WorkspaceRouteProviders({ children }: { children: ReactNode }) {
 
 function RootLayout() {
   useUiPreferencesScratch();
-  useKanbanIssueComposerScratch();
+  useKanbanTaskComposerScratch();
   const { isSignedIn } = useAuth();
   const location = useLocation();
   const { hostId } = useParams({ strict: false });

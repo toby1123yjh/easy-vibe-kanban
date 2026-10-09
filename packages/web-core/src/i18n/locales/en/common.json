@@ -425,12 +425,12 @@
       "action": "Rename",
       "renaming": "Renaming..."
     },
-    "unlinkFromIssue": "Unlink from issue",
+    "unlinkFromIssue": "Unlink from task",
     "deleteWorkspace": "Delete workspace",
     "unlink": "Unlink",
     "delete": "Delete",
-    "unlinkConfirmMessage": "Are you sure you want to unlink this workspace from the issue? The workspace will still exist but will no longer be associated with this issue.",
-    "deleteConfirmMessage": "Are you sure you want to delete this workspace? This will unlink it from the issue and delete the local workspace. This action cannot be undone.",
+    "unlinkConfirmMessage": "Are you sure you want to unlink this workspace from the task? The workspace will still exist but will no longer be associated with this task.",
+    "deleteConfirmMessage": "Are you sure you want to delete this workspace? This will unlink it from the task and delete the local workspace. This action cannot be undone.",
     "unlinkError": "Failed to unlink workspace",
     "deleteError": "Failed to delete workspace",
     "linkError": "Failed to link workspace",
@@ -440,7 +440,7 @@
       "description": "Are you sure you want to delete this workspace? This action cannot be undone.",
       "deleteBranchLabel": "Delete branch",
       "cannotDeleteOpenPr": "Cannot delete branch while PR is open",
-      "unlinkFromIssueLabel": "Also unlink from issue"
+      "unlinkFromIssueLabel": "Also unlink from task"
     }
   },
   "projectWorkspaceDefault": {
@@ -671,7 +671,7 @@
     },
     "runDialog": {
       "title": "Run workflow attempt",
-      "description": "Start this issue-bound workflow attempt.",
+      "description": "Start this task-bound workflow attempt.",
       "mainWorkspace": "Main workspace",
       "createWorkflowWorkspace": "Create workflow workspace",
       "usesExistingWorkspace": "Uses existing workspace.",
@@ -698,7 +698,7 @@
       "time": "Time",
       "weekday": "Weekday",
       "timezone": "Timezone",
-      "contextIssue": "Context issue",
+      "contextIssue": "Context task",
       "inputText": "Run input",
       "inputPlaceholder": "Describe what this run should do.",
       "save": "Save",
@@ -708,7 +708,7 @@
       "lastTriggered": "Last triggered",
       "lastStatus": "Last status",
       "target": "Target",
-      "noIssue": "No issues available",
+      "noIssue": "No tasks available",
       "none": "None",
       "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
       "deleteTitle": "Delete scheduled task?",
@@ -733,7 +733,7 @@
         "sunday": "Sunday"
       },
       "errors": {
-        "issueRequired": "Choose a context issue.",
+        "issueRequired": "Choose a context task.",
         "timeRequired": "Choose a valid time.",
         "weekdayRequired": "Choose a weekday.",
         "inputRequired": "Add run input before saving the scheduled task.",
@@ -1005,7 +1005,7 @@
       "noSourceOutput": "The source execution has no text output.",
       "noRuntimeOutput": "No runtime output is available yet.",
       "technicalDetails": "Technical details",
-      "taskId": "Task ID",
+      "taskId": "Execution ID",
       "updatingDecision": "Updating...",
       "approveAndContinue": "Approve and continue",
       "openFullSession": "Open full session",
@@ -1049,7 +1049,7 @@
     },
     "dashboard": {
       "runDetails": "Run details",
-      "issueId": "Issue ID",
+      "issueId": "Task ID",
       "workflow": "Workflow",
       "runId": "Run ID",
       "status": "Status",
@@ -1316,7 +1316,7 @@
       "goTo": "Go To (G ...)",
       "workspace": "Workspace (W ...)",
       "view": "View (V ...)",
-      "issues": "Issues (I ...)",
+      "issues": "Tasks (I ...)",
       "git": "Git (X ...)",
       "yank": "Yank (Y ...)",
       "toggle": "Toggle (T ...)",
@@ -1347,16 +1347,16 @@
       "toggle-preview-mode": "Toggle Preview panel",
       "toggle-left-sidebar": "Toggle Left Sidebar",
       "toggle-left-main-panel": "Toggle Chat panel",
-      "create-issue": "Create Issue",
+      "create-issue": "Create Task",
       "change-issue-status": "Change Status",
       "change-issue-priority": "Change Priority",
       "change-assignees": "Change Assignees",
-      "make-sub-issue-of": "Make Sub-issue of",
-      "add-sub-issue": "Add Sub-issue",
+      "make-sub-issue-of": "Make Sub-task of",
+      "add-sub-issue": "Add Sub-task",
       "remove-parent-issue": "Remove Parent",
       "link-workspace": "Link Workspace",
-      "duplicate-issue": "Duplicate Issue",
-      "delete-issue": "Delete Issue",
+      "duplicate-issue": "Duplicate Task",
+      "delete-issue": "Delete Task",
       "git-create-pr": "Create Pull Request",
       "git-merge": "Merge branch",
       "git-rebase": "Rebase branch",
@@ -1382,11 +1382,11 @@
     "noCommands": "No commands available for this agent."
   },
   "kanban": {
-    "noVisibleStatuses": "All statuses are hidden. Use display settings or switch to another tab to view issues.",
+    "noVisibleStatuses": "All statuses are hidden. Use display settings or switch to another tab to view tasks.",
     "noProjectFound": "No project found",
     "unassigned": "Unassigned",
     "noTagsAvailable": "No tags available",
-    "createNewIssue": "Create new issue",
+    "createNewIssue": "Create new task",
     "searchTags": "Search tags...",
     "selectColorFor": "Select color for",
     "createTag": "Create",
@@ -1405,12 +1405,12 @@
     "moreActions": "More actions",
     "closePanel": "Close panel",
     "copyLink": "Copy link",
-    "issueTitlePlaceholder": "Issue Title...",
+    "issueTitlePlaceholder": "Task Title...",
     "issueDescriptionPlaceholder": "Enter task description here...",
     "createDraftWorkspaceImmediately": "Create draft workspace immediately",
-    "createDraftWorkspaceDescription": "After creating the issue, open the workspace creation form pre-filled with the issue details",
-    "createIssue": "Create Issue",
-    "newIssue": "New Issue",
+    "createDraftWorkspaceDescription": "After creating the task, open the workspace creation form pre-filled with the task details",
+    "createIssue": "Create Task",
+    "newIssue": "New Task",
     "previewCodeBlock": "[Code block]",
     "previewImage": "[Image]",
     "previewImageWithName": "[Image: {{name}}]",
@@ -1423,9 +1423,9 @@
     "unknownError": "Unknown error",
     "failedToUploadFile": "Failed to upload {{filename}}: {{message}}",
     "downloadAttachment": "Download attachment",
-    "subIssues": "Sub-issues",
-    "noSubIssues": "No sub-issues",
-    "markIndependentIssue": "Mark as independent issue",
+    "subIssues": "Sub-tasks",
+    "noSubIssues": "No sub-tasks",
+    "markIndependentIssue": "Mark as independent task",
     "parentIssue": "Parent",
     "subIssueIndicator": "↳",
     "viewTabs": {
@@ -1439,7 +1439,7 @@
     },
     "team": "Team",
     "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
+    "searchPlaceholder": "Search tasks...",
     "filters": "Filters",
     "clearFilters": "Clear filters",
     "filtersDescription": "Adjust filters and sorting for this board view.",
@@ -1470,7 +1470,7 @@
     "assignee": "Assignee",
     "self": "Me",
     "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
+    "subIssuesFilterLabel": "Sub-tasks",
     "workspacesFilterLabel": "Workspaces",
     "selectAssignees": "Select assignees...",
     "relationships": "Relationships",
@@ -1484,7 +1484,7 @@
     "changeColor": "Change color",
     "editName": "Edit name",
     "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
+    "cannotDeleteWithIssues": "Move tasks first",
     "lastVisibleStatus": "At least one status must be visible",
     "showStatus": "Show status",
     "hideStatus": "Hide status",
@@ -1495,19 +1495,19 @@
     "projectsGuide": {
       "intro": {
         "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first task. You can re-open this help dialog or give feedback anytime from the navbar."
       },
       "welcome": {
         "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "content": "The project page is where you manage tasks. You can view your tasks as a kanban board, or as a list, and filter by status, tag, assignee and more."
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "Tasks",
+        "content": "Each task represents a feature or problem to solve. Tasks have statuses, priorities, assignees, tags, relationships, comments, sub-tasks and more."
       },
       "workspaces": {
         "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "content": "To start working on an task, create a workspace. A single task can have multiple workspaces. Tasks describe the work to be done, workspaces are where the work happens."
       },
       "organizations": {
         "title": "Invite your team",
@@ -2088,9 +2088,9 @@
         "command": "Command",
         "project": "Project",
         "session": "Session",
-        "issue": "Issue",
         "workflow": "Workflow",
-        "run": "Run"
+        "run": "Run",
+        "task": "Task"
       }
     },
     "moduleLanding": {
@@ -2110,11 +2110,21 @@
         "agentConfiguration": "Agent configuration"
       },
       "unavailable": {
-        "globalStatistics": "Canonical Project, Issue, and Agent-run totals are not exposed yet. Paged sidebar rows are intentionally not presented as global statistics.",
+        "globalStatistics": "Canonical Project, Task, and Agent-run totals are not exposed yet. Paged sidebar rows are intentionally not presented as global statistics.",
         "attention": "No canonical attention projection is available yet. This section stays independent and does not infer alerts from log text.",
         "activeRuns": "Session list data does not expose runtime state. Active runs will appear here when the canonical runtime projection provides it.",
         "agentConfiguration": "Canonical connection, default model, API endpoint, and running-count summaries are not exposed yet. Runtime API capabilities are not configuration data and are not substituted here."
       }
     }
+  },
+  "taskDetails": {
+    "executions": "Executions",
+    "noExecutions": "No executions have been started for this task.",
+    "newExecution": "New execution",
+    "singleAgent": "Single agent",
+    "workflow": "Workflow",
+    "arena": "Arena",
+    "information": "Task information",
+    "description": "Description"
   }
 }

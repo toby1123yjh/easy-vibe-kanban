@@ -30,18 +30,18 @@ import {
   PRIORITY_ORDER,
 } from '../model/hooks/useKanbanFilters';
 import {
-  bulkUpdateIssues,
-  type BulkUpdateIssueItem,
+  bulkUpdateTasks,
+  type BulkUpdateTaskItem,
 } from '@/shared/lib/remoteApi';
 import { PlusIcon, DotsThreeIcon } from '@phosphor-icons/react';
 import { Actions } from '@/shared/actions';
 import {
-  buildKanbanIssueComposerKey,
-  closeKanbanIssueComposer,
-  openKanbanIssueComposer,
-  type ProjectIssueCreateOptions,
-  useKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  closeKanbanTaskComposer,
+  openKanbanTaskComposer,
+  type ProjectTaskCreateOptions,
+  useKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 import type {
   OrganizationMemberWithProfile,
   WorkflowAttemptResponse,
@@ -56,18 +56,18 @@ import {
 } from '@vibe/ui/components/KanbanBoard';
 import { KanbanCardContent } from '@vibe/ui/components/KanbanCardContent';
 import {
-  IssueWorkspaceCard,
+  TaskWorkspaceCard,
   type WorkspaceWithStats,
   type WorkspacePr,
-} from '@vibe/ui/components/IssueWorkspaceCard';
+} from '@vibe/ui/components/TaskWorkspaceCard';
 import {
-  IssueWorkflowAttemptCard,
-  type IssueWorkflowAttemptCardData,
-} from '@vibe/ui/components/IssueWorkflowAttemptCard';
-import { resolveRelationshipsForIssue } from '@/shared/lib/resolveRelationships';
+  TaskWorkflowAttemptCard,
+  type TaskWorkflowAttemptCardData,
+} from '@vibe/ui/components/TaskWorkflowAttemptCard';
+import { resolveRelationshipsForTask } from '@/shared/lib/resolveRelationships';
 import { KanbanFilterBar } from '@vibe/ui/components/KanbanFilterBar';
 import { ViewNavTabs } from '@vibe/ui/components/ViewNavTabs';
-import { IssueListView } from '@vibe/ui/components/IssueListView';
+import { TaskListView } from '@vibe/ui/components/TaskListView';
 import { CommandBarDialog } from '@/shared/dialogs/command-bar/CommandBarDialog';
 import { KanbanFiltersDialog } from '@/shared/dialogs/kanban/KanbanFiltersDialog';
 import {
@@ -78,9 +78,9 @@ import {
 } from '@vibe/ui/components/Dropdown';
 import { SearchableTagDropdownContainer } from '@/shared/components/SearchableTagDropdownContainer';
 import { ProjectWorkspaceDefaultContext } from '@/shared/components/ProjectWorkspaceDefaultContext';
-import type { IssuePriority } from 'shared/remote-types';
-import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
-import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
+import type { TaskPriority } from 'shared/remote-types';
+import { useTaskMultiSelect } from '@/shared/hooks/useTaskMultiSelect';
+import { useTaskSelectionStore } from '@/shared/stores/useTaskSelectionStore';
 import { BulkActionBarContainer } from './BulkActionBarContainer';
 import {
   getWorkflowAttemptWorkspaceIds,
@@ -125,7 +125,7 @@ const areKanbanFiltersEqual = (
 
 function workflowAttemptToKanbanCard(
   attempt: WorkflowAttemptResponse
-): IssueWorkflowAttemptCardData {
+): TaskWorkflowAttemptCardData {
   return {
     id: attempt.id,
     title: attempt.name || 'Workflow attempt',
@@ -159,20 +159,20 @@ export function KanbanContainer() {
   // Get data from contexts (set up by WorkspacesLayout)
   const {
     projectId,
-    issues,
+    tasks,
     statuses,
     tags,
-    issueAssignees,
-    issueTags,
-    issueRelationships,
-    getTagObjectsForIssue,
-    getTagsForIssue,
-    getPullRequestsForIssue,
-    getWorkspacesForIssue,
-    getRelationshipsForIssue,
-    issuesById,
-    insertIssueTag,
-    removeIssueTag,
+    taskAssignees,
+    taskTags,
+    taskRelationships,
+    getTagObjectsForTask,
+    getTagsForTask,
+    getPullRequestsForTask,
+    getWorkspacesForTask,
+    getRelationshipsForTask,
+    tasksById,
+    insertTaskTag,
+    removeTaskTag,
     insertTag,
     pullRequests,
     isLoading: projectLoading,
@@ -190,44 +190,44 @@ export function KanbanContainer() {
   // Get project name by finding the project matching current projectId
   const projectName = projects.find((p) => p.id === projectId)?.name ?? '';
 
-  const selectedKanbanIssueId = routeState.issueId;
-  const issueComposerKey = useMemo(
-    () => buildKanbanIssueComposerKey(routeState.hostId, projectId),
+  const selectedKanbanTaskId = routeState.taskId;
+  const taskComposerKey = useMemo(
+    () => buildKanbanTaskComposerKey(routeState.hostId, projectId),
     [routeState.hostId, projectId]
   );
-  const issueComposer = useKanbanIssueComposer(issueComposerKey);
-  const isIssueComposerOpen = issueComposer !== null;
-  const openIssue = useCallback(
-    (issueId: string) => {
-      if (isIssueComposerOpen) {
-        closeKanbanIssueComposer(issueComposerKey);
+  const taskComposer = useKanbanTaskComposer(taskComposerKey);
+  const isTaskComposerOpen = taskComposer !== null;
+  const openTask = useCallback(
+    (taskId: string) => {
+      if (isTaskComposerOpen) {
+        closeKanbanTaskComposer(taskComposerKey);
       }
 
-      appNavigation.goToProjectIssue(projectId, issueId);
+      appNavigation.goToProjectTask(projectId, taskId);
     },
-    [isIssueComposerOpen, issueComposerKey, appNavigation, projectId]
+    [isTaskComposerOpen, taskComposerKey, appNavigation, projectId]
   );
-  const openIssueWorkspace = useCallback(
-    (issueId: string, workspaceAttemptId: string) => {
-      appNavigation.goToProjectIssueWorkspace(
+  const openTaskWorkspace = useCallback(
+    (taskId: string, workspaceAttemptId: string) => {
+      appNavigation.goToProjectTaskWorkspace(
         projectId,
-        issueId,
+        taskId,
         workspaceAttemptId
       );
     },
     [appNavigation, projectId]
   );
-  const openIssueWorkflowAttempt = useCallback(
+  const openTaskWorkflowAttempt = useCallback(
     (workflowId: string) => {
       appNavigation.goToProjectWorkflowEdit(projectId, workflowId);
     },
     [appNavigation, projectId]
   );
   const startCreate = useCallback(
-    (options?: ProjectIssueCreateOptions) => {
-      openKanbanIssueComposer(issueComposerKey, options);
+    (options?: ProjectTaskCreateOptions) => {
+      openKanbanTaskComposer(taskComposerKey, options);
     },
-    [issueComposerKey]
+    [taskComposerKey]
   );
 
   // Get setter and executor from ActionsContext
@@ -253,8 +253,8 @@ export function KanbanContainer() {
   const setKanbanProjectViewFilters = useUiPreferencesStore(
     (s) => s.setKanbanProjectViewFilters
   );
-  const setKanbanProjectViewShowSubIssues = useUiPreferencesStore(
-    (s) => s.setKanbanProjectViewShowSubIssues
+  const setKanbanProjectViewShowSubTasks = useUiPreferencesStore(
+    (s) => s.setKanbanProjectViewShowSubTasks
   );
   const setKanbanProjectViewShowWorkspaces = useUiPreferencesStore(
     (s) => s.setKanbanProjectViewShowWorkspaces
@@ -272,14 +272,14 @@ export function KanbanContainer() {
   const {
     activeViewId,
     filters: defaultKanbanFilters,
-    showSubIssues: defaultShowSubIssues,
+    showSubTasks: defaultShowSubTasks,
     showWorkspaces: defaultShowWorkspaces,
     hideBlocked: defaultHideBlocked,
   } = resolvedProjectState;
   const projectViewPreferences = projectViewPreferencesById?.[activeViewId];
   const kanbanFilters = projectViewPreferences?.filters ?? defaultKanbanFilters;
-  const showSubIssues =
-    projectViewPreferences?.showSubIssues ?? defaultShowSubIssues;
+  const showSubTasks =
+    projectViewPreferences?.showSubTasks ?? defaultShowSubTasks;
   const showWorkspaces =
     projectViewPreferences?.showWorkspaces ?? defaultShowWorkspaces;
   const hideBlocked = projectViewPreferences?.hideBlocked ?? defaultHideBlocked;
@@ -291,21 +291,21 @@ export function KanbanContainer() {
   const hasActiveFilters = useMemo(
     () =>
       !areKanbanFiltersEqual(kanbanFilters, defaultKanbanFilters) ||
-      showSubIssues !== defaultShowSubIssues ||
+      showSubTasks !== defaultShowSubTasks ||
       showWorkspaces !== defaultShowWorkspaces ||
       hideBlocked !== defaultHideBlocked,
     [
       kanbanFilters,
       defaultKanbanFilters,
-      showSubIssues,
-      defaultShowSubIssues,
+      showSubTasks,
+      defaultShowSubTasks,
       showWorkspaces,
       defaultShowWorkspaces,
       hideBlocked,
       defaultHideBlocked,
     ]
   );
-  const shouldAnimateCreateButton = issues.length === 0;
+  const shouldAnimateCreateButton = tasks.length === 0;
 
   // Compute resolved status IDs for the blocked filter.
   // A blocking issue is considered resolved when it's in:
@@ -324,15 +324,15 @@ export function KanbanContainer() {
     return ids;
   }, [statuses]);
 
-  const { filteredIssues } = useKanbanFilters({
-    issues,
-    issueAssignees,
-    issueTags,
-    issueRelationships,
-    issuesById,
+  const { filteredTasks } = useKanbanFilters({
+    tasks,
+    taskAssignees,
+    taskTags,
+    taskRelationships,
+    tasksById,
     doneStatusIds,
     filters: kanbanFilters,
-    showSubIssues,
+    showSubTasks,
     hideBlocked,
     currentUserId: userId,
   });
@@ -348,7 +348,7 @@ export function KanbanContainer() {
   );
 
   const setKanbanPriorities = useCallback(
-    (priorities: IssuePriority[]) => {
+    (priorities: TaskPriority[]) => {
       setKanbanProjectViewFilters(projectId, activeViewId, {
         ...kanbanFilters,
         priorities,
@@ -388,11 +388,11 @@ export function KanbanContainer() {
     [activeViewId, kanbanFilters, projectId, setKanbanProjectViewFilters]
   );
 
-  const setShowSubIssues = useCallback(
+  const setShowSubTasks = useCallback(
     (show: boolean) => {
-      setKanbanProjectViewShowSubIssues(projectId, activeViewId, show);
+      setKanbanProjectViewShowSubTasks(projectId, activeViewId, show);
     },
-    [activeViewId, projectId, setKanbanProjectViewShowSubIssues]
+    [activeViewId, projectId, setKanbanProjectViewShowSubTasks]
   );
 
   const setShowWorkspaces = useCallback(
@@ -531,12 +531,10 @@ export function KanbanContainer() {
 
     for (const status of statuses) {
       // Filter issues for this status
-      let statusIssues = filteredIssues.filter(
-        (i) => i.status_id === status.id
-      );
+      let statusTasks = filteredTasks.filter((i) => i.status_id === status.id);
 
       // Sort within column based on user preference
-      statusIssues = [...statusIssues].sort((a, b) => {
+      statusTasks = [...statusTasks].sort((a, b) => {
         let comparison = 0;
         switch (sortField) {
           case 'priority':
@@ -564,34 +562,34 @@ export function KanbanContainer() {
         return sortDirection === 'desc' ? -comparison : comparison;
       });
 
-      grouped[status.id] = statusIssues.map((i) => i.id);
+      grouped[status.id] = statusTasks.map((i) => i.id);
     }
     setItems(grouped);
-  }, [filteredIssues, statuses, kanbanFilters]);
+  }, [filteredTasks, statuses, kanbanFilters]);
 
   // Create a lookup map for issue data
-  const issueMap = useMemo(() => {
-    const map: Record<string, (typeof issues)[0]> = {};
-    for (const issue of issues) {
-      map[issue.id] = issue;
+  const taskMap = useMemo(() => {
+    const map: Record<string, (typeof tasks)[0]> = {};
+    for (const task of tasks) {
+      map[task.id] = task;
     }
     return map;
-  }, [issues]);
+  }, [tasks]);
 
   // Create a lookup map for issue assignees (issue_id -> OrganizationMemberWithProfile[])
-  const issueAssigneesMap = useMemo(() => {
+  const taskAssigneesMap = useMemo(() => {
     const map: Record<string, OrganizationMemberWithProfile[]> = {};
-    for (const assignee of issueAssignees) {
+    for (const assignee of taskAssignees) {
       const member = membersWithProfilesById.get(assignee.user_id);
       if (member) {
-        if (!map[assignee.issue_id]) {
-          map[assignee.issue_id] = [];
+        if (!map[assignee.task_id]) {
+          map[assignee.task_id] = [];
         }
-        map[assignee.issue_id].push(member);
+        map[assignee.task_id].push(member);
       }
     }
     return map;
-  }, [issueAssignees, membersWithProfilesById]);
+  }, [taskAssignees, membersWithProfilesById]);
 
   const membersWithProfiles = useMemo(
     () => [...membersWithProfilesById.values()],
@@ -636,29 +634,29 @@ export function KanbanContainer() {
     [projectWorkflowAttempts]
   );
 
-  const workflowAttemptsByIssueId = useMemo(() => {
+  const workflowAttemptsByTaskId = useMemo(() => {
     if (!showWorkspaces) {
       return new Map<string, WorkflowAttemptResponse[]>();
     }
 
     const map = new Map<string, WorkflowAttemptResponse[]>();
     for (const attempt of projectWorkflowAttempts) {
-      const attempts = map.get(attempt.issue_id) ?? [];
+      const attempts = map.get(attempt.task_id) ?? [];
       attempts.push(attempt);
-      map.set(attempt.issue_id, attempts);
+      map.set(attempt.task_id, attempts);
     }
     return map;
   }, [projectWorkflowAttempts, showWorkspaces]);
 
-  const workspacesByIssueId = useMemo(() => {
+  const workspacesByTaskId = useMemo(() => {
     if (!showWorkspaces) {
       return new Map<string, WorkspaceWithStats[]>();
     }
 
     const map = new Map<string, WorkspaceWithStats[]>();
 
-    for (const issue of issues) {
-      const nonArchivedWorkspaces = getWorkspacesForIssue(issue.id)
+    for (const task of tasks) {
+      const nonArchivedWorkspaces = getWorkspacesForTask(task.id)
         .filter(
           (workspace) =>
             !workspace.archived &&
@@ -693,15 +691,15 @@ export function KanbanContainer() {
         });
 
       if (nonArchivedWorkspaces.length > 0) {
-        map.set(issue.id, nonArchivedWorkspaces);
+        map.set(task.id, nonArchivedWorkspaces);
       }
     }
 
     return map;
   }, [
     showWorkspaces,
-    issues,
-    getWorkspacesForIssue,
+    tasks,
+    getWorkspacesForTask,
     workflowWorkspaceIds,
     localWorkspacesById,
     prsByWorkspaceId,
@@ -712,9 +710,9 @@ export function KanbanContainer() {
   // Calculate sort_order based on column index and issue position
   // Formula: 1000 * [COLUMN_INDEX] + [ISSUE_INDEX] (both 1-based)
   const calculateSortOrder = useCallback(
-    (statusId: string, issueIndex: number): number => {
+    (statusId: string, taskIndex: number): number => {
       const columnIndex = statusColumnIndexMap.get(statusId) ?? 1;
-      return 1000 * columnIndex + (issueIndex + 1);
+      return 1000 * columnIndex + (taskIndex + 1);
     },
     [statusColumnIndexMap]
   );
@@ -771,13 +769,13 @@ export function KanbanContainer() {
       });
 
       // Build bulk updates for all issues in affected columns
-      const updates: BulkUpdateIssueItem[] = [];
+      const updates: BulkUpdateTaskItem[] = [];
 
       // Always update destination column
-      const destIssueIds = newItems[destId] ?? [];
-      destIssueIds.forEach((issueId, index) => {
+      const destTaskIds = newItems[destId] ?? [];
+      destTaskIds.forEach((taskId, index) => {
         updates.push({
-          id: issueId,
+          id: taskId,
           changes: {
             status_id: destId,
             sort_order: calculateSortOrder(destId, index),
@@ -787,10 +785,10 @@ export function KanbanContainer() {
 
       // Update source column if cross-column move
       if (isCrossColumn) {
-        const sourceIssueIds = newItems[sourceId] ?? [];
-        sourceIssueIds.forEach((issueId, index) => {
+        const sourceTaskIds = newItems[sourceId] ?? [];
+        sourceTaskIds.forEach((taskId, index) => {
           updates.push({
-            id: issueId,
+            id: taskId,
             changes: {
               sort_order: calculateSortOrder(sourceId, index),
             },
@@ -800,7 +798,7 @@ export function KanbanContainer() {
 
       // Perform bulk update
       isSyncingRef.current = true;
-      bulkUpdateIssues(updates)
+      bulkUpdateTasks(updates)
         .catch((err) => {
           console.error('Failed to bulk update sort order:', err);
         })
@@ -816,19 +814,17 @@ export function KanbanContainer() {
 
   // Multi-select support
   const {
-    selectedIssueIds,
+    selectedTaskIds,
     isMultiSelectActive,
-    handleIssueClick,
+    handleTaskClick,
     handleCheckboxChange,
     clearSelection,
-  } = useIssueMultiSelect();
-  const setOrderedIssueIds = useIssueSelectionStore(
-    (s) => s.setOrderedIssueIds
-  );
-  const setAnchor = useIssueSelectionStore((s) => s.setAnchor);
+  } = useTaskMultiSelect();
+  const setOrderedTaskIds = useTaskSelectionStore((s) => s.setOrderedTaskIds);
+  const setAnchor = useTaskSelectionStore((s) => s.setAnchor);
 
   // Compute ordered issue IDs for range selection
-  const orderedIssueIds = useMemo(() => {
+  const orderedTaskIds = useMemo(() => {
     const statusOrder =
       kanbanViewMode === 'kanban' ? visibleStatuses : listViewStatuses;
     return statusOrder.flatMap((status) => items[status.id] ?? []);
@@ -836,8 +832,8 @@ export function KanbanContainer() {
 
   // Keep the store's ordered IDs in sync
   useEffect(() => {
-    setOrderedIssueIds(orderedIssueIds);
-  }, [orderedIssueIds, setOrderedIssueIds]);
+    setOrderedTaskIds(orderedTaskIds);
+  }, [orderedTaskIds, setOrderedTaskIds]);
 
   // Clear multi-selection when project or view mode changes
   useEffect(() => {
@@ -847,31 +843,25 @@ export function KanbanContainer() {
   // Keep anchor in sync with the currently opened issue (e.g. from URL on
   // page load) so Shift/Cmd+Click on another issue includes it.
   useEffect(() => {
-    if (selectedKanbanIssueId) {
-      setAnchor(selectedKanbanIssueId);
+    if (selectedKanbanTaskId) {
+      setAnchor(selectedKanbanTaskId);
     }
-  }, [selectedKanbanIssueId, setAnchor]);
+  }, [selectedKanbanTaskId, setAnchor]);
 
   const handleCardClick = useCallback(
-    (issueId: string, e?: MouseEvent) => {
+    (taskId: string, e?: MouseEvent) => {
       if (e && (e.metaKey || e.ctrlKey || e.shiftKey)) {
-        handleIssueClick(issueId, e);
+        handleTaskClick(taskId, e);
       } else {
-        if (selectedIssueIds.size > 0) {
+        if (selectedTaskIds.size > 0) {
           clearSelection();
         }
         // Set as anchor so Shift+Click from this issue works
-        setAnchor(issueId);
-        openIssue(issueId);
+        setAnchor(taskId);
+        openTask(taskId);
       }
     },
-    [
-      openIssue,
-      handleIssueClick,
-      selectedIssueIds.size,
-      clearSelection,
-      setAnchor,
-    ]
+    [openTask, handleTaskClick, selectedTaskIds.size, clearSelection, setAnchor]
   );
 
   const handleAddTask = useCallback(
@@ -890,54 +880,54 @@ export function KanbanContainer() {
   // Inline editing callbacks for kanban cards
   // When multi-select is active, apply to all selected issues
   const handleCardPriorityClick = useCallback(
-    (issueId: string) => {
-      const ids = isMultiSelectActive ? [...selectedIssueIds] : [issueId];
+    (taskId: string) => {
+      const ids = isMultiSelectActive ? [...selectedTaskIds] : [taskId];
       openPrioritySelection(projectId, ids);
     },
-    [projectId, openPrioritySelection, selectedIssueIds, isMultiSelectActive]
+    [projectId, openPrioritySelection, selectedTaskIds, isMultiSelectActive]
   );
 
   const handleCardAssigneeClick = useCallback(
-    (issueId: string) => {
-      const ids = isMultiSelectActive ? [...selectedIssueIds] : [issueId];
+    (taskId: string) => {
+      const ids = isMultiSelectActive ? [...selectedTaskIds] : [taskId];
       openAssigneeSelection(projectId, ids);
     },
-    [projectId, openAssigneeSelection, selectedIssueIds, isMultiSelectActive]
+    [projectId, openAssigneeSelection, selectedTaskIds, isMultiSelectActive]
   );
 
   const handleCardMoreActionsClick = useCallback(
-    (issueId: string) => {
-      const ids = isMultiSelectActive ? [...selectedIssueIds] : [issueId];
+    (taskId: string) => {
+      const ids = isMultiSelectActive ? [...selectedTaskIds] : [taskId];
       CommandBarDialog.show({
-        page: 'issueActions',
+        page: 'taskActions',
         projectId,
-        issueIds: ids,
+        taskIds: ids,
       });
     },
-    [projectId, selectedIssueIds, isMultiSelectActive]
+    [projectId, selectedTaskIds, isMultiSelectActive]
   );
 
   const handleCardTagToggle = useCallback(
-    (issueId: string, tagId: string) => {
-      const currentIssueTags = getTagsForIssue(issueId);
-      const existing = currentIssueTags.find((it) => it.tag_id === tagId);
+    (taskId: string, tagId: string) => {
+      const currentTaskTags = getTagsForTask(taskId);
+      const existing = currentTaskTags.find((it) => it.tag_id === tagId);
       if (existing) {
-        removeIssueTag(existing.id);
+        removeTaskTag(existing.id);
       } else {
-        insertIssueTag({ issue_id: issueId, tag_id: tagId });
+        insertTaskTag({ task_id: taskId, tag_id: tagId });
       }
     },
-    [getTagsForIssue, insertIssueTag, removeIssueTag]
+    [getTagsForTask, insertTaskTag, removeTaskTag]
   );
 
-  const getResolvedRelationshipsForIssue = useCallback(
-    (issueId: string) =>
-      resolveRelationshipsForIssue(
-        issueId,
-        getRelationshipsForIssue(issueId),
-        issuesById
+  const getResolvedRelationshipsForTask = useCallback(
+    (taskId: string) =>
+      resolveRelationshipsForTask(
+        taskId,
+        getRelationshipsForTask(taskId),
+        tasksById
       ),
-    [getRelationshipsForIssue, issuesById]
+    [getRelationshipsForTask, tasksById]
   );
 
   const handleCreateTag = useCallback(
@@ -1053,7 +1043,7 @@ export function KanbanContainer() {
             projectId={projectId}
             currentUserId={userId}
             filters={kanbanFilters}
-            showSubIssues={showSubIssues}
+            showSubTasks={showSubTasks}
             showWorkspaces={showWorkspaces}
             hasActiveFilters={hasActiveFilters}
             onSearchQueryChange={setKanbanSearchQuery}
@@ -1061,12 +1051,12 @@ export function KanbanContainer() {
             onAssigneesChange={setKanbanAssignees}
             onTagsChange={setKanbanTags}
             onSortChange={setKanbanSort}
-            onShowSubIssuesChange={setShowSubIssues}
+            onShowSubTasksChange={setShowSubTasks}
             onShowWorkspacesChange={setShowWorkspaces}
             hideBlocked={hideBlocked}
             onHideBlockedChange={setHideBlocked}
             onClearFilters={clearKanbanFilters}
-            onCreateIssue={handleAddTask}
+            onCreateTask={handleAddTask}
             shouldAnimateCreateButton={shouldAnimateCreateButton}
             renderFiltersDialog={(props) => <KanbanFiltersDialog {...props} />}
             isMobile={isMobile}
@@ -1087,7 +1077,7 @@ export function KanbanContainer() {
               columnClassName="auto-cols-[minmax(260px,1fr)]"
             >
               {visibleStatuses.map((status) => {
-                const issueIds = items[status.id] ?? [];
+                const taskIds = items[status.id] ?? [];
 
                 return (
                   <KanbanBoard key={status.id}>
@@ -1111,18 +1101,18 @@ export function KanbanContainer() {
                       </div>
                     </KanbanHeader>
                     <KanbanCards id={status.id}>
-                      {issueIds.map((issueId, index) => {
-                        const issue = issueMap[issueId];
-                        if (!issue) return null;
-                        const issueWorkflowAttempts =
-                          workflowAttemptsByIssueId.get(issue.id) ?? [];
-                        const issueWorkspaces =
-                          workspacesByIssueId.get(issue.id) ?? [];
+                      {taskIds.map((taskId, index) => {
+                        const task = taskMap[taskId];
+                        if (!task) return null;
+                        const taskWorkflowAttempts =
+                          workflowAttemptsByTaskId.get(task.id) ?? [];
+                        const taskWorkspaces =
+                          workspacesByTaskId.get(task.id) ?? [];
                         const workspaceIdsShownOnCard = new Set(
-                          issueWorkspaces.map((workspace) => workspace.id)
+                          taskWorkspaces.map((workspace) => workspace.id)
                         );
-                        const issueCardPullRequests = getPullRequestsForIssue(
-                          issue.id
+                        const taskCardPullRequests = getPullRequestsForTask(
+                          task.id
                         ).filter((pr) => {
                           if (!pr.workspace_id) {
                             return true;
@@ -1135,50 +1125,50 @@ export function KanbanContainer() {
 
                         return (
                           <KanbanCard
-                            key={issue.id}
-                            id={issue.id}
-                            name={issue.title}
+                            key={task.id}
+                            id={task.id}
+                            name={task.title}
                             index={index}
                             className="group"
-                            onClick={(e) => handleCardClick(issue.id, e)}
-                            isOpen={selectedKanbanIssueId === issue.id}
+                            onClick={(e) => handleCardClick(task.id, e)}
+                            isOpen={selectedKanbanTaskId === task.id}
                             isMobile={isMobile}
-                            isSelected={selectedIssueIds.has(issue.id)}
+                            isSelected={selectedTaskIds.has(task.id)}
                             dragDisabled={isMultiSelectActive}
                           >
                             <KanbanCardContent
-                              displayId={issue.simple_id}
-                              title={issue.title}
-                              description={issue.description}
-                              priority={issue.priority}
-                              tags={getTagObjectsForIssue(issue.id)}
-                              assignees={issueAssigneesMap[issue.id] ?? []}
-                              pullRequests={issueCardPullRequests}
-                              relationships={resolveRelationshipsForIssue(
-                                issue.id,
-                                getRelationshipsForIssue(issue.id),
-                                issuesById
+                              displayId={task.simple_id}
+                              title={task.title}
+                              description={task.description}
+                              priority={task.priority}
+                              tags={getTagObjectsForTask(task.id)}
+                              assignees={taskAssigneesMap[task.id] ?? []}
+                              pullRequests={taskCardPullRequests}
+                              relationships={resolveRelationshipsForTask(
+                                task.id,
+                                getRelationshipsForTask(task.id),
+                                tasksById
                               )}
-                              isSubIssue={!!issue.parent_issue_id}
+                              isSubTask={!!task.parent_task_id}
                               isMobile={isMobile}
                               onPriorityClick={(e) => {
                                 e.stopPropagation();
-                                handleCardPriorityClick(issue.id);
+                                handleCardPriorityClick(task.id);
                               }}
                               onAssigneeClick={(e) => {
                                 e.stopPropagation();
-                                handleCardAssigneeClick(issue.id);
+                                handleCardAssigneeClick(task.id);
                               }}
                               onMoreActionsClick={() =>
-                                handleCardMoreActionsClick(issue.id)
+                                handleCardMoreActionsClick(task.id)
                               }
                               tagEditProps={{
                                 allTags: tags,
-                                selectedTagIds: getTagsForIssue(issue.id).map(
+                                selectedTagIds: getTagsForTask(task.id).map(
                                   (it) => it.tag_id
                                 ),
                                 onTagToggle: (tagId) =>
-                                  handleCardTagToggle(issue.id, tagId),
+                                  handleCardTagToggle(task.id, tagId),
                                 onCreateTag: handleCreateTag,
                                 renderTagEditor: ({
                                   allTags,
@@ -1199,31 +1189,31 @@ export function KanbanContainer() {
                                 ),
                               }}
                             />
-                            {(issueWorkflowAttempts.length > 0 ||
-                              issueWorkspaces.length > 0) && (
+                            {(taskWorkflowAttempts.length > 0 ||
+                              taskWorkspaces.length > 0) && (
                               <div className="mt-base flex flex-col gap-half">
-                                {issueWorkflowAttempts.map((attempt) => (
-                                  <IssueWorkflowAttemptCard
+                                {taskWorkflowAttempts.map((attempt) => (
+                                  <TaskWorkflowAttemptCard
                                     key={attempt.id}
                                     attempt={workflowAttemptToKanbanCard(
                                       attempt
                                     )}
                                     onClick={() =>
-                                      openIssueWorkflowAttempt(
+                                      openTaskWorkflowAttempt(
                                         attempt.workflow_id
                                       )
                                     }
                                   />
                                 ))}
-                                {issueWorkspaces.map((workspace) => (
-                                  <IssueWorkspaceCard
+                                {taskWorkspaces.map((workspace) => (
+                                  <TaskWorkspaceCard
                                     key={workspace.id}
                                     workspace={workspace}
                                     onClick={
                                       workspace.localWorkspaceId
                                         ? () =>
-                                            openIssueWorkspace(
-                                              issue.id,
+                                            openTaskWorkspace(
+                                              task.id,
                                               workspace.localWorkspaceId!
                                             )
                                         : undefined
@@ -1248,20 +1238,18 @@ export function KanbanContainer() {
       ) : (
         <div className="flex-1 overflow-y-auto px-double">
           <KanbanProvider onDragEnd={handleDragEnd} className="!block !w-full">
-            <IssueListView
+            <TaskListView
               statuses={listViewStatuses}
               items={items}
-              issueMap={issueMap}
-              issueAssigneesMap={issueAssigneesMap}
-              getTagObjectsForIssue={getTagObjectsForIssue}
-              getResolvedRelationshipsForIssue={
-                getResolvedRelationshipsForIssue
-              }
-              onIssueClick={handleCardClick}
-              selectedIssueId={selectedKanbanIssueId}
-              selectedIssueIds={selectedIssueIds}
+              taskMap={taskMap}
+              taskAssigneesMap={taskAssigneesMap}
+              getTagObjectsForTask={getTagObjectsForTask}
+              getResolvedRelationshipsForTask={getResolvedRelationshipsForTask}
+              onTaskClick={handleCardClick}
+              selectedTaskId={selectedKanbanTaskId}
+              selectedTaskIds={selectedTaskIds}
               isMultiSelectActive={isMultiSelectActive}
-              onIssueCheckboxChange={handleCheckboxChange}
+              onTaskCheckboxChange={handleCheckboxChange}
             />
           </KanbanProvider>
         </div>

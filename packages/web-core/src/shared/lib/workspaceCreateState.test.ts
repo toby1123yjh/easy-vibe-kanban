@@ -7,7 +7,7 @@ import {
 describe('workspace create direct-folder state', () => {
   it('carries a project directory prefill into the persisted draft contract', () => {
     const initialState = buildWorkspaceCreateInitialState({
-      prompt: 'Fix the issue',
+      prompt: 'Fix the task',
       defaults: {
         preferredRepos: [],
         preferredDirectoryPath: 'F:\\notes',
@@ -16,7 +16,7 @@ describe('workspace create direct-folder state', () => {
 
     expect(initialState.preferredDirectoryPath).toBe('F:\\notes');
     expect(toDraftWorkspaceData(initialState)).toMatchObject({
-      message: 'Fix the issue',
+      message: 'Fix the task',
       repos: [],
       directory_path: 'F:\\notes',
     });

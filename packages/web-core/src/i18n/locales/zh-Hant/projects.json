@@ -35,7 +35,7 @@
   },
   "createProjectDialog": {
     "workspaceLabel": "工作目錄（必選）",
-    "workspaceHint": "為後續任務設定預設位置。不會建立執行工作空間，也不會啟動智能體。",
+    "workspaceHint": "選擇專案目錄。已有專案會載入原來的任務，不會啟動智能體。",
     "chooseWorkspace": "選擇資料夾或 Git 儲存庫",
     "changeWorkspace": "更改位置",
     "machineLabel": "所屬機器",
@@ -53,11 +53,12 @@
     "namePlaceholder": "輸入專案名稱",
     "selectColor": "選擇專案顏色",
     "creating": "正在建立…",
-    "createButton": "建立專案"
+    "createButton": "建立專案",
+    "openedWorkspaceSaveFailed": "專案已開啟，但 Git 設定儲存失敗。可重試儲存；取消不會刪除專案和檔案。"
   },
   "deleteProjectDialog": {
     "title": "刪除專案？",
-    "description": "這將永久刪除「{{name}}」及其所有議題。此操作無法復原。",
+    "description": "這將永久刪除「{{name}}」及其所有任務。此操作無法復原。",
     "error": "刪除專案失敗，請重試。"
   },
   "scoped": {
@@ -92,7 +93,7 @@
     "noMatchesTitle": "沒有符合的專案",
     "noMatchesDescription": "請嘗試其他專案名稱。",
     "emptyTitle": "尚無專案",
-    "emptyDescription": "建立專案來整理 Issue 與任務。",
+    "emptyDescription": "建立專案來組織任務和執行。",
     "degradedTitle": "專案可能不是最新狀態",
     "degradedDescription": "重試失敗請求期間，已載入的專案仍可使用。",
     "searchingRemaining": "正在搜尋其餘專案…",

@@ -16,7 +16,7 @@ const now = '2026-09-03T00:00:00.000Z';
 function createGroup(candidateCount: number): ArenaGroupResponse {
   return {
     id: 'arena-fixture',
-    task_id: 'task-fixture',
+    execution_id: 'task-fixture',
     prompt: 'Compare candidate implementations',
     base_branch: 'main',
     mode: 'design',

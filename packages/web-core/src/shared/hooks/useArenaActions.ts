@@ -15,6 +15,7 @@ import {
 } from '@/shared/lib/arenaApi';
 import { agentRunsApi } from '@/shared/lib/agentRunApi';
 import { arenaQueryKeys } from '@/shared/hooks/useArenaGroup';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 interface UseArenaActionsResult {
   promote: UseMutationResult<
@@ -61,17 +62,24 @@ export interface ArenaStopAllResult {
  */
 export function useArenaActions(
   groupId: string,
-  issueId: string | null
+  taskId: string | null
 ): UseArenaActionsResult {
   const queryClient = useQueryClient();
+  const hostId = useHostId();
 
-  const onSettled = () => {
+  const onSettled = (
+    _data: unknown,
+    _error: Error | null,
+    _variables: unknown,
+    context: { hostId: string | null } | undefined
+  ) => {
+    const mutationHostId = context?.hostId ?? hostId;
     void queryClient.invalidateQueries({
-      queryKey: arenaQueryKeys.group(groupId),
+      queryKey: arenaQueryKeys.group(groupId, mutationHostId),
     });
-    if (issueId) {
+    if (taskId) {
       void queryClient.invalidateQueries({
-        queryKey: arenaQueryKeys.activeForIssue(issueId),
+        queryKey: arenaQueryKeys.activeForTask(taskId, mutationHostId),
       });
     }
   };
@@ -79,8 +87,12 @@ export function useArenaActions(
   const promote = useMutation({
     mutationFn: ({ candidateId }: { candidateId: string }) =>
       arenaApi.promote(groupId, { candidate_id: candidateId }),
-    onSuccess: (data) => {
-      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    onMutate: () => ({ hostId }),
+    onSuccess: (data, _variables, context) => {
+      queryClient.setQueryData(
+        arenaQueryKeys.group(groupId, context?.hostId ?? hostId),
+        data
+      );
     },
     onSettled,
   });
@@ -93,27 +105,47 @@ export function useArenaActions(
       workspaceId: string;
       payload: RetryArenaRequest;
     }) => arenaApi.retry(groupId, workspaceId, payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    onMutate: () => ({ hostId }),
+    onSuccess: (data, _variables, context) => {
+      queryClient.setQueryData(
+        arenaQueryKeys.group(groupId, context?.hostId ?? hostId),
+        data
+      );
     },
     onSettled,
   });
 
-  const dissolve = useMutation({
+  const dissolve = useMutation<
+    DissolveArenaResponse,
+    Error,
+    void,
+    { hostId: string | null }
+  >({
     mutationFn: () => arenaApi.dissolve(groupId),
+    onMutate: () => ({ hostId }),
     onSettled,
   });
 
-  const close = useMutation({
+  const close = useMutation<
+    CloseArenaResponse,
+    Error,
+    void,
+    { hostId: string | null }
+  >({
     mutationFn: () => arenaApi.close(groupId),
+    onMutate: () => ({ hostId }),
     onSettled,
   });
 
   const message = useMutation({
     mutationFn: (payload: ArenaMessageRequest) =>
       arenaApi.message(groupId, payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    onMutate: () => ({ hostId }),
+    onSuccess: (data, _variables, context) => {
+      queryClient.setQueryData(
+        arenaQueryKeys.group(groupId, context?.hostId ?? hostId),
+        data
+      );
     },
     onSettled,
   });
@@ -121,8 +153,12 @@ export function useArenaActions(
   const startImplementation = useMutation({
     mutationFn: (payload: StartArenaImplementationRequest) =>
       arenaApi.startImplementation(groupId, payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(arenaQueryKeys.group(groupId), data);
+    onMutate: () => ({ hostId }),
+    onSuccess: (data, _variables, context) => {
+      queryClient.setQueryData(
+        arenaQueryKeys.group(groupId, context?.hostId ?? hostId),
+        data
+      );
     },
     onSettled,
   });

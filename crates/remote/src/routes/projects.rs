@@ -24,7 +24,7 @@ use crate::{
 
 /// Mutation definition for Projects - provides both router and TypeScript metadata.
 pub fn mutation() -> MutationBuilder<Project, CreateProjectRequest, UpdateProjectRequest> {
-    MutationBuilder::new("projects")
+    MutationBuilder::new()
         .list(list_projects)
         .get(get_project)
         .create(create_project)

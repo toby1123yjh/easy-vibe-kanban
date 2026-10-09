@@ -135,7 +135,7 @@ impl WorkflowToolError {
 #[tool_router(router = workflow_tools_router, vis = "pub")]
 impl McpServer {
     #[tool(
-        description = "Read verified local Project, main Session, publication and bound Issue/instance. This read never creates work or starts an Agent."
+        description = "Read verified local Project, main Session, publication and bound Task/instance. This read never creates work or starts an Agent."
     )]
     async fn workflow_context(&self) -> ToolCallResult {
         self.workflow_tool("workflow_context", &serde_json::json!({}))

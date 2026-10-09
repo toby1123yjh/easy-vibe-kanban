@@ -17,7 +17,7 @@ export type RelationshipDisplayType =
 
 export interface RelationshipBadgeProps {
   displayType: RelationshipDisplayType;
-  relatedIssueDisplayId: string;
+  relatedTaskDisplayId: string;
   compact?: boolean;
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
@@ -48,7 +48,7 @@ function getRelationshipLabel(displayType: RelationshipDisplayType): string {
 
 export function RelationshipBadge({
   displayType,
-  relatedIssueDisplayId,
+  relatedTaskDisplayId,
   compact,
   className,
   onClick,
@@ -85,7 +85,7 @@ export function RelationshipBadge({
     >
       <Icon className="size-icon-xs" weight="bold" />
       <span>
-        {compact ? relatedIssueDisplayId : `${label} ${relatedIssueDisplayId}`}
+        {compact ? relatedTaskDisplayId : `${label} ${relatedTaskDisplayId}`}
       </span>
     </span>
   );

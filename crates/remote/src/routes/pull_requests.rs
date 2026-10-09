@@ -37,6 +37,7 @@ struct CreatePullRequestRequest {
     pub merged_at: Option<DateTime<Utc>>,
     pub merge_commit_sha: Option<String>,
     pub target_branch_name: String,
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
     #[allow(dead_code)]
     pub local_workspace_id: Option<Uuid>,

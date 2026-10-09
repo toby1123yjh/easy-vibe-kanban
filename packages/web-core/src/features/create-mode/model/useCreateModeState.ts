@@ -13,7 +13,7 @@ import type {
   Repo,
 } from 'shared/types';
 import { ScratchType } from 'shared/types';
-import { PROJECT_ISSUES_SHAPE } from 'shared/remote-types';
+import { PROJECT_TASKS_SHAPE } from 'shared/remote-types';
 import { useScratch } from '@/shared/hooks/useScratch';
 import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -24,7 +24,7 @@ import { useWorkspaceCreateDefaults } from '@/shared/hooks/useWorkspaceCreateDef
 import { getValidProjectWorkspaceDefault } from '@/shared/hooks/useProjectRepoDefaults';
 import type {
   CreateModeInitialState,
-  LinkedIssue,
+  LinkedTask,
 } from '@/shared/types/createMode';
 
 // ============================================================================
@@ -45,7 +45,7 @@ interface DraftState {
   repos: SelectedRepo[];
   directFolderPath: string;
   message: string;
-  linkedIssue: LinkedIssue | null;
+  linkedTask: LinkedTask | null;
   executorConfig: ExecutorConfig | null;
   attachments: DraftWorkspaceAttachment[];
 }
@@ -65,8 +65,8 @@ type DraftAction =
   | { type: 'SET_MESSAGE'; message: string }
   | { type: 'CLEAR_REPOS' }
   | { type: 'CLEAR' }
-  | { type: 'CLEAR_LINKED_ISSUE' }
-  | { type: 'RESOLVE_LINKED_ISSUE'; simpleId: string; title: string }
+  | { type: 'CLEAR_LINKED_TASK' }
+  | { type: 'RESOLVE_LINKED_TASK'; simpleId: string; title: string }
   | {
       type: 'SET_EXECUTOR_CONFIG';
       config: ExecutorConfig | null;
@@ -83,7 +83,7 @@ const draftInitialState: DraftState = {
   repos: [],
   directFolderPath: '',
   message: '',
-  linkedIssue: null,
+  linkedTask: null,
   executorConfig: null,
   attachments: [],
 };
@@ -158,15 +158,15 @@ function draftReducer(state: DraftState, action: DraftAction): DraftState {
     case 'CLEAR':
       return { ...draftInitialState, phase: 'ready' };
 
-    case 'CLEAR_LINKED_ISSUE':
-      return { ...state, linkedIssue: null };
+    case 'CLEAR_LINKED_TASK':
+      return { ...state, linkedTask: null };
 
-    case 'RESOLVE_LINKED_ISSUE':
-      if (!state.linkedIssue) return state;
+    case 'RESOLVE_LINKED_TASK':
+      if (!state.linkedTask) return state;
       return {
         ...state,
-        linkedIssue: {
-          ...state.linkedIssue,
+        linkedTask: {
+          ...state.linkedTask,
           simpleId: action.simpleId,
           title: action.title,
         },
@@ -210,7 +210,7 @@ interface UseCreateModeStateResult {
   message: string;
   isLoading: boolean;
   hasInitialValue: boolean;
-  linkedIssue: LinkedIssue | null;
+  linkedTask: LinkedTask | null;
   executorConfig: ExecutorConfig | null;
   setMessage: (message: string) => void;
   addRepo: (repo: Repo) => void;
@@ -219,7 +219,7 @@ interface UseCreateModeStateResult {
   setTargetBranch: (repoId: string, branch: string) => void;
   setDirectFolderPath: (path: string) => void;
   clearDraft: () => Promise<void>;
-  clearLinkedIssue: () => void;
+  clearLinkedTask: () => void;
   setExecutorConfig: (config: ExecutorConfig | null) => void;
   attachments: DraftWorkspaceAttachment[];
   setAttachments: (attachments: DraftWorkspaceAttachment[]) => void;
@@ -317,7 +317,7 @@ export function useCreateModeState({
   const [projectDefaultsStatus, setProjectDefaultsStatus] = useState<
     'pending' | 'applied' | 'empty' | 'n/a'
   >('pending');
-  const sourceWorkspaceId = state.linkedIssue ? null : lastWorkspaceId;
+  const sourceWorkspaceId = state.linkedTask ? null : lastWorkspaceId;
 
   const shouldLoadWorkspaceDefaults =
     state.phase === 'ready' && !localWorkspacesLoading;
@@ -329,10 +329,10 @@ export function useCreateModeState({
     });
 
   const hasResolvedInitialWorkspaceDefaults =
-    (state.phase === 'ready' && !state.linkedIssue) ||
+    (state.phase === 'ready' && !state.linkedTask) ||
     (state.phase === 'ready' &&
       !localWorkspacesLoading &&
-      (!state.linkedIssue?.remoteProjectId ||
+      (!state.linkedTask?.remoteProjectId ||
         projectDefaultsStatus !== 'pending') &&
       hasResolvedPreferredRepos &&
       (preferredRepos.length === 0 ||
@@ -352,14 +352,14 @@ export function useCreateModeState({
   // When no linked issue with a project, mark project defaults as not applicable
   useEffect(() => {
     if (state.phase !== 'ready') return;
-    if (!state.linkedIssue?.remoteProjectId) {
+    if (!state.linkedTask?.remoteProjectId) {
       setProjectDefaultsStatus('n/a');
     } else if (state.repos.length > 0 || state.directFolderPath) {
       setProjectDefaultsStatus('applied');
     }
   }, [
     state.phase,
-    state.linkedIssue?.remoteProjectId,
+    state.linkedTask?.remoteProjectId,
     state.repos.length,
     state.directFolderPath,
   ]);
@@ -385,7 +385,7 @@ export function useCreateModeState({
     if (!hasResolvedPreferredRepos) return;
     // When a project is linked, wait for project defaults to resolve first
     if (
-      state.linkedIssue?.remoteProjectId &&
+      state.linkedTask?.remoteProjectId &&
       projectDefaultsStatus === 'pending'
     )
       return;
@@ -393,7 +393,7 @@ export function useCreateModeState({
 
     hasAppliedRepoDefaultsRef.current = true;
     // Standalone chats get a fresh managed directory, never a previous chat's repo.
-    if (!state.linkedIssue?.remoteProjectId) return;
+    if (!state.linkedTask?.remoteProjectId) return;
     if (state.repos.length > 0 || state.directFolderPath) return;
     if (preferredRepos.length === 0) return;
 
@@ -411,7 +411,7 @@ export function useCreateModeState({
     state.directFolderPath,
     preferredRepos,
     projectDefaultsStatus,
-    state.linkedIssue?.remoteProjectId,
+    state.linkedTask?.remoteProjectId,
   ]);
 
   // ============================================================================
@@ -420,7 +420,7 @@ export function useCreateModeState({
   const scratchDefaultsProjectRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const remoteProjectId = state.linkedIssue?.remoteProjectId;
+    const remoteProjectId = state.linkedTask?.remoteProjectId;
     if (!remoteProjectId) return;
     if (state.repos.length > 0 || state.directFolderPath) return;
     const lookupKey = `${hostId ?? 'local'}:${remoteProjectId}`;
@@ -487,7 +487,7 @@ export function useCreateModeState({
     };
   }, [
     hostId,
-    state.linkedIssue?.remoteProjectId,
+    state.linkedTask?.remoteProjectId,
     state.repos.length,
     state.directFolderPath,
   ]);
@@ -528,12 +528,12 @@ export function useCreateModeState({
       })),
       directory_path: state.directFolderPath.trim() || null,
       executor_config: state.executorConfig ?? null,
-      linked_issue: state.linkedIssue
+      linked_task: state.linkedTask
         ? {
-            issue_id: state.linkedIssue.issueId,
-            simple_id: state.linkedIssue.simpleId ?? '',
-            title: state.linkedIssue.title ?? '',
-            remote_project_id: state.linkedIssue.remoteProjectId,
+            task_id: state.linkedTask.taskId,
+            simple_id: state.linkedTask.simpleId ?? '',
+            title: state.linkedTask.title ?? '',
+            remote_project_id: state.linkedTask.remoteProjectId,
           }
         : null,
       attachments: state.attachments,
@@ -543,7 +543,7 @@ export function useCreateModeState({
     state.message,
     state.repos,
     state.directFolderPath,
-    state.linkedIssue,
+    state.linkedTask,
     state.executorConfig,
     state.attachments,
     debouncedSave,
@@ -552,29 +552,28 @@ export function useCreateModeState({
   // ============================================================================
   // Resolve linked issue details from Electric (when simpleId/title are missing)
   // ============================================================================
-  const needsIssueResolution =
-    !!state.linkedIssue && !state.linkedIssue.simpleId;
-  const issueProjectId = state.linkedIssue?.remoteProjectId ?? '';
+  const needsTaskResolution = !!state.linkedTask && !state.linkedTask.simpleId;
+  const taskProjectId = state.linkedTask?.remoteProjectId ?? '';
 
-  const { data: issuesForResolution } = useShape(
-    PROJECT_ISSUES_SHAPE,
-    { project_id: issueProjectId },
-    { enabled: needsIssueResolution && !!issueProjectId }
+  const { data: tasksForResolution } = useShape(
+    PROJECT_TASKS_SHAPE,
+    { project_id: taskProjectId },
+    { enabled: needsTaskResolution && !!taskProjectId }
   );
 
   useEffect(() => {
-    if (!needsIssueResolution || !state.linkedIssue) return;
-    const issue = issuesForResolution.find(
-      (i) => i.id === state.linkedIssue!.issueId
+    if (!needsTaskResolution || !state.linkedTask) return;
+    const task = tasksForResolution.find(
+      (i) => i.id === state.linkedTask!.taskId
     );
-    if (issue) {
+    if (task) {
       dispatch({
-        type: 'RESOLVE_LINKED_ISSUE',
-        simpleId: issue.simple_id,
-        title: issue.title,
+        type: 'RESOLVE_LINKED_TASK',
+        simpleId: task.simple_id,
+        title: task.title,
       });
     }
-  }, [needsIssueResolution, issuesForResolution, state.linkedIssue]);
+  }, [needsTaskResolution, tasksForResolution, state.linkedTask]);
 
   // ============================================================================
   // Derived state
@@ -630,8 +629,8 @@ export function useCreateModeState({
     }
   }, [deleteScratch]);
 
-  const clearLinkedIssue = useCallback(() => {
-    dispatch({ type: 'CLEAR_LINKED_ISSUE' });
+  const clearLinkedTask = useCallback(() => {
+    dispatch({ type: 'CLEAR_LINKED_TASK' });
   }, []);
 
   const setExecutorConfig = useCallback((config: ExecutorConfig | null) => {
@@ -654,7 +653,7 @@ export function useCreateModeState({
     message: state.message,
     isLoading: scratchLoading,
     hasInitialValue: state.phase === 'ready',
-    linkedIssue: state.linkedIssue,
+    linkedTask: state.linkedTask,
     executorConfig: state.executorConfig,
     setMessage,
     addRepo,
@@ -663,7 +662,7 @@ export function useCreateModeState({
     setTargetBranch,
     setDirectFolderPath,
     clearDraft,
-    clearLinkedIssue,
+    clearLinkedTask,
     setExecutorConfig,
     attachments: state.attachments,
     setAttachments,

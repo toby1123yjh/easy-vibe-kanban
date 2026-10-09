@@ -25,7 +25,7 @@ export function useFixture() {
   );
 }
 type ChatProps = ComponentProps<typeof RealCreateChatBox>;
-type Submission = { data: Record<string, unknown>; linkToIssue?: unknown };
+type Submission = { data: Record<string, unknown>; linkToTask?: unknown };
 interface FixtureState {
   repos: (typeof repo)[];
   targetBranches: Record<string, string>;
@@ -33,9 +33,9 @@ interface FixtureState {
   message: string;
   hasInitialValue: boolean;
   hasResolvedInitialWorkspaceDefaults: boolean;
-  linkedIssue: {
+  linkedTask: {
     remoteProjectId: string;
-    issueId: string;
+    taskId: string;
     simpleId: string;
   } | null;
   hostId: string;
@@ -51,8 +51,8 @@ export const fixture = {
     message: "Hello agent",
     hasInitialValue: !params.has("loading"),
     hasResolvedInitialWorkspaceDefaults: !params.has("defaultsLoading"),
-    linkedIssue: params.has("project")
-      ? { remoteProjectId: "project-1", issueId: "issue-1", simpleId: "P-1" }
+    linkedTask: params.has("project")
+      ? { remoteProjectId: "project-1", taskId: "issue-1", simpleId: "P-1" }
       : null,
     hostId: "host-a",
   } as FixtureState,
@@ -105,8 +105,8 @@ const actions = {
   clearDraft: async () => {
     fixture.clears++;
   },
-  clearLinkedIssue() {
-    fixture.state.linkedIssue = null;
+  clearLinkedTask() {
+    fixture.state.linkedTask = null;
     notify();
   },
   setExecutorConfig() {},
@@ -254,12 +254,12 @@ export function CreateChatBox(props: ChatProps) {
         Send
       </button>
       {props.projectSelector}
-      {props.linkedIssue && (
+      {props.linkedTask && (
         <div data-testid="linked-issue">
-          {props.linkedIssue.simpleId}
-          {props.linkedIssue.onRemove && (
-            <button onClick={props.linkedIssue.onRemove}>
-              Remove Issue link
+          {props.linkedTask.simpleId}
+          {props.linkedTask.onRemove && (
+            <button onClick={props.linkedTask.onRemove}>
+              Remove Task link
             </button>
           )}
         </div>

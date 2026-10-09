@@ -48,7 +48,7 @@ impl ServerHandler for McpServer {
 
         let preamble = match self.mode() {
             McpMode::Global => {
-                "A Vibe Kanban MCP server for task, issue, repository, workspace, and session management."
+                "A Vibe Kanban MCP server for task, execution, repository, workspace, and session management."
             }
             McpMode::Orchestrator => {
                 "An orchestrator-scoped Vibe Kanban MCP server with tools limited to the configured workspace and orchestrator session context."
@@ -64,7 +64,7 @@ impl ServerHandler for McpServer {
         );
         if self.context.is_some() {
             instruction = format!(
-                "Use 'get_context' to fetch project, issue, workspace, and orchestrator-session metadata for the active MCP context when available. {}",
+                "Use 'get_context' to fetch project, task, workspace, and orchestrator-session metadata for the active MCP context when available. {}",
                 instruction
             );
         }

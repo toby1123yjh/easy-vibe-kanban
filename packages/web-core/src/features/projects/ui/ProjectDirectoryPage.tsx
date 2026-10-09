@@ -217,7 +217,9 @@ export function ProjectDirectoryPage() {
     if (!organizationId) return;
     const result = await CreateRemoteProjectDialog.show({ organizationId });
     if (result.action === 'created' && result.project) {
-      navigation.goToProject(result.project.id);
+      navigation.goToProject(result.project.id, {
+        hostId: result.hostId ?? null,
+      });
       // Discovery refresh must not hold the user on the directory after creation.
       // Its source owns the error/retry state independently of navigation.
       void projectsState?.retry().catch(() => undefined);
@@ -353,8 +355,7 @@ export function ProjectDirectoryPage() {
                   defaultValue: 'Try a different project name.',
                 })
               : t('directory.emptyDescription', {
-                  defaultValue:
-                    'Create a project to organise issues and tasks.',
+                  defaultValue: 'Create a project to organise tasks and tasks.',
                 })
           }
         />

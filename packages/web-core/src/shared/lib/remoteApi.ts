@@ -8,13 +8,15 @@ import type {
   InitUploadResponse,
   ListRelayHostsResponse,
   RelayHost,
-  UpdateIssueRequest,
+  Project,
+  UpdateTaskRequest,
   UpdateProjectRequest,
   UpdateProjectStatusRequest,
 } from 'shared/remote-types';
 import { getAuthRuntime } from '@/shared/lib/auth/runtime';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { syncRelayApiBaseWithRemote } from '@/shared/lib/relayBackendApi';
+import { getCurrentHostId } from '@/shared/providers/HostIdProvider';
 
 const BUILD_TIME_API_BASE = import.meta.env.VITE_VK_SHARED_API_BASE || '';
 
@@ -29,6 +31,28 @@ export function setLocalRemoteApiEnabled(enabled: boolean) {
 
 export function isLocalRemoteApiEnabled(): boolean {
   return _localRemoteApiEnabled && !getRemoteApiUrl();
+}
+
+/** Open a directory's existing project identity, or create one if it is new. */
+export async function openLocalProjectDirectory(
+  input: { directory_path: string; name: string; color: string; id?: string },
+  hostId: string | null
+): Promise<Project> {
+  const response = await makeLocalApiRequest('/api/local/v1/projects/open', {
+    method: 'POST',
+    hostScope: 'explicit',
+    hostId,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw await parseErrorResponse(
+      response,
+      'Failed to open project directory'
+    );
+  }
+  const result = (await response.json()) as { data: Project };
+  return result.data;
 }
 
 function withDefaultJsonHeaders<T extends RequestInit>(
@@ -79,14 +103,16 @@ export const REMOTE_API_URL = BUILD_TIME_API_BASE;
 export const makeRequest = async (
   path: string,
   options: RequestInit = {},
-  retryOn401 = true
+  retryOn401 = true,
+  hostId: string | null = getCurrentHostId()
 ): Promise<Response> => {
   if (isLocalRemoteApiEnabled()) {
     return makeLocalApiRequest(
       toLocalRemoteApiPath(path),
       withDefaultJsonHeaders({
         ...options,
-        hostScope: 'none' as const,
+        hostScope: 'explicit' as const,
+        hostId,
       })
     );
   }
@@ -137,9 +163,9 @@ async function makeAuthenticatedRequest(
   return response;
 }
 
-export interface BulkUpdateIssueItem {
+export interface BulkUpdateTaskItem {
   id: string;
-  changes: Partial<UpdateIssueRequest>;
+  changes: Partial<UpdateTaskRequest>;
 }
 
 export interface BulkUpdateProjectItem {
@@ -162,18 +188,24 @@ export async function bulkUpdateProjects(
   }
 }
 
-export async function bulkUpdateIssues(
-  updates: BulkUpdateIssueItem[]
+export async function bulkUpdateTasks(
+  updates: BulkUpdateTaskItem[],
+  hostId = getCurrentHostId()
 ): Promise<void> {
-  const response = await makeRequest('/v1/issues/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      updates: updates.map((u) => ({ id: u.id, ...u.changes })),
-    }),
-  });
+  const response = await makeRequest(
+    '/v1/tasks/bulk',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        updates: updates.map((u) => ({ id: u.id, ...u.changes })),
+      }),
+    },
+    true,
+    hostId
+  );
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.message || 'Failed to bulk update issues');
+    throw new Error(error.message || 'Failed to bulk update tasks');
   }
 }
 
@@ -183,14 +215,20 @@ export interface BulkUpdateProjectStatusItem {
 }
 
 export async function bulkUpdateProjectStatuses(
-  updates: BulkUpdateProjectStatusItem[]
+  updates: BulkUpdateProjectStatusItem[],
+  hostId = getCurrentHostId()
 ): Promise<void> {
-  const response = await makeRequest('/v1/project_statuses/bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      updates: updates.map((u) => ({ id: u.id, ...u.changes })),
-    }),
-  });
+  const response = await makeRequest(
+    '/v1/project_statuses/bulk',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        updates: updates.map((u) => ({ id: u.id, ...u.changes })),
+      }),
+    },
+    true,
+    hostId
+  );
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message || 'Failed to bulk update project statuses');
@@ -334,21 +372,18 @@ export async function confirmAttachmentUpload(
   return response.json();
 }
 
-export async function commitIssueAttachments(
-  issueId: string,
+export async function commitTaskAttachments(
+  taskId: string,
   request: CommitAttachmentsRequest
 ): Promise<CommitAttachmentsResponse> {
-  const response = await makeRequest(
-    `/v1/issues/${issueId}/attachments/commit`,
-    {
-      method: 'POST',
-      body: JSON.stringify(request),
-    }
-  );
+  const response = await makeRequest(`/v1/tasks/${taskId}/attachments/commit`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
   if (!response.ok) {
     throw await parseErrorResponse(
       response,
-      'Failed to commit issue attachments'
+      'Failed to commit task attachments'
     );
   }
   return response.json();

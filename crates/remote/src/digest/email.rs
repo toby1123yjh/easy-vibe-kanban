@@ -104,7 +104,7 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
     let issue_label = issue_label(payload);
 
     let (title, body) = match row.notification_type {
-        NotificationType::IssueCommentAdded => (
+        NotificationType::TaskCommentAdded => (
             format!("{actor_name} commented on {issue_label}"),
             payload
                 .comment_preview
@@ -114,7 +114,7 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
                 .map(|value| format!("\"{}\"", truncate_text(&value, 177)))
                 .or_else(|| issue_context(payload)),
         ),
-        NotificationType::IssueStatusChanged => {
+        NotificationType::TaskStatusChanged => {
             let old_status = clean_optional_text(payload.old_status_name.as_deref());
             let new_status = clean_optional_text(payload.new_status_name.as_deref());
 
@@ -130,11 +130,11 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
 
             (title, issue_context(payload))
         }
-        NotificationType::IssueAssigneeChanged => (
+        NotificationType::TaskAssigneeChanged => (
             format!("You were assigned to {issue_label} by {actor_name}"),
             issue_context(payload),
         ),
-        NotificationType::IssuePriorityChanged => {
+        NotificationType::TaskPriorityChanged => {
             let old_priority = payload.old_priority.map(priority_label);
             let new_priority = payload.new_priority.map(priority_label);
 
@@ -158,11 +158,11 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
 
             (title, body)
         }
-        NotificationType::IssueUnassigned => (
+        NotificationType::TaskUnassigned => (
             format!("{actor_name} unassigned you from {issue_label}"),
             issue_context(payload),
         ),
-        NotificationType::IssueCommentReaction => {
+        NotificationType::TaskCommentReaction => {
             let emoji = clean_optional_text(payload.emoji.as_deref());
             let title = match &emoji {
                 Some(emoji) => {
@@ -173,11 +173,11 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
             let body = emoji.map(|emoji| format!("Reacted with {emoji} to your comment."));
             (title, body)
         }
-        NotificationType::IssueDeleted => (
+        NotificationType::TaskDeleted => (
             format!("{actor_name} deleted {issue_label}"),
             issue_context(payload),
         ),
-        NotificationType::IssueTitleChanged => {
+        NotificationType::TaskTitleChanged => {
             let new_title = clean_optional_text(payload.new_title.as_deref());
             let title = new_title
                 .as_ref()
@@ -188,7 +188,7 @@ fn build_digest_copy(row: &NotificationDigestRow) -> DigestCopy {
                 .or_else(|| issue_context(payload));
             (title, body)
         }
-        NotificationType::IssueDescriptionChanged => (
+        NotificationType::TaskDescriptionChanged => (
             format!("{actor_name} changed the description on {issue_label}"),
             issue_context(payload).map(|issue| format!("Updated the description on {issue}.")),
         ),
@@ -209,12 +209,12 @@ fn issue_label(payload: &NotificationPayload) -> String {
     clean_optional_text(payload.issue_simple_id.as_deref()).unwrap_or_else(|| "issue".to_string())
 }
 
-fn priority_label(priority: api_types::IssuePriority) -> &'static str {
+fn priority_label(priority: api_types::TaskPriority) -> &'static str {
     match priority {
-        api_types::IssuePriority::Urgent => "Urgent",
-        api_types::IssuePriority::High => "High",
-        api_types::IssuePriority::Medium => "Medium",
-        api_types::IssuePriority::Low => "Low",
+        api_types::TaskPriority::Urgent => "Urgent",
+        api_types::TaskPriority::High => "High",
+        api_types::TaskPriority::Medium => "Medium",
+        api_types::TaskPriority::Low => "Low",
     }
 }
 

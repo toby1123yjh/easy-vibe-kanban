@@ -1,4 +1,4 @@
-import type { IssuePriority } from 'shared/remote-types';
+import type { TaskPriority } from 'shared/remote-types';
 
 export interface RepoItem {
   id: string;
@@ -12,7 +12,7 @@ export interface StatusItem {
 }
 
 export interface PriorityItem {
-  id: IssuePriority | null;
+  id: TaskPriority | null;
   name: string;
 }
 

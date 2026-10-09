@@ -58,7 +58,7 @@ for (const width of [375, 1440]) {
   });
 }
 
-test("Discuss and Issue column actions request the same composer without creating an execution", async ({
+test("Discuss and Task column actions request the same composer without creating an execution", async ({
   page,
 }) => {
   const writes: string[] = [];
@@ -81,14 +81,14 @@ test("Discuss and Issue column actions request the same composer without creatin
     .click();
   await expect(page.getByTestId("issue-composer-requests")).toHaveText("1");
   await page
-    .getByRole("button", { name: "Create issue in Todo", exact: true })
+    .getByRole("button", { name: "Create task in Todo", exact: true })
     .click();
   await expect(page.getByTestId("issue-composer-requests")).toHaveText("2");
   await expect(page.locator("html")).toHaveAttribute("data-fixture-route", "/");
   expect(writes).toEqual([]);
 });
 
-test("a missing Issue composer cannot fall back to standalone session creation", async ({
+test("a missing Task composer cannot fall back to standalone session creation", async ({
   page,
 }) => {
   await page.route("**/api/sessions/recent?*", (route) =>
@@ -103,7 +103,7 @@ test("a missing Issue composer cannot fall back to standalone session creation",
   await expect(page.getByTestId("issue-composer-requests")).toHaveText("0");
 });
 
-test("sessions stay out of Issue columns and open the existing session", async ({
+test("sessions stay out of Task columns and open the existing session", async ({
   page,
 }) => {
   await page.route("**/api/sessions/recent?*", (route) =>
@@ -115,14 +115,14 @@ test("sessions stay out of Issue columns and open the existing session", async (
             {
               id: "session-1",
               workspace_id: "workspace-1",
-              task_id: null,
+              execution_id: null,
               title: "Independent conversation",
             },
             {
               id: "task-session",
               workspace_id: "workspace-2",
-              task_id: "task-1",
-              title: "Issue execution",
+              execution_id: "task-1",
+              title: "Task execution",
             },
           ],
           next_cursor: null,
@@ -138,8 +138,8 @@ test("sessions stay out of Issue columns and open the existing session", async (
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.getByText("Issue execution")).toHaveCount(0);
-  await expect(page.locator("[data-issue-id]")).toHaveCount(0);
+  await expect(page.getByText("Task execution")).toHaveCount(0);
+  await expect(page.locator("[data-task-id]")).toHaveCount(0);
   await expect(column.locator('[aria-roledescription="sortable"]')).toHaveCount(
     0,
   );

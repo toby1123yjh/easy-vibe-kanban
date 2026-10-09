@@ -9,6 +9,9 @@ export default defineConfig({
     alias: [
       ...[
         "@/shared/integrations/electric/hooks",
+        "@/shared/lib/remoteApi",
+        "@/shared/lib/localApiTransport",
+        "@/shared/lib/electric/collections",
         "@/shared/dialogs/settings/settings/SettingsHostContext",
         "@/shared/dialogs/shared/WorkspaceTargetDialog",
         "@/shared/hooks/useProjectRepoDefaults",

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use api_types::{Issue, ListProjectStatusesResponse, ProjectStatus};
+use api_types::{ListProjectStatusesResponse, ProjectStatus, Task};
 use db::models::tag::Tag;
 use executors::executors::BaseCodingAgent;
 use regex::Regex;
@@ -345,13 +345,13 @@ impl McpServer {
         workspace_id: Uuid,
         issue_id: Uuid,
     ) -> Result<(), ToolError> {
-        let issue_url = self.url(&format!("/api/remote/issues/{}", issue_id));
-        let issue: Issue = self.send_json(self.client.get(&issue_url)).await?;
+        let issue_url = self.url(&format!("/api/remote/tasks/{}", issue_id));
+        let issue: Task = self.send_json(self.client.get(&issue_url)).await?;
 
         let link_url = self.url(&format!("/api/workspaces/{}/links", workspace_id));
         let link_payload = serde_json::json!({
             "project_id": issue.project_id,
-            "issue_id": issue_id,
+            "task_id": issue_id,
         });
         self.send_empty_json(self.client.post(&link_url).json(&link_payload))
             .await

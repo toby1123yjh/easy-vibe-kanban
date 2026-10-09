@@ -8,20 +8,20 @@ import { Button } from '@vibe/ui/components/Button';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
 import { useAppShellProjects } from '@/shared/hooks/useAppShellProjects';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
-import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
+import { useDeleteExecutionSession } from '@/shared/hooks/useDeleteExecutionSession';
 import { DEFAULT_PROJECT_ID } from '@/shared/lib/defaultProject';
 import { sessionRoute } from '@/features/app-shell/model/appShell';
 
 interface ProjectSessionsProps {
   projectId: string;
   variant?: 'list' | 'column';
-  onCreateIssue?: () => void;
+  onCreateTask?: () => void;
 }
 
 export function ProjectSessions({
   projectId,
   variant = 'list',
-  onCreateIssue,
+  onCreateTask,
 }: ProjectSessionsProps) {
   const shell = useAppShellProjects();
   return (
@@ -29,7 +29,7 @@ export function ProjectSessions({
       key={`${shell?.scopeKey}:${projectId}`}
       projectId={projectId}
       variant={variant}
-      onCreateIssue={onCreateIssue}
+      onCreateTask={onCreateTask}
     />
   );
 }
@@ -37,7 +37,7 @@ export function ProjectSessions({
 function ProjectSessionsContent({
   projectId,
   variant,
-  onCreateIssue,
+  onCreateTask,
 }: ProjectSessionsProps) {
   const { t } = useTranslation('common');
   const shell = useAppShellProjects();
@@ -61,7 +61,7 @@ function ProjectSessionsContent({
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     refetchInterval: 10_000,
   });
-  const { deleteSession, pendingSessionId } = useDeleteTaskSession({
+  const { deleteSession, pendingSessionId } = useDeleteExecutionSession({
     hostId,
     scopeKey: `${shell?.scopeKey}:${projectId}`,
     onDeleted: () => {
@@ -73,7 +73,7 @@ function ProjectSessionsContent({
       (
         query.data?.pages
           .flatMap((page) => page.sessions)
-          .filter((session) => !session.task_id) ?? []
+          .filter((session) => !session.execution_id) ?? []
       ).map((session) => [session.id, session])
     ).values()
   );
@@ -193,10 +193,10 @@ function ProjectSessionsContent({
           }
           disabled={
             !enabled ||
-            !onCreateIssue ||
+            !onCreateTask ||
             Boolean(navigation.agentExecutionUnavailableReason)
           }
-          onClick={onCreateIssue}
+          onClick={onCreateTask}
         >
           <Plus size={16} aria-hidden="true" />
         </button>

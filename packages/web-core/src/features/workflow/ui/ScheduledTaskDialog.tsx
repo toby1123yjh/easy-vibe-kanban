@@ -20,7 +20,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useScheduledTaskMutations } from '@/shared/hooks/useScheduledTasks';
 import { ProjectProvider } from '@/shared/providers/remote/ProjectProvider';
-import { buildWorkflowRunInput } from '../model/issueWorkflow';
+import { buildWorkflowRunInput } from '../model/taskWorkflow';
 import {
   formatScheduledTaskDateTime,
   getScheduledTaskStatusKey,
@@ -66,7 +66,7 @@ function ScheduledTaskDialogContent({
   const { t } = useTranslation('common');
   const modal = useModal();
   const navigation = useAppNavigation();
-  const { issues, getIssue } = useProjectContext();
+  const { tasks, getTask } = useProjectContext();
   const {
     upsertTask,
     deleteTask,
@@ -76,8 +76,8 @@ function ScheduledTaskDialogContent({
     isRunningNow,
   } = useScheduledTaskMutations();
 
-  const initialIssueId = existingTask?.context_issue_id ?? issues[0]?.id ?? '';
-  const initialIssue = initialIssueId ? getIssue(initialIssueId) : undefined;
+  const initialTaskId = existingTask?.context_task_id ?? tasks[0]?.id ?? '';
+  const initialTask = initialTaskId ? getTask(initialTaskId) : undefined;
 
   const [enabled, setEnabled] = useState(existingTask?.enabled ?? true);
   const [scheduleKind, setScheduleKind] = useState<ScheduledTaskKind>(
@@ -90,40 +90,40 @@ function ScheduledTaskDialogContent({
   const [timezone, setTimezone] = useState(
     existingTask?.timezone ?? 'Asia/Shanghai'
   );
-  const [contextIssueId, setContextIssueId] = useState(initialIssueId);
+  const [contextTaskId, setContextTaskId] = useState(initialTaskId);
   const [inputText, setInputText] = useState(
     () =>
       existingTask?.input_text ??
       buildWorkflowRunInput({
-        title: initialIssue?.title ?? workflowName,
-        description: initialIssue?.description,
+        title: initialTask?.title ?? workflowName,
+        description: initialTask?.description,
       })
   );
   const [inputTouched, setInputTouched] = useState(Boolean(existingTask));
   const [error, setError] = useState<string | null>(null);
 
-  const selectedIssue = useMemo(
-    () => (contextIssueId ? getIssue(contextIssueId) : undefined),
-    [contextIssueId, getIssue]
+  const selectedTask = useMemo(
+    () => (contextTaskId ? getTask(contextTaskId) : undefined),
+    [contextTaskId, getTask]
   );
 
   useEffect(() => {
-    if (contextIssueId || issues.length === 0) return;
+    if (contextTaskId || tasks.length === 0) return;
 
-    const firstIssue = issues[0];
-    setContextIssueId(firstIssue.id);
+    const firstTask = tasks[0];
+    setContextTaskId(firstTask.id);
     if (!existingTask && !inputTouched) {
       setInputText(
         buildWorkflowRunInput({
-          title: firstIssue.title,
-          description: firstIssue.description,
+          title: firstTask.title,
+          description: firstTask.description,
         })
       );
     }
-  }, [contextIssueId, existingTask, inputTouched, issues]);
+  }, [contextTaskId, existingTask, inputTouched, tasks]);
 
   const isBusy = isUpsertingTask || isDeletingTask || isRunningNow;
-  const hasIssues = issues.length > 0;
+  const hasTasks = tasks.length > 0;
 
   const handleCancel = () => {
     modal.resolve({
@@ -138,21 +138,21 @@ function ScheduledTaskDialogContent({
     }
   };
 
-  const handleIssueChange = (issueId: string) => {
-    setContextIssueId(issueId);
-    const issue = getIssue(issueId);
-    if (!existingTask && !inputTouched && issue) {
+  const handleTaskChange = (taskId: string) => {
+    setContextTaskId(taskId);
+    const task = getTask(taskId);
+    if (!existingTask && !inputTouched && task) {
       setInputText(
         buildWorkflowRunInput({
-          title: issue.title,
-          description: issue.description,
+          title: task.title,
+          description: task.description,
         })
       );
     }
   };
 
   const validateForm = (): boolean => {
-    if (!contextIssueId) {
+    if (!contextTaskId) {
       setError(t('workflow.schedule.errors.issueRequired'));
       return false;
     }
@@ -178,7 +178,7 @@ function ScheduledTaskDialogContent({
     const payload: UpsertScheduledTaskRequest = {
       target_type: 'workflow',
       target_id: workflowId,
-      context_issue_id: contextIssueId,
+      context_task_id: contextTaskId,
       name: workflowName,
       enabled,
       schedule_kind: scheduleKind,
@@ -431,16 +431,16 @@ function ScheduledTaskDialogContent({
                 <select
                   id="schedule-issue"
                   className={nativeSelectClassName}
-                  value={contextIssueId}
-                  onChange={(event) => handleIssueChange(event.target.value)}
-                  disabled={isBusy || !hasIssues}
+                  value={contextTaskId}
+                  onChange={(event) => handleTaskChange(event.target.value)}
+                  disabled={isBusy || !hasTasks}
                 >
-                  {hasIssues ? (
-                    issues.map((issue) => (
-                      <option key={issue.id} value={issue.id}>
-                        {issue.simple_id
-                          ? `${issue.simple_id} - ${issue.title}`
-                          : issue.title}
+                  {hasTasks ? (
+                    tasks.map((task) => (
+                      <option key={task.id} value={task.id}>
+                        {task.simple_id
+                          ? `${task.simple_id} - ${task.title}`
+                          : task.title}
                       </option>
                     ))
                   ) : (
@@ -464,10 +464,10 @@ function ScheduledTaskDialogContent({
                   disabled={isBusy}
                   className="font-ibm-plex-mono"
                   placeholder={
-                    selectedIssue
+                    selectedTask
                       ? buildWorkflowRunInput({
-                          title: selectedIssue.title,
-                          description: selectedIssue.description,
+                          title: selectedTask.title,
+                          description: selectedTask.description,
                         })
                       : t('workflow.schedule.inputPlaceholder')
                   }
@@ -514,7 +514,7 @@ function ScheduledTaskDialogContent({
                 type="button"
                 variant="outline"
                 onClick={() => void handleRunNow()}
-                disabled={isBusy || !hasIssues}
+                disabled={isBusy || !hasTasks}
                 className="flex items-center gap-2"
               >
                 {isRunningNow ? (
@@ -526,7 +526,7 @@ function ScheduledTaskDialogContent({
               </Button>
               <Button
                 type="submit"
-                disabled={isBusy || !hasIssues}
+                disabled={isBusy || !hasTasks}
                 className="flex items-center gap-2"
               >
                 {isUpsertingTask ? (

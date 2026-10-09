@@ -3,10 +3,12 @@ import {
   fetchProjectSettingsRecord,
   projectSettingsQueryKey,
 } from '@/shared/lib/projectSettings';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 export function useProjectSettingsRecord(projectId: string) {
+  const hostId = useHostId();
   return useQuery({
-    queryKey: projectSettingsQueryKey(projectId),
-    queryFn: () => fetchProjectSettingsRecord(projectId),
+    queryKey: projectSettingsQueryKey(projectId, hostId),
+    queryFn: () => fetchProjectSettingsRecord(projectId, hostId),
   });
 }

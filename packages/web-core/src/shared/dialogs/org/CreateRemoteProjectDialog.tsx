@@ -19,6 +19,11 @@ import { create, useModal } from '@ebay/nice-modal-react';
 import { useTranslation } from 'react-i18next';
 import { defineModal } from '@/shared/lib/modals';
 import { useShape } from '@/shared/integrations/electric/hooks';
+import { refreshShapeFallback } from '@/shared/lib/electric/collections';
+import {
+  isLocalRemoteApiEnabled,
+  openLocalProjectDirectory,
+} from '@/shared/lib/remoteApi';
 import {
   PROJECTS_SHAPE,
   PROJECT_MUTATION,
@@ -51,6 +56,7 @@ export type CreateRemoteProjectDialogProps = {
 export type CreateRemoteProjectResult = {
   action: 'created' | 'canceled';
   project?: Project;
+  hostId?: string | null;
 };
 
 function CreateRemoteProjectForm({
@@ -73,6 +79,7 @@ function CreateRemoteProjectForm({
   } | null>(null);
   const busyRef = useRef(false);
   const importedJobId = useRef<string | null>(null);
+  const openedDirectory = useRef(false);
   const queryClient = useQueryClient();
   const routeHostId = useHostId();
   const { selectedHost, selectedHostId, availableHosts, setSelectedHostId } =
@@ -136,6 +143,7 @@ function CreateRemoteProjectForm({
     error: syncError,
   } = useShape(PROJECTS_SHAPE, params, {
     mutation: PROJECT_MUTATION,
+    hostId: selectedHost?.apiHostId ?? null,
   });
 
   useEffect(() => {
@@ -146,6 +154,7 @@ function CreateRemoteProjectForm({
       setError(null);
       setIsCreating(false);
       setCreatedProject(null);
+      openedDirectory.current = false;
       setLocation(null);
       setIsChoosing(false);
       setSource('local');
@@ -161,6 +170,14 @@ function CreateRemoteProjectForm({
   }, [syncError]);
 
   const finish = (project: Project) => {
+    refreshShapeFallback(
+      PROJECTS_SHAPE,
+      params,
+      selectedHost?.apiHostId ?? null
+    );
+    void queryClient.invalidateQueries({
+      queryKey: ['app-shell', 'discovery'],
+    });
     if (source === 'git' && selectedHost && importedJobId.current) {
       try {
         clearGitImportRecovery(
@@ -172,7 +189,11 @@ function CreateRemoteProjectForm({
         /* A storage failure must not hide a successfully saved project. */
       }
     }
-    modal.resolve({ action: 'created', project } as CreateRemoteProjectResult);
+    modal.resolve({
+      action: 'created',
+      project,
+      hostId: selectedHost?.apiHostId ?? null,
+    } as CreateRemoteProjectResult);
     modal.hide();
   };
 
@@ -272,13 +293,27 @@ function CreateRemoteProjectForm({
         );
       }
       if (!savedProject) {
-        const { data: project, persisted } = insert({
-          organization_id: organizationId,
-          name: name.trim(),
-          color: color,
-        });
-
-        savedProject = (await persisted) ?? project;
+        const host = hostRef.current;
+        if (isLocalRemoteApiEnabled() && host) {
+          savedProject = await openLocalProjectDirectory(
+            {
+              directory_path: location.selection.path,
+              name: name.trim(),
+              color,
+            },
+            host.apiHostId
+          );
+          // This may be an existing portable project, never a disposable draft.
+          openedDirectory.current = true;
+          refreshShapeFallback(PROJECTS_SHAPE, params, host.apiHostId);
+        } else {
+          const { data: project, persisted } = insert({
+            organization_id: organizationId,
+            name: name.trim(),
+            color,
+          });
+          savedProject = (await persisted) ?? project;
+        }
         if (!ownsScope(epoch)) return;
         setCreatedProject(savedProject);
       }
@@ -292,11 +327,18 @@ function CreateRemoteProjectForm({
             )
           );
         }
-        await saveProjectWorkspaceDefault(
-          savedProject.id,
-          workspaceSelectionDefault(location.selection),
-          host.apiHostId
-        );
+        // Opening already binds an ordinary folder. Git repository/base-branch
+        // enrichment still uses the existing host-aware defaults boundary.
+        if (
+          !openedDirectory.current ||
+          location.selection.mode === 'worktree'
+        ) {
+          await saveProjectWorkspaceDefault(
+            savedProject.id,
+            workspaceSelectionDefault(location.selection),
+            host.apiHostId
+          );
+        }
         void queryClient.invalidateQueries({
           queryKey: projectWorkspaceDefaultQueryKey(
             savedProject.id,
@@ -309,10 +351,15 @@ function CreateRemoteProjectForm({
       if (!ownsScope(epoch)) return;
       setError(
         savedProject
-          ? t(
-              'createProjectDialog.workspaceSaveFailed',
-              'The working directory could not be saved. Retry, or cancel to discard this unfinished project. Directory files will be kept.'
-            )
+          ? openedDirectory.current
+            ? t(
+                'createProjectDialog.openedWorkspaceSaveFailed',
+                'The project was opened, but its Git settings could not be saved. Retry to save them. Cancel keeps the project and its files.'
+              )
+            : t(
+                'createProjectDialog.workspaceSaveFailed',
+                'The working directory could not be saved. Retry, or cancel to discard this unfinished project. Directory files will be kept.'
+              )
           : err instanceof Error
             ? err.message
             : 'Failed to create project'
@@ -327,7 +374,7 @@ function CreateRemoteProjectForm({
 
   const handleCancel = async () => {
     if (busyRef.current || importBusy) return;
-    if (createdProject) {
+    if (createdProject && !openedDirectory.current) {
       const epoch = scopeRef.current.epoch;
       busyRef.current = true;
       setIsCreating(true);
@@ -503,7 +550,9 @@ function CreateRemoteProjectForm({
                 id="project-machine"
                 className="h-9 w-full rounded border border-border bg-primary px-2 text-sm text-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                 value={selectedHostId ?? ''}
-                disabled={busy || !!initialHostId || !!routeHostId}
+                disabled={
+                  busy || !!createdProject || !!initialHostId || !!routeHostId
+                }
                 onChange={(e) => {
                   setSelectedHostId(e.target.value);
                   setLocation(null);
@@ -576,7 +625,7 @@ function CreateRemoteProjectForm({
                 <Button
                   variant="outline"
                   type="button"
-                  disabled={busy || !canChoose}
+                  disabled={busy || !!createdProject || !canChoose}
                   onClick={() => void chooseLocation()}
                 >
                   {location

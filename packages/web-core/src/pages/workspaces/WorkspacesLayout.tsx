@@ -119,14 +119,14 @@ export function WorkspacesLayout() {
           t('agentWorkbench.header.untitledTask', {
             defaultValue: 'Untitled task',
           });
-    const issueId = canonicalSession?.issue_id?.trim();
+    const taskId = canonicalSession?.task_id?.trim();
     return deriveAgentWorkbenchHeader({
       canonicalSession,
       fallbackTitle,
-      issueLabel: issueId
+      taskLabel: taskId
         ? t('agentWorkbench.header.issue', {
-            issueId,
-            defaultValue: 'Issue {{issueId}}',
+            taskId,
+            defaultValue: 'Task {{issueId}}',
           })
         : undefined,
       workspaceContext: selectedWorkspace

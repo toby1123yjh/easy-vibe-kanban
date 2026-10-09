@@ -32,8 +32,8 @@ for (const id of ['issue-1', 'issue-2']) {
     page,
   }) => {
     await page.goto('/');
-    const card = page.locator(`[data-issue-id="${id}"]`);
-    const next = page.locator('[data-issue-id="issue-long-0"]');
+    const card = page.locator(`[data-task-id="${id}"]`);
+    const next = page.locator('[data-task-id="issue-long-0"]');
     const original = await bounds(card);
     const nextOriginal = await bounds(next);
     const title = await card.locator('h3').innerText();
@@ -48,7 +48,7 @@ for (const id of ['issue-1', 'issue-2']) {
     expect(await bounds(next)).toEqual(nextOriginal);
     await expect(card).toHaveCSS('opacity', '0');
     await expect(preview.locator('h3')).toHaveText(title);
-    await expect(preview.locator('[data-issue-id]')).toHaveCount(0);
+    await expect(preview.locator('[data-task-id]')).toHaveCount(0);
     await expect(
       preview.locator('button, a, input, [tabindex="0"]')
     ).toHaveCount(0);
@@ -76,7 +76,7 @@ test('only a genuinely tall card is clipped; its source and width stay unchanged
   page,
 }) => {
   await page.goto('/?tall');
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   const original = await bounds(card);
   expect(original.height).toBeGreaterThan(480);
   await pickUp(page, card);
@@ -112,7 +112,7 @@ test('coarse-pointer layout keeps title and task positions inside the lifted car
   try {
     await page.route('**/api/**', (route) => route.abort());
     await page.goto('/');
-    const card = page.locator('[data-issue-id="issue-1"]');
+    const card = page.locator('[data-task-id="issue-1"]');
     const original = await bounds(card);
     const title = await bounds(card.locator('h3'));
     const task = await bounds(card.locator('.vk-kanban-task-preview'));
@@ -140,7 +140,7 @@ test('picking up near the bottom of a tall, scrolled card keeps the preview unde
   page,
 }) => {
   await page.goto('/?tall');
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   const original = await bounds(card);
   await page.locator('.vk-kanban-scroll').evaluate((element) => {
     element.scrollTop = 400;
@@ -212,7 +212,7 @@ test('drop settles with a short translation and respects live reduced-motion cha
 }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('/');
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   await pickUp(page, card);
   const destination = await bounds(page.locator('.vk-kanban-column').nth(1));
   await page.mouse.move(destination.x + 90, destination.y + 120, { steps: 5 });
@@ -247,7 +247,7 @@ test('reduced motion disables keyboard overlay movement transitions', async ({
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   await card.focus();
   await page.keyboard.press('Space');
   const preview = page.locator('.vk-kanban-drag-preview');
@@ -292,7 +292,7 @@ test('a second pickup during settlement cannot leave the source transparent', as
       return animation;
     };
   });
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   await pickUp(page, card);
   await page.mouse.move(4, 4);
   await page.mouse.up();

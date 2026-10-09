@@ -1,4 +1,4 @@
-use api_types::{DeleteResponse, IssueComment, MutationResponse};
+use api_types::{DeleteResponse, MutationResponse, TaskComment};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -18,9 +18,9 @@ impl IssueCommentRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<IssueComment>, IssueCommentError> {
+    ) -> Result<Option<TaskComment>, IssueCommentError> {
         let record = sqlx::query_as!(
-            IssueComment,
+            TaskComment,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -48,12 +48,12 @@ impl IssueCommentRepository {
         author_id: Uuid,
         parent_id: Option<Uuid>,
         message: String,
-    ) -> Result<MutationResponse<IssueComment>, IssueCommentError> {
+    ) -> Result<MutationResponse<TaskComment>, IssueCommentError> {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let now = Utc::now();
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueComment,
+            TaskComment,
             r#"
             INSERT INTO issue_comments (id, issue_id, author_id, parent_id, message, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -88,11 +88,11 @@ impl IssueCommentRepository {
         pool: &PgPool,
         id: Uuid,
         message: Option<String>,
-    ) -> Result<MutationResponse<IssueComment>, IssueCommentError> {
+    ) -> Result<MutationResponse<TaskComment>, IssueCommentError> {
         let updated_at = Utc::now();
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueComment,
+            TaskComment,
             r#"
             UPDATE issue_comments
             SET
@@ -133,9 +133,9 @@ impl IssueCommentRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueComment>, IssueCommentError> {
+    ) -> Result<Vec<TaskComment>, IssueCommentError> {
         let records = sqlx::query_as!(
-            IssueComment,
+            TaskComment,
             r#"
             SELECT
                 id          AS "id!: Uuid",

@@ -15,7 +15,7 @@ interface LocalWorkspaceLike {
   id: string;
 }
 
-interface LinkedIssueSource {
+interface LinkedTaskSource {
   id: string;
   simple_id: string;
   title: string;
@@ -37,15 +37,15 @@ export function buildWorkspaceCreatePrompt(
     : trimmedTitle;
 }
 
-export function buildLinkedIssueCreateState(
-  issue: LinkedIssueSource | null | undefined,
+export function buildLinkedTaskCreateState(
+  task: LinkedTaskSource | null | undefined,
   projectId: string
-): NonNullable<CreateModeInitialState['linkedIssue']> | null {
-  if (!issue) return null;
+): NonNullable<CreateModeInitialState['linkedTask']> | null {
+  if (!task) return null;
   return {
-    issueId: issue.id,
-    simpleId: issue.simple_id,
-    title: issue.title,
+    taskId: task.id,
+    simpleId: task.simple_id,
+    title: task.title,
     remoteProjectId: projectId,
   };
 }
@@ -53,7 +53,7 @@ export function buildLinkedIssueCreateState(
 export function buildWorkspaceCreateInitialState(args: {
   prompt: string | null;
   defaults?: WorkspaceDefaultsLike | null;
-  linkedIssue?: CreateModeInitialState['linkedIssue'];
+  linkedTask?: CreateModeInitialState['linkedTask'];
   executorConfig?: CreateModeInitialState['executorConfig'];
 }): CreateModeInitialState {
   return {
@@ -61,7 +61,7 @@ export function buildWorkspaceCreateInitialState(args: {
     preferredRepos: args.defaults?.preferredRepos ?? null,
     preferredDirectoryPath: args.defaults?.preferredDirectoryPath ?? null,
     project_id: args.defaults?.project_id ?? null,
-    linkedIssue: args.linkedIssue ?? null,
+    linkedTask: args.linkedTask ?? null,
     executorConfig: args.executorConfig ?? null,
   };
 }
@@ -88,12 +88,12 @@ export function toDraftWorkspaceData(
       })) ?? [],
     directory_path: initialState.preferredDirectoryPath?.trim() || null,
     executor_config: initialState.executorConfig ?? null,
-    linked_issue: initialState.linkedIssue
+    linked_task: initialState.linkedTask
       ? {
-          issue_id: initialState.linkedIssue.issueId,
-          simple_id: initialState.linkedIssue.simpleId ?? '',
-          title: initialState.linkedIssue.title ?? '',
-          remote_project_id: initialState.linkedIssue.remoteProjectId,
+          task_id: initialState.linkedTask.taskId,
+          simple_id: initialState.linkedTask.simpleId ?? '',
+          title: initialState.linkedTask.title ?? '',
+          remote_project_id: initialState.linkedTask.remoteProjectId,
         }
       : null,
     attachments: [],

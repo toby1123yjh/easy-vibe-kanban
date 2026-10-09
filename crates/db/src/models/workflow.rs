@@ -82,6 +82,8 @@ pub struct WorkflowRun {
     pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -98,6 +100,8 @@ pub struct WorkflowRun {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct WorkflowAttempt {
     pub id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Uuid,
     pub workflow_id: Uuid,
     pub latest_run_id: Option<Uuid>,
@@ -111,6 +115,8 @@ pub struct WorkflowAttempt {
 pub struct NodeExecution {
     pub id: Uuid,
     pub run_id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,
@@ -153,6 +159,8 @@ pub struct UpdateWorkflow {
 pub struct CreateWorkflowRun {
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -162,6 +170,8 @@ pub struct CreateWorkflowRun {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateWorkflowAttempt {
     pub id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Uuid,
     pub workflow_id: Uuid,
 }
@@ -183,6 +193,8 @@ pub struct UpdateWorkflowRunStatus {
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct CreateNodeExecution {
     pub run_id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,

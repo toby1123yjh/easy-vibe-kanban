@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use api_types::{
-    CreateIssueRequest, Issue, IssuePriority, IssueRelationshipType, IssueSortField,
-    ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse,
-    ListPullRequestsResponse, ListTagsResponse, MutationResponse, PullRequestStatus,
-    SearchIssuesRequest, SortDirection, UpdateIssueRequest,
+    CreateTaskRequest, ListPullRequestsResponse, ListTagsResponse, ListTaskRelationshipsResponse,
+    ListTaskTagsResponse, ListTasksResponse, MutationResponse, PullRequestStatus,
+    SearchTasksRequest, SortDirection, Task, TaskPriority, TaskRelationshipType, TaskSortField,
+    UpdateTaskRequest,
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, schemars, tool,
@@ -16,35 +16,37 @@ use uuid::Uuid;
 use super::{McpServer, ToolError};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpCreateIssueRequest {
+struct McpCreateTaskRequest {
     #[schemars(
-        description = "The ID of the project to create the issue in. Optional if running inside a workspace linked to a remote project."
+        description = "The ID of the project to create the task in. Optional if running inside a workspace linked to a remote project."
     )]
     project_id: Option<Uuid>,
-    #[schemars(description = "The title of the issue")]
+    #[schemars(description = "The title of the task")]
     title: String,
-    #[schemars(description = "Optional description of the issue")]
+    #[schemars(description = "Optional description of the task")]
     description: Option<String>,
     #[schemars(
-        description = "Optional priority of the issue. Allowed values: 'urgent', 'high', 'medium', 'low'."
+        description = "Optional priority of the task. Allowed values: 'urgent', 'high', 'medium', 'low'."
     )]
     priority: Option<String>,
-    #[schemars(description = "Optional parent issue ID to create a subissue")]
+    #[schemars(description = "Optional parent task ID to create a subtask")]
+    #[serde(rename = "parent_task_id")]
     parent_issue_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpCreateIssueResponse {
+struct McpCreateTaskResponse {
+    #[serde(rename = "task_id")]
     issue_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpListIssuesRequest {
+struct McpListTasksRequest {
     #[schemars(
-        description = "The ID of the project to list issues from. Optional if running inside a workspace linked to a remote project."
+        description = "The ID of the project to list tasks from. Optional if running inside a workspace linked to a remote project."
     )]
     project_id: Option<Uuid>,
-    #[schemars(description = "Maximum number of issues to return (default: 50)")]
+    #[schemars(description = "Maximum number of tasks to return (default: 50)")]
     limit: Option<i32>,
     #[schemars(description = "Number of results to skip before returning rows (default: 0)")]
     offset: Option<i32>,
@@ -54,17 +56,18 @@ struct McpListIssuesRequest {
         description = "Filter by priority. Allowed values: 'urgent', 'high', 'medium', 'low'."
     )]
     priority: Option<String>,
-    #[schemars(description = "Filter by parent issue ID (subissues of this issue)")]
+    #[schemars(description = "Filter by parent task ID (subtasks of this task)")]
+    #[serde(rename = "parent_task_id")]
     parent_issue_id: Option<Uuid>,
     #[schemars(description = "Case-insensitive substring match against title and description")]
     search: Option<String>,
-    #[schemars(description = "Filter by issue simple ID (case-insensitive exact match)")]
+    #[schemars(description = "Filter by task simple ID (case-insensitive exact match)")]
     simple_id: Option<String>,
-    #[schemars(description = "Filter to issues assigned to this user ID")]
+    #[schemars(description = "Filter to tasks assigned to this user ID")]
     assignee_user_id: Option<Uuid>,
-    #[schemars(description = "Filter to issues having this tag ID")]
+    #[schemars(description = "Filter to tasks having this tag ID")]
     tag_id: Option<Uuid>,
-    #[schemars(description = "Filter to issues having a tag with this name (case-insensitive)")]
+    #[schemars(description = "Filter to tasks having a tag with this name (case-insensitive)")]
     tag_name: Option<String>,
     #[schemars(
         description = "Field to sort by. Allowed values: 'sort_order', 'priority', 'created_at', 'updated_at', 'title'. Default: 'sort_order'."
@@ -75,24 +78,25 @@ struct McpListIssuesRequest {
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct IssueSummary {
-    #[schemars(description = "The unique identifier of the issue")]
+struct TaskSummary {
+    #[schemars(description = "The unique identifier of the task")]
     id: String,
-    #[schemars(description = "The title of the issue")]
+    #[schemars(description = "The title of the task")]
     title: String,
-    #[schemars(description = "The human-readable issue simple ID")]
+    #[schemars(description = "The human-readable task simple ID")]
     simple_id: String,
-    #[schemars(description = "Current status of the issue")]
+    #[schemars(description = "Current status of the task")]
     status: String,
-    #[schemars(description = "Current priority of the issue")]
+    #[schemars(description = "Current priority of the task")]
     priority: Option<String>,
-    #[schemars(description = "Parent issue ID if this is a subissue")]
+    #[schemars(description = "Parent task ID if this is a subtask")]
+    #[serde(rename = "parent_task_id")]
     parent_issue_id: Option<String>,
-    #[schemars(description = "When the issue was created")]
+    #[schemars(description = "When the task was created")]
     created_at: String,
-    #[schemars(description = "When the issue was last updated")]
+    #[schemars(description = "When the task was last updated")]
     updated_at: String,
-    #[schemars(description = "Number of pull requests linked to this issue")]
+    #[schemars(description = "Number of pull requests linked to this task")]
     pull_request_count: usize,
     #[schemars(description = "URL of the most recent pull request, if any")]
     latest_pr_url: Option<String>,
@@ -130,43 +134,45 @@ struct McpTagSummary {
 struct McpRelationshipSummary {
     #[schemars(description = "The relationship ID (use this to delete)")]
     id: String,
-    #[schemars(description = "The related issue ID")]
+    #[schemars(description = "The related task ID")]
+    #[serde(rename = "related_task_id")]
     related_issue_id: String,
-    #[schemars(description = "The related issue's simple ID (e.g. 'PROJ-42')")]
+    #[schemars(description = "The related task's simple ID (e.g. 'PROJ-42')")]
     related_simple_id: String,
     #[schemars(description = "Relationship type: blocking, related, or has_duplicate")]
     relationship_type: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpSubIssueSummary {
-    #[schemars(description = "The sub-issue ID")]
+struct McpSubTaskSummary {
+    #[schemars(description = "The sub-task ID")]
     id: String,
     #[schemars(description = "Short human-readable identifier (e.g. 'PROJ-43')")]
     simple_id: String,
-    #[schemars(description = "The sub-issue title")]
+    #[schemars(description = "The sub-task title")]
     title: String,
-    #[schemars(description = "Current status of the sub-issue")]
+    #[schemars(description = "Current status of the sub-task")]
     status: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct IssueDetails {
-    #[schemars(description = "The unique identifier of the issue")]
+struct TaskDetails {
+    #[schemars(description = "The unique identifier of the task")]
     id: String,
-    #[schemars(description = "The title of the issue")]
+    #[schemars(description = "The title of the task")]
     title: String,
-    #[schemars(description = "The human-readable issue simple ID")]
+    #[schemars(description = "The human-readable task simple ID")]
     simple_id: String,
-    #[schemars(description = "Optional description of the issue")]
+    #[schemars(description = "Optional description of the task")]
     description: Option<String>,
-    #[schemars(description = "Current status of the issue")]
+    #[schemars(description = "Current status of the task")]
     status: String,
     #[schemars(description = "The status ID (UUID)")]
     status_id: String,
-    #[schemars(description = "Current priority of the issue")]
+    #[schemars(description = "Current priority of the task")]
     priority: Option<String>,
-    #[schemars(description = "Parent issue ID if this is a subissue")]
+    #[schemars(description = "Parent task ID if this is a subtask")]
+    #[serde(rename = "parent_task_id")]
     parent_issue_id: Option<String>,
     #[schemars(description = "Optional planned start date")]
     start_date: Option<String>,
@@ -174,23 +180,25 @@ struct IssueDetails {
     target_date: Option<String>,
     #[schemars(description = "Optional completion date")]
     completed_at: Option<String>,
-    #[schemars(description = "When the issue was created")]
+    #[schemars(description = "When the task was created")]
     created_at: String,
-    #[schemars(description = "When the issue was last updated")]
+    #[schemars(description = "When the task was last updated")]
     updated_at: String,
-    #[schemars(description = "Pull requests linked to this issue")]
+    #[schemars(description = "Pull requests linked to this task")]
     pull_requests: Vec<PullRequestSummary>,
-    #[schemars(description = "Tags attached to this issue")]
+    #[schemars(description = "Tags attached to this task")]
     tags: Vec<McpTagSummary>,
-    #[schemars(description = "Relationships to other issues")]
+    #[schemars(description = "Relationships to other tasks")]
     relationships: Vec<McpRelationshipSummary>,
-    #[schemars(description = "Sub-issues under this issue")]
-    sub_issues: Vec<McpSubIssueSummary>,
+    #[schemars(description = "Sub-tasks under this task")]
+    #[serde(rename = "sub_tasks")]
+    sub_issues: Vec<McpSubTaskSummary>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpListIssuesResponse {
-    issues: Vec<IssueSummary>,
+struct McpListTasksResponse {
+    #[serde(rename = "tasks")]
+    issues: Vec<TaskSummary>,
     total_count: usize,
     returned_count: usize,
     limit: usize,
@@ -199,71 +207,78 @@ struct McpListIssuesResponse {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpUpdateIssueRequest {
-    #[schemars(description = "The ID of the issue to update")]
+struct McpUpdateTaskRequest {
+    #[schemars(description = "The ID of the task to update")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
-    #[schemars(description = "New title for the issue")]
+    #[schemars(description = "New title for the task")]
     title: Option<String>,
-    #[schemars(description = "New description for the issue")]
+    #[schemars(description = "New description for the task")]
     description: Option<String>,
-    #[schemars(description = "New status name for the issue (must match a project status name)")]
+    #[schemars(description = "New status name for the task (must match a project status name)")]
     status: Option<String>,
     #[schemars(
-        description = "New priority for the issue. Allowed values: 'urgent', 'high', 'medium', 'low'."
+        description = "New priority for the task. Allowed values: 'urgent', 'high', 'medium', 'low'."
     )]
     priority: Option<String>,
     #[schemars(
-        description = "Parent issue ID to set this as a subissue. Pass null to un-nest from parent."
+        description = "Parent task ID to set this as a subtask. Pass null to un-nest from parent."
     )]
+    #[serde(rename = "parent_task_id")]
     parent_issue_id: Option<Option<Uuid>>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpUpdateIssueResponse {
-    issue: IssueDetails,
+struct McpUpdateTaskResponse {
+    #[serde(rename = "task")]
+    issue: TaskDetails,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpDeleteIssueRequest {
-    #[schemars(description = "The ID of the issue to delete")]
+struct McpDeleteTaskRequest {
+    #[schemars(description = "The ID of the task to delete")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpDeleteIssueResponse {
+struct McpDeleteTaskResponse {
+    #[serde(rename = "deleted_task_id")]
     deleted_issue_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpGetIssueRequest {
-    #[schemars(description = "The ID of the issue to retrieve")]
+struct McpGetTaskRequest {
+    #[schemars(description = "The ID of the task to retrieve")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpGetIssueResponse {
-    issue: IssueDetails,
+struct McpGetTaskResponse {
+    #[serde(rename = "task")]
+    issue: TaskDetails,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpListIssuePrioritiesResponse {
+struct McpListTaskPrioritiesResponse {
     priorities: Vec<String>,
 }
 
 #[tool_router(router = remote_issues_tools_router, vis = "pub")]
 impl McpServer {
     #[tool(
-        description = "Create a new issue in a project. `project_id` is optional if running inside a workspace linked to a remote project."
+        description = "Create a new task in a project. `project_id` is optional if running inside a workspace linked to a remote project."
     )]
-    async fn create_issue(
+    async fn create_task(
         &self,
-        Parameters(McpCreateIssueRequest {
+        Parameters(McpCreateTaskRequest {
             project_id,
             title,
             description,
             priority,
             parent_issue_id,
-        }): Parameters<McpCreateIssueRequest>,
+        }): Parameters<McpCreateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let project_id = match self.resolve_project_id(project_id) {
             Ok(id) => id,
@@ -288,7 +303,7 @@ impl McpServer {
             None => None,
         };
 
-        let payload = CreateIssueRequest {
+        let payload = CreateTaskRequest {
             id: None,
             project_id,
             status_id,
@@ -304,24 +319,24 @@ impl McpServer {
             extension_metadata: serde_json::json!({}),
         };
 
-        let url = self.url("/api/remote/issues");
-        let response: MutationResponse<Issue> =
+        let url = self.url("/api/remote/tasks");
+        let response: MutationResponse<Task> =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(r) => r,
                 Err(e) => return Ok(McpServer::tool_error(e)),
             };
 
-        McpServer::success(&McpCreateIssueResponse {
+        McpServer::success(&McpCreateTaskResponse {
             issue_id: response.data.id.to_string(),
         })
     }
 
     #[tool(
-        description = "List all the issues in a project. `project_id` is optional if running inside a workspace linked to a remote project."
+        description = "List all the tasks in a project. `project_id` is optional if running inside a workspace linked to a remote project."
     )]
-    async fn list_issues(
+    async fn list_tasks(
         &self,
-        Parameters(McpListIssuesRequest {
+        Parameters(McpListTasksRequest {
             project_id,
             limit,
             offset,
@@ -335,7 +350,7 @@ impl McpServer {
             tag_name,
             sort_field,
             sort_direction,
-        }): Parameters<McpListIssuesRequest>,
+        }): Parameters<McpListTasksRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let project_id = match self.resolve_project_id(project_id) {
             Ok(id) => id,
@@ -412,14 +427,14 @@ impl McpServer {
             Self::resolve_tag_filters(tag_id, matching_tag_ids);
 
         let response = if missing_status_name_match || missing_tag_name_match {
-            ListIssuesResponse {
+            ListTasksResponse {
                 issues: Vec::new(),
                 total_count: 0,
                 limit: limit.unwrap_or(50).max(0) as usize,
                 offset: offset.unwrap_or(0).max(0) as usize,
             }
         } else {
-            let query = SearchIssuesRequest {
+            let query = SearchTasksRequest {
                 project_id,
                 status_id,
                 status_ids,
@@ -435,7 +450,7 @@ impl McpServer {
                 limit: Some(limit.unwrap_or(50).max(0)),
                 offset: Some(offset.unwrap_or(0).max(0)),
             };
-            let url = self.url("/api/remote/issues/search");
+            let url = self.url("/api/remote/tasks/search");
             match self.send_json(self.client.post(&url).json(&query)).await {
                 Ok(r) => r,
                 Err(e) => return Ok(McpServer::tool_error(e)),
@@ -452,7 +467,7 @@ impl McpServer {
             ));
         }
 
-        McpServer::success(&McpListIssuesResponse {
+        McpServer::success(&McpListTasksResponse {
             total_count: response.total_count,
             returned_count: summaries.len(),
             limit: response.limit,
@@ -463,40 +478,40 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Get detailed information about a specific issue. You can use `list_issues` to find issue IDs. `issue_id` is required."
+        description = "Get detailed information about a specific task. You can use `list_tasks` to find task IDs. `task_id` is required."
     )]
-    async fn get_issue(
+    async fn get_task(
         &self,
-        Parameters(McpGetIssueRequest { issue_id }): Parameters<McpGetIssueRequest>,
+        Parameters(McpGetTaskRequest { issue_id }): Parameters<McpGetTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/remote/issues/{}", issue_id));
-        let issue: Issue = match self.send_json(self.client.get(&url)).await {
+        let url = self.url(&format!("/api/remote/tasks/{}", issue_id));
+        let issue: Task = match self.send_json(self.client.get(&url)).await {
             Ok(i) => i,
             Err(e) => return Ok(McpServer::tool_error(e)),
         };
 
         let pull_requests = self.fetch_pull_requests(issue_id).await;
         let details = self.issue_to_details(&issue, pull_requests).await;
-        McpServer::success(&McpGetIssueResponse { issue: details })
+        McpServer::success(&McpGetTaskResponse { issue: details })
     }
 
     #[tool(
-        description = "Update an existing issue's title, description, or status. `issue_id` is required. `title`, `description`, and `status` are optional."
+        description = "Update an existing task's title, description, or status. `task_id` is required. `title`, `description`, and `status` are optional."
     )]
-    async fn update_issue(
+    async fn update_task(
         &self,
-        Parameters(McpUpdateIssueRequest {
+        Parameters(McpUpdateTaskRequest {
             issue_id,
             title,
             description,
             status,
             priority,
             parent_issue_id,
-        }): Parameters<McpUpdateIssueRequest>,
+        }): Parameters<McpUpdateTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         // First get the issue to know its project_id for status resolution
-        let get_url = self.url(&format!("/api/remote/issues/{}", issue_id));
-        let existing_issue: Issue = match self.send_json(self.client.get(&get_url)).await {
+        let get_url = self.url(&format!("/api/remote/tasks/{}", issue_id));
+        let existing_issue: Task = match self.send_json(self.client.get(&get_url)).await {
             Ok(i) => i,
             Err(e) => return Ok(McpServer::tool_error(e)),
         };
@@ -529,7 +544,7 @@ impl McpServer {
             None
         };
 
-        let payload = UpdateIssueRequest {
+        let payload = UpdateTaskRequest {
             status_id,
             title,
             description: expanded_description,
@@ -543,8 +558,8 @@ impl McpServer {
             extension_metadata: None,
         };
 
-        let url = self.url(&format!("/api/remote/issues/{}", issue_id));
-        let response: MutationResponse<Issue> =
+        let url = self.url(&format!("/api/remote/tasks/{}", issue_id));
+        let response: MutationResponse<Task> =
             match self.send_json(self.client.patch(&url).json(&payload)).await {
                 Ok(r) => r,
                 Err(e) => return Ok(McpServer::tool_error(e)),
@@ -552,12 +567,12 @@ impl McpServer {
 
         let pull_requests = self.fetch_pull_requests(issue_id).await;
         let details = self.issue_to_details(&response.data, pull_requests).await;
-        McpServer::success(&McpUpdateIssueResponse { issue: details })
+        McpServer::success(&McpUpdateTaskResponse { issue: details })
     }
 
-    #[tool(description = "List allowed issue priority values.")]
-    async fn list_issue_priorities(&self) -> Result<CallToolResult, ErrorData> {
-        McpServer::success(&McpListIssuePrioritiesResponse {
+    #[tool(description = "List allowed task priority values.")]
+    async fn list_task_priorities(&self) -> Result<CallToolResult, ErrorData> {
+        McpServer::success(&McpListTaskPrioritiesResponse {
             priorities: ["urgent", "high", "medium", "low"]
                 .iter()
                 .map(|s| s.to_string())
@@ -565,35 +580,35 @@ impl McpServer {
         })
     }
 
-    #[tool(description = "Delete an issue. `issue_id` is required.")]
-    async fn delete_issue(
+    #[tool(description = "Delete an task. `task_id` is required.")]
+    async fn delete_task(
         &self,
-        Parameters(McpDeleteIssueRequest { issue_id }): Parameters<McpDeleteIssueRequest>,
+        Parameters(McpDeleteTaskRequest { issue_id }): Parameters<McpDeleteTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!("/api/remote/issues/{}", issue_id));
+        let url = self.url(&format!("/api/remote/tasks/{}", issue_id));
         if let Err(e) = self.send_empty_json(self.client.delete(&url)).await {
             return Ok(McpServer::tool_error(e));
         }
 
-        McpServer::success(&McpDeleteIssueResponse {
+        McpServer::success(&McpDeleteTaskResponse {
             deleted_issue_id: Some(issue_id.to_string()),
         })
     }
 }
 
 impl McpServer {
-    fn parse_issue_sort_field(sort_field: Option<&str>) -> Result<IssueSortField, ToolError> {
+    fn parse_issue_sort_field(sort_field: Option<&str>) -> Result<TaskSortField, ToolError> {
         match sort_field
             .unwrap_or("sort_order")
             .trim()
             .to_ascii_lowercase()
             .as_str()
         {
-            "sort_order" => Ok(IssueSortField::SortOrder),
-            "priority" => Ok(IssueSortField::Priority),
-            "created_at" => Ok(IssueSortField::CreatedAt),
-            "updated_at" => Ok(IssueSortField::UpdatedAt),
-            "title" => Ok(IssueSortField::Title),
+            "sort_order" => Ok(TaskSortField::SortOrder),
+            "priority" => Ok(TaskSortField::Priority),
+            "created_at" => Ok(TaskSortField::CreatedAt),
+            "updated_at" => Ok(TaskSortField::UpdatedAt),
+            "title" => Ok(TaskSortField::Title),
             other => Err(ToolError::message(format!(
                 "Unknown sort_field '{}'. Allowed values: ['sort_order', 'priority', 'created_at', 'updated_at', 'title']",
                 other
@@ -619,15 +634,15 @@ impl McpServer {
 
     fn issue_to_summary(
         &self,
-        issue: &Issue,
+        issue: &Task,
         status_names_by_id: Option<&HashMap<Uuid, String>>,
         pull_requests: &ListPullRequestsResponse,
-    ) -> IssueSummary {
+    ) -> TaskSummary {
         let status = status_names_by_id
             .and_then(|status_map| status_map.get(&issue.status_id).cloned())
             .unwrap_or_else(|| issue.status_id.to_string());
         let latest_pr = pull_requests.pull_requests.first();
-        IssueSummary {
+        TaskSummary {
             id: issue.id.to_string(),
             title: issue.title.clone(),
             simple_id: issue.simple_id.clone(),
@@ -647,9 +662,9 @@ impl McpServer {
 
     async fn issue_to_details(
         &self,
-        issue: &Issue,
+        issue: &Task,
         pull_requests: ListPullRequestsResponse,
-    ) -> IssueDetails {
+    ) -> TaskDetails {
         let status = self
             .resolve_status_name(issue.project_id, issue.status_id)
             .await;
@@ -664,7 +679,7 @@ impl McpServer {
 
         let sub_issues = self.fetch_sub_issues(issue.project_id, issue.id).await;
 
-        IssueDetails {
+        TaskDetails {
             id: issue.id.to_string(),
             title: issue.title.clone(),
             simple_id: issue.simple_id.clone(),
@@ -699,7 +714,7 @@ impl McpServer {
     }
 
     async fn fetch_pull_requests(&self, issue_id: Uuid) -> ListPullRequestsResponse {
-        let url = self.url(&format!("/api/remote/pull-requests?issue_id={}", issue_id));
+        let url = self.url(&format!("/api/remote/pull-requests?task_id={}", issue_id));
         match self
             .send_json::<ListPullRequestsResponse>(self.client.get(&url))
             .await
@@ -726,8 +741,8 @@ impl McpServer {
         let tag_map: HashMap<Uuid, &api_types::Tag> =
             project_tags.tags.iter().map(|t| (t.id, t)).collect();
 
-        let url = self.url(&format!("/api/remote/issue-tags?issue_id={}", issue_id));
-        let response: ListIssueTagsResponse = match self.send_json(self.client.get(&url)).await {
+        let url = self.url(&format!("/api/remote/task-tags?task_id={}", issue_id));
+        let response: ListTaskTagsResponse = match self.send_json(self.client.get(&url)).await {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };
@@ -752,10 +767,10 @@ impl McpServer {
         issue_id: Uuid,
     ) -> Vec<McpRelationshipSummary> {
         let rel_url = self.url(&format!(
-            "/api/remote/issue-relationships?issue_id={}",
+            "/api/remote/task-relationships?task_id={}",
             issue_id
         ));
-        let response: ListIssueRelationshipsResponse =
+        let response: ListTaskRelationshipsResponse =
             match self.send_json(self.client.get(&rel_url)).await {
                 Ok(r) => r,
                 Err(_) => return Vec::new(),
@@ -765,11 +780,11 @@ impl McpServer {
             return Vec::new();
         }
 
-        let issues_url = self.url(&format!("/api/remote/issues?project_id={}", project_id));
-        let issues_response: api_types::ListIssuesResponse = self
+        let issues_url = self.url(&format!("/api/remote/tasks?project_id={}", project_id));
+        let issues_response: api_types::ListTasksResponse = self
             .send_json(self.client.get(&issues_url))
             .await
-            .unwrap_or(api_types::ListIssuesResponse {
+            .unwrap_or(api_types::ListTasksResponse {
                 issues: Vec::new(),
                 total_count: 0,
                 limit: 0,
@@ -794,9 +809,9 @@ impl McpServer {
                     related_issue_id: r.related_issue_id.to_string(),
                     related_simple_id,
                     relationship_type: match r.relationship_type {
-                        IssueRelationshipType::Blocking => "blocking".to_string(),
-                        IssueRelationshipType::Related => "related".to_string(),
-                        IssueRelationshipType::HasDuplicate => "has_duplicate".to_string(),
+                        TaskRelationshipType::Blocking => "blocking".to_string(),
+                        TaskRelationshipType::Related => "related".to_string(),
+                        TaskRelationshipType::HasDuplicate => "has_duplicate".to_string(),
                     },
                 }
             })
@@ -808,9 +823,9 @@ impl McpServer {
         &self,
         project_id: Uuid,
         parent_issue_id: Uuid,
-    ) -> Vec<McpSubIssueSummary> {
-        let url = self.url(&format!("/api/remote/issues?project_id={}", project_id));
-        let response: api_types::ListIssuesResponse =
+    ) -> Vec<McpSubTaskSummary> {
+        let url = self.url(&format!("/api/remote/tasks?project_id={}", project_id));
+        let response: api_types::ListTasksResponse =
             match self.send_json(self.client.get(&url)).await {
                 Ok(r) => r,
                 Err(_) => return Vec::new(),
@@ -836,7 +851,7 @@ impl McpServer {
                     .as_ref()
                     .and_then(|m| m.get(&i.status_id).cloned())
                     .unwrap_or_else(|| i.status_id.to_string());
-                McpSubIssueSummary {
+                McpSubTaskSummary {
                     id: i.id.to_string(),
                     simple_id: i.simple_id.clone(),
                     title: i.title.clone(),
@@ -846,12 +861,12 @@ impl McpServer {
             .collect()
     }
 
-    fn parse_issue_priority(priority: &str) -> Result<IssuePriority, ToolError> {
+    fn parse_issue_priority(priority: &str) -> Result<TaskPriority, ToolError> {
         match priority.trim().to_ascii_lowercase().as_str() {
-            "urgent" => Ok(IssuePriority::Urgent),
-            "high" => Ok(IssuePriority::High),
-            "medium" => Ok(IssuePriority::Medium),
-            "low" => Ok(IssuePriority::Low),
+            "urgent" => Ok(TaskPriority::Urgent),
+            "high" => Ok(TaskPriority::High),
+            "medium" => Ok(TaskPriority::Medium),
+            "low" => Ok(TaskPriority::Low),
             _ => Err(ToolError::message(format!(
                 "Unknown priority '{}'. Allowed values: ['urgent', 'high', 'medium', 'low']",
                 priority
@@ -859,12 +874,12 @@ impl McpServer {
         }
     }
 
-    fn issue_priority_label(priority: IssuePriority) -> &'static str {
+    fn issue_priority_label(priority: TaskPriority) -> &'static str {
         match priority {
-            IssuePriority::Urgent => "urgent",
-            IssuePriority::High => "high",
-            IssuePriority::Medium => "medium",
-            IssuePriority::Low => "low",
+            TaskPriority::Urgent => "urgent",
+            TaskPriority::High => "high",
+            TaskPriority::Medium => "medium",
+            TaskPriority::Low => "low",
         }
     }
 

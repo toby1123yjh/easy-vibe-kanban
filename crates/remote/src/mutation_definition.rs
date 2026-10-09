@@ -26,6 +26,8 @@
 
 use std::marker::PhantomData;
 
+use api_types::contracts::mutations::MutationEntity;
+pub use api_types::contracts::mutations::{MutationDefinition, NoCreate, NoUpdate};
 use axum::{Json, handler::Handler, routing::MethodRouter};
 use ts_rs::TS;
 
@@ -57,15 +59,6 @@ impl<A, B, C, D, E0, F, G, H, T> HasJsonPayload<T> for (A, B, C, D, E0, F, G, H,
 // MutationDefinition - Metadata for TypeScript generation
 // =============================================================================
 
-/// Metadata extracted from a MutationBuilder for TypeScript code generation.
-#[derive(Debug)]
-pub struct MutationDefinition {
-    pub table: &'static str,
-    pub row_type: String,
-    pub create_type: Option<String>,
-    pub update_type: Option<String>,
-}
-
 // =============================================================================
 // MutationBuilder Builder
 // =============================================================================
@@ -83,11 +76,11 @@ pub struct MutationBuilder<E, C = (), U = ()> {
     _phantom: PhantomData<MutationMarker<E, C, U>>,
 }
 
-impl<E: TS + Send + Sync + 'static> MutationBuilder<E, NoCreate, NoUpdate> {
+impl<E: MutationEntity + Send + Sync + 'static> MutationBuilder<E, NoCreate, NoUpdate> {
     /// Create a new MutationBuilder for the given table.
-    pub fn new(table: &'static str) -> Self {
+    pub fn new() -> Self {
         Self {
-            table,
+            table: E::PATH,
             base_route: MethodRouter::new(),
             id_route: MethodRouter::new(),
             _phantom: PhantomData,
@@ -145,6 +138,7 @@ impl<E: TS, U> MutationBuilder<E, NoCreate, U> {
     pub fn create<C, H, T>(self, handler: H) -> MutationBuilder<E, C, U>
     where
         C: TS,
+        E: MutationEntity<Create = C>,
         H: Handler<T, AppState> + Clone + Send + 'static,
         T: HasJsonPayload<C> + 'static,
     {
@@ -165,6 +159,7 @@ impl<E: TS, C> MutationBuilder<E, C, NoUpdate> {
     pub fn update<U, H, T>(self, handler: H) -> MutationBuilder<E, C, U>
     where
         U: TS,
+        E: MutationEntity<Update = U>,
         H: Handler<T, AppState> + Clone + Send + 'static,
         T: HasJsonPayload<U> + 'static,
     {
@@ -177,54 +172,20 @@ impl<E: TS, C> MutationBuilder<E, C, NoUpdate> {
     }
 }
 
-/// Marker type for mutations without a create endpoint.
-pub struct NoCreate;
-
-/// Marker type for mutations without an update endpoint.
-pub struct NoUpdate;
-
-// Metadata extraction — one impl per combination of NoCreate/NoUpdate vs real types.
-
-impl<E: TS, C: TS, U: TS> MutationBuilder<E, C, U> {
+// Payload metadata includes explicit no-create/no-update markers. A single
+// implementation avoids overlap when marker types live in the shared crate.
+impl<
+    E: TS,
+    C: api_types::contracts::mutations::MutationPayload,
+    U: api_types::contracts::mutations::MutationPayload,
+> MutationBuilder<E, C, U>
+{
     pub fn definition(&self) -> MutationDefinition {
         MutationDefinition {
             table: self.table,
             row_type: E::name(),
-            create_type: Some(C::name()),
-            update_type: Some(U::name()),
-        }
-    }
-}
-
-impl<E: TS, U: TS> MutationBuilder<E, NoCreate, U> {
-    pub fn definition(&self) -> MutationDefinition {
-        MutationDefinition {
-            table: self.table,
-            row_type: E::name(),
-            create_type: None,
-            update_type: Some(U::name()),
-        }
-    }
-}
-
-impl<E: TS, C: TS> MutationBuilder<E, C, NoUpdate> {
-    pub fn definition(&self) -> MutationDefinition {
-        MutationDefinition {
-            table: self.table,
-            row_type: E::name(),
-            create_type: Some(C::name()),
-            update_type: None,
-        }
-    }
-}
-
-impl<E: TS> MutationBuilder<E, NoCreate, NoUpdate> {
-    pub fn definition(&self) -> MutationDefinition {
-        MutationDefinition {
-            table: self.table,
-            row_type: E::name(),
-            create_type: None,
-            update_type: None,
+            create_type: C::type_name(),
+            update_type: U::type_name(),
         }
     }
 }

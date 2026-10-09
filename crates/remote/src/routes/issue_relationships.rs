@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueRelationshipRequest, DeleteResponse, IssueRelationship, ListIssueRelationshipsQuery,
-    ListIssueRelationshipsResponse, MutationResponse,
+    CreateTaskRelationshipRequest, DeleteResponse, ListTaskRelationshipsQuery,
+    ListTaskRelationshipsResponse, MutationResponse, TaskRelationship,
 };
 use axum::{
     Json,
@@ -21,9 +21,9 @@ use crate::{
     mutation_definition::{MutationBuilder, NoUpdate},
 };
 
-/// Mutation definition for IssueRelationship - provides both router and TypeScript metadata.
-pub fn mutation() -> MutationBuilder<IssueRelationship, CreateIssueRelationshipRequest, NoUpdate> {
-    MutationBuilder::new("issue_relationships")
+/// Mutation definition for TaskRelationship - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<TaskRelationship, CreateTaskRelationshipRequest, NoUpdate> {
+    MutationBuilder::new()
         .list(list_issue_relationships)
         .get(get_issue_relationship)
         .create(create_issue_relationship)
@@ -42,8 +42,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_issue_relationships(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueRelationshipsQuery>,
-) -> Result<Json<ListIssueRelationshipsResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskRelationshipsQuery>,
+) -> Result<Json<ListTaskRelationshipsResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_relationships = IssueRelationshipRepository::list_by_issue(
@@ -59,7 +59,7 @@ async fn list_issue_relationships(
         )
     })?;
 
-    Ok(Json(ListIssueRelationshipsResponse {
+    Ok(Json(ListTaskRelationshipsResponse {
         issue_relationships,
     }))
 }
@@ -73,7 +73,7 @@ async fn get_issue_relationship(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_relationship_id): Path<Uuid>,
-) -> Result<Json<IssueRelationship>, ErrorResponse> {
+) -> Result<Json<TaskRelationship>, ErrorResponse> {
     let relationship = IssueRelationshipRepository::find_by_id(state.pool(), issue_relationship_id)
         .await
         .map_err(|error| {
@@ -98,8 +98,8 @@ async fn get_issue_relationship(
 async fn create_issue_relationship(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueRelationshipRequest>,
-) -> Result<Json<MutationResponse<IssueRelationship>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskRelationshipRequest>,
+) -> Result<Json<MutationResponse<TaskRelationship>>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let response = IssueRelationshipRepository::create(

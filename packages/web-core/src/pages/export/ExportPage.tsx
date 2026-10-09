@@ -74,7 +74,7 @@ export function ExportPage({
               />
             </div>
             <p className="text-sm text-low">
-              Download your project and issue data to CSV files. Optionally
+              Download your project and task data to CSV files. Optionally
               downloads your file attachments too.
             </p>
           </header>

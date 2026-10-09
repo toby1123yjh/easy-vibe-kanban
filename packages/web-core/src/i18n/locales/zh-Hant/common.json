@@ -410,12 +410,12 @@
       "action": "重新命名",
       "renaming": "正在重新命名..."
     },
-    "unlinkFromIssue": "從問題取消關聯",
+    "unlinkFromIssue": "從任務取消關聯",
     "deleteWorkspace": "刪除工作空間",
     "unlink": "取消關聯",
     "delete": "刪除",
-    "unlinkConfirmMessage": "確定要將此工作空間與問題取消關聯嗎？工作空間仍將存在，但不再與此問題關聯。",
-    "deleteConfirmMessage": "確定要刪除此工作空間嗎？這將取消與問題的關聯並刪除本地工作空間。此操作無法復原。",
+    "unlinkConfirmMessage": "確定要將此工作空間與任務取消關聯嗎？工作空間仍將存在，但不再與此任務關聯。",
+    "deleteConfirmMessage": "確定要刪除此工作空間嗎？這將取消與任務的關聯並刪除本地工作空間。此操作無法復原。",
     "unlinkError": "取消關聯工作空間失敗",
     "deleteError": "刪除工作空間失敗",
     "filesChanged": "{{count}} 個檔案",
@@ -424,7 +424,7 @@
       "description": "確定要刪除此工作空間嗎？此操作無法復原。",
       "deleteBranchLabel": "刪除分支",
       "cannotDeleteOpenPr": "PR 開啟時無法刪除分支",
-      "unlinkFromIssueLabel": "同時取消與議題的關聯"
+      "unlinkFromIssueLabel": "同時取消與任務的關聯"
     },
     "linkError": "關聯工作空間失敗"
   },
@@ -645,7 +645,7 @@
     },
     "runDialog": {
       "title": "執行工作流執行",
-      "description": "啟動這個關聯議題的工作流執行。",
+      "description": "啟動這個關聯任務的工作流執行。",
       "mainWorkspace": "主工作空間",
       "createWorkflowWorkspace": "建立工作流工作空間",
       "usesExistingWorkspace": "使用現有工作空間。",
@@ -916,7 +916,7 @@
       "noSourceOutput": "來源執行沒有文字輸出。",
       "noRuntimeOutput": "暫時沒有執行輸出。",
       "technicalDetails": "技術詳情",
-      "taskId": "任務 ID",
+      "taskId": "執行 ID",
       "updatingDecision": "正在更新...",
       "approveAndContinue": "核准並繼續",
       "openFullSession": "開啟完整會話",
@@ -960,7 +960,7 @@
     },
     "dashboard": {
       "runDetails": "執行詳情",
-      "issueId": "議題 ID",
+      "issueId": "任務 ID",
       "workflow": "工作流",
       "runId": "執行 ID",
       "status": "狀態",
@@ -1107,7 +1107,7 @@
       "time": "時間",
       "weekday": "星期",
       "timezone": "時區",
-      "contextIssue": "關聯議題",
+      "contextIssue": "關聯任務",
       "inputText": "執行輸入",
       "inputPlaceholder": "描述本次執行需要完成的工作。",
       "save": "儲存",
@@ -1117,7 +1117,7 @@
       "lastTriggered": "上次觸發",
       "lastStatus": "上次狀態",
       "target": "目標",
-      "noIssue": "無可用議題",
+      "noIssue": "無可用任務",
       "none": "無",
       "saveBeforeSchedule": "新增排程任務前，請先儲存此工作流。",
       "deleteTitle": "刪除排程任務？",
@@ -1142,7 +1142,7 @@
         "sunday": "星期日"
       },
       "errors": {
-        "issueRequired": "請選擇關聯議題。",
+        "issueRequired": "請選擇關聯任務。",
         "timeRequired": "請選擇有效時間。",
         "weekdayRequired": "請選擇星期。",
         "inputRequired": "儲存排程任務前，請填寫執行輸入。",
@@ -1276,7 +1276,7 @@
       "goTo": "前往 (G ...)",
       "workspace": "工作空間 (W ...)",
       "view": "檢視 (V ...)",
-      "issues": "問題 (I ...)",
+      "issues": "任務 (I ...)",
       "git": "Git (X ...)",
       "yank": "複製 (Y ...)",
       "toggle": "切換 (T ...)",
@@ -1307,16 +1307,16 @@
       "toggle-preview-mode": "切換預覽面板",
       "toggle-left-sidebar": "切換左側邊欄",
       "toggle-left-main-panel": "切換聊天面板",
-      "create-issue": "建立問題",
+      "create-issue": "建立任務",
       "change-issue-status": "變更狀態",
       "change-issue-priority": "變更優先順序",
       "change-assignees": "變更負責人",
-      "make-sub-issue-of": "設為子問題",
-      "add-sub-issue": "新增子問題",
+      "make-sub-issue-of": "設為子任務",
+      "add-sub-issue": "新增子任務",
       "remove-parent-issue": "移除父級",
       "link-workspace": "關聯工作空間",
-      "duplicate-issue": "複製問題",
-      "delete-issue": "刪除問題",
+      "duplicate-issue": "複製任務",
+      "delete-issue": "刪除任務",
       "git-create-pr": "建立 Pull Request",
       "git-merge": "合併分支",
       "git-rebase": "變基分支",
@@ -1342,11 +1342,11 @@
     "noCommands": "此智能體沒有可用的指令。"
   },
   "kanban": {
-    "noVisibleStatuses": "所有狀態已隱藏。請使用顯示設定或切換到其他標籤頁查看問題。",
+    "noVisibleStatuses": "所有狀態已隱藏。請使用顯示設定或切換到其他標籤頁查看任務。",
     "noProjectFound": "找不到專案",
     "unassigned": "未指派",
     "noTagsAvailable": "無可用標籤",
-    "createNewIssue": "建立新問題",
+    "createNewIssue": "建立新任務",
     "searchTags": "搜尋標籤...",
     "selectColorFor": "選擇顏色：",
     "createTag": "建立",
@@ -1365,12 +1365,12 @@
     "moreActions": "更多操作",
     "closePanel": "關閉面板",
     "copyLink": "複製連結",
-    "issueTitlePlaceholder": "問題標題...",
+    "issueTitlePlaceholder": "任務標題...",
     "issueDescriptionPlaceholder": "輸入任務描述...",
     "createDraftWorkspaceImmediately": "立即建立草稿工作空間",
-    "createDraftWorkspaceDescription": "建立議題後，開啟預填了議題詳情的工作空間建立表單",
+    "createDraftWorkspaceDescription": "建立任務後，開啟預填了任務詳情的工作空間建立表單",
     "createIssue": "建立任務",
-    "newIssue": "新問題",
+    "newIssue": "新任務",
     "previewCodeBlock": "[程式碼區塊]",
     "previewImage": "[圖片]",
     "previewImageWithName": "[圖片: {{name}}]",
@@ -1385,7 +1385,7 @@
     "downloadAttachment": "下載附件",
     "subIssues": "子任務",
     "noSubIssues": "無子任務",
-    "markIndependentIssue": "標記為獨立問題",
+    "markIndependentIssue": "標記為獨立任務",
     "parentIssue": "父級",
     "subIssueIndicator": "↳",
     "viewTabs": {
@@ -1399,7 +1399,7 @@
     },
     "team": "團隊",
     "personal": "個人",
-    "searchPlaceholder": "搜尋議題...",
+    "searchPlaceholder": "搜尋任務...",
     "filters": "篩選",
     "clearFilters": "清除篩選",
     "filtersDescription": "調整此看板檢視的篩選和排序。",
@@ -1430,7 +1430,7 @@
     "assignee": "負責人",
     "self": "我",
     "priority": "優先級",
-    "subIssuesFilterLabel": "子議題",
+    "subIssuesFilterLabel": "子任務",
     "workspacesFilterLabel": "工作空間",
     "selectAssignees": "選擇負責人...",
     "relationships": "關係",
@@ -1444,7 +1444,7 @@
     "changeColor": "變更顏色",
     "editName": "編輯名稱",
     "deleteStatus": "刪除狀態",
-    "cannotDeleteWithIssues": "請先移動議題",
+    "cannotDeleteWithIssues": "請先移動任務",
     "lastVisibleStatus": "至少需要保留一個可見狀態",
     "showStatus": "顯示狀態",
     "hideStatus": "隱藏狀態",
@@ -1455,19 +1455,19 @@
     "projectsGuide": {
       "intro": {
         "title": "歡迎",
-        "content": "歡迎使用 Vibe Kanban。使用此面板中的說明內容了解基本流程，然後建立第一個議題。你可以隨時從導覽列重新開啟此說明對話框或提交回饋。"
+        "content": "歡迎使用 Vibe Kanban。使用此面板中的說明內容了解基本流程，然後建立第一個任務。你可以隨時從導覽列重新開啟此說明對話框或提交回饋。"
       },
       "welcome": {
         "title": "專案",
-        "content": "專案頁面用於管理議題。你可以用看板或清單檢視議題，並依狀態、標籤、負責人等條件篩選。"
+        "content": "專案頁面用於管理任務。你可以用看板或清單檢視任務，並依狀態、標籤、負責人等條件篩選。"
       },
       "issues": {
-        "title": "議題",
-        "content": "每個議題代表一個要實作的功能或要解決的問題。議題可以包含狀態、優先級、負責人、標籤、關係、留言、子議題等資訊。"
+        "title": "任務",
+        "content": "每個任務代表一個要實作的功能或要解決的任務。任務可以包含狀態、優先級、負責人、標籤、關係、留言、子任務等資訊。"
       },
       "workspaces": {
         "title": "工作空間",
-        "content": "開始處理議題時，請建立一個工作空間。一個議題可以有多個工作空間。議題描述要完成的工作，工作空間承載實際執行過程。"
+        "content": "開始處理任務時，請建立一個工作空間。一個任務可以有多個工作空間。任務描述要完成的工作，工作空間承載實際執行過程。"
       },
       "organizations": {
         "title": "邀請你的團隊",
@@ -1649,9 +1649,9 @@
         "command": "命令",
         "project": "專案",
         "session": "工作階段",
-        "issue": "議題",
         "workflow": "工作流程",
-        "run": "執行"
+        "run": "執行",
+        "task": "任務"
       }
     },
     "moduleLanding": {
@@ -1671,7 +1671,7 @@
         "agentConfiguration": "智能體設定"
       },
       "unavailable": {
-        "globalStatistics": "專案、Issue 與智能體執行的規範總數尚未提供。側邊欄分頁資料不會作為全域統計顯示。",
+        "globalStatistics": "專案、Task 與智能體執行的規範總數尚未提供。側邊欄分頁資料不會作為全域統計顯示。",
         "attention": "規範的注意事項投影尚未提供。此區域保持獨立，不會從記錄文字推斷警示。",
         "activeRuns": "工作階段清單不包含執行階段狀態。規範執行階段投影提供後，這裡才會顯示使用中的執行。",
         "agentConfiguration": "連線、預設模型、API 位址和執行數量的規範摘要尚未提供。執行階段 API 能力不會取代設定資料。"
@@ -2116,5 +2116,15 @@
     "more": "顯示最近 30 天",
     "pending": "即將繼續：{{title}} · {{time}}",
     "clear": "取消繼續此工作階段"
+  },
+  "taskDetails": {
+    "executions": "執行",
+    "noExecutions": "此任務尚未發起執行。",
+    "newExecution": "發起執行",
+    "singleAgent": "單智能體",
+    "workflow": "工作流",
+    "arena": "競技場",
+    "information": "任務資訊",
+    "description": "描述"
   }
 }

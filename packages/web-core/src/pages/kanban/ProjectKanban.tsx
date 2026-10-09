@@ -19,9 +19,9 @@ import { useUserOrganizations } from '@/shared/hooks/useUserOrganizations';
 import { ProjectProvider } from '@/shared/providers/remote/ProjectProvider';
 import { OrgProvider } from '@/shared/providers/remote/OrgProvider';
 import {
-  buildKanbanIssueComposerKey,
-  closeKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  closeKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { deriveProjectBoardAccessState } from '@/features/projects/model/projectBoardAccessState';
 
@@ -31,50 +31,50 @@ import { deriveProjectBoardAccessState } from '@/features/projects/model/project
  */
 function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
   const { registerProjectMutations } = useActions();
-  const { removeIssue, insertIssue, getIssue, getAssigneesForIssue, issues } =
+  const { removeTask, insertTask, getTask, getAssigneesForTask, tasks } =
     useProjectContext();
 
   // Use ref to always access latest issues and avoid stale closures.
-  const issuesRef = useRef(issues);
+  const tasksRef = useRef(tasks);
   useEffect(() => {
-    issuesRef.current = issues;
-  }, [issues]);
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   useEffect(() => {
     registerProjectMutations({
-      removeIssue: (id) => {
-        removeIssue(id);
+      removeTask: (id) => {
+        removeTask(id);
       },
-      duplicateIssue: (issueId) => {
-        const issue = getIssue(issueId);
-        if (!issue) return;
+      duplicateTask: (taskId) => {
+        const task = getTask(taskId);
+        if (!task) return;
 
-        const currentIssues = issuesRef.current;
-        const statusIssues = currentIssues.filter(
-          (candidate) => candidate.status_id === issue.status_id
+        const currentTasks = tasksRef.current;
+        const statusTasks = currentTasks.filter(
+          (candidate) => candidate.status_id === task.status_id
         );
         const minSortOrder =
-          statusIssues.length > 0
-            ? Math.min(...statusIssues.map((candidate) => candidate.sort_order))
+          statusTasks.length > 0
+            ? Math.min(...statusTasks.map((candidate) => candidate.sort_order))
             : 0;
 
-        insertIssue({
-          project_id: issue.project_id,
-          status_id: issue.status_id,
-          title: `${issue.title} (Copy)`,
-          description: issue.description,
-          priority: issue.priority,
+        insertTask({
+          project_id: task.project_id,
+          status_id: task.status_id,
+          title: `${task.title} (Copy)`,
+          description: task.description,
+          priority: task.priority,
           sort_order: minSortOrder - 1,
-          start_date: issue.start_date,
-          target_date: issue.target_date,
+          start_date: task.start_date,
+          target_date: task.target_date,
           completed_at: null,
-          parent_issue_id: issue.parent_issue_id,
-          parent_issue_sort_order: issue.parent_issue_sort_order,
-          extension_metadata: issue.extension_metadata,
+          parent_task_id: task.parent_task_id,
+          parent_task_sort_order: task.parent_task_sort_order,
+          extension_metadata: task.extension_metadata,
         });
       },
-      getIssue,
-      getAssigneesForIssue,
+      getTask,
+      getAssigneesForTask,
     });
 
     return () => {
@@ -82,10 +82,10 @@ function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
     };
   }, [
     registerProjectMutations,
-    removeIssue,
-    insertIssue,
-    getIssue,
-    getAssigneesForIssue,
+    removeTask,
+    insertTask,
+    getTask,
+    getAssigneesForTask,
   ]);
 
   return <>{children}</>;
@@ -150,14 +150,14 @@ function ProjectKanbanPageSurface({
   retryOrganization(): void;
 }) {
   const { t } = useTranslation('common');
-  const { issueId } = useCurrentKanbanRouteState();
-  const { getIssue, isLoading, error, retry } = useProjectContext();
-  const issue = issueId ? getIssue(issueId) : undefined;
+  const { taskId } = useCurrentKanbanRouteState();
+  const { getTask, isLoading, error, retry } = useProjectContext();
+  const task = taskId ? getTask(taskId) : undefined;
   const hasLoadedBoardRef = useRef(false);
   if (!isLoading && !error) {
     hasLoadedBoardRef.current = true;
   }
-  usePageTitle(issue?.title, projectName);
+  usePageTitle(task?.title, projectName);
 
   if (isLoading && !hasLoadedBoardRef.current) {
     return <ProjectKanbanSkeleton projectName={projectName} />;
@@ -220,7 +220,9 @@ function useFindProjectById(projectId: string | undefined) {
   const organizations = orgsData?.organizations ?? [];
 
   // Use stored org ID, or fall back to first org
-  const orgIdToUse = selectedOrgId ?? organizations[0]?.id ?? null;
+  const orgIdToUse = organizations.some((org) => org.id === selectedOrgId)
+    ? selectedOrgId
+    : (organizations[0]?.id ?? null);
 
   const {
     data: projects = [],
@@ -240,7 +242,7 @@ function useFindProjectById(projectId: string | undefined) {
 
   return {
     project,
-    organizationId: project?.organization_id ?? selectedOrgId,
+    organizationId: project?.organization_id ?? null,
     // Include auth loading state - we can't determine project access until auth loads
     isLoading: !authLoaded || orgsLoading || projectsLoading,
     error: organizationsError ?? projectsError,
@@ -253,9 +255,9 @@ function useFindProjectById(projectId: string | undefined) {
  *
  * URL patterns:
  * - /projects/:projectId - Kanban board with no issue selected
- * - /projects/:projectId/issues/:issueId - Kanban with issue panel open
- * - /projects/:projectId/issues/:issueId/workspaces/:workspaceId - Kanban with workspace session panel open
- * - /projects/:projectId/issues/:issueId/workspaces/create/:draftId - Kanban with workspace create panel
+ * - /projects/:projectId/tasks/:issueId - Kanban with issue panel open
+ * - /projects/:projectId/tasks/:issueId/workspaces/:workspaceId - Kanban with workspace session panel open
+ * - /projects/:projectId/tasks/:issueId/workspaces/create/:draftId - Kanban with workspace create panel
  *
  * Note: issue creation is composer-store state on top of /projects/:projectId.
  *
@@ -268,22 +270,22 @@ export function ProjectKanban() {
   const appNavigation = useAppNavigation();
   const { t } = useTranslation('common');
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
-  const issueComposerKey = useMemo(() => {
+  const taskComposerKey = useMemo(() => {
     if (!projectId) {
       return null;
     }
-    return buildKanbanIssueComposerKey(hostId, projectId);
+    return buildKanbanTaskComposerKey(hostId, projectId);
   }, [hostId, projectId]);
-  const previousIssueComposerKeyRef = useRef<string | null>(null);
+  const previousTaskComposerKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const previousKey = previousIssueComposerKeyRef.current;
-    if (previousKey && previousKey !== issueComposerKey) {
-      closeKanbanIssueComposer(previousKey);
+    const previousKey = previousTaskComposerKeyRef.current;
+    if (previousKey && previousKey !== taskComposerKey) {
+      closeKanbanTaskComposer(previousKey);
     }
 
-    previousIssueComposerKeyRef.current = issueComposerKey;
-  }, [issueComposerKey]);
+    previousTaskComposerKeyRef.current = taskComposerKey;
+  }, [taskComposerKey]);
 
   // Redirect invalid workspace-create draft URLs back to the closed project view.
   useEffect(() => {
@@ -352,8 +354,14 @@ export function ProjectKanban() {
   }
 
   return (
-    <OrgProvider key={organizationId} organizationId={organizationId}>
-      <ProjectKanbanInner key={projectId} projectId={projectId} />
+    <OrgProvider
+      key={`${hostId}:${organizationId}`}
+      organizationId={organizationId}
+    >
+      <ProjectKanbanInner
+        key={`${hostId}:${projectId}`}
+        projectId={projectId}
+      />
     </OrgProvider>
   );
 }

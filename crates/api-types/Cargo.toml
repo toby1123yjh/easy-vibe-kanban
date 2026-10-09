@@ -3,6 +3,14 @@ name = "api-types"
 version = "0.1.44"
 edition = "2024"
 
+[features]
+typescript = ["dep:relay-types"]
+
+[[bin]]
+name = "generate-remote-types"
+path = "src/bin/generate_remote_types.rs"
+required-features = ["typescript"]
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 schemars = { workspace = true }
@@ -11,3 +19,4 @@ serde_json = { workspace = true }
 sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "uuid", "chrono", "derive"] }
 ts-rs = { workspace = true }
 uuid = { version = "1.0", features = ["v4", "serde"] }
+relay-types = { path = "../relay-types", optional = true }

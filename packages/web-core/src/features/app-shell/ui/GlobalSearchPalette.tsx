@@ -215,7 +215,7 @@ export function GlobalSearchPalette({
     () => groupedResults.flatMap((group) => group.results),
     [groupedResults]
   );
-  const sourceIssues = sources.filter((source) => source.state !== 'available');
+  const sourceTasks = sources.filter((source) => source.state !== 'available');
 
   useEffect(() => {
     setActiveIndex((index) =>
@@ -323,9 +323,9 @@ export function GlobalSearchPalette({
           <span>{t('appShell.search.shortcutHint')}</span>
         </div>
 
-        {sourceIssues.length > 0 && (
+        {sourceTasks.length > 0 && (
           <div className="vk-search-source-states">
-            {sourceIssues.map((source) => (
+            {sourceTasks.map((source) => (
               <SearchSourceNotice key={source.id} source={source} />
             ))}
           </div>

@@ -21,7 +21,7 @@ export const Pages: Record<StaticPageId, CommandBarPage> = {
 
           { type: 'childPages', id: 'workspaceActions' },
           { type: 'childPages', id: 'repoActions' },
-          { type: 'childPages', id: 'issueActions' },
+          { type: 'childPages', id: 'taskActions' },
         ],
       },
       {
@@ -150,9 +150,9 @@ export const Pages: Record<StaticPageId, CommandBarPage> = {
   },
 
   // Issue actions page - shown in kanban mode
-  issueActions: {
+  taskActions: {
     id: 'issue-actions',
-    title: 'Issue Actions',
+    title: 'Task Actions',
     parent: 'root',
     isVisible: (ctx) => ctx.layoutMode === 'kanban',
     items: [
@@ -160,23 +160,23 @@ export const Pages: Record<StaticPageId, CommandBarPage> = {
         type: 'group',
         label: 'Actions',
         items: [
-          { type: 'action', action: Actions.CreateIssue },
-          { type: 'action', action: Actions.ChangeIssueStatus },
-          { type: 'action', action: Actions.ChangeNewIssueStatus },
+          { type: 'action', action: Actions.CreateTask },
+          { type: 'action', action: Actions.ChangeTaskStatus },
+          { type: 'action', action: Actions.ChangeNewTaskStatus },
           { type: 'action', action: Actions.ChangePriority },
-          { type: 'action', action: Actions.ChangeNewIssuePriority },
+          { type: 'action', action: Actions.ChangeNewTaskPriority },
           { type: 'action', action: Actions.ChangeAssignees },
-          { type: 'action', action: Actions.ChangeNewIssueAssignees },
-          { type: 'action', action: Actions.MakeSubIssueOf },
-          { type: 'action', action: Actions.AddSubIssue },
-          { type: 'action', action: Actions.RemoveParentIssue },
+          { type: 'action', action: Actions.ChangeNewTaskAssignees },
+          { type: 'action', action: Actions.MakeSubTaskOf },
+          { type: 'action', action: Actions.AddSubTask },
+          { type: 'action', action: Actions.RemoveParentTask },
           { type: 'action', action: Actions.LinkWorkspace },
           { type: 'action', action: Actions.MarkBlocking },
           { type: 'action', action: Actions.MarkBlockedBy },
           { type: 'action', action: Actions.MarkRelated },
           { type: 'action', action: Actions.MarkDuplicateOf },
-          { type: 'action', action: Actions.DuplicateIssue },
-          { type: 'action', action: Actions.DeleteIssue },
+          { type: 'action', action: Actions.DuplicateTask },
+          { type: 'action', action: Actions.DeleteTask },
         ],
       },
     ],

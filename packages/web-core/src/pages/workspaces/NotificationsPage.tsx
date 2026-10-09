@@ -49,7 +49,7 @@ function NotificationMessage({
             </span>
           );
         }
-        if (seg.type === 'issue') {
+        if (seg.type === 'task') {
           return (
             <span
               key={i}

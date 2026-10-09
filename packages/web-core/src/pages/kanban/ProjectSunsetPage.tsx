@@ -30,8 +30,8 @@ export function ProjectSunsetPage({ projectName }: ProjectSunsetPageProps) {
               {projectName
                 ? `"${projectName}" is now export-only.`
                 : 'This project is now export-only.'}{' '}
-              You can still download your project and issue data, but kanban,
-              issue, and workspace flows are no longer available here.
+              You can still download your project and task data, but kanban,
+              task, and workspace flows are no longer available here.
             </>
           }
           action={

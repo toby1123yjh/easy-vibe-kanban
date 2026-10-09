@@ -43,7 +43,7 @@ test.describe('App Shell model', () => {
   });
 
   test('derives stable deep-route active modules', () => {
-    expect(deriveActiveShellModule('/projects/p-1/issues/i-1')).toBeNull();
+    expect(deriveActiveShellModule('/projects/p-1/tasks/i-1')).toBeNull();
     expect(deriveActiveShellModule('/projects/p-1/workflows')).toBe(
       'workflows'
     );

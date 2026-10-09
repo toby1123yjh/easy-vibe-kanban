@@ -1,10 +1,11 @@
+import { getCurrentHostId, useHostId } from '@/shared/providers/HostIdProvider';
 import {
   useQuery,
   useMutation,
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { workflowApi } from '@/shared/lib/workflowApi';
+import { createWorkflowApi } from '@/shared/lib/workflowApi';
 import type {
   WorkflowTemplateResponse,
   WorkflowTemplateListResponse,
@@ -14,10 +15,12 @@ import type {
 
 export const workflowTemplateQueryKeys = {
   all: ['workflow-templates'] as const,
-  list: (projectId: string) =>
-    ['workflow-templates', 'project', projectId] as const,
-  detail: (workflowId: string) =>
-    ['workflow-templates', 'detail', workflowId] as const,
+  host: (hostId = getCurrentHostId()) =>
+    ['workflow-templates', hostId] as const,
+  list: (projectId: string, hostId = getCurrentHostId()) =>
+    ['workflow-templates', hostId, 'project', projectId] as const,
+  detail: (workflowId: string, hostId = getCurrentHostId()) =>
+    ['workflow-templates', hostId, 'detail', workflowId] as const,
 };
 
 export interface UseWorkflowTemplatesOptions {
@@ -28,11 +31,13 @@ export function useWorkflowTemplates(
   projectId: string | null | undefined,
   options: UseWorkflowTemplatesOptions = {}
 ): UseQueryResult<WorkflowTemplateListResponse> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey: projectId
-      ? workflowTemplateQueryKeys.list(projectId)
+      ? workflowTemplateQueryKeys.list(projectId, hostId)
       : ['workflow-templates', 'noop'],
     queryFn: () => workflowApi.list(projectId as string),
     enabled: !!projectId && enabled,
@@ -43,11 +48,13 @@ export function useWorkflowTemplate(
   workflowId: string | null | undefined,
   options: UseWorkflowTemplatesOptions = {}
 ): UseQueryResult<WorkflowTemplateResponse> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey: workflowId
-      ? workflowTemplateQueryKeys.detail(workflowId)
+      ? workflowTemplateQueryKeys.detail(workflowId, hostId)
       : ['workflow-templates', 'detail', 'noop'],
     queryFn: () => workflowApi.get(workflowId as string),
     enabled: !!workflowId && enabled,
@@ -55,6 +62,8 @@ export function useWorkflowTemplate(
 }
 
 export function useWorkflowTemplateMutations() {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
@@ -67,9 +76,12 @@ export function useWorkflowTemplateMutations() {
     }) => workflowApi.create(projectId, payload),
     onSuccess: (data, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowTemplateQueryKeys.list(variables.projectId),
+        queryKey: workflowTemplateQueryKeys.list(variables.projectId, hostId),
       });
-      queryClient.setQueryData(workflowTemplateQueryKeys.detail(data.id), data);
+      queryClient.setQueryData(
+        workflowTemplateQueryKeys.detail(data.id, hostId),
+        data
+      );
     },
   });
 
@@ -83,9 +95,12 @@ export function useWorkflowTemplateMutations() {
     }) => workflowApi.update(workflowId, payload),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowTemplateQueryKeys.all,
+        queryKey: workflowTemplateQueryKeys.host(hostId),
       });
-      queryClient.setQueryData(workflowTemplateQueryKeys.detail(data.id), data);
+      queryClient.setQueryData(
+        workflowTemplateQueryKeys.detail(data.id, hostId),
+        data
+      );
     },
   });
 
@@ -93,10 +108,10 @@ export function useWorkflowTemplateMutations() {
     mutationFn: (workflowId: string) => workflowApi.delete(workflowId),
     onSuccess: (_, workflowId) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowTemplateQueryKeys.all,
+        queryKey: workflowTemplateQueryKeys.host(hostId),
       });
       queryClient.removeQueries({
-        queryKey: workflowTemplateQueryKeys.detail(workflowId),
+        queryKey: workflowTemplateQueryKeys.detail(workflowId, hostId),
       });
     },
   });

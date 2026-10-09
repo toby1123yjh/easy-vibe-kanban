@@ -251,7 +251,7 @@ export function getWorkflowRuntimeAttentionItems(
  * Resolve Task-owned runtime navigation. Session or Arena identities without
  * a canonical Task binding are deliberately not exposed as Node deep links.
  */
-export function getWorkflowNodeTaskTarget(
+export function getWorkflowNodeExecutionTarget(
   execution: WorkflowNodeExecutionResponse | null | undefined,
   work: WorkflowNodeWorkView | null | undefined
 ): WorkflowNodeTaskTarget | null {
@@ -260,7 +260,7 @@ export function getWorkflowNodeTaskTarget(
     | null
     | undefined;
   if (
-    !execution?.task_id ||
+    !execution?.execution_id ||
     canonicalWork?.runtime_authority !== 'current' ||
     canonicalWork.status === 'reused' ||
     canonicalWork.status === 'skipped'
@@ -275,7 +275,7 @@ export function getWorkflowNodeTaskTarget(
   ) {
     return {
       kind: 'agent-session',
-      taskId: execution.task_id,
+      taskId: execution.execution_id,
       sessionId: execution.session_id,
     };
   }
@@ -283,7 +283,7 @@ export function getWorkflowNodeTaskTarget(
   if (execution.node_type === 'arena' && execution.arena_group_id) {
     return {
       kind: 'arena',
-      taskId: execution.task_id,
+      taskId: execution.execution_id,
       arenaGroupId: execution.arena_group_id,
     };
   }

@@ -15,12 +15,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('header keeps canonical task title above issue and workspace context', async ({
+test('header keeps canonical task title above task and workspace context', async ({
   page,
 }) => {
   await gotoFixture(page);
   await expect(
-    page.getByText('Issue VIB-42 / /workspaces/task-1 / feature/task-1')
+    page.getByText('Task VIB-42 / /workspaces/task-1 / feature/task-1')
   ).toBeVisible();
 });
 

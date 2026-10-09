@@ -20,7 +20,7 @@ import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { useRenderedPathname } from '@/shared/hooks/useRenderedPathname';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
-import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
+import { useDeleteExecutionSession } from '@/shared/hooks/useDeleteExecutionSession';
 import { getProjectDestination } from '@/shared/lib/routes/appNavigation';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { useVisualViewportHeightVar } from '@/shared/hooks/useVisualViewportHeightVar';
@@ -289,7 +289,7 @@ export function AppShellContainer({
   );
 
   const { deleteSession, pendingSessionId: deletingSessionId } =
-    useDeleteTaskSession({
+    useDeleteExecutionSession({
       hostId: adapter.discoveryHostId,
       discoveryScopeKey: adapter.discoveryScopeKey,
       scopeKey: JSON.stringify([

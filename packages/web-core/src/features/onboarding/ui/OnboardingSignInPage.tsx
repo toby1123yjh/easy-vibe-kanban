@@ -32,7 +32,7 @@ type OnboardingDestination =
 
 const COMPARISON_ROWS = [
   {
-    feature: 'Use kanban board to track issues',
+    feature: 'Use kanban board to track tasks',
     signedIn: true,
     skip: false,
   },

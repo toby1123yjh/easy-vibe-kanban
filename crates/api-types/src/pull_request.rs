@@ -25,6 +25,8 @@ pub struct PullRequest {
     pub target_branch_name: String,
     pub project_id: Uuid,
     #[deprecated(note = "use pull_request_issues join table instead")]
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -32,14 +34,17 @@ pub struct PullRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct PullRequestIssue {
+pub struct PullRequestTask {
     pub id: Uuid,
     pub pull_request_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListPullRequestsQuery {
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
@@ -49,16 +54,20 @@ pub struct ListPullRequestsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct ListPullRequestIssuesResponse {
-    pub pull_request_issues: Vec<PullRequestIssue>,
+pub struct ListPullRequestTasksResponse {
+    #[serde(rename = "pull_request_tasks")]
+    #[ts(rename = "pull_request_tasks")]
+    pub pull_request_issues: Vec<PullRequestTask>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct CreatePullRequestIssueRequest {
+pub struct CreatePullRequestTaskRequest {
     /// Optional client-generated ID. If not provided, server generates one.
     /// Using client-generated IDs enables stable optimistic updates.
     #[ts(optional)]
     pub id: Option<Uuid>,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub url: String,
     pub number: i32,

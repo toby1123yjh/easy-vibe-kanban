@@ -108,12 +108,12 @@ export function WorkflowRunDashboardTab({
     : null;
   const selectedAgentSessionRows = buildAgentSessionRows(run, selectedNodeId);
   const workflowWorkspaceHref = run.workspace_id
-    ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
+    ? `/projects/${projectId}/tasks/${run.task_id}/workspaces/${run.workspace_id}`
     : null;
   const handleOpenWorkflowWorkspace = useCallback(() => {
     if (!run.workspace_id) return;
-    appNav.goToProjectIssueWorkspace(projectId, run.issue_id, run.workspace_id);
-  }, [appNav, projectId, run.issue_id, run.workspace_id]);
+    appNav.goToProjectTaskWorkspace(projectId, run.task_id, run.workspace_id);
+  }, [appNav, projectId, run.task_id, run.workspace_id]);
 
   const handleCancelRun = async () => {
     if (!run.runtime_view || runtimeView.authority !== 'current') {
@@ -239,7 +239,7 @@ export function WorkflowRunDashboardTab({
               <span className="text-low">
                 {t('workflow.dashboard.issueId')}:
               </span>
-              <span className="ml-2 text-high">{run.issue_id}</span>
+              <span className="ml-2 text-high">{run.task_id}</span>
             </div>
             <div>
               <span className="text-low">
@@ -608,7 +608,7 @@ export function WorkflowRunDashboardTab({
               {selectedNodeActionGate.canSelectArenaWinner && (
                 <WorkflowArenaWinnerPanel
                   arenaGroupId={selectedNode.arena_group_id}
-                  issueId={run.issue_id}
+                  taskId={run.task_id}
                   nodeId={selectedNode.node_id}
                   nodeExecutionId={selectedNode.id}
                   projectId={projectId}
@@ -695,7 +695,7 @@ export function WorkflowRunDashboardTab({
                               {t('workflow.dashboard.arenaGroup')}:{' '}
                               <a
                                 className="inline-flex items-center gap-1 text-brand hover:underline"
-                                href={`/projects/${projectId}/issues/${run.issue_id}/arena/${node.arena_group_id}`}
+                                href={`/projects/${projectId}/tasks/${run.task_id}/arena/${node.arena_group_id}`}
                               >
                                 {node.arena_group_id}
                                 <ExternalLink className="h-3 w-3" />

@@ -7,32 +7,46 @@ export type AppDestination =
   | { kind: 'workspace'; workspaceId: string; hostId?: string }
   | { kind: 'workspace-vscode'; workspaceId: string; hostId?: string }
   | { kind: 'export' }
-  | { kind: 'project'; projectId: string }
-  | { kind: 'project-workflows'; projectId: string }
-  | { kind: 'project-workflow-edit'; projectId: string; workflowId: string }
-  | { kind: 'project-workflow-run'; projectId: string; runId: string }
+  | { kind: 'project-directory'; hostId?: string }
+  | { kind: 'workflow-directory'; hostId?: string }
+  | { kind: 'project'; projectId: string; hostId?: string }
+  | { kind: 'project-workflows'; projectId: string; hostId?: string }
   | {
-      kind: 'project-issue';
+      kind: 'project-workflow-edit';
       projectId: string;
-      issueId: string;
+      workflowId: string;
+      hostId?: string;
     }
   | {
-      kind: 'project-issue-arena';
+      kind: 'project-workflow-run';
       projectId: string;
-      issueId: string;
+      runId: string;
+      hostId?: string;
+    }
+  | {
+      kind: 'project-task';
+      hostId?: string;
+      projectId: string;
+      taskId: string;
+    }
+  | {
+      kind: 'project-task-arena';
+      hostId?: string;
+      projectId: string;
+      taskId: string;
       arenaGroupId: string;
     }
   | {
-      kind: 'project-issue-workspace';
+      kind: 'project-task-workspace';
       projectId: string;
-      issueId: string;
+      taskId: string;
       workspaceId: string;
       hostId?: string;
     }
   | {
-      kind: 'project-issue-workspace-create';
+      kind: 'project-task-workspace-create';
       projectId: string;
-      issueId: string;
+      taskId: string;
       draftId: string;
       hostId?: string;
     }
@@ -45,6 +59,8 @@ export type AppDestination =
 
 export type NavigationTransition = {
   replace?: boolean;
+  /** Explicit machine for a newly opened local project; null selects this host. */
+  hostId?: string | null;
 };
 
 export type SettingsNavigationSection =
@@ -133,30 +149,30 @@ export interface AppNavigation {
     runId: string,
     transition?: NavigationTransition
   ): void;
-  goToProjectIssue(
+  goToProjectTask(
     projectId: string,
-    issueId: string,
+    taskId: string,
     transition?: NavigationTransition
   ): void;
   /**
    * Only deployments with an Arena comparison route provide this action.
    * Consumers must fail closed when it is absent.
    */
-  goToProjectIssueArena?(
+  goToProjectTaskArena?(
     projectId: string,
-    issueId: string,
+    taskId: string,
     arenaGroupId: string,
     transition?: NavigationTransition
   ): void;
-  goToProjectIssueWorkspace(
+  goToProjectTaskWorkspace(
     projectId: string,
-    issueId: string,
+    taskId: string,
     workspaceId: string,
     transition?: NavigationTransition
   ): void;
-  goToProjectIssueWorkspaceCreate(
+  goToProjectTaskWorkspaceCreate(
     projectId: string,
-    issueId: string,
+    taskId: string,
     draftId: string,
     transition?: NavigationTransition
   ): void;
@@ -172,10 +188,10 @@ type ProjectDestinationKind =
   | 'project-workflows'
   | 'project-workflow-edit'
   | 'project-workflow-run'
-  | 'project-issue'
-  | 'project-issue-arena'
-  | 'project-issue-workspace'
-  | 'project-issue-workspace-create'
+  | 'project-task'
+  | 'project-task-arena'
+  | 'project-task-workspace'
+  | 'project-task-workspace-create'
   | 'project-workspace-create';
 
 type WorkspaceDestinationKind =
@@ -196,14 +212,14 @@ export type WorkspaceDestination = Extract<
 
 export type KanbanSidebarMode =
   | 'closed'
-  | 'issue'
-  | 'issue-workspace'
+  | 'task'
+  | 'task-workspace'
   | 'workspace-create';
 
 export interface KanbanRouteState {
   hostId: string | null;
   projectId: string | null;
-  issueId: string | null;
+  taskId: string | null;
   workspaceId: string | null;
   draftId: string | null;
   sidebarMode: KanbanSidebarMode | null;
@@ -235,10 +251,10 @@ export function isProjectDestination(
     case 'project-workflows':
     case 'project-workflow-edit':
     case 'project-workflow-run':
-    case 'project-issue':
-    case 'project-issue-arena':
-    case 'project-issue-workspace':
-    case 'project-issue-workspace-create':
+    case 'project-task':
+    case 'project-task-arena':
+    case 'project-task-workspace':
+    case 'project-task-workspace-create':
     case 'project-workspace-create':
       return true;
     default:
@@ -301,42 +317,42 @@ export function resolveKanbanRouteState(
   const projectId = projectDestination?.projectId ?? null;
   const hostId = getDestinationHostId(projectDestination);
 
-  const issueId = (() => {
+  const taskId = (() => {
     if (!projectDestination) {
       return null;
     }
 
     switch (projectDestination.kind) {
-      case 'project-issue':
-      case 'project-issue-arena':
-      case 'project-issue-workspace':
-      case 'project-issue-workspace-create':
-        return projectDestination.issueId;
+      case 'project-task':
+      case 'project-task-arena':
+      case 'project-task-workspace':
+      case 'project-task-workspace-create':
+        return projectDestination.taskId;
       default:
         return null;
     }
   })();
 
   const workspaceId =
-    projectDestination?.kind === 'project-issue-workspace'
+    projectDestination?.kind === 'project-task-workspace'
       ? projectDestination.workspaceId
       : null;
 
   const rawDraftId =
-    projectDestination?.kind === 'project-issue-workspace-create' ||
+    projectDestination?.kind === 'project-task-workspace-create' ||
     projectDestination?.kind === 'project-workspace-create'
       ? projectDestination.draftId
       : null;
   const draftId = rawDraftId && isValidUuid(rawDraftId) ? rawDraftId : null;
 
   const hasInvalidWorkspaceCreateDraftId =
-    (projectDestination?.kind === 'project-issue-workspace-create' ||
+    (projectDestination?.kind === 'project-task-workspace-create' ||
       projectDestination?.kind === 'project-workspace-create') &&
     rawDraftId !== null &&
     !draftId;
 
   const isWorkspaceCreateMode =
-    (projectDestination?.kind === 'project-issue-workspace-create' ||
+    (projectDestination?.kind === 'project-task-workspace-create' ||
       projectDestination?.kind === 'project-workspace-create') &&
     draftId !== null;
 
@@ -350,13 +366,13 @@ export function resolveKanbanRouteState(
       case 'project-workflows':
       case 'project-workflow-edit':
       case 'project-workflow-run':
-      case 'project-issue-arena':
+      case 'project-task-arena':
         return 'closed';
-      case 'project-issue':
-        return 'issue';
-      case 'project-issue-workspace':
-        return 'issue-workspace';
-      case 'project-issue-workspace-create':
+      case 'project-task':
+        return 'task';
+      case 'project-task-workspace':
+        return 'task-workspace';
+      case 'project-task-workspace-create':
       case 'project-workspace-create':
         return 'workspace-create';
     }
@@ -365,7 +381,7 @@ export function resolveKanbanRouteState(
   return {
     hostId,
     projectId,
-    issueId,
+    taskId,
     workspaceId,
     draftId,
     sidebarMode,

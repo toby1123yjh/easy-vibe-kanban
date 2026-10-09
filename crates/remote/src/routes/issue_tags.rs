@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueTagRequest, DeleteResponse, IssueTag, ListIssueTagsQuery, ListIssueTagsResponse,
-    MutationResponse,
+    CreateTaskTagRequest, DeleteResponse, ListTaskTagsQuery, ListTaskTagsResponse,
+    MutationResponse, TaskTag,
 };
 use axum::{
     Json,
@@ -21,9 +21,9 @@ use crate::{
     mutation_definition::{MutationBuilder, NoUpdate},
 };
 
-/// Mutation definition for IssueTag - provides both router and TypeScript metadata.
-pub fn mutation() -> MutationBuilder<IssueTag, CreateIssueTagRequest, NoUpdate> {
-    MutationBuilder::new("issue_tags")
+/// Mutation definition for TaskTag - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<TaskTag, CreateTaskTagRequest, NoUpdate> {
+    MutationBuilder::new()
         .list(list_issue_tags)
         .get(get_issue_tag)
         .create(create_issue_tag)
@@ -42,8 +42,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_issue_tags(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueTagsQuery>,
-) -> Result<Json<ListIssueTagsResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskTagsQuery>,
+) -> Result<Json<ListTaskTagsResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_tags = IssueTagRepository::list_by_issue(state.pool(), query.issue_id)
@@ -56,7 +56,7 @@ async fn list_issue_tags(
             )
         })?;
 
-    Ok(Json(ListIssueTagsResponse { issue_tags }))
+    Ok(Json(ListTaskTagsResponse { issue_tags }))
 }
 
 #[instrument(
@@ -68,7 +68,7 @@ async fn get_issue_tag(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_tag_id): Path<Uuid>,
-) -> Result<Json<IssueTag>, ErrorResponse> {
+) -> Result<Json<TaskTag>, ErrorResponse> {
     let issue_tag = IssueTagRepository::find_by_id(state.pool(), issue_tag_id)
         .await
         .map_err(|error| {
@@ -93,8 +93,8 @@ async fn get_issue_tag(
 async fn create_issue_tag(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueTagRequest>,
-) -> Result<Json<MutationResponse<IssueTag>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskTagRequest>,
+) -> Result<Json<MutationResponse<TaskTag>>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let response =

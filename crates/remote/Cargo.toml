@@ -44,7 +44,7 @@ opentelemetry-application-insights = "0.44"
 opentelemetry-http = { version = "0.31", features = ["reqwest", "reqwest-blocking"] }
 thiserror = "2.0.12"
 ts-rs = { git = "https://github.com/xazukx/ts-rs.git", branch = "use-ts-enum", features = ["uuid-impl", "chrono-impl", "no-serde-warnings", "serde-json-impl"] }
-api-types = { path = "../api-types" }
+api-types = { path = "../api-types", features = ["typescript"] }
 relay-types = { path = "../relay-types" }
 utils = { path = "../utils" }
 uuid = { version = "1", features = ["serde", "v4"] }

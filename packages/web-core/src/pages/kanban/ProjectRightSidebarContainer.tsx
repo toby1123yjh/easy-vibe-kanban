@@ -20,7 +20,7 @@ import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useWorkspaceRecord } from '@/shared/hooks/useWorkspaceRecord';
 import { SessionChatBoxContainer } from '@/features/workspace-chat/ui/SessionChatBoxContainer';
 import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
-import { KanbanIssuePanelContainer } from './KanbanIssuePanelContainer';
+import { KanbanTaskPanelContainer } from './KanbanTaskPanelContainer';
 import {
   ConversationList,
   type ConversationListHandle,
@@ -30,11 +30,11 @@ import { createWorkspaceWithSession } from '@/shared/types/attempt';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
 import {
-  buildKanbanIssueComposerKey,
-  closeKanbanIssueComposer,
-  openKanbanIssueComposer,
-  useKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  closeKanbanTaskComposer,
+  openKanbanTaskComposer,
+  useKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 
 interface WorkspaceSessionPanelProps {
   workspaceId: string;
@@ -42,42 +42,42 @@ interface WorkspaceSessionPanelProps {
 }
 
 interface WorkspaceCreatePanelProps {
-  linkedIssueId: string | null;
-  linkedIssueSimpleId: string | null;
-  onOpenIssue: (issueId: string) => void;
+  linkedTaskId: string | null;
+  linkedTaskSimpleId: string | null;
+  onOpenTask: (taskId: string) => void;
   onClose: () => void;
   children: ReactNode;
 }
 
-type IssuePanelResolution = 'resolving' | 'ready' | 'missing';
+type TaskPanelResolution = 'resolving' | 'ready' | 'missing';
 
 type RightPanelState =
   | { kind: 'closed' }
   | { kind: 'create-issue' }
-  | { kind: 'issue'; issueId: string; resolution: IssuePanelResolution }
-  | { kind: 'issue-workspace'; workspaceId: string }
-  | { kind: 'workspace-create'; draftId: string; issueId: string | null };
+  | { kind: 'task'; taskId: string; resolution: TaskPanelResolution }
+  | { kind: 'task-workspace'; workspaceId: string }
+  | { kind: 'workspace-create'; draftId: string; taskId: string | null };
 
-function resolveIssuePanelResolution({
-  issueId,
-  hasIssue,
+function resolveTaskPanelResolution({
+  taskId,
+  hasTask,
   isProjectLoading,
-  expectedIssueId,
+  expectedTaskId,
 }: {
-  issueId: string;
-  hasIssue: boolean;
+  taskId: string;
+  hasTask: boolean;
   isProjectLoading: boolean;
-  expectedIssueId: string | null;
-}): IssuePanelResolution {
+  expectedTaskId: string | null;
+}): TaskPanelResolution {
   if (isProjectLoading) {
     return 'resolving';
   }
 
-  if (hasIssue) {
+  if (hasTask) {
     return 'ready';
   }
 
-  if (expectedIssueId === issueId) {
+  if (expectedTaskId === taskId) {
     return 'resolving';
   }
 
@@ -85,9 +85,9 @@ function resolveIssuePanelResolution({
 }
 
 function WorkspaceCreatePanel({
-  linkedIssueId,
-  linkedIssueSimpleId,
-  onOpenIssue,
+  linkedTaskId,
+  linkedTaskSimpleId,
+  onOpenTask,
   onClose,
   children,
 }: WorkspaceCreatePanelProps) {
@@ -95,13 +95,13 @@ function WorkspaceCreatePanel({
   const breadcrumbButtonClass =
     'min-w-0 text-sm text-normal truncate rounded-sm px-1 py-0.5 hover:bg-panel hover:text-high transition-colors';
 
-  const handleOpenIssue = useCallback(() => {
-    if (linkedIssueId) {
-      onOpenIssue(linkedIssueId);
+  const handleOpenTask = useCallback(() => {
+    if (linkedTaskId) {
+      onOpenTask(linkedTaskId);
       return;
     }
     onClose();
-  }, [linkedIssueId, onOpenIssue, onClose]);
+  }, [linkedTaskId, onOpenTask, onClose]);
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-primary">
@@ -109,11 +109,11 @@ function WorkspaceCreatePanel({
         <div className="flex items-center gap-half min-w-0 font-ibm-plex-mono">
           <button
             type="button"
-            onClick={handleOpenIssue}
+            onClick={handleOpenTask}
             className={`${breadcrumbButtonClass} shrink-0`}
-            aria-label="Open linked issue"
+            aria-label="Open linked task"
           >
-            {linkedIssueSimpleId ?? 'Issue'}
+            {linkedTaskSimpleId ?? 'Task'}
           </button>
           <span className="text-low text-sm shrink-0">/</span>
           <span className={breadcrumbButtonClass}>
@@ -141,7 +141,7 @@ function WorkspaceSessionPanel({
   onClose,
 }: WorkspaceSessionPanelProps) {
   const appNavigation = useAppNavigation();
-  const { projectId, getIssue } = useProjectContext();
+  const { projectId, getTask } = useProjectContext();
   const routeState = useCurrentKanbanRouteState();
   const { workspaces: remoteWorkspaces } = useUserContext();
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
@@ -178,23 +178,23 @@ function WorkspaceSessionPanel({
     [remoteWorkspaces, workspaceId, projectId]
   );
 
-  const linkedIssueId = linkedWorkspace?.issue_id ?? null;
-  const breadcrumbIssueId = routeState.issueId ?? linkedIssueId;
+  const linkedTaskId = linkedWorkspace?.task_id ?? null;
+  const breadcrumbTaskId = routeState.taskId ?? linkedTaskId;
 
-  const issueSimpleId = useMemo(() => {
-    if (!breadcrumbIssueId) return null;
-    return getIssue(breadcrumbIssueId)?.simple_id ?? null;
-  }, [breadcrumbIssueId, getIssue]);
+  const taskSimpleId = useMemo(() => {
+    if (!breadcrumbTaskId) return null;
+    return getTask(breadcrumbTaskId)?.simple_id ?? null;
+  }, [breadcrumbTaskId, getTask]);
 
   const workspaceBranch = workspace?.branch ?? workspaceSummary?.branch ?? null;
 
-  const handleOpenIssuePanel = useCallback(() => {
-    if (projectId && breadcrumbIssueId) {
-      appNavigation.goToProjectIssue(projectId, breadcrumbIssueId);
+  const handleOpenTaskPanel = useCallback(() => {
+    if (projectId && breadcrumbTaskId) {
+      appNavigation.goToProjectTask(projectId, breadcrumbTaskId);
       return;
     }
     onClose();
-  }, [projectId, breadcrumbIssueId, appNavigation, onClose]);
+  }, [projectId, breadcrumbTaskId, appNavigation, onClose]);
 
   const handleOpenWorkspaceView = useCallback(() => {
     appNavigation.goToWorkspace(workspaceId);
@@ -247,11 +247,11 @@ function WorkspaceSessionPanel({
                 <div className="flex items-center gap-half min-w-0 font-ibm-plex-mono">
                   <button
                     type="button"
-                    onClick={handleOpenIssuePanel}
+                    onClick={handleOpenTaskPanel}
                     className={`${breadcrumbButtonClass} shrink-0`}
-                    aria-label="Open linked issue"
+                    aria-label="Open linked task"
                   >
-                    {issueSimpleId ?? 'Issue'}
+                    {taskSimpleId ?? 'Task'}
                   </button>
                   <span className="text-low text-sm shrink-0">/</span>
                   <button
@@ -365,59 +365,59 @@ export function ProjectRightSidebarContainer() {
   const appNavigation = useAppNavigation();
   const {
     projectId,
-    getIssue,
+    getTask,
     isLoading: isProjectLoading,
-    issuesById,
+    tasksById,
   } = useProjectContext();
   const routeState = useCurrentKanbanRouteState();
-  const { issueId, workspaceId, draftId, isWorkspaceCreateMode, hostId } =
+  const { taskId, workspaceId, draftId, isWorkspaceCreateMode, hostId } =
     routeState;
-  const issueComposerKey = useMemo(() => {
+  const taskComposerKey = useMemo(() => {
     if (!projectId) {
       return null;
     }
 
-    return buildKanbanIssueComposerKey(hostId, projectId);
+    return buildKanbanTaskComposerKey(hostId, projectId);
   }, [hostId, projectId]);
-  const issueComposer = useKanbanIssueComposer(issueComposerKey);
-  const isCreateMode = issueComposer !== null;
+  const taskComposer = useKanbanTaskComposer(taskComposerKey);
+  const isCreateMode = taskComposer !== null;
   // Kanban creation always starts with an Issue. Standalone creation belongs
   // to the workspace entrypoint, even when it selects this same project.
   useEffect(() => {
-    if (!isWorkspaceCreateMode || issueId || !issueComposerKey) return;
-    if (!issueComposer) openKanbanIssueComposer(issueComposerKey);
+    if (!isWorkspaceCreateMode || taskId || !taskComposerKey) return;
+    if (!taskComposer) openKanbanTaskComposer(taskComposerKey);
     appNavigation.goToProject(projectId, { replace: true });
   }, [
     isWorkspaceCreateMode,
-    issueId,
-    issueComposerKey,
-    issueComposer,
+    taskId,
+    taskComposerKey,
+    taskComposer,
     appNavigation,
     projectId,
   ]);
-  const openIssue = useCallback(
-    (targetIssueId: string) => {
+  const openTask = useCallback(
+    (targetTaskId: string) => {
       if (!projectId) {
         return;
       }
 
-      if (isCreateMode && issueComposerKey) {
-        closeKanbanIssueComposer(issueComposerKey);
+      if (isCreateMode && taskComposerKey) {
+        closeKanbanTaskComposer(taskComposerKey);
       }
 
-      appNavigation.goToProjectIssue(projectId, targetIssueId);
+      appNavigation.goToProjectTask(projectId, targetTaskId);
     },
-    [projectId, isCreateMode, issueComposerKey, appNavigation]
+    [projectId, isCreateMode, taskComposerKey, appNavigation]
   );
-  const openIssueWorkspace = useCallback(
-    (targetIssueId: string, targetWorkspaceId: string) => {
+  const openTaskWorkspace = useCallback(
+    (targetTaskId: string, targetWorkspaceId: string) => {
       if (!projectId) {
         return;
       }
 
-      appNavigation.goToProjectIssueWorkspace(
+      appNavigation.goToProjectTaskWorkspace(
         projectId,
-        targetIssueId,
+        targetTaskId,
         targetWorkspaceId
       );
     },
@@ -428,53 +428,53 @@ export function ProjectRightSidebarContainer() {
       return;
     }
 
-    if (isCreateMode && issueComposerKey) {
-      closeKanbanIssueComposer(issueComposerKey);
+    if (isCreateMode && taskComposerKey) {
+      closeKanbanTaskComposer(taskComposerKey);
     }
 
     appNavigation.goToProject(projectId);
-  }, [projectId, isCreateMode, issueComposerKey, appNavigation]);
-  const [expectedIssueId, setExpectedIssueId] = useState<string | null>(null);
+  }, [projectId, isCreateMode, taskComposerKey, appNavigation]);
+  const [expectedTaskId, setExpectedTaskId] = useState<string | null>(null);
 
-  const markExpectedIssue = useCallback((nextIssueId: string) => {
-    setExpectedIssueId(nextIssueId);
+  const markExpectedTask = useCallback((nextTaskId: string) => {
+    setExpectedTaskId(nextTaskId);
   }, []);
 
   // Keep transient create expectations scoped to the current issue route only.
   useEffect(() => {
-    if (!expectedIssueId) {
+    if (!expectedTaskId) {
       return;
     }
 
-    if (!issueId || issueId !== expectedIssueId) {
-      setExpectedIssueId(null);
+    if (!taskId || taskId !== expectedTaskId) {
+      setExpectedTaskId(null);
       return;
     }
 
-    if (issuesById.has(expectedIssueId)) {
-      setExpectedIssueId(null);
+    if (tasksById.has(expectedTaskId)) {
+      setExpectedTaskId(null);
     }
-  }, [expectedIssueId, issueId, issuesById]);
+  }, [expectedTaskId, taskId, tasksById]);
 
-  const issuePanelResolution = useMemo<IssuePanelResolution | null>(() => {
-    if (!issueId || isCreateMode || workspaceId || isWorkspaceCreateMode) {
+  const taskPanelResolution = useMemo<TaskPanelResolution | null>(() => {
+    if (!taskId || isCreateMode || workspaceId || isWorkspaceCreateMode) {
       return null;
     }
 
-    return resolveIssuePanelResolution({
-      issueId,
-      hasIssue: issuesById.has(issueId),
+    return resolveTaskPanelResolution({
+      taskId,
+      hasTask: tasksById.has(taskId),
       isProjectLoading,
-      expectedIssueId,
+      expectedTaskId,
     });
   }, [
-    issueId,
+    taskId,
     isCreateMode,
     workspaceId,
     isWorkspaceCreateMode,
-    issuesById,
+    tasksById,
     isProjectLoading,
-    expectedIssueId,
+    expectedTaskId,
   ]);
 
   const rightPanelState = useMemo<RightPanelState>(() => {
@@ -487,21 +487,21 @@ export function ProjectRightSidebarContainer() {
         return {
           kind: 'workspace-create',
           draftId,
-          issueId,
+          taskId,
         };
       }
       return { kind: 'closed' };
     }
 
     if (workspaceId) {
-      return { kind: 'issue-workspace', workspaceId };
+      return { kind: 'task-workspace', workspaceId };
     }
 
-    if (issueId) {
+    if (taskId) {
       return {
-        kind: 'issue',
-        issueId,
-        resolution: issuePanelResolution ?? 'resolving',
+        kind: 'task',
+        taskId,
+        resolution: taskPanelResolution ?? 'resolving',
       };
     }
 
@@ -509,33 +509,33 @@ export function ProjectRightSidebarContainer() {
   }, [
     isWorkspaceCreateMode,
     draftId,
-    issueId,
+    taskId,
     workspaceId,
     isCreateMode,
-    issuePanelResolution,
+    taskPanelResolution,
   ]);
 
-  const handleOpenIssueFromCreate = useCallback(
-    (targetIssueId: string) => {
-      openIssue(targetIssueId);
+  const handleOpenTaskFromCreate = useCallback(
+    (targetTaskId: string) => {
+      openTask(targetTaskId);
     },
-    [openIssue]
+    [openTask]
   );
 
   const handleWorkspaceCreated = useCallback(
     (createdWorkspaceId: string) => {
-      if (issueId) {
-        openIssueWorkspace(issueId, createdWorkspaceId);
+      if (taskId) {
+        openTaskWorkspace(taskId, createdWorkspaceId);
         return;
       }
 
       appNavigation.goToWorkspace(createdWorkspaceId);
     },
-    [issueId, openIssueWorkspace, appNavigation]
+    [taskId, openTaskWorkspace, appNavigation]
   );
 
   useEffect(() => {
-    if (rightPanelState.kind !== 'issue') {
+    if (rightPanelState.kind !== 'task') {
       return;
     }
 
@@ -547,17 +547,17 @@ export function ProjectRightSidebarContainer() {
   }, [rightPanelState, closePanel]);
 
   if (rightPanelState.kind === 'workspace-create') {
-    const linkedIssueId = rightPanelState.issueId;
-    if (!linkedIssueId) return null;
-    const linkedIssueSimpleId = linkedIssueId
-      ? (getIssue(linkedIssueId)?.simple_id ?? null)
+    const linkedTaskId = rightPanelState.taskId;
+    if (!linkedTaskId) return null;
+    const linkedTaskSimpleId = linkedTaskId
+      ? (getTask(linkedTaskId)?.simple_id ?? null)
       : null;
 
     return (
       <WorkspaceCreatePanel
-        linkedIssueId={linkedIssueId}
-        linkedIssueSimpleId={linkedIssueSimpleId}
-        onOpenIssue={handleOpenIssueFromCreate}
+        linkedTaskId={linkedTaskId}
+        linkedTaskSimpleId={linkedTaskSimpleId}
+        onOpenTask={handleOpenTaskFromCreate}
         onClose={closePanel}
       >
         <CreateModeProvider
@@ -566,11 +566,11 @@ export function ProjectRightSidebarContainer() {
         >
           <CreateChatBoxContainer
             onWorkspaceCreated={handleWorkspaceCreated}
-            requiredLinkedIssue={{
-              issueId: linkedIssueId,
+            requiredLinkedTask={{
+              taskId: linkedTaskId,
               remoteProjectId: projectId,
-              simpleId: linkedIssueSimpleId ?? linkedIssueId,
-              title: getIssue(linkedIssueId)?.title,
+              simpleId: linkedTaskSimpleId ?? linkedTaskId,
+              title: getTask(linkedTaskId)?.title,
             }}
           />
         </CreateModeProvider>
@@ -578,7 +578,7 @@ export function ProjectRightSidebarContainer() {
     );
   }
 
-  if (rightPanelState.kind === 'issue-workspace') {
+  if (rightPanelState.kind === 'task-workspace') {
     return (
       <WorkspaceSessionPanel
         workspaceId={rightPanelState.workspaceId}
@@ -592,11 +592,11 @@ export function ProjectRightSidebarContainer() {
   }
 
   return (
-    <KanbanIssuePanelContainer
-      issueResolution={
-        rightPanelState.kind === 'issue' ? rightPanelState.resolution : null
+    <KanbanTaskPanelContainer
+      taskResolution={
+        rightPanelState.kind === 'task' ? rightPanelState.resolution : null
       }
-      onExpectIssueOpen={markExpectedIssue}
+      onExpectTaskOpen={markExpectedTask}
     />
   );
 }

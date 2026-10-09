@@ -364,12 +364,12 @@
       "action": "이름 변경",
       "renaming": "이름 변경 중..."
     },
-    "unlinkFromIssue": "이슈에서 연결 해제",
+    "unlinkFromIssue": "작업에서 연결 해제",
     "deleteWorkspace": "워크스페이스 삭제",
     "unlink": "연결 해제",
     "delete": "삭제",
-    "unlinkConfirmMessage": "이 워크스페이스를 이슈에서 연결 해제하시겠습니까? 워크스페이스는 그대로 유지되지만 이 이슈와의 연결이 끊어집니다.",
-    "deleteConfirmMessage": "이 워크스페이스를 삭제하시겠습니까? 이슈에서 연결이 해제되고 로컬 워크스페이스가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "unlinkConfirmMessage": "이 워크스페이스를 작업에서 연결 해제하시겠습니까? 워크스페이스는 그대로 유지되지만 이 작업와의 연결이 끊어집니다.",
+    "deleteConfirmMessage": "이 워크스페이스를 삭제하시겠습니까? 작업에서 연결이 해제되고 로컬 워크스페이스가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
     "unlinkError": "워크스페이스 연결 해제 실패",
     "deleteError": "워크스페이스 삭제 실패",
     "filesChanged": "{{count}}개 파일",
@@ -378,7 +378,7 @@
       "description": "이 워크스페이스를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       "deleteBranchLabel": "브랜치 삭제",
       "cannotDeleteOpenPr": "PR이 열려 있는 동안에는 브랜치를 삭제할 수 없습니다",
-      "unlinkFromIssueLabel": "이슈에서도 연결 해제"
+      "unlinkFromIssueLabel": "작업에서도 연결 해제"
     },
     "linkError": "Failed to link workspace"
   },
@@ -543,7 +543,7 @@
       "goTo": "이동 (G ...)",
       "workspace": "워크스페이스 (W ...)",
       "view": "보기 (V ...)",
-      "issues": "이슈 (I ...)",
+      "issues": "작업 (I ...)",
       "git": "Git (X ...)",
       "yank": "복사 (Y ...)",
       "toggle": "전환 (T ...)",
@@ -574,16 +574,16 @@
       "toggle-preview-mode": "미리보기 패널 전환",
       "toggle-left-sidebar": "왼쪽 사이드바 전환",
       "toggle-left-main-panel": "채팅 패널 전환",
-      "create-issue": "이슈 만들기",
+      "create-issue": "작업 만들기",
       "change-issue-status": "상태 변경",
       "change-issue-priority": "우선순위 변경",
       "change-assignees": "담당자 변경",
-      "make-sub-issue-of": "하위 이슈로 설정",
-      "add-sub-issue": "하위 이슈 추가",
+      "make-sub-issue-of": "하위 작업로 설정",
+      "add-sub-issue": "하위 작업 추가",
       "remove-parent-issue": "상위 이슈 해제",
       "link-workspace": "워크스페이스 연결",
-      "duplicate-issue": "이슈 복제",
-      "delete-issue": "이슈 삭제",
+      "duplicate-issue": "작업 복제",
+      "delete-issue": "작업 삭제",
       "git-create-pr": "Pull Request 만들기",
       "git-merge": "브랜치 병합",
       "git-rebase": "브랜치 리베이스",
@@ -609,11 +609,11 @@
     "noCommands": "이 에이전트에 사용 가능한 명령어가 없습니다."
   },
   "kanban": {
-    "noVisibleStatuses": "모든 상태가 숨겨져 있습니다. 표시 설정을 사용하거나 다른 탭으로 전환하여 이슈를 확인하세요.",
+    "noVisibleStatuses": "모든 상태가 숨겨져 있습니다. 표시 설정을 사용하거나 다른 탭으로 전환하여 작업를 확인하세요.",
     "noProjectFound": "프로젝트를 찾을 수 없습니다",
     "unassigned": "미할당",
     "noTagsAvailable": "사용 가능한 태그 없음",
-    "createNewIssue": "새 이슈 만들기",
+    "createNewIssue": "새 작업 만들기",
     "searchTags": "태그 검색...",
     "selectColorFor": "색상 선택:",
     "createTag": "만들기",
@@ -632,12 +632,12 @@
     "moreActions": "추가 작업",
     "closePanel": "패널 닫기",
     "copyLink": "링크 복사",
-    "issueTitlePlaceholder": "이슈 제목...",
+    "issueTitlePlaceholder": "작업 제목...",
     "issueDescriptionPlaceholder": "작업 설명을 입력하세요...",
     "createDraftWorkspaceImmediately": "초안 워크스페이스를 즉시 생성",
-    "createDraftWorkspaceDescription": "이슈를 생성한 후, 이슈 세부 정보가 미리 입력된 워크스페이스 생성 양식을 엽니다",
+    "createDraftWorkspaceDescription": "작업를 생성한 후, 작업 세부 정보가 미리 입력된 워크스페이스 생성 양식을 엽니다",
     "createIssue": "작업 생성",
-    "newIssue": "새 이슈",
+    "newIssue": "새 작업",
     "previewCodeBlock": "[코드 블록]",
     "previewImage": "[이미지]",
     "previewImageWithName": "[이미지: {{name}}]",
@@ -650,9 +650,9 @@
     "unknownError": "알 수 없는 오류",
     "failedToUploadFile": "{{filename}} 업로드 실패: {{message}}",
     "downloadAttachment": "첨부파일 다운로드",
-    "subIssues": "하위 이슈",
-    "noSubIssues": "하위 이슈 없음",
-    "markIndependentIssue": "독립 이슈로 표시",
+    "subIssues": "하위 작업",
+    "noSubIssues": "하위 작업 없음",
+    "markIndependentIssue": "독립 작업로 표시",
     "parentIssue": "상위",
     "subIssueIndicator": "↳",
     "viewTabs": {
@@ -666,7 +666,7 @@
     },
     "team": "Team",
     "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
+    "searchPlaceholder": "Search tasks...",
     "filters": "Filters",
     "clearFilters": "Clear filters",
     "filtersDescription": "Adjust filters and sorting for this board view.",
@@ -697,7 +697,7 @@
     "assignee": "Assignee",
     "self": "Me",
     "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
+    "subIssuesFilterLabel": "Sub-tasks",
     "workspacesFilterLabel": "Workspaces",
     "selectAssignees": "Select assignees...",
     "relationships": "Relationships",
@@ -711,7 +711,7 @@
     "changeColor": "Change color",
     "editName": "Edit name",
     "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
+    "cannotDeleteWithIssues": "Move tasks first",
     "lastVisibleStatus": "At least one status must be visible",
     "showStatus": "Show status",
     "hideStatus": "Hide status",
@@ -722,19 +722,19 @@
     "projectsGuide": {
       "intro": {
         "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first task. You can re-open this help dialog or give feedback anytime from the navbar."
       },
       "welcome": {
         "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "content": "The project page is where you manage tasks. You can view your tasks as a kanban board, or as a list, and filter by status, tag, assignee and more."
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "Tasks",
+        "content": "Each task represents a feature or problem to solve. Tasks have statuses, priorities, assignees, tags, relationships, comments, sub-tasks and more."
       },
       "workspaces": {
         "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "content": "To start working on an task, create a workspace. A single task can have multiple workspaces. Tasks describe the work to be done, workspaces are where the work happens."
       },
       "organizations": {
         "title": "Invite your team",
@@ -893,9 +893,9 @@
         "command": "명령",
         "project": "프로젝트",
         "session": "세션",
-        "issue": "이슈",
         "workflow": "워크플로",
-        "run": "실행"
+        "run": "실행",
+        "task": "작업"
       }
     },
     "moduleLanding": {
@@ -915,7 +915,7 @@
         "agentConfiguration": "에이전트 구성"
       },
       "unavailable": {
-        "globalStatistics": "정식 프로젝트, 이슈 및 에이전트 실행 합계는 아직 공개되지 않았습니다. 사이드바의 페이지 항목은 전체 통계로 표시하지 않습니다.",
+        "globalStatistics": "정식 프로젝트, 작업 및 에이전트 실행 합계는 아직 공개되지 않았습니다. 사이드바의 페이지 항목은 전체 통계로 표시하지 않습니다.",
         "attention": "정식 주의 프로젝션을 아직 사용할 수 없습니다. 이 섹션은 독립적으로 유지되며 로그 텍스트에서 경고를 추론하지 않습니다.",
         "activeRuns": "세션 목록에는 런타임 상태가 없습니다. 정식 런타임 프로젝션이 제공되면 활성 실행이 표시됩니다.",
         "agentConfiguration": "정식 연결, 기본 모델, API 엔드포인트 및 실행 수 요약은 아직 공개되지 않았습니다. 런타임 API 기능을 구성 데이터로 대체하지 않습니다."
@@ -1511,7 +1511,7 @@
     },
     "runDialog": {
       "title": "Run workflow attempt",
-      "description": "Start this issue-bound workflow attempt.",
+      "description": "Start this task-bound workflow attempt.",
       "mainWorkspace": "Main workspace",
       "createWorkflowWorkspace": "Create workflow workspace",
       "usesExistingWorkspace": "Uses existing workspace.",
@@ -1780,7 +1780,7 @@
       "noSourceOutput": "The source execution has no text output.",
       "noRuntimeOutput": "아직 실행 출력이 없습니다.",
       "technicalDetails": "기술 세부 정보",
-      "taskId": "작업 ID",
+      "taskId": "실행 ID",
       "updatingDecision": "업데이트 중...",
       "approveAndContinue": "승인하고 계속",
       "openFullSession": "전체 세션 열기",
@@ -1824,7 +1824,7 @@
     },
     "dashboard": {
       "runDetails": "Run details",
-      "issueId": "Issue ID",
+      "issueId": "Task ID",
       "workflow": "Workflow",
       "runId": "Run ID",
       "status": "Status",
@@ -1971,7 +1971,7 @@
       "time": "Time",
       "weekday": "Weekday",
       "timezone": "Timezone",
-      "contextIssue": "Context issue",
+      "contextIssue": "Context task",
       "inputText": "Run input",
       "inputPlaceholder": "Describe what this run should do.",
       "save": "Save",
@@ -1981,7 +1981,7 @@
       "lastTriggered": "Last triggered",
       "lastStatus": "Last status",
       "target": "Target",
-      "noIssue": "No issues available",
+      "noIssue": "No tasks available",
       "none": "None",
       "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
       "deleteTitle": "Delete scheduled task?",
@@ -2006,7 +2006,7 @@
         "sunday": "Sunday"
       },
       "errors": {
-        "issueRequired": "Choose a context issue.",
+        "issueRequired": "Choose a context task.",
         "timeRequired": "Choose a valid time.",
         "weekdayRequired": "Choose a weekday.",
         "inputRequired": "Add run input before saving the scheduled task.",
@@ -2041,5 +2041,15 @@
     "more": "Show last 30 days",
     "pending": "Will resume: {{title}} · {{time}}",
     "clear": "Clear resume session"
+  },
+  "taskDetails": {
+    "executions": "실행",
+    "noExecutions": "이 작업에는 아직 실행이 없습니다.",
+    "newExecution": "새 실행",
+    "singleAgent": "단일 에이전트",
+    "workflow": "워크플로",
+    "arena": "아레나",
+    "information": "작업 정보",
+    "description": "설명"
   }
 }

@@ -159,7 +159,7 @@ async fn export_data(
         {
             let mut wtr = csv::Writer::from_writer(&mut csv_buf);
             wtr.write_record([
-                "Issue ID",
+                "Task ID",
                 "Title",
                 "Description",
                 "Status",
@@ -172,7 +172,7 @@ async fn export_data(
                 "Start Date",
                 "Due Date",
                 "Completed",
-                "Parent Issue",
+                "Parent Task",
             ])
             .map_err(|e| csv_error(&e))?;
 
@@ -286,7 +286,7 @@ async fn export_data(
         {
             let mut wtr = csv::Writer::from_writer(&mut csv_buf);
             wtr.write_record([
-                "Issue ID",
+                "Task ID",
                 "Filename",
                 "Content Type",
                 "Size (bytes)",

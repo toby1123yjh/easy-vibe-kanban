@@ -564,7 +564,7 @@
   },
   "linkPrToIssue": {
     "title": "풀 리퀘스트 연결",
-    "description": "기존 풀 리퀘스트를 이 이슈에 연결합니다.",
+    "description": "기존 풀 리퀘스트를 이 작업에 연결합니다.",
     "urlTab": "URL로",
     "browseTab": "탐색",
     "urlLabel": "풀 리퀘스트 URL",

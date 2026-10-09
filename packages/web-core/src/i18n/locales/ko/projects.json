@@ -10,7 +10,7 @@
   },
   "deleteProjectDialog": {
     "title": "Delete Project?",
-    "description": "This will permanently delete \"{{name}}\" and all its issues. This action cannot be undone.",
+    "description": "This will permanently delete \"{{name}}\" and all its tasks. This action cannot be undone.",
     "error": "Failed to delete project. Please try again."
   },
   "directory": {
@@ -35,7 +35,7 @@
     "noMatchesTitle": "일치하는 프로젝트 없음",
     "noMatchesDescription": "다른 프로젝트 이름을 입력해 보세요.",
     "emptyTitle": "아직 프로젝트가 없습니다",
-    "emptyDescription": "프로젝트를 만들어 이슈와 작업을 정리하세요.",
+    "emptyDescription": "프로젝트를 만들어 작업와 작업을 정리하세요.",
     "degradedTitle": "프로젝트가 최신 상태가 아닐 수 있습니다",
     "degradedDescription": "실패한 요청을 다시 시도하는 동안 로드된 프로젝트를 계속 사용할 수 있습니다.",
     "searchingRemaining": "남은 프로젝트 검색 중…",

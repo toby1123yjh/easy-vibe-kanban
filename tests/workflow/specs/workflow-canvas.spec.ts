@@ -440,7 +440,7 @@ test('presents the workflow entry as canvas-first for both actions', async ({
   );
 });
 
-test('shows workflow attempts in the issue task attempt list without direct run action', async ({
+test('shows workflow attempts in the task task attempt list without direct run action', async ({
   page,
 }) => {
   await page.goto('/?mode=task-attempts');

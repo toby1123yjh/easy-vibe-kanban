@@ -9,7 +9,7 @@ use axum::{
 use db::models::{
     requests::{SessionDeletionInfo, SessionDeletionResult},
     session::Session,
-    task::Task,
+    task::Execution,
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -335,7 +335,7 @@ pub(crate) async fn delete(
         None
     };
     if let Some(task_id) = task_id {
-        Task::delete_agent_with_session_in_transaction(&mut transaction, task_id, session_id)
+        Execution::delete_agent_with_session_in_transaction(&mut transaction, task_id, session_id)
             .await?;
     } else {
         Session::delete_in_transaction(&mut transaction, session_id).await?;

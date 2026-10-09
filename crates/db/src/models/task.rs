@@ -11,7 +11,7 @@ use super::session::{Session, SessionError};
 #[sqlx(type_name = "task_execution_kind", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]
-pub enum TaskExecutionKind {
+pub enum ExecutionKind {
     Agent,
     Workflow,
     Arena,
@@ -20,7 +20,7 @@ pub enum TaskExecutionKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename_all = "snake_case")]
-pub enum TaskStatus {
+pub enum ExecutionStatus {
     Draft,
     Pending,
     Running,
@@ -33,7 +33,7 @@ pub enum TaskStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(tag = "kind", rename_all = "snake_case")]
-pub enum TaskOpenTarget {
+pub enum ExecutionOpenTarget {
     Agent {
         session_id: Uuid,
         workspace_id: Uuid,
@@ -49,77 +49,87 @@ pub enum TaskOpenTarget {
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
-pub struct Task {
+pub struct Execution {
     pub id: Uuid,
     pub project_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
+    #[serde(rename = "parent_execution_id")]
+    #[ts(rename = "parent_execution_id")]
     pub parent_task_id: Option<Uuid>,
     pub title: String,
-    pub execution_kind: TaskExecutionKind,
+    pub execution_kind: ExecutionKind,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateTask {
+pub struct CreateExecution {
     pub id: Uuid,
     pub project_id: Uuid,
     pub issue_id: Uuid,
     pub parent_task_id: Option<Uuid>,
     pub title: String,
-    pub execution_kind: TaskExecutionKind,
+    pub execution_kind: ExecutionKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct TaskSummary {
+pub struct ExecutionSummary {
     pub id: Uuid,
     pub project_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
+    #[serde(rename = "parent_execution_id")]
+    #[ts(rename = "parent_execution_id")]
     pub parent_task_id: Option<Uuid>,
     pub title: String,
-    pub execution_kind: TaskExecutionKind,
-    pub status: TaskStatus,
-    pub open_target: TaskOpenTarget,
+    pub execution_kind: ExecutionKind,
+    pub status: ExecutionStatus,
+    pub open_target: ExecutionOpenTarget,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct TaskCursor {
+pub struct ExecutionCursor {
     pub updated_at: DateTime<Utc>,
     pub id: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct TaskSummaryPage {
-    pub tasks: Vec<TaskSummary>,
-    pub next_cursor: Option<TaskCursor>,
+pub struct ExecutionSummaryPage {
+    #[serde(rename = "executions")]
+    #[ts(rename = "executions")]
+    pub tasks: Vec<ExecutionSummary>,
+    pub next_cursor: Option<ExecutionCursor>,
 }
 
 #[derive(Debug, Error)]
-pub enum TaskError {
+pub enum ExecutionError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
-    #[error("Task title must not be empty")]
+    #[error("Execution title must not be empty")]
     EmptyTitle,
-    #[error("Task {task_id} has an invalid execution binding: {detail}")]
+    #[error("Execution {task_id} has an invalid execution binding: {detail}")]
     InvalidBinding { task_id: Uuid, detail: String },
-    #[error("Task runtime returned an unsupported status `{status}`")]
+    #[error("Execution runtime returned an unsupported status `{status}`")]
     InvalidRuntimeStatus { status: String },
-    #[error("Task {task_id} was not found")]
+    #[error("Execution {task_id} was not found")]
     NotFound { task_id: Uuid },
     #[error("{reason}")]
     DeletionBlocked { task_id: Uuid, reason: String },
 }
 
 #[derive(Debug, FromRow)]
-struct TaskProjectionRow {
+struct ExecutionProjectionRow {
     id: Uuid,
     project_id: Uuid,
     issue_id: Uuid,
     parent_task_id: Option<Uuid>,
     title: String,
-    execution_kind: TaskExecutionKind,
+    execution_kind: ExecutionKind,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     agent_session_id: Option<Uuid>,
@@ -211,70 +221,71 @@ const TASK_SUMMARY_SELECT: &str = r#"
     LEFT JOIN arena_runtime ON arena_runtime.arena_group_id = arena.id
 "#;
 
-impl TaskProjectionRow {
-    fn into_summary(self) -> Result<TaskSummary, TaskError> {
+impl ExecutionProjectionRow {
+    fn into_summary(self) -> Result<ExecutionSummary, ExecutionError> {
         let status = map_runtime_status(self.runtime_status.as_deref().unwrap_or("pending"))?;
         let open_target = match self.execution_kind {
-            TaskExecutionKind::Agent => {
+            ExecutionKind::Agent => {
                 let (Some(session_id), Some(workspace_id)) =
                     (self.agent_session_id, self.agent_workspace_id)
                 else {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "agent Task requires exactly one Session binding".to_string(),
+                        detail: "agent Execution requires exactly one Session binding".to_string(),
                     });
                 };
                 if self.workflow_attempt_id.is_some() || self.arena_group_id.is_some() {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "agent Task has more than one subtype binding".to_string(),
+                        detail: "agent Execution has more than one subtype binding".to_string(),
                     });
                 }
-                TaskOpenTarget::Agent {
+                ExecutionOpenTarget::Agent {
                     session_id,
                     workspace_id,
                 }
             }
-            TaskExecutionKind::Workflow => {
+            ExecutionKind::Workflow => {
                 let (Some(attempt_id), Some(workflow_id)) =
                     (self.workflow_attempt_id, self.workflow_id)
                 else {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "workflow Task requires exactly one WorkflowAttempt binding"
+                        detail: "workflow Execution requires exactly one WorkflowAttempt binding"
                             .to_string(),
                     });
                 };
                 if self.agent_session_id.is_some() || self.arena_group_id.is_some() {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "workflow Task has more than one subtype binding".to_string(),
+                        detail: "workflow Execution has more than one subtype binding".to_string(),
                     });
                 }
-                TaskOpenTarget::Workflow {
+                ExecutionOpenTarget::Workflow {
                     attempt_id,
                     workflow_id,
                     latest_run_id: self.latest_run_id,
                 }
             }
-            TaskExecutionKind::Arena => {
+            ExecutionKind::Arena => {
                 let Some(arena_group_id) = self.arena_group_id else {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "arena Task requires exactly one ArenaGroup binding".to_string(),
+                        detail: "arena Execution requires exactly one ArenaGroup binding"
+                            .to_string(),
                     });
                 };
                 if self.agent_session_id.is_some() || self.workflow_attempt_id.is_some() {
-                    return Err(TaskError::InvalidBinding {
+                    return Err(ExecutionError::InvalidBinding {
                         task_id: self.id,
-                        detail: "arena Task has more than one subtype binding".to_string(),
+                        detail: "arena Execution has more than one subtype binding".to_string(),
                     });
                 }
-                TaskOpenTarget::Arena { arena_group_id }
+                ExecutionOpenTarget::Arena { arena_group_id }
             }
         };
 
-        Ok(TaskSummary {
+        Ok(ExecutionSummary {
             id: self.id,
             project_id: self.project_id,
             issue_id: self.issue_id,
@@ -289,34 +300,34 @@ impl TaskProjectionRow {
     }
 }
 
-fn map_runtime_status(status: &str) -> Result<TaskStatus, TaskError> {
+fn map_runtime_status(status: &str) -> Result<ExecutionStatus, ExecutionError> {
     match status {
-        "draft" => Ok(TaskStatus::Draft),
-        "ready" | "pending" | "starting" => Ok(TaskStatus::Pending),
-        "running" | "cancelling" => Ok(TaskStatus::Running),
+        "draft" => Ok(ExecutionStatus::Draft),
+        "ready" | "pending" | "starting" => Ok(ExecutionStatus::Pending),
+        "running" | "cancelling" => Ok(ExecutionStatus::Running),
         "awaiting_input" | "awaiting_approval" | "awaiting_human" | "awaiting_arena" => {
-            Ok(TaskStatus::Waiting)
+            Ok(ExecutionStatus::Waiting)
         }
-        "succeeded" => Ok(TaskStatus::Succeeded),
-        "failed" | "crashed" | "audit_failed" => Ok(TaskStatus::Failed),
-        "cancelled" | "canceled" => Ok(TaskStatus::Cancelled),
-        other => Err(TaskError::InvalidRuntimeStatus {
+        "succeeded" => Ok(ExecutionStatus::Succeeded),
+        "failed" | "crashed" | "audit_failed" => Ok(ExecutionStatus::Failed),
+        "cancelled" | "canceled" => Ok(ExecutionStatus::Cancelled),
+        other => Err(ExecutionError::InvalidRuntimeStatus {
             status: other.to_string(),
         }),
     }
 }
 
-impl Task {
+impl Execution {
     pub async fn create(
         connection: &mut SqliteConnection,
-        data: &CreateTask,
-    ) -> Result<Self, TaskError> {
+        data: &CreateExecution,
+    ) -> Result<Self, ExecutionError> {
         let title = data.title.trim();
         if title.is_empty() {
-            return Err(TaskError::EmptyTitle);
+            return Err(ExecutionError::EmptyTitle);
         }
 
-        Ok(sqlx::query_as::<_, Task>(
+        Ok(sqlx::query_as::<_, Execution>(
             r#"
             INSERT INTO tasks (
                 id, project_id, issue_id, parent_task_id, title, execution_kind
@@ -335,8 +346,8 @@ impl Task {
         .await?)
     }
 
-    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, TaskError> {
-        Ok(sqlx::query_as::<_, Task>(
+    pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, ExecutionError> {
+        Ok(sqlx::query_as::<_, Execution>(
             r#"
             SELECT id, project_id, issue_id, parent_task_id, title,
                    execution_kind, created_at, updated_at
@@ -351,11 +362,11 @@ impl Task {
 
     pub async fn create_agent_task(
         pool: &SqlitePool,
-        data: &CreateTask,
+        data: &CreateExecution,
         session_id: Uuid,
-    ) -> Result<Self, TaskError> {
-        if data.execution_kind != TaskExecutionKind::Agent {
-            return Err(TaskError::InvalidBinding {
+    ) -> Result<Self, ExecutionError> {
+        if data.execution_kind != ExecutionKind::Agent {
+            return Err(ExecutionError::InvalidBinding {
                 task_id: data.id,
                 detail: "create_agent_task requires execution_kind=agent".to_string(),
             });
@@ -371,8 +382,8 @@ impl Task {
     pub async fn find_agent_by_session_id(
         pool: &SqlitePool,
         session_id: Uuid,
-    ) -> Result<Option<Self>, TaskError> {
-        Ok(sqlx::query_as::<_, Task>(
+    ) -> Result<Option<Self>, ExecutionError> {
+        Ok(sqlx::query_as::<_, Execution>(
             r#"
             SELECT task.id, task.project_id, task.issue_id,
                    task.parent_task_id, task.title, task.execution_kind,
@@ -390,8 +401,8 @@ impl Task {
     pub async fn find_agent_by_workspace_id(
         pool: &SqlitePool,
         workspace_id: Uuid,
-    ) -> Result<Option<Self>, TaskError> {
-        Ok(sqlx::query_as::<_, Task>(
+    ) -> Result<Option<Self>, ExecutionError> {
+        Ok(sqlx::query_as::<_, Execution>(
             r#"
             SELECT task.id, task.project_id, task.issue_id,
                    task.parent_task_id, task.title, task.execution_kind,
@@ -409,9 +420,9 @@ impl Task {
         .await?)
     }
 
-    /// Delete exactly one top-level Agent Task and its expected bound Session.
+    /// Delete exactly one top-level Agent Execution and its expected bound Session.
     /// Runtime reservations and all guards share a SQLite write transaction;
-    /// any Session/FK failure also rolls back Task and binding removal.
+    /// any Session/FK failure also rolls back Execution and binding removal.
     pub async fn delete_agent_with_session(
         pool: &SqlitePool,
         task_id: Uuid,
@@ -447,13 +458,13 @@ impl Task {
         task_id: Uuid,
         session_id: Uuid,
     ) -> Result<(), SessionError> {
-        let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?")
+        let task = sqlx::query_as::<_, Execution>("SELECT * FROM tasks WHERE id = ?")
             .bind(task_id)
             .fetch_optional(&mut *connection)
             .await?
-            .ok_or(TaskError::NotFound { task_id })?;
-        if task.execution_kind != TaskExecutionKind::Agent {
-            return Err(TaskError::DeletionBlocked {
+            .ok_or(ExecutionError::NotFound { task_id })?;
+        if task.execution_kind != ExecutionKind::Agent {
+            return Err(ExecutionError::DeletionBlocked {
                 task_id,
                 reason: "Only Agent Tasks can be deleted with this action.".to_string(),
             }
@@ -466,9 +477,9 @@ impl Task {
         .fetch_optional(&mut *connection)
         .await?;
         if bound_session_id != Some(session_id) {
-            return Err(TaskError::InvalidBinding {
+            return Err(ExecutionError::InvalidBinding {
                 task_id,
-                detail: "Task session binding changed or is missing. Refresh and try again."
+                detail: "Execution session binding changed or is missing. Refresh and try again."
                     .to_string(),
             }
             .into());
@@ -485,9 +496,9 @@ impl Task {
         .fetch_one(&mut *connection)
         .await?;
         if task.parent_task_id.is_some() || has_dependents {
-            return Err(TaskError::DeletionBlocked {
+            return Err(ExecutionError::DeletionBlocked {
                 task_id,
-                reason: "Task has child Tasks or belongs to a Workflow or Arena and cannot be deleted independently."
+                reason: "Execution has child Tasks or belongs to a Workflow or Arena and cannot be deleted independently."
                     .to_string(),
             }
             .into());
@@ -499,7 +510,7 @@ impl Task {
     pub async fn delete_agent_by_workspace_id(
         pool: &SqlitePool,
         workspace_id: Uuid,
-    ) -> Result<u64, TaskError> {
+    ) -> Result<u64, ExecutionError> {
         let result = sqlx::query(
             r#"
             DELETE FROM tasks
@@ -521,22 +532,22 @@ impl Task {
     pub async fn summary_by_id(
         pool: &SqlitePool,
         id: Uuid,
-    ) -> Result<Option<TaskSummary>, TaskError> {
+    ) -> Result<Option<ExecutionSummary>, ExecutionError> {
         let sql = format!("{TASK_SUMMARY_SELECT} WHERE task.id = ?");
-        let row = sqlx::query_as::<_, TaskProjectionRow>(&sql)
+        let row = sqlx::query_as::<_, ExecutionProjectionRow>(&sql)
             .bind(id)
             .fetch_optional(pool)
             .await?;
-        row.map(TaskProjectionRow::into_summary).transpose()
+        row.map(ExecutionProjectionRow::into_summary).transpose()
     }
 
     pub async fn list_top_level(
         pool: &SqlitePool,
         project_id: Uuid,
         issue_id: Option<Uuid>,
-        cursor: Option<TaskCursor>,
+        cursor: Option<ExecutionCursor>,
         limit: u32,
-    ) -> Result<TaskSummaryPage, TaskError> {
+    ) -> Result<ExecutionSummaryPage, ExecutionError> {
         let page_size = limit.clamp(1, 100) as i64;
         let mut query = QueryBuilder::<Sqlite>::new(TASK_SUMMARY_SELECT);
         query
@@ -561,7 +572,7 @@ impl Task {
             .push_bind(page_size + 1);
 
         let mut rows = query
-            .build_query_as::<TaskProjectionRow>()
+            .build_query_as::<ExecutionProjectionRow>()
             .fetch_all(pool)
             .await?;
         let has_more = rows.len() > page_size as usize;
@@ -570,27 +581,27 @@ impl Task {
         }
         let tasks = rows
             .into_iter()
-            .map(TaskProjectionRow::into_summary)
+            .map(ExecutionProjectionRow::into_summary)
             .collect::<Result<Vec<_>, _>>()?;
         let next_cursor = has_more.then(|| {
             let last = tasks
                 .last()
                 .expect("a paginated page with more rows is non-empty");
-            TaskCursor {
+            ExecutionCursor {
                 updated_at: last.updated_at,
                 id: last.id,
             }
         });
 
-        Ok(TaskSummaryPage { tasks, next_cursor })
+        Ok(ExecutionSummaryPage { tasks, next_cursor })
     }
 
     pub async fn list_children(
         pool: &SqlitePool,
         parent_task_id: Uuid,
-        cursor: Option<TaskCursor>,
+        cursor: Option<ExecutionCursor>,
         limit: u32,
-    ) -> Result<TaskSummaryPage, TaskError> {
+    ) -> Result<ExecutionSummaryPage, ExecutionError> {
         let page_size = limit.clamp(1, 100) as i64;
         let mut query = QueryBuilder::<Sqlite>::new(TASK_SUMMARY_SELECT);
         query
@@ -611,7 +622,7 @@ impl Task {
             .push_bind(page_size + 1);
 
         let mut rows = query
-            .build_query_as::<TaskProjectionRow>()
+            .build_query_as::<ExecutionProjectionRow>()
             .fetch_all(pool)
             .await?;
         let has_more = rows.len() > page_size as usize;
@@ -620,26 +631,26 @@ impl Task {
         }
         let tasks = rows
             .into_iter()
-            .map(TaskProjectionRow::into_summary)
+            .map(ExecutionProjectionRow::into_summary)
             .collect::<Result<Vec<_>, _>>()?;
         let next_cursor = has_more.then(|| {
             let last = tasks
                 .last()
-                .expect("a paginated child Task page with more rows is non-empty");
-            TaskCursor {
+                .expect("a paginated child Execution page with more rows is non-empty");
+            ExecutionCursor {
                 updated_at: last.updated_at,
                 id: last.id,
             }
         });
 
-        Ok(TaskSummaryPage { tasks, next_cursor })
+        Ok(ExecutionSummaryPage { tasks, next_cursor })
     }
 
     pub async fn bind_agent_session(
         connection: &mut SqliteConnection,
         task_id: Uuid,
         session_id: Uuid,
-    ) -> Result<(), TaskError> {
+    ) -> Result<(), ExecutionError> {
         sqlx::query("INSERT INTO agent_task_bindings (task_id, session_id) VALUES (?, ?)")
             .bind(task_id)
             .bind(session_id)
@@ -652,10 +663,10 @@ impl Task {
         pool: &SqlitePool,
         task_id: Uuid,
         title: &str,
-    ) -> Result<bool, TaskError> {
+    ) -> Result<bool, ExecutionError> {
         let title = title.trim();
         if title.is_empty() {
-            return Err(TaskError::EmptyTitle);
+            return Err(ExecutionError::EmptyTitle);
         }
         let result = sqlx::query(
             "UPDATE tasks SET title = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
@@ -673,23 +684,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn execution_wire_identity_is_distinct_from_its_business_task() {
+        let execution_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let parent_execution_id = Uuid::new_v4();
+        let now = Utc::now();
+        let execution = ExecutionSummary {
+            id: execution_id,
+            project_id: Uuid::new_v4(),
+            issue_id: task_id,
+            parent_task_id: Some(parent_execution_id),
+            title: "Research".to_string(),
+            execution_kind: ExecutionKind::Agent,
+            status: ExecutionStatus::Pending,
+            open_target: ExecutionOpenTarget::Agent {
+                session_id: Uuid::new_v4(),
+                workspace_id: Uuid::new_v4(),
+            },
+            created_at: now,
+            updated_at: now,
+        };
+        let encoded = serde_json::to_value(&execution).unwrap();
+        assert_eq!(encoded["id"], serde_json::json!(execution_id));
+        assert_eq!(encoded["task_id"], serde_json::json!(task_id));
+        assert_eq!(
+            encoded["parent_execution_id"],
+            serde_json::json!(parent_execution_id)
+        );
+        assert!(encoded.get("issue_id").is_none());
+        assert!(encoded.get("parent_task_id").is_none());
+        assert_eq!(
+            serde_json::from_value::<ExecutionSummary>(encoded).unwrap(),
+            execution
+        );
+
+        let page = ExecutionSummaryPage {
+            tasks: vec![execution],
+            next_cursor: None,
+        };
+        let page = serde_json::to_value(page).unwrap();
+        assert!(page.get("executions").unwrap().is_array());
+        assert!(page.get("tasks").is_none());
+        assert!(!ExecutionSummary::decl().contains("issue_id"));
+    }
+
+    #[test]
     fn canonical_status_mapping_is_exhaustive_for_product_runtime_values() {
         for (value, expected) in [
-            ("draft", TaskStatus::Draft),
-            ("pending", TaskStatus::Pending),
-            ("starting", TaskStatus::Pending),
-            ("running", TaskStatus::Running),
-            ("awaiting_input", TaskStatus::Waiting),
-            ("awaiting_approval", TaskStatus::Waiting),
-            ("awaiting_human", TaskStatus::Waiting),
-            ("awaiting_arena", TaskStatus::Waiting),
-            ("cancelling", TaskStatus::Running),
-            ("succeeded", TaskStatus::Succeeded),
-            ("failed", TaskStatus::Failed),
-            ("cancelled", TaskStatus::Cancelled),
-            ("canceled", TaskStatus::Cancelled),
-            ("crashed", TaskStatus::Failed),
-            ("audit_failed", TaskStatus::Failed),
+            ("draft", ExecutionStatus::Draft),
+            ("pending", ExecutionStatus::Pending),
+            ("starting", ExecutionStatus::Pending),
+            ("running", ExecutionStatus::Running),
+            ("awaiting_input", ExecutionStatus::Waiting),
+            ("awaiting_approval", ExecutionStatus::Waiting),
+            ("awaiting_human", ExecutionStatus::Waiting),
+            ("awaiting_arena", ExecutionStatus::Waiting),
+            ("cancelling", ExecutionStatus::Running),
+            ("succeeded", ExecutionStatus::Succeeded),
+            ("failed", ExecutionStatus::Failed),
+            ("cancelled", ExecutionStatus::Cancelled),
+            ("canceled", ExecutionStatus::Cancelled),
+            ("crashed", ExecutionStatus::Failed),
+            ("audit_failed", ExecutionStatus::Failed),
         ] {
             assert_eq!(map_runtime_status(value).unwrap(), expected);
         }

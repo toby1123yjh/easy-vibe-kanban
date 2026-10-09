@@ -39,7 +39,7 @@ function workspace(
 
 const group: ArenaGroupResponse = {
   id: 'arena-1',
-  task_id: 'task-1',
+  execution_id: 'task-1',
   prompt: 'Compare implementations',
   base_branch: 'main',
   mode: 'implementation',

@@ -4,31 +4,31 @@ import {
   type KanbanFilterState,
 } from '@/shared/stores/useUiPreferencesStore';
 import type {
-  Issue,
-  IssueAssignee,
-  IssueRelationship,
-  IssueTag,
-  IssuePriority,
+  Task,
+  TaskAssignee,
+  TaskRelationship,
+  TaskTag,
+  TaskPriority,
 } from 'shared/remote-types';
 
 type UseKanbanFiltersParams = {
-  issues: Issue[];
-  issueAssignees: IssueAssignee[];
-  issueTags: IssueTag[];
-  issueRelationships: IssueRelationship[];
-  issuesById: Map<string, Issue>;
+  tasks: Task[];
+  taskAssignees: TaskAssignee[];
+  taskTags: TaskTag[];
+  taskRelationships: TaskRelationship[];
+  tasksById: Map<string, Task>;
   doneStatusIds: Set<string>;
   filters: KanbanFilterState;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   hideBlocked: boolean;
   currentUserId: string | null;
 };
 
 type UseKanbanFiltersResult = {
-  filteredIssues: Issue[];
+  filteredTasks: Task[];
 };
 
-export const PRIORITY_ORDER: Record<IssuePriority, number> = {
+export const PRIORITY_ORDER: Record<TaskPriority, number> = {
   urgent: 0,
   high: 1,
   medium: 2,
@@ -36,72 +36,72 @@ export const PRIORITY_ORDER: Record<IssuePriority, number> = {
 };
 
 export function useKanbanFilters({
-  issues,
-  issueAssignees,
-  issueTags,
-  issueRelationships,
-  issuesById,
+  tasks,
+  taskAssignees,
+  taskTags,
+  taskRelationships,
+  tasksById,
   doneStatusIds,
   filters,
-  showSubIssues,
+  showSubTasks,
   hideBlocked,
   currentUserId,
 }: UseKanbanFiltersParams): UseKanbanFiltersResult {
   // Create lookup maps for efficient filtering
-  const assigneesByIssue = useMemo(() => {
+  const assigneesByTask = useMemo(() => {
     const map: Record<string, string[]> = {};
-    for (const ia of issueAssignees) {
-      if (!map[ia.issue_id]) {
-        map[ia.issue_id] = [];
+    for (const ia of taskAssignees) {
+      if (!map[ia.task_id]) {
+        map[ia.task_id] = [];
       }
-      map[ia.issue_id].push(ia.user_id);
+      map[ia.task_id].push(ia.user_id);
     }
     return map;
-  }, [issueAssignees]);
+  }, [taskAssignees]);
 
-  const tagsByIssue = useMemo(() => {
+  const tagsByTask = useMemo(() => {
     const map: Record<string, string[]> = {};
-    for (const it of issueTags) {
-      if (!map[it.issue_id]) {
-        map[it.issue_id] = [];
+    for (const it of taskTags) {
+      if (!map[it.task_id]) {
+        map[it.task_id] = [];
       }
-      map[it.issue_id].push(it.tag_id);
+      map[it.task_id].push(it.tag_id);
     }
     return map;
-  }, [issueTags]);
+  }, [taskTags]);
 
   // Filter issues
-  const filteredIssues = useMemo(() => {
-    let result = issues;
+  const filteredTasks = useMemo(() => {
+    let result = tasks;
 
     // Filter sub-issues based on per-project preference
-    if (!showSubIssues) {
-      result = result.filter((issue) => issue.parent_issue_id === null);
+    if (!showSubTasks) {
+      result = result.filter((task) => task.parent_task_id === null);
     }
 
     // Text search (title + short ID)
     const query = filters.searchQuery.trim().toLowerCase();
     if (query) {
-      result = result.filter((issue) => {
-        if (issue.title.toLowerCase().includes(query)) {
+      result = result.filter((task) => {
+        if (task.title.toLowerCase().includes(query)) {
           return true;
         }
 
-        const simpleId = issue.simple_id.toLowerCase();
+        const simpleId = task.simple_id.toLowerCase();
         if (simpleId.includes(query)) {
           return true;
         }
 
-        const issueNumber = String(issue.issue_number);
-        return issueNumber.includes(query);
+        const taskNumber = String(task.task_number);
+        return taskNumber.includes(query);
       });
     }
 
     // Priority filter (OR within)
     if (filters.priorities.length > 0) {
       result = result.filter(
-        (issue) =>
-          issue.priority !== null && filters.priorities.includes(issue.priority)
+        (task) =>
+          task.priority !== null && filters.priorities.includes(task.priority)
       );
     }
 
@@ -122,16 +122,16 @@ export function useKanbanFilters({
         })
       );
 
-      result = result.filter((issue) => {
-        const issueAssigneeIds = assigneesByIssue[issue.id] ?? [];
+      result = result.filter((task) => {
+        const taskAssigneeIds = assigneesByTask[task.id] ?? [];
 
         // Check for 'unassigned' special case
         if (includeUnassigned) {
-          if (issueAssigneeIds.length === 0) return true;
+          if (taskAssigneeIds.length === 0) return true;
         }
 
         // Check if any of the issue's assignees match the filter
-        return issueAssigneeIds.some((assigneeId) =>
+        return taskAssigneeIds.some((assigneeId) =>
           selectedAssigneeIds.has(assigneeId)
         );
       });
@@ -139,19 +139,19 @@ export function useKanbanFilters({
 
     // Tags filter (OR within)
     if (filters.tagIds.length > 0) {
-      result = result.filter((issue) => {
-        const issueTagIds = tagsByIssue[issue.id] ?? [];
-        return issueTagIds.some((tagId) => filters.tagIds.includes(tagId));
+      result = result.filter((task) => {
+        const taskTagIds = tagsByTask[task.id] ?? [];
+        return taskTagIds.some((tagId) => filters.tagIds.includes(tagId));
       });
     }
 
     // Hide blocked: filter out issues that are blocked by an unresolved issue
     if (hideBlocked) {
-      result = result.filter((issue) => {
-        return !issueRelationships.some((r) => {
+      result = result.filter((task) => {
+        return !taskRelationships.some((r) => {
           if (r.relationship_type !== 'blocking') return false;
-          if (r.related_issue_id !== issue.id) return false;
-          const blockingIssue = issuesById.get(r.issue_id);
+          if (r.related_task_id !== task.id) return false;
+          const blockingIssue = tasksById.get(r.task_id);
           if (blockingIssue == null) return false;
           // Blocker is resolved if it's in a done status
           return !doneStatusIds.has(blockingIssue.status_id);
@@ -164,19 +164,19 @@ export function useKanbanFilters({
 
     return result;
   }, [
-    issues,
+    tasks,
     filters,
-    assigneesByIssue,
-    tagsByIssue,
-    showSubIssues,
+    assigneesByTask,
+    tagsByTask,
+    showSubTasks,
     hideBlocked,
-    issueRelationships,
-    issuesById,
+    taskRelationships,
+    tasksById,
     doneStatusIds,
     currentUserId,
   ]);
 
   return {
-    filteredIssues,
+    filteredTasks,
   };
 }

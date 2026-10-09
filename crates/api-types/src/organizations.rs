@@ -24,6 +24,8 @@ pub struct Organization {
     pub name: String,
     pub slug: String,
     pub is_personal: bool,
+    #[serde(rename = "task_prefix")]
+    #[ts(rename = "task_prefix")]
     pub issue_prefix: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -35,6 +37,8 @@ pub struct OrganizationWithRole {
     pub name: String,
     pub slug: String,
     pub is_personal: bool,
+    #[serde(rename = "task_prefix")]
+    #[ts(rename = "task_prefix")]
     pub issue_prefix: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

@@ -7,7 +7,7 @@ import type {
 import {
   getWorkflowNodeActionGate,
   getWorkflowNodeExecutionForWork,
-  getWorkflowNodeTaskTarget,
+  getWorkflowNodeExecutionTarget,
   getWorkflowNodeWork,
   getWorkflowRuntimeAttentionItems,
   getWorkflowRuntimeView,
@@ -28,7 +28,7 @@ function sourceExecution(): WorkflowNodeExecutionResponse {
   return {
     id: 'source-execution',
     run_id: 'source-run',
-    task_id: 'source-task',
+    execution_id: 'source-task',
     node_id: 'upstream',
     node_type: 'agent',
     iteration: 3n,
@@ -96,7 +96,7 @@ function currentRun(work: WorkflowNodeWorkView): WorkflowRunResponse {
     orchestration_run_id: null,
     workflow_id: 'workflow',
     attempt_id: 'instance',
-    issue_id: 'issue',
+    task_id: 'task',
     workspace_id: 'workspace',
     trigger_source: 'manual',
     input_text: 'rework',
@@ -131,9 +131,9 @@ for (const status of ['reused', 'skipped'] as const) {
     const work = getWorkflowNodeWork(view, 'upstream');
     expect(work?.runtime_authority).toBe('current');
     expect(getWorkflowNodeActionGate(work)).toEqual(noActions);
-    expect(getWorkflowNodeTaskTarget(sourceExecution(), work)).toBeNull();
+    expect(getWorkflowNodeExecutionTarget(sourceExecution(), work)).toBeNull();
     expect(
-      getWorkflowNodeTaskTarget(
+      getWorkflowNodeExecutionTarget(
         {
           ...sourceExecution(),
           node_type: 'arena',
@@ -162,7 +162,7 @@ for (const projectionStatus of ['projection_degraded', 'rebuilding'] as const) {
     expect(work?.runtime_authority).toBe('degraded');
     expect(getWorkflowNodeExecutionForWork(run, work)).toBeNull();
     expect(getWorkflowNodeActionGate(work)).toEqual(noActions);
-    expect(getWorkflowNodeTaskTarget(sourceExecution(), work)).toBeNull();
+    expect(getWorkflowNodeExecutionTarget(sourceExecution(), work)).toBeNull();
     expect(work?.reused_results).toHaveLength(2);
   });
 }

@@ -11,9 +11,9 @@ import { invalidateSessionDiscovery } from '@/shared/lib/sessionDiscoveryCache';
 
 interface CreateWorkspaceParams {
   data: CreateAndStartWorkspaceRequest;
-  linkToIssue?: {
+  linkToTask?: {
     remoteProjectId: string;
-    issueId: string;
+    taskId: string;
   };
 }
 
@@ -21,18 +21,18 @@ export function useCreateWorkspace() {
   const queryClient = useQueryClient();
 
   const createWorkspace = useMutation({
-    mutationFn: async ({ data, linkToIssue }: CreateWorkspaceParams) => {
+    mutationFn: async ({ data, linkToTask }: CreateWorkspaceParams) => {
       const { workspace } = await workspacesApi.createAndStart(data);
 
       // Start persists the first session too. Publish it before optional Issue
       // linking, whose failure must not hide an already-created session.
       void invalidateSessionDiscovery(queryClient);
 
-      if (linkToIssue && workspace && !data.linked_issue) {
-        await workspacesApi.linkToIssue(
+      if (linkToTask && workspace && !data.linked_task) {
+        await workspacesApi.linkToTask(
           workspace.id,
-          linkToIssue.remoteProjectId,
-          linkToIssue.issueId
+          linkToTask.remoteProjectId,
+          linkToTask.taskId
         );
         // The optional link updates the canonical session's Issue identity.
         void invalidateSessionDiscovery(queryClient);
@@ -40,7 +40,7 @@ export function useCreateWorkspace() {
 
       return { workspace };
     },
-    onSuccess: (_result, { data, linkToIssue }) => {
+    onSuccess: (_result, { data, linkToTask }) => {
       // Invalidate workspace summaries so they refresh with the new workspace included
       queryClient.invalidateQueries({ queryKey: workspaceSummaryKeys.all });
       // Ensure create-mode defaults refetch the latest session/model selection.
@@ -48,8 +48,8 @@ export function useCreateWorkspace() {
       queryClient.invalidateQueries({ queryKey: ['project-sessions'] });
 
       const projectId =
-        data.linked_issue?.remote_project_id ??
-        linkToIssue?.remoteProjectId ??
+        data.linked_task?.remote_project_id ??
+        linkToTask?.remoteProjectId ??
         data.project_id;
       if (projectId) {
         refreshShapeFallback(PROJECT_WORKSPACES_SHAPE, {

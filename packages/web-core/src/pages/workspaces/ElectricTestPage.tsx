@@ -7,21 +7,21 @@ import type { SyncError } from '@/shared/lib/electric/types';
 import {
   PROJECTS_SHAPE,
   PROJECT_TAGS_SHAPE,
-  ISSUE_COMMENTS_SHAPE,
+  TASK_COMMENTS_SHAPE,
   PROJECT_MUTATION,
   TAG_MUTATION,
-  ISSUE_COMMENT_MUTATION,
+  TASK_COMMENT_MUTATION,
   NOTIFICATIONS_SHAPE,
-  PROJECT_ISSUES_SHAPE,
+  PROJECT_TASKS_SHAPE,
   PROJECT_WORKSPACES_SHAPE,
   PROJECT_PROJECT_STATUSES_SHAPE,
-  PROJECT_ISSUE_ASSIGNEES_SHAPE,
-  PROJECT_ISSUE_FOLLOWERS_SHAPE,
-  PROJECT_ISSUE_TAGS_SHAPE,
-  PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
-  ISSUE_REACTIONS_SHAPE,
+  PROJECT_TASK_ASSIGNEES_SHAPE,
+  PROJECT_TASK_FOLLOWERS_SHAPE,
+  PROJECT_TASK_TAGS_SHAPE,
+  PROJECT_TASK_RELATIONSHIPS_SHAPE,
+  TASK_REACTIONS_SHAPE,
   type Project,
-  type Issue,
+  type Task,
 } from 'shared/remote-types';
 
 // ============================================================================
@@ -30,15 +30,15 @@ import {
 
 type OrgCollectionType = 'projects' | 'notifications';
 type ProjectCollectionType =
-  | 'issues'
+  | 'tasks'
   | 'workspaces'
   | 'statuses'
   | 'tags'
   | 'assignees'
   | 'followers'
-  | 'issueTags'
+  | 'taskTags'
   | 'dependencies';
-type IssueCollectionType = 'comments' | 'reactions';
+type TaskCollectionType = 'comments' | 'reactions';
 
 // ============================================================================
 // Helper Components
@@ -388,22 +388,22 @@ function NotificationsList({ userId }: { userId: string }) {
   );
 }
 
-function IssuesList({
+function TasksList({
   projectId,
-  onSelectIssue,
-  selectedIssueId,
+  onSelectTask,
+  selectedTaskId,
 }: {
   projectId: string;
-  onSelectIssue: (issue: Issue) => void;
-  selectedIssueId: string | null;
+  onSelectTask: (task: Task) => void;
+  selectedTaskId: string | null;
 }) {
-  const { data, isLoading, error, retry } = useShape(PROJECT_ISSUES_SHAPE, {
+  const { data, isLoading, error, retry } = useShape(PROJECT_TASKS_SHAPE, {
     project_id: projectId,
   });
 
   if (error)
     return <ErrorState syncError={error} title="Sync Error" onRetry={retry} />;
-  if (isLoading) return <LoadingState message="Loading issues..." />;
+  if (isLoading) return <LoadingState message="Loading tasks..." />;
 
   return (
     <div>
@@ -411,8 +411,8 @@ function IssuesList({
       <DataTable
         data={data}
         getRowId={(i) => i.id}
-        selectedId={selectedIssueId ?? undefined}
-        onRowClick={onSelectIssue}
+        selectedId={selectedTaskId ?? undefined}
+        onRowClick={onSelectTask}
         columns={[
           { key: 'title', label: 'Title' },
           { key: 'priority', label: 'Priority' },
@@ -603,7 +603,7 @@ function TagsList({ projectId }: { projectId: string }) {
 
 function AssigneesList({ projectId }: { projectId: string }) {
   const { data, isLoading, error, retry } = useShape(
-    PROJECT_ISSUE_ASSIGNEES_SHAPE,
+    PROJECT_TASK_ASSIGNEES_SHAPE,
     { project_id: projectId }
   );
 
@@ -616,12 +616,12 @@ function AssigneesList({ projectId }: { projectId: string }) {
       <p className="text-sm text-low mb-base">{data.length} synced</p>
       <DataTable
         data={data}
-        getRowId={(a) => `${a.issue_id}-${a.user_id}`}
+        getRowId={(a) => `${a.task_id}-${a.user_id}`}
         columns={[
           {
-            key: 'issue_id',
-            label: 'Issue ID',
-            render: (a) => truncateId(a.issue_id),
+            key: 'task_id',
+            label: 'Task ID',
+            render: (a) => truncateId(a.task_id),
           },
           {
             key: 'user_id',
@@ -641,7 +641,7 @@ function AssigneesList({ projectId }: { projectId: string }) {
 
 function FollowersList({ projectId }: { projectId: string }) {
   const { data, isLoading, error, retry } = useShape(
-    PROJECT_ISSUE_FOLLOWERS_SHAPE,
+    PROJECT_TASK_FOLLOWERS_SHAPE,
     { project_id: projectId }
   );
 
@@ -654,12 +654,12 @@ function FollowersList({ projectId }: { projectId: string }) {
       <p className="text-sm text-low mb-base">{data.length} synced</p>
       <DataTable
         data={data}
-        getRowId={(f) => `${f.issue_id}-${f.user_id}`}
+        getRowId={(f) => `${f.task_id}-${f.user_id}`}
         columns={[
           {
-            key: 'issue_id',
-            label: 'Issue ID',
-            render: (f) => truncateId(f.issue_id),
+            key: 'task_id',
+            label: 'Task ID',
+            render: (f) => truncateId(f.task_id),
           },
           {
             key: 'user_id',
@@ -672,26 +672,26 @@ function FollowersList({ projectId }: { projectId: string }) {
   );
 }
 
-function IssueTagsList({ projectId }: { projectId: string }) {
-  const { data, isLoading, error, retry } = useShape(PROJECT_ISSUE_TAGS_SHAPE, {
+function TaskTagsList({ projectId }: { projectId: string }) {
+  const { data, isLoading, error, retry } = useShape(PROJECT_TASK_TAGS_SHAPE, {
     project_id: projectId,
   });
 
   if (error)
     return <ErrorState syncError={error} title="Sync Error" onRetry={retry} />;
-  if (isLoading) return <LoadingState message="Loading issue tags..." />;
+  if (isLoading) return <LoadingState message="Loading task tags..." />;
 
   return (
     <div>
       <p className="text-sm text-low mb-base">{data.length} synced</p>
       <DataTable
         data={data}
-        getRowId={(t) => `${t.issue_id}-${t.tag_id}`}
+        getRowId={(t) => `${t.task_id}-${t.tag_id}`}
         columns={[
           {
-            key: 'issue_id',
-            label: 'Issue ID',
-            render: (t) => truncateId(t.issue_id),
+            key: 'task_id',
+            label: 'Task ID',
+            render: (t) => truncateId(t.task_id),
           },
           {
             key: 'tag_id',
@@ -706,7 +706,7 @@ function IssueTagsList({ projectId }: { projectId: string }) {
 
 function DependenciesList({ projectId }: { projectId: string }) {
   const { data, isLoading, error, retry } = useShape(
-    PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
+    PROJECT_TASK_RELATIONSHIPS_SHAPE,
     { project_id: projectId }
   );
 
@@ -719,17 +719,17 @@ function DependenciesList({ projectId }: { projectId: string }) {
       <p className="text-sm text-low mb-base">{data.length} synced</p>
       <DataTable
         data={data}
-        getRowId={(d) => `${d.issue_id}-${d.related_issue_id}`}
+        getRowId={(d) => `${d.task_id}-${d.related_task_id}`}
         columns={[
           {
-            key: 'issue_id',
-            label: 'Issue',
-            render: (d) => truncateId(d.issue_id),
+            key: 'task_id',
+            label: 'Task',
+            render: (d) => truncateId(d.task_id),
           },
           {
-            key: 'related_issue_id',
-            label: 'Related Issue',
-            render: (d) => truncateId(d.related_issue_id),
+            key: 'related_task_id',
+            label: 'Related Task',
+            render: (d) => truncateId(d.related_task_id),
           },
           {
             key: 'created_at',
@@ -742,11 +742,11 @@ function DependenciesList({ projectId }: { projectId: string }) {
   );
 }
 
-function CommentsList({ issueId }: { issueId: string }) {
+function CommentsList({ taskId }: { taskId: string }) {
   const { data, isLoading, error, retry, insert, update, remove } = useShape(
-    ISSUE_COMMENTS_SHAPE,
-    { issue_id: issueId },
-    { mutation: ISSUE_COMMENT_MUTATION }
+    TASK_COMMENTS_SHAPE,
+    { task_id: taskId },
+    { mutation: TASK_COMMENT_MUTATION }
   );
 
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
@@ -756,7 +756,7 @@ function CommentsList({ issueId }: { issueId: string }) {
 
   const handleCreate = () => {
     if (!newMessage.trim()) return;
-    insert({ issue_id: issueId, message: newMessage.trim(), parent_id: null });
+    insert({ task_id: taskId, message: newMessage.trim(), parent_id: null });
     setNewMessage('');
   };
 
@@ -834,9 +834,9 @@ function CommentsList({ issueId }: { issueId: string }) {
   );
 }
 
-function ReactionsList({ issueId }: { issueId: string }) {
-  const { data, isLoading, error, retry } = useShape(ISSUE_REACTIONS_SHAPE, {
-    issue_id: issueId,
+function ReactionsList({ taskId }: { taskId: string }) {
+  const { data, isLoading, error, retry } = useShape(TASK_REACTIONS_SHAPE, {
+    task_id: taskId,
   });
 
   if (error)
@@ -894,16 +894,16 @@ export function ElectricTestPage() {
     null
   );
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const [activeOrgCollection, setActiveOrgCollection] =
     useState<OrgCollectionType>('projects');
   const [activeProjectCollection, setActiveProjectCollection] =
-    useState<ProjectCollectionType>('issues');
-  const [activeIssueCollection, setActiveIssueCollection] =
-    useState<IssueCollectionType>('comments');
+    useState<ProjectCollectionType>('tasks');
+  const [activeTaskCollection, setActiveTaskCollection] =
+    useState<TaskCollectionType>('comments');
 
   const organizations = orgsData?.organizations ?? [];
   const userId = currentUser?.user_id;
@@ -912,20 +912,20 @@ export function ElectricTestPage() {
     setIsConnected(false);
     setSelectedProjectId(null);
     setSelectedProject(null);
-    setSelectedIssueId(null);
-    setSelectedIssue(null);
+    setSelectedTaskId(null);
+    setSelectedTask(null);
   };
 
   const handleSelectProject = (project: Project | null) => {
     setSelectedProjectId(project?.id ?? null);
     setSelectedProject(project);
-    setSelectedIssueId(null);
-    setSelectedIssue(null);
+    setSelectedTaskId(null);
+    setSelectedTask(null);
   };
 
-  const handleSelectIssue = (issue: Issue) => {
-    setSelectedIssueId(issue.id);
-    setSelectedIssue(issue);
+  const handleSelectTask = (task: Task) => {
+    setSelectedTaskId(task.id);
+    setSelectedTask(task);
   };
 
   if (!isLoaded) {
@@ -966,8 +966,8 @@ export function ElectricTestPage() {
                 setSelectedOrgId(e.target.value);
                 setSelectedProjectId(null);
                 setSelectedProject(null);
-                setSelectedIssueId(null);
-                setSelectedIssue(null);
+                setSelectedTaskId(null);
+                setSelectedTask(null);
               }}
               disabled={isConnected}
               className="w-full px-base py-half border rounded-sm bg-primary text-normal focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand disabled:bg-secondary disabled:text-low"
@@ -1067,22 +1067,22 @@ export function ElectricTestPage() {
             value={activeProjectCollection}
             onChange={setActiveProjectCollection}
             options={[
-              { value: 'issues', label: 'Issues' },
+              { value: 'tasks', label: 'Tasks' },
               { value: 'workspaces', label: 'Workspaces' },
               { value: 'statuses', label: 'Statuses' },
               { value: 'tags', label: 'Tags' },
               { value: 'assignees', label: 'Assignees' },
               { value: 'followers', label: 'Followers' },
-              { value: 'issueTags', label: 'Issue Tags' },
+              { value: 'taskTags', label: 'Task Tags' },
               { value: 'dependencies', label: 'Dependencies' },
             ]}
           />
 
-          {activeProjectCollection === 'issues' && (
-            <IssuesList
+          {activeProjectCollection === 'tasks' && (
+            <TasksList
               projectId={selectedProjectId}
-              onSelectIssue={handleSelectIssue}
-              selectedIssueId={selectedIssueId}
+              onSelectTask={handleSelectTask}
+              selectedTaskId={selectedTaskId}
             />
           )}
           {activeProjectCollection === 'workspaces' && (
@@ -1100,45 +1100,45 @@ export function ElectricTestPage() {
           {activeProjectCollection === 'followers' && (
             <FollowersList projectId={selectedProjectId} />
           )}
-          {activeProjectCollection === 'issueTags' && (
-            <IssueTagsList projectId={selectedProjectId} />
+          {activeProjectCollection === 'taskTags' && (
+            <TaskTagsList projectId={selectedProjectId} />
           )}
           {activeProjectCollection === 'dependencies' && (
             <DependenciesList projectId={selectedProjectId} />
           )}
 
-          {selectedIssue && (
+          {selectedTask && (
             <p className="mt-base text-sm text-brand">
-              Selected issue: <strong>{selectedIssue.title}</strong>
+              Selected task: <strong>{selectedTask.title}</strong>
             </p>
           )}
         </div>
       )}
 
       {/* Issue-scoped collections */}
-      {isConnected && selectedIssueId && (
+      {isConnected && selectedTaskId && (
         <div className="bg-primary border rounded-sm p-base">
           <h3 className="text-lg font-medium text-normal mb-base">
-            Issue Collections
+            Task Collections
             <span className="text-sm font-normal text-low ml-base">
-              ({selectedIssue?.title})
+              ({selectedTask?.title})
             </span>
           </h3>
 
           <CollectionTabs
-            value={activeIssueCollection}
-            onChange={setActiveIssueCollection}
+            value={activeTaskCollection}
+            onChange={setActiveTaskCollection}
             options={[
               { value: 'comments', label: 'Comments' },
               { value: 'reactions', label: 'Reactions' },
             ]}
           />
 
-          {activeIssueCollection === 'comments' && (
-            <CommentsList issueId={selectedIssueId} />
+          {activeTaskCollection === 'comments' && (
+            <CommentsList taskId={selectedTaskId} />
           )}
-          {activeIssueCollection === 'reactions' && (
-            <ReactionsList issueId={selectedIssueId} />
+          {activeTaskCollection === 'reactions' && (
+            <ReactionsList taskId={selectedTaskId} />
           )}
         </div>
       )}

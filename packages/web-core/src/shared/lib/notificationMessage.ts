@@ -5,7 +5,7 @@ import type { OrganizationMemberWithProfile } from 'shared/types';
 export type MessageSegment =
   | { type: 'text'; value: string }
   | { type: 'emphasis'; value: string }
-  | { type: 'issue'; value: string }
+  | { type: 'task'; value: string }
   | { type: 'user'; userId: string };
 
 function text(value: string): MessageSegment {
@@ -16,8 +16,8 @@ function emphasis(value: string): MessageSegment {
   return { type: 'emphasis', value };
 }
 
-function issue(value: string): MessageSegment {
-  return { type: 'issue', value };
+function task(value: string): MessageSegment {
+  return { type: 'task', value };
 }
 
 function user(userId: string): MessageSegment {
@@ -51,13 +51,13 @@ function getActorSegments(group: GroupedNotification): MessageSegment[] {
   return actorId ? [user(actorId)] : [text('Someone')];
 }
 
-function getIssueSegments(group: GroupedNotification): MessageSegment[] {
+function getTaskSegments(group: GroupedNotification): MessageSegment[] {
   const payload = getPayload(group.latest);
-  if (payload.issue_simple_id) {
-    return [issue(payload.issue_simple_id)];
+  if (payload.task_simple_id) {
+    return [task(payload.task_simple_id)];
   }
 
-  return [emphasis(payload.issue_title ?? 'an issue')];
+  return [emphasis(payload.task_title ?? 'an task')];
 }
 
 function formatCountLabel(
@@ -73,17 +73,17 @@ export function getGroupedNotificationSegments(
 ): MessageSegment[] {
   const payload = getPayload(group.latest);
   const actor = getActorSegments(group);
-  const issueSegments = getIssueSegments(group);
+  const taskSegments = getTaskSegments(group);
 
   if (group.kind !== 'single' && group.notificationCount > 1) {
     switch (group.kind) {
-      case 'issue_changes':
+      case 'task_changes':
         return [
           ...actor,
           text(' changed '),
-          emphasis(formatCountLabel(group.issueChangeCount, 'field')),
+          emphasis(formatCountLabel(group.taskChangeCount, 'field')),
           text(' on '),
-          ...issueSegments,
+          ...taskSegments,
         ];
       case 'comments':
         return [
@@ -91,57 +91,57 @@ export function getGroupedNotificationSegments(
           text(' left '),
           emphasis(formatCountLabel(group.notificationCount, 'comment')),
           text(' on '),
-          ...issueSegments,
+          ...taskSegments,
         ];
       case 'status_changes':
-        return [...actor, text(' changed status on '), ...issueSegments];
+        return [...actor, text(' changed status on '), ...taskSegments];
       case 'reactions':
         return [
           ...actor,
           text(' reacted '),
           emphasis(formatCountLabel(group.notificationCount, 'time')),
           text(' on '),
-          ...issueSegments,
+          ...taskSegments,
         ];
-      case 'issue_deleted':
+      case 'task_deleted':
         return [
           ...actor,
           text(' deleted '),
-          emphasis(formatCountLabel(group.notificationCount, 'issue')),
+          emphasis(formatCountLabel(group.notificationCount, 'task')),
         ];
     }
   }
 
   switch (group.latest.notification_type) {
-    case 'issue_title_changed': {
+    case 'task_title_changed': {
       const newTitle = payload.new_title;
       if (newTitle) {
         return [
           ...actor,
           text(' changed the title of '),
-          ...issueSegments,
+          ...taskSegments,
           text(' to '),
           emphasis(newTitle),
         ];
       }
-      return [...actor, text(' changed the title of '), ...issueSegments];
+      return [...actor, text(' changed the title of '), ...taskSegments];
     }
-    case 'issue_assignee_changed': {
+    case 'task_assignee_changed': {
       const assigneeId = payload.assignee_user_id;
       const assignee = assigneeId ? [user(assigneeId)] : [text('Someone')];
       return [
         ...assignee,
         text(' was assigned to '),
-        ...issueSegments,
+        ...taskSegments,
         text(' by '),
         ...actor,
       ];
     }
-    case 'issue_unassigned':
-      return [...actor, text(' unassigned you from '), ...issueSegments];
-    case 'issue_description_changed':
-      return [...actor, text(' changed the description on '), ...issueSegments];
-    case 'issue_priority_changed': {
+    case 'task_unassigned':
+      return [...actor, text(' unassigned you from '), ...taskSegments];
+    case 'task_description_changed':
+      return [...actor, text(' changed the description on '), ...taskSegments];
+    case 'task_priority_changed': {
       const oldPriority = formatPriority(payload.old_priority);
       const newPriority = formatPriority(payload.new_priority);
 
@@ -149,7 +149,7 @@ export function getGroupedNotificationSegments(
         return [
           ...actor,
           text(' changed the priority of '),
-          ...issueSegments,
+          ...taskSegments,
           text(' from '),
           emphasis(oldPriority),
           text(' to '),
@@ -161,17 +161,17 @@ export function getGroupedNotificationSegments(
         return [
           ...actor,
           text(' changed the priority of '),
-          ...issueSegments,
+          ...taskSegments,
           text(' to '),
           emphasis(newPriority),
         ];
       }
 
-      return [...actor, text(' cleared the priority of '), ...issueSegments];
+      return [...actor, text(' cleared the priority of '), ...taskSegments];
     }
-    case 'issue_comment_added':
-      return [...actor, text(' commented on '), ...issueSegments];
-    case 'issue_comment_reaction': {
+    case 'task_comment_added':
+      return [...actor, text(' commented on '), ...taskSegments];
+    case 'task_comment_reaction': {
       const emoji = payload.emoji;
       if (emoji) {
         return [
@@ -179,12 +179,12 @@ export function getGroupedNotificationSegments(
           text(' reacted '),
           emphasis(emoji),
           text(' to your comment on '),
-          ...issueSegments,
+          ...taskSegments,
         ];
       }
-      return [...actor, text(' reacted to your comment on '), ...issueSegments];
+      return [...actor, text(' reacted to your comment on '), ...taskSegments];
     }
-    case 'issue_status_changed': {
+    case 'task_status_changed': {
       const oldStatusName = payload.old_status_name;
       const newStatusName = payload.new_status_name;
 
@@ -192,7 +192,7 @@ export function getGroupedNotificationSegments(
         return [
           ...actor,
           text(' changed status of '),
-          ...issueSegments,
+          ...taskSegments,
           text(' from '),
           emphasis(oldStatusName),
           text(' to '),
@@ -200,10 +200,10 @@ export function getGroupedNotificationSegments(
         ];
       }
 
-      return [...actor, text(' changed status of '), ...issueSegments];
+      return [...actor, text(' changed status of '), ...taskSegments];
     }
-    case 'issue_deleted':
-      return [...actor, text(' deleted '), ...issueSegments];
+    case 'task_deleted':
+      return [...actor, text(' deleted '), ...taskSegments];
     default:
       return [text('New notification')];
   }

@@ -23,7 +23,7 @@ import type { SelectionPage } from './SelectionDialog';
 import type { RepoSelectionResult } from './selections/repoSelection';
 import { useCommandBarState } from './commandBar/useCommandBarState';
 import { useResolvedPage } from './commandBar/useResolvedPage';
-import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
+import { useTaskSelectionStore } from '@/shared/stores/useTaskSelectionStore';
 
 export interface CommandBarDialogProps {
   page?: PageId;
@@ -32,7 +32,7 @@ export interface CommandBarDialogProps {
   /** Issue context for kanban mode - projectId */
   projectId?: string;
   /** Issue context for kanban mode - selected issue IDs */
-  issueIds?: string[];
+  taskIds?: string[];
 }
 
 function CommandBarContent({
@@ -40,13 +40,13 @@ function CommandBarContent({
   workspaceId,
   initialRepoId,
   propProjectId,
-  propIssueIds,
+  propTaskIds,
 }: {
   page: PageId;
   workspaceId?: string;
   initialRepoId?: string;
   propProjectId?: string;
-  propIssueIds?: string[];
+  propTaskIds?: string[];
 }) {
   const modal = useModal();
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -55,23 +55,21 @@ function CommandBarContent({
   const { workspaceId: contextWorkspaceId, repos } = useWorkspaceContext();
 
   // Get issue context from props, multi-selection store, or route params
-  const { projectId: routeProjectId, issueId: routeIssueId } = useParams({
+  const { projectId: routeProjectId, taskId: routeTaskId } = useParams({
     strict: false,
   });
-  const multiSelectedIssueIds = useIssueSelectionStore(
-    (s) => s.selectedIssueIds
-  );
+  const multiSelectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
 
   // Effective issue context: props > multi-selection > route param
   const effectiveProjectId = propProjectId ?? routeProjectId;
-  const effectiveIssueIds = useMemo(() => {
-    if (propIssueIds) return propIssueIds;
-    if (multiSelectedIssueIds.size > 0) return [...multiSelectedIssueIds];
-    return routeIssueId ? [routeIssueId] : [];
-  }, [propIssueIds, multiSelectedIssueIds, routeIssueId]);
+  const effectiveTaskIds = useMemo(() => {
+    if (propTaskIds) return propTaskIds;
+    if (multiSelectedTaskIds.size > 0) return [...multiSelectedTaskIds];
+    return routeTaskId ? [routeTaskId] : [];
+  }, [propTaskIds, multiSelectedTaskIds, routeTaskId]);
   const visibilityContext = useActionVisibilityContext({
     projectId: effectiveProjectId,
-    issueIds: effectiveIssueIds,
+    taskIds: effectiveTaskIds,
   });
 
   const effectiveWorkspaceId = workspaceId ?? contextWorkspaceId;
@@ -111,12 +109,12 @@ function CommandBarContent({
 
       modal.hide();
 
-      if (effect.action.requiresTarget === ActionTargetType.ISSUE) {
+      if (effect.action.requiresTarget === ActionTargetType.TASK) {
         executeAction(
           effect.action,
           undefined,
           effectiveProjectId,
-          effectiveIssueIds
+          effectiveTaskIds
         );
       } else if (effect.action.requiresTarget === ActionTargetType.GIT) {
         // Resolve repoId: use initialRepoId, single repo, or show selection dialog
@@ -152,7 +150,7 @@ function CommandBarContent({
       executeAction,
       effectiveWorkspaceId,
       effectiveProjectId,
-      effectiveIssueIds,
+      effectiveTaskIds,
       repos,
       initialRepoId,
     ]
@@ -202,14 +200,14 @@ const CommandBarDialogImpl = create<CommandBarDialogProps>(
     workspaceId,
     repoId: initialRepoId,
     projectId: propProjectId,
-    issueIds: propIssueIds,
+    taskIds: propTaskIds,
   }) => (
     <CommandBarContent
       page={page}
       workspaceId={workspaceId}
       initialRepoId={initialRepoId}
       propProjectId={propProjectId}
-      propIssueIds={propIssueIds}
+      propTaskIds={propTaskIds}
     />
   )
 );

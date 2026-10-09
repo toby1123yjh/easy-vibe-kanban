@@ -8,10 +8,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::Utc;
 use tracing::instrument;
-use ts_rs::TS;
 use uuid::Uuid;
 
 use super::organization_members::{
@@ -36,12 +34,9 @@ pub fn router() -> Router<AppState> {
         .route("/attachments/{id}/file", get(get_attachment_file))
         .route("/attachments/{id}/thumbnail", get(get_attachment_thumbnail))
         .route("/attachments/{id}", delete(delete_attachment))
+        .route("/tasks/{task_id}/attachments", get(list_issue_attachments))
         .route(
-            "/issues/{issue_id}/attachments",
-            get(list_issue_attachments),
-        )
-        .route(
-            "/issues/{issue_id}/attachments/commit",
+            "/tasks/{task_id}/attachments/commit",
             post(commit_issue_attachments),
         )
         .route(
@@ -54,49 +49,10 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct InitUploadRequest {
-    pub project_id: Uuid,
-    pub filename: String,
-    #[ts(type = "number")]
-    pub size_bytes: i64,
-    pub hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct InitUploadResponse {
-    pub upload_url: String,
-    pub upload_id: Uuid,
-    pub expires_at: DateTime<Utc>,
-    pub skip_upload: bool,
-    pub existing_blob_id: Option<Uuid>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct ConfirmUploadRequest {
-    pub project_id: Uuid,
-    pub upload_id: Uuid,
-    pub filename: String,
-    #[ts(optional)]
-    pub content_type: Option<String>,
-    #[ts(type = "number")]
-    pub size_bytes: i64,
-    pub hash: String,
-    #[ts(optional)]
-    pub issue_id: Option<Uuid>,
-    #[ts(optional)]
-    pub comment_id: Option<Uuid>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct CommitAttachmentsRequest {
-    pub attachment_ids: Vec<Uuid>,
-}
-
-#[derive(Debug, Serialize, Deserialize, TS)]
-pub struct CommitAttachmentsResponse {
-    pub attachments: Vec<AttachmentWithBlob>,
-}
+pub use api_types::{
+    CommitAttachmentsRequest, CommitAttachmentsResponse, ConfirmUploadRequest, InitUploadRequest,
+    InitUploadResponse,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RouteError {

@@ -1,4 +1,4 @@
-use api_types::PullRequestIssue;
+use api_types::PullRequestTask;
 use sqlx::{Executor, PgPool, Postgres};
 use thiserror::Error;
 use uuid::Uuid;
@@ -19,9 +19,9 @@ impl PullRequestIssueRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<PullRequestIssue>, PullRequestIssueError> {
+    ) -> Result<Option<PullRequestTask>, PullRequestIssueError> {
         let record = sqlx::query_as!(
-            PullRequestIssue,
+            PullRequestTask,
             r#"
             SELECT
                 id              AS "id!: Uuid",
@@ -40,9 +40,9 @@ impl PullRequestIssueRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<PullRequestIssue>, PullRequestIssueError> {
+    ) -> Result<Vec<PullRequestTask>, PullRequestIssueError> {
         let records = sqlx::query_as!(
-            PullRequestIssue,
+            PullRequestTask,
             r#"
             SELECT
                 id              AS "id!: Uuid",
@@ -61,9 +61,9 @@ impl PullRequestIssueRepository {
     pub async fn list_by_project(
         pool: &PgPool,
         project_id: Uuid,
-    ) -> Result<Vec<PullRequestIssue>, PullRequestIssueError> {
+    ) -> Result<Vec<PullRequestTask>, PullRequestIssueError> {
         let records = sqlx::query_as!(
-            PullRequestIssue,
+            PullRequestTask,
             r#"
             SELECT
                 pri.id              AS "id!: Uuid",
@@ -85,13 +85,13 @@ impl PullRequestIssueRepository {
         pull_request_id: Uuid,
         issue_id: Uuid,
         id: Option<Uuid>,
-    ) -> Result<PullRequestIssue, PullRequestIssueError>
+    ) -> Result<PullRequestTask, PullRequestIssueError>
     where
         E: Executor<'e, Database = Postgres>,
     {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let record = sqlx::query_as!(
-            PullRequestIssue,
+            PullRequestTask,
             r#"
             INSERT INTO pull_request_issues (id, pull_request_id, issue_id)
             VALUES ($1, $2, $3)

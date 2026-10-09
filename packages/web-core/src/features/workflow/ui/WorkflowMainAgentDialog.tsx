@@ -27,7 +27,7 @@ const MAIN_AGENT_CAPABILITIES = [
 interface WorkflowMainAgentDialogProps {
   projectId: string;
   template: WorkflowTemplateResponse;
-  issueId?: string;
+  taskId?: string;
   onPublished?: (
     template: WorkflowTemplateResponse,
     previousRevision: number
@@ -38,7 +38,7 @@ interface WorkflowMainAgentDialogProps {
 export function WorkflowMainAgentDialog({
   projectId,
   template,
-  issueId,
+  taskId,
   onPublished,
   onClose,
 }: WorkflowMainAgentDialogProps) {
@@ -141,7 +141,7 @@ export function WorkflowMainAgentDialog({
           <WorkflowMainSessionButton
             projectId={projectId}
             workflowId={template.id}
-            issueId={issueId}
+            taskId={taskId}
             disabled={!agentConfig || isUpdating}
             beforePrepare={handleSave}
           />

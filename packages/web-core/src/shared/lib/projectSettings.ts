@@ -5,15 +5,22 @@ import {
 } from 'shared/remote-types';
 import { createShapeCollection } from '@/shared/lib/electric/collections';
 import { makeRequest } from '@/shared/lib/remoteApi';
+import { getCurrentHostId } from '@/shared/providers/HostIdProvider';
 
-export const projectSettingsQueryKey = (projectId: string) =>
-  ['project-settings', projectId] as const;
+export const projectSettingsQueryKey = (
+  projectId: string,
+  hostId: string | null = null
+) => ['project-settings', projectId, hostId] as const;
 
 export async function fetchProjectSettingsRecord(
-  projectId: string
+  projectId: string,
+  hostId = getCurrentHostId()
 ): Promise<Project | null> {
   const response = await makeRequest(
-    `/v1/projects/${encodeURIComponent(projectId)}`
+    `/v1/projects/${encodeURIComponent(projectId)}`,
+    {},
+    true,
+    hostId
   );
   if (response.status === 404) return null;
   if (!response.ok) throw new Error('Could not load project settings');
@@ -23,14 +30,15 @@ export async function fetchProjectSettingsRecord(
 /** Resolve ownership from the project itself, never from the selected org. */
 export async function deleteProjectById(
   projectId: string,
-  canDelete: () => boolean
+  canDelete: () => boolean,
+  hostId = getCurrentHostId()
 ): Promise<void> {
-  const project = await fetchProjectSettingsRecord(projectId);
+  const project = await fetchProjectSettingsRecord(projectId, hostId);
   if (!project) throw new Error('Project not found');
   const collection = createShapeCollection(
     PROJECTS_SHAPE,
     { organization_id: project.organization_id },
-    undefined,
+    { hostId },
     PROJECT_MUTATION
   );
   await collection.preload();

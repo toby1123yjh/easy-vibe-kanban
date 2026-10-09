@@ -13,6 +13,8 @@ export interface SyncError {
  * Configuration options for creating Electric collections.
  */
 export interface CollectionConfig {
+  /** Capture the owning local catalog machine for every read and mutation. */
+  hostId?: string | null;
   /** Callback for sync errors */
   onError?: (error: SyncError) => void;
 }

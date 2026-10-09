@@ -28,7 +28,7 @@ export interface CompletedAttachment {
 
 interface UseAzureAttachmentsOptions {
   projectId: string;
-  issueId?: string;
+  taskId?: string;
   commentId?: string;
   onMarkdownInsert?: (
     markdown: string,
@@ -100,7 +100,7 @@ function inferFormat(file: File): string {
 
 export function useAzureAttachments({
   projectId,
-  issueId,
+  taskId,
   commentId,
   onMarkdownInsert,
   onAttachmentSourceReplace,
@@ -123,8 +123,8 @@ export function useAzureAttachments({
   const pendingCountRef = useRef(0);
 
   // Avoid stale closures — these may change during async upload
-  const issueIdRef = useRef(issueId);
-  issueIdRef.current = issueId;
+  const taskIdRef = useRef(taskId);
+  taskIdRef.current = taskId;
   const commentIdRef = useRef(commentId);
   commentIdRef.current = commentId;
   const onErrorRef = useRef(onError);
@@ -296,7 +296,7 @@ export function useAzureAttachments({
             content_type: file.type,
             size_bytes: file.size,
             hash,
-            issue_id: issueIdRef.current,
+            task_id: taskIdRef.current,
             comment_id: commentIdRef.current,
           });
 

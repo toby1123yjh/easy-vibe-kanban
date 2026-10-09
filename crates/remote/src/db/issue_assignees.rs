@@ -1,4 +1,4 @@
-use api_types::{DeleteResponse, IssueAssignee, MutationResponse};
+use api_types::{DeleteResponse, MutationResponse, TaskAssignee};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -18,9 +18,9 @@ impl IssueAssigneeRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<IssueAssignee>, IssueAssigneeError> {
+    ) -> Result<Option<TaskAssignee>, IssueAssigneeError> {
         let record = sqlx::query_as!(
-            IssueAssignee,
+            TaskAssignee,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -41,9 +41,9 @@ impl IssueAssigneeRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueAssignee>, IssueAssigneeError> {
+    ) -> Result<Vec<TaskAssignee>, IssueAssigneeError> {
         let records = sqlx::query_as!(
-            IssueAssignee,
+            TaskAssignee,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -64,9 +64,9 @@ impl IssueAssigneeRepository {
     pub async fn list_by_project(
         pool: &PgPool,
         project_id: Uuid,
-    ) -> Result<Vec<IssueAssignee>, IssueAssigneeError> {
+    ) -> Result<Vec<TaskAssignee>, IssueAssigneeError> {
         let records = sqlx::query_as!(
-            IssueAssignee,
+            TaskAssignee,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -88,11 +88,11 @@ impl IssueAssigneeRepository {
         id: Option<Uuid>,
         issue_id: Uuid,
         user_id: Uuid,
-    ) -> Result<MutationResponse<IssueAssignee>, IssueAssigneeError> {
+    ) -> Result<MutationResponse<TaskAssignee>, IssueAssigneeError> {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueAssignee,
+            TaskAssignee,
             r#"
             INSERT INTO issue_assignees (id, issue_id, user_id)
             VALUES ($1, $2, $3)

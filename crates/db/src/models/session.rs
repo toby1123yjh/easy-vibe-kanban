@@ -6,7 +6,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use super::{
-    task::{CreateTask, Task, TaskError, TaskExecutionKind},
+    task::{CreateExecution, Execution, ExecutionError, ExecutionKind},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -16,7 +16,7 @@ pub enum SessionError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
-    Task(#[from] TaskError),
+    Execution(#[from] ExecutionError),
     #[error("Session not found")]
     NotFound,
     #[error("Workspace not found")]
@@ -24,7 +24,7 @@ pub enum SessionError {
     #[error("Executor mismatch: session uses {expected} but request specified {actual}")]
     ExecutorMismatch { expected: String, actual: String },
     #[error(
-        "Session is bound to Agent Task {task_id}; delete the task before deleting this session"
+        "Session is bound to Agent Execution {task_id}; delete the task before deleting this session"
     )]
     AgentTaskBound { task_id: Uuid },
     #[error("Session has an active agent run; stop it before deleting this session")]
@@ -73,8 +73,12 @@ pub struct Session {
 pub struct SessionListItem {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub title: String,
     pub executor: Option<String>,
@@ -262,10 +266,10 @@ impl Session {
         data: &CreateSession,
         id: Uuid,
         workspace_id: Uuid,
-        task: &CreateTask,
-    ) -> Result<(Self, Task), SessionError> {
-        if task.execution_kind != TaskExecutionKind::Agent {
-            return Err(TaskError::InvalidBinding {
+        task: &CreateExecution,
+    ) -> Result<(Self, Execution), SessionError> {
+        if task.execution_kind != ExecutionKind::Agent {
+            return Err(ExecutionError::InvalidBinding {
                 task_id: task.id,
                 detail: "Session binding requires execution_kind=agent".to_string(),
             }
@@ -290,8 +294,8 @@ impl Session {
         .bind(agent_working_dir)
         .fetch_one(&mut *transaction)
         .await?;
-        let task = Task::create(&mut transaction, task).await?;
-        Task::bind_agent_session(&mut transaction, task.id, session.id).await?;
+        let task = Execution::create(&mut transaction, task).await?;
+        Execution::bind_agent_session(&mut transaction, task.id, session.id).await?;
         transaction.commit().await?;
         Ok((session, task))
     }
@@ -374,8 +378,8 @@ impl Session {
         Ok(deleted)
     }
 
-    /// Shared guarded deletion for standalone Sessions and exact Agent Task
-    /// deletion. The caller must hold a write transaction and remove the Task
+    /// Shared guarded deletion for standalone Sessions and exact Agent Execution
+    /// deletion. The caller must hold a write transaction and remove the Execution
     /// in that same transaction before calling this method.
     pub async fn delete_in_transaction(
         connection: &mut SqliteConnection,
@@ -561,7 +565,7 @@ impl Session {
     }
 
     /// List all recent sessions, including sessions that have not been linked
-    /// to a canonical Agent Task yet. Task metadata is optional for these
+    /// to a canonical Agent Execution yet. Execution metadata is optional for these
     /// ordinary workspace sessions.
     pub async fn list_recent_all(
         pool: &SqlitePool,

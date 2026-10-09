@@ -1,5 +1,5 @@
 import type { WorkflowAttemptResponse } from 'shared/types';
-import type { WorkspaceWithStats } from '@vibe/ui/components/IssueWorkspaceCard';
+import type { WorkspaceWithStats } from '@vibe/ui/components/TaskWorkspaceCard';
 
 export type TaskAttemptKind = 'single_agent' | 'workflow';
 export type TaskAttemptStatusTone =

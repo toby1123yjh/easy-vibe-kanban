@@ -81,7 +81,7 @@ const DeleteRemoteProjectDialogImpl = create<DeleteRemoteProjectDialogProps>(
             <DialogDescription>
               {t(
                 'deleteProjectDialog.description',
-                'This will permanently delete "{{name}}" and all its issues. This action cannot be undone.',
+                'This will permanently delete "{{name}}" and all its tasks. This action cannot be undone.',
                 { name: projectName }
               )}
             </DialogDescription>

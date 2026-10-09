@@ -7,7 +7,7 @@ import type {
 import { repoApi } from '@/shared/lib/api';
 import type {
   CreateModeInitialState,
-  LinkedIssue,
+  LinkedTask,
 } from '@/shared/types/createMode';
 
 export interface BootstrapSelectedRepo {
@@ -17,7 +17,7 @@ export interface BootstrapSelectedRepo {
 
 export interface CreateModeBootstrapData {
   message?: string;
-  linkedIssue?: LinkedIssue | null;
+  linkedTask?: LinkedTask | null;
   repos?: BootstrapSelectedRepo[];
   directFolderPath?: string;
   executorConfig?: ExecutorConfig | null;
@@ -88,7 +88,7 @@ export async function resolveCreateModeBootstrap({
   isValidProfile,
 }: ResolveCreateModeBootstrapParams): Promise<ResolveCreateModeBootstrapResult> {
   const hasInitialPrompt = !!seedState?.initialPrompt;
-  const hasLinkedIssue = !!seedState?.linkedIssue;
+  const hasLinkedTask = !!seedState?.linkedTask;
   const preferredDirectoryPath = seedState?.preferredDirectoryPath?.trim();
   const hasPreferredDirectory = Boolean(preferredDirectoryPath);
   const hasPreferredRepos = (seedState?.preferredRepos?.length ?? 0) > 0;
@@ -96,7 +96,7 @@ export async function resolveCreateModeBootstrap({
 
   if (
     hasInitialPrompt ||
-    hasLinkedIssue ||
+    hasLinkedTask ||
     hasPreferredDirectory ||
     hasPreferredRepos ||
     hasExecutorConfig
@@ -109,8 +109,8 @@ export async function resolveCreateModeBootstrap({
       appliedSeedState = true;
     }
 
-    if (hasLinkedIssue) {
-      data.linkedIssue = seedState!.linkedIssue!;
+    if (hasLinkedTask) {
+      data.linkedTask = seedState!.linkedTask!;
       appliedSeedState = true;
     }
 
@@ -158,12 +158,12 @@ export async function resolveCreateModeBootstrap({
       data.executorConfig = scratchData.executor_config;
     }
 
-    if (scratchData.linked_issue) {
-      data.linkedIssue = {
-        issueId: scratchData.linked_issue.issue_id,
-        simpleId: scratchData.linked_issue.simple_id || undefined,
-        title: scratchData.linked_issue.title || undefined,
-        remoteProjectId: scratchData.linked_issue.remote_project_id,
+    if (scratchData.linked_task) {
+      data.linkedTask = {
+        taskId: scratchData.linked_task.task_id,
+        simpleId: scratchData.linked_task.simple_id || undefined,
+        title: scratchData.linked_task.title || undefined,
+        remoteProjectId: scratchData.linked_task.remote_project_id,
       };
     }
 

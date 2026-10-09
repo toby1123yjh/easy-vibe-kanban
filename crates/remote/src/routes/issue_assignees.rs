@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueAssigneeRequest, DeleteResponse, IssueAssignee, ListIssueAssigneesQuery,
-    ListIssueAssigneesResponse, MutationResponse, NotificationPayload, NotificationType,
+    CreateTaskAssigneeRequest, DeleteResponse, ListTaskAssigneesQuery, ListTaskAssigneesResponse,
+    MutationResponse, NotificationPayload, NotificationType, TaskAssignee,
 };
 use axum::{
     Json,
@@ -22,9 +22,9 @@ use crate::{
     notifications::notify_user,
 };
 
-/// Mutation definition for IssueAssignee - provides both router and TypeScript metadata.
-pub fn mutation() -> MutationBuilder<IssueAssignee, CreateIssueAssigneeRequest, NoUpdate> {
-    MutationBuilder::new("issue_assignees")
+/// Mutation definition for TaskAssignee - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<TaskAssignee, CreateTaskAssigneeRequest, NoUpdate> {
+    MutationBuilder::new()
         .list(list_issue_assignees)
         .get(get_issue_assignee)
         .create(create_issue_assignee)
@@ -43,8 +43,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_issue_assignees(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueAssigneesQuery>,
-) -> Result<Json<ListIssueAssigneesResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskAssigneesQuery>,
+) -> Result<Json<ListTaskAssigneesResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_assignees = IssueAssigneeRepository::list_by_issue(state.pool(), query.issue_id)
@@ -57,7 +57,7 @@ async fn list_issue_assignees(
             )
         })?;
 
-    Ok(Json(ListIssueAssigneesResponse { issue_assignees }))
+    Ok(Json(ListTaskAssigneesResponse { issue_assignees }))
 }
 
 #[instrument(
@@ -69,7 +69,7 @@ async fn get_issue_assignee(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_assignee_id): Path<Uuid>,
-) -> Result<Json<IssueAssignee>, ErrorResponse> {
+) -> Result<Json<TaskAssignee>, ErrorResponse> {
     let assignee = IssueAssigneeRepository::find_by_id(state.pool(), issue_assignee_id)
         .await
         .map_err(|error| {
@@ -94,8 +94,8 @@ async fn get_issue_assignee(
 async fn create_issue_assignee(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueAssigneeRequest>,
-) -> Result<Json<MutationResponse<IssueAssignee>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskAssigneeRequest>,
+) -> Result<Json<MutationResponse<TaskAssignee>>, ErrorResponse> {
     let organization_id = ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let response = IssueAssigneeRepository::create(
@@ -119,7 +119,7 @@ async fn create_issue_assignee(
             ctx.user.id,
             payload.user_id,
             &issue,
-            NotificationType::IssueAssigneeChanged,
+            NotificationType::TaskAssigneeChanged,
             NotificationPayload {
                 assignee_user_id: Some(payload.user_id),
                 ..Default::default()
@@ -170,7 +170,7 @@ async fn delete_issue_assignee(
             ctx.user.id,
             assignee.user_id,
             &issue,
-            NotificationType::IssueUnassigned,
+            NotificationType::TaskUnassigned,
             NotificationPayload {
                 assignee_user_id: Some(assignee.user_id),
                 ..Default::default()

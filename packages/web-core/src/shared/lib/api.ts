@@ -83,14 +83,14 @@ import {
   AbortConflictsRequest,
   ContinueRebaseRequest,
   Session,
-  TaskSummary,
+  ExecutionSummary,
   Workspace,
   StartReviewRequest,
   ReviewError,
   GitRemote,
   ListPrsError,
   PullRequestDetail,
-  LinkPrToIssueRequest,
+  LinkPrToTaskRequest,
   AttachExistingPrRequest,
   AttachPrResponse,
   CreateWorkspaceFromPrBody,
@@ -362,15 +362,15 @@ export const sessionsApi = {
       )
     );
   },
-  getTask: async (
+  getExecution: async (
     sessionId: string,
     hostId: string | null
-  ): Promise<TaskSummary | null> => {
+  ): Promise<ExecutionSummary | null> => {
     const response = await makeHostAwareRequest(
-      `/api/sessions/${encodeURIComponent(sessionId)}/task`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/execution`,
       hostId
     );
-    return handleApiResponse<TaskSummary | null>(response);
+    return handleApiResponse<ExecutionSummary | null>(response);
   },
 
   getExecutorConfig: async (
@@ -528,11 +528,6 @@ export const workspacesApi = {
     return handleApiResponse<CreateAndStartWorkspaceResponse>(response);
   },
 
-  getAll: async (taskId: string): Promise<Workspace[]> => {
-    const response = await makeRequest(`/api/workspaces?task_id=${taskId}`);
-    return handleApiResponse<Workspace[]>(response);
-  },
-
   /** Get all workspaces across all tasks (newest first) */
   getAllWorkspaces: async (): Promise<Workspace[]> => {
     const response = await makeRequest('/api/workspaces');
@@ -592,19 +587,19 @@ export const workspacesApi = {
     return handleApiResponse<void>(response);
   },
 
-  linkToIssue: async (
+  linkToTask: async (
     workspaceId: string,
     projectId: string,
-    issueId: string
+    taskId: string
   ): Promise<void> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}/links`, {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, issue_id: issueId }),
+      body: JSON.stringify({ project_id: projectId, task_id: taskId }),
     });
     return handleApiResponse<void>(response);
   },
 
-  unlinkFromIssue: async (workspaceId: string): Promise<void> => {
+  unlinkFromTask: async (workspaceId: string): Promise<void> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}/links`, {
       method: 'DELETE',
     });
@@ -1168,7 +1163,7 @@ export const repoApi = {
 };
 
 // Issue PR linking APIs
-export const issuePrsApi = {
+export const taskPrsApi = {
   getPrInfo: async (
     url: string
   ): Promise<Result<PullRequestDetail, ListPrsError>> => {
@@ -1178,7 +1173,7 @@ export const issuePrsApi = {
     return handleApiResponseAsResult<PullRequestDetail, ListPrsError>(response);
   },
 
-  linkToIssue: async (data: LinkPrToIssueRequest): Promise<void> => {
+  linkToTask: async (data: LinkPrToTaskRequest): Promise<void> => {
     const response = await makeRequest('/api/remote/pull-requests/link', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1346,34 +1341,6 @@ export const attachmentsApi = {
     return handleApiResponse<AttachmentResponse>(response);
   },
 
-  uploadForTask: async (
-    taskId: string,
-    attachment: File
-  ): Promise<AttachmentResponse> => {
-    const formData = new FormData();
-    formData.append('image', attachment);
-
-    const response = await makeLocalApiRequest(
-      `/api/attachments/task/${taskId}/upload`,
-      {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(
-        `Failed to upload attachment: ${errorText}`,
-        response.status,
-        response
-      );
-    }
-
-    return handleApiResponse<AttachmentResponse>(response);
-  },
-
   uploadForAttempt: async (
     workspaceId: string,
     sessionId: string,
@@ -1408,11 +1375,6 @@ export const attachmentsApi = {
       method: 'DELETE',
     });
     return handleApiResponse<void>(response);
-  },
-
-  getTaskAttachments: async (taskId: string): Promise<AttachmentResponse[]> => {
-    const response = await makeRequest(`/api/attachments/task/${taskId}`);
-    return handleApiResponse<AttachmentResponse[]>(response);
   },
 
   getAttachmentUrl: (attachmentId: string): string => {
@@ -1558,8 +1520,15 @@ export const organizationsApi = {
     return result.members;
   },
 
-  getUserOrganizations: async (): Promise<ListOrganizationsResponse> => {
-    const response = await makeRemoteRequest('/v1/organizations');
+  getUserOrganizations: async (
+    hostId?: string | null
+  ): Promise<ListOrganizationsResponse> => {
+    const response = await makeRemoteRequest(
+      '/v1/organizations',
+      {},
+      true,
+      hostId
+    );
     return handleRemoteResponse<ListOrganizationsResponse>(response);
   },
 

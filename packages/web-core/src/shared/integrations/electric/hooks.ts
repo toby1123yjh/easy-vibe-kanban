@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
 import { createShapeCollection } from '@/shared/lib/electric/collections';
 import { useSyncErrorContext } from '@/shared/hooks/useSyncErrorContext';
+import { useHostId } from '@/shared/providers/HostIdProvider';
+import { isLocalRemoteApiEnabled } from '@/shared/lib/remoteApi';
 import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import type { SyncError } from '@/shared/lib/electric/types';
 import type { MutationResult, InsertResult } from '@/shared/lib/electric/types';
@@ -51,6 +53,8 @@ export interface UseShapeOptions<
     | MutationDefinition<unknown, unknown, unknown>
     | undefined = undefined,
 > {
+  /** Explicit catalog scope for machine-scoped settings and creation dialogs. */
+  hostId?: string | null;
   /**
    * Whether to enable the Electric sync subscription.
    * When false, returns empty data and no-op mutation functions.
@@ -96,6 +100,12 @@ export function useShape<
   ? UseShapeMutationResult<T, MutationCreateType<M>, MutationUpdateType<M>>
   : UseShapeResult<T> {
   const { enabled = true, mutation } = options;
+  const routeHostId = useHostId();
+  const hostId = isLocalRemoteApiEnabled()
+    ? options.hostId !== undefined
+      ? options.hostId
+      : routeHostId
+    : null;
 
   const [error, setError] = useState<SyncError | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -118,8 +128,8 @@ export function useShape<
   );
 
   const streamId = useMemo(
-    () => `${shape.table}:${paramsKey}`,
-    [shape.table, paramsKey]
+    () => `${hostId ?? 'local'}:${shape.table}:${paramsKey}`,
+    [shape.table, paramsKey, hostId]
   );
 
   useEffect(() => {
@@ -136,10 +146,10 @@ export function useShape<
 
   const collection = useMemo(() => {
     if (!enabled) return null;
-    const config = { onError: handleError };
+    const config = { onError: handleError, hostId };
     void retryKey;
     return createShapeCollection(shape, stableParams, config, mutation);
-  }, [enabled, shape, mutation, handleError, retryKey, stableParams]);
+  }, [enabled, shape, mutation, handleError, retryKey, stableParams, hostId]);
 
   const { data, isLoading: queryLoading } = useLiveQuery(
     (query) => (collection ? query.from({ item: collection }) : undefined),

@@ -1,5 +1,5 @@
 use db::models::requests::{
-    CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, LinkedIssueInfo,
+    CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse, LinkedTaskInfo,
     WorkspaceRepoInput,
 };
 use executors::profile::ExecutorConfig;
@@ -25,7 +25,7 @@ struct StartWorkspaceRequest {
     #[schemars(description = "Name for the workspace")]
     name: String,
     #[schemars(
-        description = "Optional prompt for the first workspace session. If omitted/empty, the linked issue title/description is used."
+        description = "Optional prompt for the first workspace session. If omitted/empty, the linked task title/description is used."
     )]
     prompt: Option<String>,
     #[schemars(
@@ -37,8 +37,9 @@ struct StartWorkspaceRequest {
     #[schemars(description = "Repository selection for the workspace")]
     repositories: Vec<McpWorkspaceRepoInput>,
     #[schemars(
-        description = "Optional issue ID to link the workspace to. When provided, the workspace will be associated with this remote issue."
+        description = "Optional task ID to link the workspace to. When provided, the workspace will be associated with this remote task."
     )]
+    #[serde(rename = "task_id")]
     issue_id: Option<Uuid>,
 }
 
@@ -48,24 +49,26 @@ struct StartWorkspaceResponse {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct LinkWorkspaceIssueRequest {
+struct LinkWorkspaceTaskRequest {
     #[schemars(description = "The workspace ID to link")]
     workspace_id: Uuid,
-    #[schemars(description = "The issue ID to link the workspace to")]
+    #[schemars(description = "The task ID to link the workspace to")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct LinkWorkspaceIssueResponse {
+struct LinkWorkspaceTaskResponse {
     #[schemars(description = "Whether the linking was successful")]
     success: bool,
     #[schemars(description = "The workspace ID that was linked")]
     workspace_id: String,
-    #[schemars(description = "The issue ID it was linked to")]
+    #[schemars(description = "The task ID it was linked to")]
+    #[serde(rename = "task_id")]
     issue_id: String,
 }
 
-fn build_workspace_prompt_from_issue(issue: &api_types::Issue) -> Option<String> {
+fn build_workspace_prompt_from_issue(issue: &api_types::Task) -> Option<String> {
     let title = issue.title.trim();
     let description = issue
         .description
@@ -149,14 +152,14 @@ impl McpServer {
             .collect();
 
         let (linked_issue, issue_prompt) = if let Some(issue_id) = issue_id {
-            let issue_url = self.url(&format!("/api/remote/issues/{issue_id}"));
-            let issue: api_types::Issue = match self.send_json(self.client.get(&issue_url)).await {
+            let issue_url = self.url(&format!("/api/remote/tasks/{issue_id}"));
+            let issue: api_types::Task = match self.send_json(self.client.get(&issue_url)).await {
                 Ok(issue) => issue,
                 Err(e) => return Ok(Self::tool_error(e)),
             };
 
             (
-                Some(LinkedIssueInfo {
+                Some(LinkedTaskInfo {
                     remote_project_id: issue.project_id,
                     issue_id,
                 }),
@@ -170,7 +173,7 @@ impl McpServer {
             Some(prompt) => prompt,
             None => {
                 return Self::err(
-                    "Provide `prompt`, or `issue_id` that has a non-empty title/description.",
+                    "Provide `prompt`, or `task_id` that has a non-empty title/description.",
                     None::<&str>,
                 );
             }
@@ -228,20 +231,20 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Link an existing workspace to a remote issue. This associates the workspace with the issue for tracking."
+        description = "Link an existing workspace to a remote task. This associates the workspace with the task for tracking."
     )]
-    async fn link_workspace_issue(
+    async fn link_workspace_task(
         &self,
-        Parameters(LinkWorkspaceIssueRequest {
+        Parameters(LinkWorkspaceTaskRequest {
             workspace_id,
             issue_id,
-        }): Parameters<LinkWorkspaceIssueRequest>,
+        }): Parameters<LinkWorkspaceTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         if let Err(e) = self.link_workspace_to_issue(workspace_id, issue_id).await {
             return Ok(Self::tool_error(e));
         }
 
-        McpServer::success(&LinkWorkspaceIssueResponse {
+        McpServer::success(&LinkWorkspaceTaskResponse {
             success: true,
             workspace_id: workspace_id.to_string(),
             issue_id: issue_id.to_string(),

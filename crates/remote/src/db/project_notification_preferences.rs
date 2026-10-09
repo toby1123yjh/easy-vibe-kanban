@@ -7,7 +7,9 @@ use uuid::Uuid;
 pub struct ProjectNotificationPreference {
     pub project_id: Uuid,
     pub user_id: Uuid,
+    #[serde(rename = "notify_on_task_created")]
     pub notify_on_issue_created: bool,
+    #[serde(rename = "notify_on_task_assigned")]
     pub notify_on_issue_assigned: bool,
 }
 

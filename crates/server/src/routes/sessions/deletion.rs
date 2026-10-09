@@ -1,7 +1,7 @@
 use chrono::Utc;
 use db::models::{
     session::{Session, SessionError},
-    task::Task,
+    task::Execution,
 };
 use deployment::Deployment;
 use executors::runtime::{
@@ -50,7 +50,7 @@ pub(crate) async fn prepare_deletion(
         return Err(SessionError::NotFound.into());
     }
     if let Some(task_id) = task_id {
-        Task::validate_agent_deletion(&mut transaction, task_id, session_id).await?;
+        Execution::validate_agent_deletion(&mut transaction, task_id, session_id).await?;
     } else if let Some(task_id) = sqlx::query_scalar::<_, Uuid>(
         "SELECT task_id FROM agent_task_bindings WHERE session_id = ?",
     )

@@ -1,7 +1,6 @@
 use api_types::{
-    CreateIssueRequest, DeleteResponse, Issue, ListIssuesQuery, ListIssuesResponse,
-    MutationResponse, NotificationPayload, NotificationType, SearchIssuesRequest,
-    UpdateIssueRequest,
+    CreateTaskRequest, DeleteResponse, ListTasksQuery, ListTasksResponse, MutationResponse,
+    NotificationPayload, NotificationType, SearchTasksRequest, Task, UpdateTaskRequest,
 };
 use axum::{
     Json,
@@ -30,9 +29,9 @@ use crate::{
     },
 };
 
-/// Mutation definition for Issue - provides both router and TypeScript metadata.
-pub fn mutation() -> MutationBuilder<Issue, CreateIssueRequest, UpdateIssueRequest> {
-    MutationBuilder::new("issues")
+/// Mutation definition for Task - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<Task, CreateTaskRequest, UpdateTaskRequest> {
+    MutationBuilder::new()
         .list(list_issues)
         .get(get_issue)
         .create(create_issue)
@@ -44,16 +43,16 @@ pub fn mutation() -> MutationBuilder<Issue, CreateIssueRequest, UpdateIssueReque
 pub fn router() -> axum::Router<AppState> {
     mutation()
         .router()
-        .route("/issues/search", post(search_issues))
-        .route("/issues/bulk", post(bulk_update_issues))
+        .route("/tasks/search", post(search_issues))
+        .route("/tasks/bulk", post(bulk_update_issues))
 }
 
 async fn notify_issue_update_changes(
     state: &AppState,
     organization_id: Uuid,
     actor_user_id: Uuid,
-    old_issue: &Issue,
-    new_issue: &Issue,
+    old_issue: &Task,
+    new_issue: &Task,
 ) {
     let status_changed = old_issue.status_id != new_issue.status_id;
     let title_changed = old_issue.title != new_issue.title;
@@ -105,7 +104,7 @@ async fn notify_issue_update_changes(
             actor_user_id,
             &recipients,
             new_issue,
-            NotificationType::IssueStatusChanged,
+            NotificationType::TaskStatusChanged,
             NotificationPayload {
                 old_status_id: Some(old_issue.status_id),
                 new_status_id: Some(new_issue.status_id),
@@ -126,7 +125,7 @@ async fn notify_issue_update_changes(
             actor_user_id,
             &recipients,
             new_issue,
-            NotificationType::IssueTitleChanged,
+            NotificationType::TaskTitleChanged,
             NotificationPayload {
                 new_title: Some(new_issue.title.clone()),
                 ..Default::default()
@@ -144,7 +143,7 @@ async fn notify_issue_update_changes(
             actor_user_id,
             &recipients,
             new_issue,
-            NotificationType::IssueDescriptionChanged,
+            NotificationType::TaskDescriptionChanged,
             NotificationPayload::default(),
             None,
             Some(new_issue.id),
@@ -159,7 +158,7 @@ async fn notify_issue_update_changes(
             actor_user_id,
             &recipients,
             new_issue,
-            NotificationType::IssuePriorityChanged,
+            NotificationType::TaskPriorityChanged,
             NotificationPayload {
                 old_priority: old_issue.priority,
                 new_priority: new_issue.priority,
@@ -180,11 +179,11 @@ async fn notify_issue_update_changes(
 async fn list_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssuesQuery>,
-) -> Result<Json<ListIssuesResponse>, ErrorResponse> {
+    Query(query): Query<ListTasksQuery>,
+) -> Result<Json<ListTasksResponse>, ErrorResponse> {
     let project_id = query.project_id;
     ensure_project_access(state.pool(), ctx.user.id, project_id).await?;
-    let request = SearchIssuesRequest {
+    let request = SearchTasksRequest {
         project_id,
         status_id: None,
         status_ids: None,
@@ -219,8 +218,8 @@ async fn list_issues(
 async fn search_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<SearchIssuesRequest>,
-) -> Result<Json<ListIssuesResponse>, ErrorResponse> {
+    Json(payload): Json<SearchTasksRequest>,
+) -> Result<Json<ListTasksResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, payload.project_id).await?;
 
     let response = IssueRepository::search(state.pool(), &payload)
@@ -242,7 +241,7 @@ async fn get_issue(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_id): Path<Uuid>,
-) -> Result<Json<Issue>, ErrorResponse> {
+) -> Result<Json<Task>, ErrorResponse> {
     let issue = IssueRepository::find_by_id(state.pool(), issue_id)
         .await
         .map_err(|error| {
@@ -264,8 +263,8 @@ async fn get_issue(
 async fn create_issue(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueRequest>,
-) -> Result<Json<MutationResponse<Issue>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskRequest>,
+) -> Result<Json<MutationResponse<Task>>, ErrorResponse> {
     let organization_id =
         ensure_project_access(state.pool(), ctx.user.id, payload.project_id).await?;
 
@@ -344,8 +343,8 @@ async fn update_issue(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_id): Path<Uuid>,
-    Json(payload): Json<UpdateIssueRequest>,
-) -> Result<Json<MutationResponse<Issue>>, ErrorResponse> {
+    Json(payload): Json<UpdateTaskRequest>,
+) -> Result<Json<MutationResponse<Task>>, ErrorResponse> {
     let issue = IssueRepository::find_by_id(state.pool(), issue_id)
         .await
         .map_err(|error| {
@@ -451,7 +450,7 @@ async fn delete_issue(
         ctx.user.id,
         &recipients,
         &issue,
-        NotificationType::IssueDeleted,
+        NotificationType::TaskDeleted,
         NotificationPayload::default(),
         None,
         None,
@@ -466,20 +465,20 @@ async fn delete_issue(
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
-pub struct BulkUpdateIssueItem {
+pub struct BulkUpdateTaskItem {
     pub id: Uuid,
     #[serde(flatten)]
-    pub changes: UpdateIssueRequest,
+    pub changes: UpdateTaskRequest,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct BulkUpdateIssuesRequest {
-    pub updates: Vec<BulkUpdateIssueItem>,
+pub struct BulkUpdateTasksRequest {
+    pub updates: Vec<BulkUpdateTaskItem>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct BulkUpdateIssuesResponse {
-    pub data: Vec<Issue>,
+pub struct BulkUpdateTasksResponse {
+    pub data: Vec<Task>,
     pub txid: i64,
 }
 
@@ -491,10 +490,10 @@ pub struct BulkUpdateIssuesResponse {
 async fn bulk_update_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<BulkUpdateIssuesRequest>,
-) -> Result<Json<BulkUpdateIssuesResponse>, ErrorResponse> {
+    Json(payload): Json<BulkUpdateTasksRequest>,
+) -> Result<Json<BulkUpdateTasksResponse>, ErrorResponse> {
     if payload.updates.is_empty() {
-        return Ok(Json(BulkUpdateIssuesResponse {
+        return Ok(Json(BulkUpdateTasksResponse {
             data: vec![],
             txid: 0,
         }));
@@ -577,7 +576,7 @@ async fn bulk_update_issues(
             .await;
     }
 
-    Ok(Json(BulkUpdateIssuesResponse {
+    Ok(Json(BulkUpdateTasksResponse {
         data: results,
         txid,
     }))

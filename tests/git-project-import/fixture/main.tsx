@@ -73,7 +73,7 @@ function Fixture() {
       {new URLSearchParams(location.search).has("result") && (
         <WorkflowRunResult run={{
           id: "run-1", orchestration_run_id: null, workflow_id: "template-1",
-          attempt_id: null, issue_id: "issue-1", workspace_id: null,
+          attempt_id: null, task_id: "issue-1", workspace_id: null,
           trigger_source: "external", input_text: "Prepare a report",
           output_text: "Report ready", status: "succeeded", started_at: null,
           finished_at: null, error_text: null, created_at: "2026-09-29T00:00:00Z",

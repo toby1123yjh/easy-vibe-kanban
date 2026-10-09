@@ -4,6 +4,7 @@ import {
   type AppDestination,
   type AppNavigation,
   type NavigationTransition,
+  isProjectDestination,
 } from '@/shared/lib/routes/appNavigation';
 
 type LocalRouteId = FileRouteTypes['id'];
@@ -25,7 +26,9 @@ function parseLocalHostIdFromPathname(pathname: string): string | null {
   return segments[hostsIndex + 1] ?? null;
 }
 
-function resolveLocalDestinationFromPath(path: string): AppDestination | null {
+function resolveLocalDestinationFromPathUnscoped(
+  path: string
+): AppDestination | null {
   const { pathname } = new URL(path, 'http://localhost');
   const { foundRoute, routeParams } = router.getMatchedRoutes(pathname);
 
@@ -44,6 +47,10 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
       return { kind: 'workspaces' };
     case '/_app/export':
       return { kind: 'export' };
+    case '/_app/projects/':
+      return { kind: 'project-directory' };
+    case '/_app/workflows':
+      return { kind: 'workflow-directory' };
     case '/_app/hosts/$hostId/workspaces': {
       const hostId = getPathParam(routeParams, 'hostId');
       return hostId ? { kind: 'workspaces', hostId } : null;
@@ -98,77 +105,77 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
         ? { kind: 'project-workflow-run', projectId, runId }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId': {
+    case '/_app/projects/$projectId_/tasks/$taskId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
-      return projectId && issueId
-        ? { kind: 'project-issue', projectId, issueId }
+      const taskId = getPathParam(routeParams, 'taskId');
+      return projectId && taskId
+        ? { kind: 'project-task', projectId, taskId }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId_/arena/$groupId': {
+    case '/_app/projects/$projectId_/tasks/$taskId_/arena/$groupId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
+      const taskId = getPathParam(routeParams, 'taskId');
       const arenaGroupId = getPathParam(routeParams, 'groupId');
-      return projectId && issueId && arenaGroupId
+      return projectId && taskId && arenaGroupId
         ? {
-            kind: 'project-issue-arena',
+            kind: 'project-task-arena',
             projectId,
-            issueId,
+            taskId,
             arenaGroupId,
           }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId_/workspaces/$workspaceId': {
+    case '/_app/projects/$projectId_/tasks/$taskId_/workspaces/$workspaceId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
+      const taskId = getPathParam(routeParams, 'taskId');
       const workspaceId = getPathParam(routeParams, 'workspaceId');
-      return projectId && issueId && workspaceId
+      return projectId && taskId && workspaceId
         ? {
-            kind: 'project-issue-workspace',
+            kind: 'project-task-workspace',
             projectId,
-            issueId,
+            taskId,
             workspaceId,
           }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId_/hosts/$hostId/workspaces/$workspaceId': {
+    case '/_app/projects/$projectId_/tasks/$taskId_/hosts/$hostId/workspaces/$workspaceId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
+      const taskId = getPathParam(routeParams, 'taskId');
       const hostId = getPathParam(routeParams, 'hostId');
       const workspaceId = getPathParam(routeParams, 'workspaceId');
-      return projectId && issueId && hostId && workspaceId
+      return projectId && taskId && hostId && workspaceId
         ? {
-            kind: 'project-issue-workspace',
+            kind: 'project-task-workspace',
             projectId,
-            issueId,
+            taskId,
             hostId,
             workspaceId,
           }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId_/workspaces/create/$draftId': {
+    case '/_app/projects/$projectId_/tasks/$taskId_/workspaces/create/$draftId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
+      const taskId = getPathParam(routeParams, 'taskId');
       const draftId = getPathParam(routeParams, 'draftId');
-      return projectId && issueId && draftId
+      return projectId && taskId && draftId
         ? {
-            kind: 'project-issue-workspace-create',
+            kind: 'project-task-workspace-create',
             projectId,
-            issueId,
+            taskId,
             draftId,
           }
         : null;
     }
-    case '/_app/projects/$projectId_/issues/$issueId_/hosts/$hostId/workspaces/create/$draftId': {
+    case '/_app/projects/$projectId_/tasks/$taskId_/hosts/$hostId/workspaces/create/$draftId': {
       const projectId = getPathParam(routeParams, 'projectId');
-      const issueId = getPathParam(routeParams, 'issueId');
+      const taskId = getPathParam(routeParams, 'taskId');
       const hostId = getPathParam(routeParams, 'hostId');
       const draftId = getPathParam(routeParams, 'draftId');
-      return projectId && issueId && hostId && draftId
+      return projectId && taskId && hostId && draftId
         ? {
-            kind: 'project-issue-workspace-create',
+            kind: 'project-task-workspace-create',
             projectId,
-            issueId,
+            taskId,
             hostId,
             draftId,
           }
@@ -201,6 +208,20 @@ function resolveLocalDestinationFromPath(path: string): AppDestination | null {
     default:
       return null;
   }
+}
+
+function resolveLocalDestinationFromPath(path: string): AppDestination | null {
+  const destination = resolveLocalDestinationFromPathUnscoped(path);
+  const hostId = new URL(path, 'http://localhost').searchParams.get('host_id');
+  if (
+    hostId &&
+    (isProjectDestination(destination) ||
+      destination?.kind === 'project-directory' ||
+      destination?.kind === 'workflow-directory')
+  ) {
+    return { ...destination, hostId: destination.hostId ?? hostId };
+  }
+  return destination;
 }
 
 function destinationToLocalTarget(
@@ -264,6 +285,10 @@ function destinationToLocalTarget(
       } as const;
     case 'export':
       return { to: '/export' } as const;
+    case 'project-directory':
+      return { to: '/projects' } as const;
+    case 'workflow-directory':
+      return { to: '/workflows' } as const;
     case 'project':
       return {
         to: '/projects/$projectId',
@@ -290,60 +315,60 @@ function destinationToLocalTarget(
           runId: destination.runId,
         },
       } as const;
-    case 'project-issue':
+    case 'project-task':
       return {
-        to: '/projects/$projectId/issues/$issueId',
+        to: '/projects/$projectId/tasks/$taskId',
         params: {
           projectId: destination.projectId,
-          issueId: destination.issueId,
+          taskId: destination.taskId,
         },
       } as const;
-    case 'project-issue-arena':
+    case 'project-task-arena':
       return {
-        to: '/projects/$projectId/issues/$issueId/arena/$groupId',
+        to: '/projects/$projectId/tasks/$taskId/arena/$groupId',
         params: {
           projectId: destination.projectId,
-          issueId: destination.issueId,
+          taskId: destination.taskId,
           groupId: destination.arenaGroupId,
         },
       } as const;
-    case 'project-issue-workspace':
+    case 'project-task-workspace':
       if (effectiveHostId) {
         return {
-          to: '/projects/$projectId/issues/$issueId/hosts/$hostId/workspaces/$workspaceId',
+          to: '/projects/$projectId/tasks/$taskId/hosts/$hostId/workspaces/$workspaceId',
           params: {
             projectId: destination.projectId,
-            issueId: destination.issueId,
+            taskId: destination.taskId,
             hostId: effectiveHostId,
             workspaceId: destination.workspaceId,
           },
         } as const;
       }
       return {
-        to: '/projects/$projectId/issues/$issueId/workspaces/$workspaceId',
+        to: '/projects/$projectId/tasks/$taskId/workspaces/$workspaceId',
         params: {
           projectId: destination.projectId,
-          issueId: destination.issueId,
+          taskId: destination.taskId,
           workspaceId: destination.workspaceId,
         },
       } as const;
-    case 'project-issue-workspace-create':
+    case 'project-task-workspace-create':
       if (effectiveHostId) {
         return {
-          to: '/projects/$projectId/issues/$issueId/hosts/$hostId/workspaces/create/$draftId',
+          to: '/projects/$projectId/tasks/$taskId/hosts/$hostId/workspaces/create/$draftId',
           params: {
             projectId: destination.projectId,
-            issueId: destination.issueId,
+            taskId: destination.taskId,
             hostId: effectiveHostId,
             draftId: destination.draftId,
           },
         } as const;
       }
       return {
-        to: '/projects/$projectId/issues/$issueId/workspaces/create/$draftId',
+        to: '/projects/$projectId/tasks/$taskId/workspaces/create/$draftId',
         params: {
           projectId: destination.projectId,
-          issueId: destination.issueId,
+          taskId: destination.taskId,
           draftId: destination.draftId,
         },
       } as const;
@@ -374,12 +399,19 @@ export function createLocalAppNavigation(): AppNavigation {
     transition?: NavigationTransition
   ) => {
     const currentHostId =
-      typeof window === 'undefined'
-        ? null
-        : parseLocalHostIdFromPathname(window.location.pathname);
+      transition?.hostId !== undefined
+        ? transition.hostId
+        : typeof window === 'undefined'
+          ? null
+          : (parseLocalHostIdFromPathname(window.location.pathname) ??
+            new URLSearchParams(window.location.search).get('host_id'));
 
     void router.navigate({
       ...destinationToLocalTarget(destination, { currentHostId }),
+      ...(isProjectDestination(destination) ||
+      destination.kind === 'project-directory'
+        ? { search: { host_id: currentHostId ?? undefined } }
+        : {}),
       ...(transition?.replace !== undefined
         ? { replace: transition.replace }
         : {}),
@@ -416,26 +448,21 @@ export function createLocalAppNavigation(): AppNavigation {
         { kind: 'project-workflow-run', projectId, runId },
         transition
       ),
-    goToProjectIssue: (projectId, issueId, transition) =>
-      navigateTo({ kind: 'project-issue', projectId, issueId }, transition),
-    goToProjectIssueArena: (projectId, issueId, arenaGroupId, transition) =>
+    goToProjectTask: (projectId, taskId, transition) =>
+      navigateTo({ kind: 'project-task', projectId, taskId }, transition),
+    goToProjectTaskArena: (projectId, taskId, arenaGroupId, transition) =>
       navigateTo(
-        { kind: 'project-issue-arena', projectId, issueId, arenaGroupId },
+        { kind: 'project-task-arena', projectId, taskId, arenaGroupId },
         transition
       ),
-    goToProjectIssueWorkspace: (projectId, issueId, workspaceId, transition) =>
+    goToProjectTaskWorkspace: (projectId, taskId, workspaceId, transition) =>
       navigateTo(
-        { kind: 'project-issue-workspace', projectId, issueId, workspaceId },
+        { kind: 'project-task-workspace', projectId, taskId, workspaceId },
         transition
       ),
-    goToProjectIssueWorkspaceCreate: (
-      projectId,
-      issueId,
-      draftId,
-      transition
-    ) =>
+    goToProjectTaskWorkspaceCreate: (projectId, taskId, draftId, transition) =>
       navigateTo(
-        { kind: 'project-issue-workspace-create', projectId, issueId, draftId },
+        { kind: 'project-task-workspace-create', projectId, taskId, draftId },
         transition
       ),
     goToProjectWorkspaceCreate: (projectId, draftId, transition) =>

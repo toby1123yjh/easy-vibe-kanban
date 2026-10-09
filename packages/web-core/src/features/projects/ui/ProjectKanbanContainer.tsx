@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import type { TaskCursor, TaskSummary } from 'shared/types';
+import type { ExecutionCursor, ExecutionSummary } from 'shared/types';
 import { mergeStableCursorItems } from '@/features/app-shell/model/appShell';
 import { ProjectRightSidebarContainer } from '@/pages/kanban/ProjectRightSidebarContainer';
 import { Actions } from '@/shared/actions';
@@ -11,19 +11,19 @@ import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRoute
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { executionDataApi } from '@/shared/lib/executionDataApi';
 import { getHostRequestScopeQueryKey } from '@/shared/lib/hostRequestScope';
-import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
-import { bulkUpdateIssues } from '@/shared/lib/remoteApi';
+import { useDeleteExecutionSession } from '@/shared/hooks/useDeleteExecutionSession';
+import { bulkUpdateTasks } from '@/shared/lib/remoteApi';
 import {
-  buildKanbanIssueComposerKey,
-  openKanbanIssueComposer,
-  useKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  openKanbanTaskComposer,
+  useKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 import {
   buildKanbanColumns,
-  groupTopLevelTasksByIssue,
+  groupTopLevelExecutionsByTask,
   type KanbanMoveUpdate,
 } from '../model/project-kanban';
-import { IssueFloatingPanelContainer } from './IssueFloatingPanelContainer';
+import { TaskFloatingPanelContainer } from './TaskFloatingPanelContainer';
 import { ProjectKanbanView } from './ProjectKanbanView';
 import { ProjectBoardActions } from './ProjectBoardActions';
 import { ProjectSessions } from './ProjectSessions';
@@ -58,98 +58,101 @@ export function ProjectKanbanContainer({
   const appNavigation = useAppNavigation();
   const { executeAction } = useActions();
   const routeState = useCurrentKanbanRouteState();
-  const { projectId, issues, statuses, tags, issueTags, getIssue } =
+  const { projectId, tasks, statuses, tags, taskTags, getTask } =
     useProjectContext();
-  const issueTriggerRef = useRef<HTMLElement | null>(null);
-  const requestedTaskCursorRef = useRef<string | null>(null);
+  const taskTriggerRef = useRef<HTMLElement | null>(null);
+  const requestedExecutionCursorRef = useRef<string | null>(null);
   const composerKey = useMemo(
-    () => buildKanbanIssueComposerKey(routeState.hostId, projectId),
+    () => buildKanbanTaskComposerKey(routeState.hostId, projectId),
     [projectId, routeState.hostId]
   );
-  const issueComposer = useKanbanIssueComposer(composerKey);
+  const taskComposer = useKanbanTaskComposer(composerKey);
 
-  const tasksQuery = useInfiniteQuery({
+  const executionsQuery = useInfiniteQuery({
     queryKey: [
-      'project-tasks',
+      'project-executions',
       projectId,
       getHostRequestScopeQueryKey(routeState.hostId),
     ],
     queryFn: ({ pageParam, signal }) =>
-      executionDataApi.listTasks({
+      executionDataApi.listExecutions({
         projectId,
         cursor: pageParam,
         limit: 100,
         hostId: routeState.hostId,
         signal,
       }),
-    initialPageParam: null as TaskCursor | null,
+    initialPageParam: null as ExecutionCursor | null,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     staleTime: 10_000,
   });
   const {
-    data: taskPages,
+    data: executionPages,
     fetchNextPage,
-    isError: isTaskSourceError,
+    isError: isExecutionSourceError,
     isFetchNextPageError,
-    isFetching: isTaskSourceFetching,
+    isFetching: isExecutionSourceFetching,
     isFetchingNextPage,
-    isPending: isTaskSourcePending,
-    refetch: refetchTasks,
-  } = tasksQuery;
+    isPending: isExecutionSourcePending,
+    refetch: refetchExecutions,
+  } = executionsQuery;
 
   useEffect(() => {
-    requestedTaskCursorRef.current = null;
+    requestedExecutionCursorRef.current = null;
   }, [projectId, routeState.hostId]);
 
   useEffect(() => {
-    const nextCursor = taskPages?.pages.at(-1)?.next_cursor;
+    const nextCursor = executionPages?.pages.at(-1)?.next_cursor;
     if (!nextCursor || isFetchingNextPage) return;
 
     const cursorKey = `${nextCursor.updated_at}:${nextCursor.id}`;
-    if (requestedTaskCursorRef.current === cursorKey) return;
+    if (requestedExecutionCursorRef.current === cursorKey) return;
 
-    requestedTaskCursorRef.current = cursorKey;
+    requestedExecutionCursorRef.current = cursorKey;
     void fetchNextPage();
-  }, [fetchNextPage, isFetchingNextPage, taskPages?.pages]);
+  }, [fetchNextPage, isFetchingNextPage, executionPages?.pages]);
 
-  const tasks = useMemo(
+  const executions = useMemo(
     () =>
-      (taskPages?.pages ?? []).reduce(
-        (items, page) => mergeStableCursorItems(items, page.tasks),
-        [] as TaskSummary[]
+      (executionPages?.pages ?? []).reduce(
+        (items, page) => mergeStableCursorItems(items, page.executions),
+        [] as ExecutionSummary[]
       ),
-    [taskPages?.pages]
+    [executionPages?.pages]
   );
-  const tasksByIssue = useMemo(() => groupTopLevelTasksByIssue(tasks), [tasks]);
+  const executionsByTask = useMemo(
+    () => groupTopLevelExecutionsByTask(executions),
+    [executions]
+  );
   const columns = useMemo(
     () =>
       buildKanbanColumns({
         statuses,
-        issues,
-        tags,
-        issueTags,
         tasks,
+        tags,
+        taskTags,
+        executions,
         query: search.q ?? '',
       }),
-    [issueTags, issues, search.q, statuses, tags, tasks]
+    [taskTags, tasks, search.q, statuses, tags, executions]
   );
-  const selectedIssue = routeState.issueId
-    ? getIssue(routeState.issueId)
+  const selectedTask = routeState.taskId
+    ? getTask(routeState.taskId)
     : undefined;
-  const showCanonicalIssuePanel =
-    selectedIssue !== undefined &&
+  const showCanonicalTaskPanel =
+    selectedTask !== undefined &&
     !routeState.workspaceId &&
     !routeState.isWorkspaceCreateMode &&
-    issueComposer === null;
+    taskComposer === null;
   const showLegacyDeepPanel =
-    issueComposer !== null ||
+    taskComposer !== null ||
     routeState.workspaceId !== null ||
     routeState.isWorkspaceCreateMode;
 
   useEffect(() => {
     if (
-      routeState.issueId &&
-      !selectedIssue &&
+      routeState.taskId &&
+      !selectedTask &&
       !routeState.isWorkspaceCreateMode
     ) {
       appNavigation.goToProject(projectId, { replace: true });
@@ -158,8 +161,8 @@ export function ProjectKanbanContainer({
     appNavigation,
     projectId,
     routeState.isWorkspaceCreateMode,
-    routeState.issueId,
-    selectedIssue,
+    routeState.taskId,
+    selectedTask,
   ]);
 
   const updateSearch = useCallback(
@@ -175,36 +178,36 @@ export function ProjectKanbanContainer({
     [navigateSearch]
   );
 
-  const openIssue = useCallback(
-    (issueId: string, trigger: HTMLElement) => {
-      issueTriggerRef.current = trigger;
-      appNavigation.goToProjectIssue(projectId, issueId);
+  const openTask = useCallback(
+    (taskId: string, trigger: HTMLElement) => {
+      taskTriggerRef.current = trigger;
+      appNavigation.goToProjectTask(projectId, taskId);
     },
     [appNavigation, projectId]
   );
 
   const closePanel = useCallback(() => {
-    const trigger = issueTriggerRef.current;
-    const issueId = routeState.issueId;
+    const trigger = taskTriggerRef.current;
+    const taskId = routeState.taskId;
     appNavigation.goToProject(projectId, { replace: true });
     requestAnimationFrame(() => {
-      const fallback = issueId
-        ? document.querySelector<HTMLElement>(`[data-issue-id="${issueId}"]`)
+      const fallback = taskId
+        ? document.querySelector<HTMLElement>(`[data-task-id="${taskId}"]`)
         : null;
       (trigger?.isConnected ? trigger : fallback)?.focus({
         preventScroll: true,
       });
     });
-  }, [appNavigation, projectId, routeState.issueId]);
+  }, [appNavigation, projectId, routeState.taskId]);
 
-  const openTask = useCallback(
-    (task: TaskSummary) => {
-      const target = task.open_target;
+  const openExecution = useCallback(
+    (execution: ExecutionSummary) => {
+      const target = execution.open_target;
       switch (target.kind) {
         case 'agent':
-          appNavigation.goToProjectIssueWorkspace(
+          appNavigation.goToProjectTaskWorkspace(
             projectId,
-            task.issue_id,
+            execution.task_id,
             target.workspace_id
           );
           return;
@@ -222,9 +225,9 @@ export function ProjectKanbanContainer({
           }
           return;
         case 'arena': {
-          appNavigation.goToProjectIssueArena?.(
+          appNavigation.goToProjectTaskArena?.(
             projectId,
-            task.issue_id,
+            execution.task_id,
             target.arena_group_id
           );
         }
@@ -232,66 +235,66 @@ export function ProjectKanbanContainer({
     },
     [appNavigation, projectId]
   );
-  const getTaskUnavailableReason = useCallback(
-    (task: TaskSummary) => {
-      switch (task.open_target.kind) {
+  const getExecutionUnavailableReason = useCallback(
+    (execution: ExecutionSummary) => {
+      switch (execution.open_target.kind) {
         case 'agent':
           return appNavigation.agentExecutionUnavailableReason ?? null;
         case 'workflow':
           return appNavigation.projectWorkflowUnavailableReason ?? null;
         case 'arena':
-          return appNavigation.goToProjectIssueArena
+          return appNavigation.goToProjectTaskArena
             ? null
             : REMOTE_ARENA_UNAVAILABLE_REASON;
       }
     },
     [
       appNavigation.agentExecutionUnavailableReason,
-      appNavigation.goToProjectIssueArena,
+      appNavigation.goToProjectTaskArena,
       appNavigation.projectWorkflowUnavailableReason,
     ]
   );
 
-  const retryTaskSource = useCallback(() => {
+  const retryExecutionSource = useCallback(() => {
     if (isFetchNextPageError) {
-      requestedTaskCursorRef.current = null;
+      requestedExecutionCursorRef.current = null;
       void fetchNextPage();
       return;
     }
-    void refetchTasks();
-  }, [fetchNextPage, isFetchNextPageError, refetchTasks]);
+    void refetchExecutions();
+  }, [fetchNextPage, isFetchNextPageError, refetchExecutions]);
 
-  const taskSource = useMemo(() => {
-    if (isTaskSourcePending) {
+  const executionSource = useMemo(() => {
+    if (isExecutionSourcePending) {
       return {
         state: 'loading' as const,
-        title: 'Loading execution tasks…',
+        title: 'Loading executions…',
       };
     }
-    if (isTaskSourceError && tasks.length === 0) {
+    if (isExecutionSourceError && executions.length === 0) {
       return {
         state: 'degraded' as const,
-        title: 'Execution tasks are unavailable.',
-        description: 'Issue data is still shown.',
-        retry: retryTaskSource,
-        retrying: isTaskSourceFetching,
+        title: 'Executions are unavailable.',
+        description: 'Task data is still shown.',
+        retry: retryExecutionSource,
+        retrying: isExecutionSourceFetching,
       };
     }
     if (isFetchNextPageError) {
       return {
         state: 'degraded' as const,
-        title: 'Some execution tasks could not be loaded.',
-        retry: retryTaskSource,
-        retrying: isTaskSourceFetching,
+        title: 'Some executions could not be loaded.',
+        retry: retryExecutionSource,
+        retrying: isExecutionSourceFetching,
       };
     }
-    if (isTaskSourceError) {
+    if (isExecutionSourceError) {
       return {
         state: 'degraded' as const,
-        title: 'Execution tasks could not be refreshed.',
+        title: 'Executions could not be refreshed.',
         description: 'Previously loaded tasks remain available.',
-        retry: retryTaskSource,
-        retrying: isTaskSourceFetching,
+        retry: retryExecutionSource,
+        retrying: isExecutionSourceFetching,
       };
     }
     if (isFetchingNextPage) {
@@ -302,63 +305,67 @@ export function ProjectKanbanContainer({
     }
     return { state: 'ready' as const };
   }, [
-    retryTaskSource,
-    tasks.length,
+    retryExecutionSource,
+    executions.length,
     isFetchNextPageError,
     isFetchingNextPage,
-    isTaskSourceFetching,
-    isTaskSourceError,
-    isTaskSourcePending,
+    isExecutionSourceFetching,
+    isExecutionSourceError,
+    isExecutionSourcePending,
   ]);
 
-  const moveIssues = useCallback(async (updates: KanbanMoveUpdate[]) => {
-    await bulkUpdateIssues(
-      updates.map((update) => ({
-        id: update.id,
-        changes: {
-          status_id: update.statusId,
-          sort_order: update.sortOrder,
-        },
-      }))
-    );
-  }, []);
-  const deleteIssue = useCallback(
-    async (issueId: string) => {
-      await executeAction(Actions.DeleteIssue, undefined, projectId, [issueId]);
+  const moveTasks = useCallback(
+    async (updates: KanbanMoveUpdate[]) => {
+      await bulkUpdateTasks(
+        updates.map((update) => ({
+          id: update.id,
+          changes: {
+            status_id: update.statusId,
+            sort_order: update.sortOrder,
+          },
+        })),
+        routeState.hostId
+      );
+    },
+    [routeState.hostId]
+  );
+  const deleteTask = useCallback(
+    async (taskId: string) => {
+      await executeAction(Actions.DeleteTask, undefined, projectId, [taskId]);
     },
     [executeAction, projectId]
   );
 
   const { deleteSession, pendingSessionId: deletingSessionId } =
-    useDeleteTaskSession({
+    useDeleteExecutionSession({
       hostId: routeState.hostId,
       scopeKey: JSON.stringify([routeState, projectId, search.session_id]),
     });
-  const deleteTask = useCallback(
-    (task: TaskSummary) => {
-      if (task.open_target.kind !== 'agent') return;
+  const deleteExecution = useCallback(
+    (execution: ExecutionSummary) => {
+      if (execution.open_target.kind !== 'agent') return;
       void deleteSession({
-        taskId: task.id,
-        sessionId: task.open_target.session_id,
-        workspaceId: task.open_target.workspace_id,
-        title: task.title,
+        executionId: execution.id,
+        sessionId: execution.open_target.session_id,
+        workspaceId: execution.open_target.workspace_id,
+        title: execution.title,
       });
     },
     [deleteSession]
   );
 
   const panel =
-    showCanonicalIssuePanel && selectedIssue ? (
-      <aside className="vk-issue-floating-panel" aria-label="Issue details">
-        <IssueFloatingPanelContainer
-          key={selectedIssue.id}
-          issue={selectedIssue}
-          tasks={tasksByIssue.get(selectedIssue.id) ?? []}
+    showCanonicalTaskPanel && selectedTask ? (
+      <aside className="vk-task-floating-panel" aria-label="Task details">
+        <TaskFloatingPanelContainer
+          key={selectedTask.id}
+          task={selectedTask}
+          executions={executionsByTask.get(selectedTask.id) ?? []}
           onClose={closePanel}
-          onOpenTask={openTask}
-          onDeleteTask={deleteTask}
+          onOpenExecution={openExecution}
+          onDeleteExecution={deleteExecution}
           deletingSessionId={deletingSessionId}
-          getTaskUnavailableReason={getTaskUnavailableReason}
+          getExecutionUnavailableReason={getExecutionUnavailableReason}
           agentUnavailableReason={
             appNavigation.agentExecutionUnavailableReason ?? null
           }
@@ -366,7 +373,7 @@ export function ProjectKanbanContainer({
             appNavigation.projectWorkflowUnavailableReason ?? null
           }
           arenaUnavailableReason={
-            appNavigation.goToProjectIssueArena
+            appNavigation.goToProjectTaskArena
               ? null
               : REMOTE_ARENA_UNAVAILABLE_REASON
           }
@@ -374,13 +381,11 @@ export function ProjectKanbanContainer({
       </aside>
     ) : showLegacyDeepPanel ? (
       <aside
-        className="vk-issue-floating-panel"
+        className="vk-task-floating-panel"
         data-create-panel={
-          issueComposer !== null ||
-          routeState.isWorkspaceCreateMode ||
-          undefined
+          taskComposer !== null || routeState.isWorkspaceCreateMode || undefined
         }
-        aria-label="Issue activity"
+        aria-label="Task activity"
       >
         <ProjectRightSidebarContainer />
       </aside>
@@ -401,30 +406,30 @@ export function ProjectKanbanContainer({
         <ProjectSessions
           projectId={projectId}
           variant="column"
-          onCreateIssue={() => openKanbanIssueComposer(composerKey)}
+          onCreateTask={() => openKanbanTaskComposer(composerKey)}
         />
       }
-      issueCount={columns.reduce(
-        (count, column) => count + column.issues.length,
+      taskCount={columns.reduce(
+        (count, column) => count + column.tasks.length,
         0
       )}
       query={search.q ?? ''}
-      selectedIssueId={routeState.issueId}
+      selectedTaskId={routeState.taskId}
       dragDisabled={Boolean(search.q?.trim())}
       projectSource={projectSource}
-      taskSource={taskSource}
+      executionSource={executionSource}
       panel={panel}
       onQueryChange={updateSearch}
-      onCreateIssue={(statusId) =>
-        openKanbanIssueComposer(composerKey, { statusId })
+      onCreateTask={(statusId) =>
+        openKanbanTaskComposer(composerKey, { statusId })
       }
-      onOpenIssue={openIssue}
       onOpenTask={openTask}
-      onDeleteTask={deleteTask}
+      onOpenExecution={openExecution}
+      onDeleteExecution={deleteExecution}
       deletingSessionId={deletingSessionId}
-      onDeleteIssue={deleteIssue}
-      getTaskUnavailableReason={getTaskUnavailableReason}
-      onMove={moveIssues}
+      onDeleteTask={deleteTask}
+      getExecutionUnavailableReason={getExecutionUnavailableReason}
+      onMove={moveTasks}
     />
   );
 }

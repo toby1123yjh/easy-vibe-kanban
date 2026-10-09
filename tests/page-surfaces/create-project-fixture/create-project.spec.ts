@@ -1,5 +1,38 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test('runtime clients and caches stay with their captured host', async ({ page }) => {
+  await page.goto('/');
+  const moduleRoot = `/@fs/${process.cwd().replaceAll('\\', '/')}/packages/web-core/src/shared`;
+  const keys = await page.evaluate(async (root) => {
+    const { createWorkflowApi } = await import(`${root}/lib/workflowApi.ts`);
+    const { createArenaApi } = await import(`${root}/lib/arenaApi.ts`);
+    const { createScheduledTaskApi } = await import(`${root}/lib/scheduledTaskApi.ts`);
+    const { workflowTemplateQueryKeys } = await import(`${root}/hooks/useWorkflowTemplates.ts`);
+    const { workflowAttemptQueryKeys } = await import(`${root}/hooks/useWorkflowAttempts.ts`);
+    const { arenaQueryKeys } = await import(`${root}/hooks/useArenaGroup.ts`);
+    const { scheduledTaskQueryKeys } = await import(`${root}/hooks/useScheduledTasks.ts`);
+    await createWorkflowApi('host-one').list('same-project');
+    await createArenaApi('host-two').getActiveForTask('same-task');
+    await createScheduledTaskApi(null).list('same-project');
+    return [
+      workflowTemplateQueryKeys.list('same-project', 'host-one'),
+      workflowTemplateQueryKeys.list('same-project', 'host-two'),
+      workflowAttemptQueryKeys.task('same-project', 'same-task', 'host-one'),
+      arenaQueryKeys.activeForTask('same-task', 'host-two'),
+      scheduledTaskQueryKeys.project('same-project', null),
+    ];
+  }, moduleRoot);
+  expect(keys[0]).not.toEqual(keys[1]);
+  expect(keys[2]).toContain('host-one');
+  expect(keys[3]).toContain('host-two');
+  expect(keys[4]).toContain(null);
+  expect(await data(page, 'requests')).toEqual([
+    expect.objectContaining({ path: '/api/local/v1/projects/same-project/workflows', hostScope: 'explicit', hostId: 'host-one' }),
+    expect.objectContaining({ path: '/api/local/v1/tasks/same-task/arena/active', hostScope: 'explicit', hostId: 'host-two' }),
+    expect.objectContaining({ hostScope: 'explicit', hostId: null }),
+  ]);
+});
+
 async function open(page: Page, query = "") {
   await page.goto(`/${query}`);
   await page.getByRole("button", { name: "Open create project" }).click();
@@ -220,4 +253,46 @@ test("host going offline prevents creation even by Enter", async ({ page }) => {
   );
   expect(await data(page, "inserts")).toBeNull();
   expect(await data(page, "saves")).toBeNull();
+});
+
+test('local open uses the directory identity and selected host, without inserting a second project', async ({ page }) => {
+  await open(page, '?local');
+  await page.getByLabel('Machine', { exact: true }).selectOption('remote-1');
+  await page.getByRole('button', { name: 'Choose folder or Git repository', exact: true }).click();
+  await create(page);
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(await data(page, 'inserts')).toBeNull();
+  expect(await data(page, 'saves')).toBeNull();
+  expect(await data(page, 'opens')).toEqual([
+    { input: { directory_path: '/fixture/folder', name: 'New project', color: expect.any(String) }, hostId: 'remote-1' },
+  ]);
+  expect(await data(page, 'result')).toMatchObject({
+    action: 'created', hostId: 'remote-1', project: { id: 'restored-project', name: 'Portable project' },
+  });
+});
+
+test('failed Git enrichment retries the restored project without opening a duplicate', async ({ page }) => {
+  await open(page, '?local&mode=git&fail');
+  await page.getByRole('button', { name: 'Choose folder or Git repository', exact: true }).click();
+  await create(page);
+  await expect(page.getByRole('alert')).toContainText('The project was opened');
+  await page.getByRole('button', { name: 'Retry saving directory', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(await data(page, 'opens')).toHaveLength(1);
+  expect(await data(page, 'saves')).toEqual([
+    expect.objectContaining({ projectId: 'restored-project' }),
+    expect.objectContaining({ projectId: 'restored-project' }),
+  ]);
+});
+
+test('cancel after opening a restored project never deletes its tasks or directory', async ({ page }) => {
+  await open(page, '?local&mode=git&fail');
+  await page.getByRole('button', { name: 'Choose folder or Git repository', exact: true }).click();
+  await create(page);
+  await expect(page.getByRole('alert')).toContainText('Cancel keeps the project and its files');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(await data(page, 'removes')).toBeNull();
+  expect(await data(page, 'opens')).toHaveLength(1);
+  expect(await data(page, 'result')).toEqual({ action: 'canceled' });
 });

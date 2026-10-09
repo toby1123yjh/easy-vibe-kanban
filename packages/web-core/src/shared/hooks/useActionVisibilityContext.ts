@@ -18,7 +18,7 @@ import { useAuth } from '@/shared/hooks/auth/useAuth';
 import { isProjectDestination } from '@/shared/lib/routes/appNavigation';
 import { useCurrentAppDestination } from '@/shared/hooks/useCurrentAppDestination';
 import { useCurrentKanbanRouteState } from '@/shared/hooks/useCurrentKanbanRouteState';
-import { PROJECT_ISSUES_SHAPE } from 'shared/remote-types';
+import { PROJECT_TASKS_SHAPE } from 'shared/remote-types';
 import type { Merge } from 'shared/types';
 import type {
   ActionVisibilityContext,
@@ -27,7 +27,7 @@ import type {
 
 interface ActionVisibilityOptions {
   projectId?: string;
-  issueIds?: string[];
+  taskIds?: string[];
 }
 
 /**
@@ -48,39 +48,39 @@ export function useActionVisibilityContext(
   const expanded = useUiPreferencesStore((s) => s.expanded);
 
   // Derive kanban state from URL (URL is single source of truth)
-  const { projectId: routeProjectId, issueId: routeIssueId } = useParams({
+  const { projectId: routeProjectId, taskId: routeTaskId } = useParams({
     strict: false,
   });
   const destination = useCurrentAppDestination();
   const { isCreateMode: kanbanCreateMode } = useCurrentKanbanRouteState();
   const effectiveProjectId = options?.projectId ?? routeProjectId;
-  const optionIssueIds = options?.issueIds;
-  const effectiveIssueIds = useMemo(
-    () => optionIssueIds ?? (routeIssueId ? [routeIssueId] : []),
-    [optionIssueIds, routeIssueId]
+  const optionTaskIds = options?.taskIds;
+  const effectiveTaskIds = useMemo(
+    () => optionTaskIds ?? (routeTaskId ? [routeTaskId] : []),
+    [optionTaskIds, routeTaskId]
   );
-  const hasSelectedKanbanIssue = effectiveIssueIds.length > 0;
-  const shouldResolveSelectedIssueParent =
-    !!effectiveProjectId && effectiveIssueIds.length === 1;
+  const hasSelectedKanbanTask = effectiveTaskIds.length > 0;
+  const shouldResolveSelectedTaskParent =
+    !!effectiveProjectId && effectiveTaskIds.length === 1;
 
-  const projectIssuesParams = useMemo(
+  const projectTasksParams = useMemo(
     () => ({ project_id: effectiveProjectId ?? '' }),
     [effectiveProjectId]
   );
-  const { data: projectIssues } = useShape(
-    PROJECT_ISSUES_SHAPE,
-    projectIssuesParams,
+  const { data: projectTasks } = useShape(
+    PROJECT_TASKS_SHAPE,
+    projectTasksParams,
     {
-      enabled: shouldResolveSelectedIssueParent,
+      enabled: shouldResolveSelectedTaskParent,
     }
   );
-  const hasSelectedKanbanIssueParent = useMemo(() => {
-    if (!shouldResolveSelectedIssueParent) return false;
-    const selectedIssue = projectIssues.find(
-      (issue) => issue.id === effectiveIssueIds[0]
+  const hasSelectedKanbanTaskParent = useMemo(() => {
+    if (!shouldResolveSelectedTaskParent) return false;
+    const selectedTask = projectTasks.find(
+      (task) => task.id === effectiveTaskIds[0]
     );
-    return !!selectedIssue?.parent_issue_id;
-  }, [shouldResolveSelectedIssueParent, projectIssues, effectiveIssueIds]);
+    return !!selectedTask?.parent_task_id;
+  }, [shouldResolveSelectedTaskParent, projectTasks, effectiveTaskIds]);
 
   // Derive layoutMode from current route instead of persisted state
   const layoutMode: LayoutMode = isProjectDestination(destination)
@@ -144,9 +144,9 @@ export function useActionVisibilityContext(
       hasUnpushedCommits,
       isAttemptRunning: isAttemptRunningVisible,
       logsPanelContent,
-      hasSelectedKanbanIssue,
-      hasSelectedKanbanIssueParent,
-      isCreatingIssue: kanbanCreateMode,
+      hasSelectedKanbanTask,
+      hasSelectedKanbanTaskParent,
+      isCreatingTask: kanbanCreateMode,
       isSignedIn,
     };
   }, [
@@ -168,8 +168,8 @@ export function useActionVisibilityContext(
     branchStatus,
     isAttemptRunningVisible,
     logsPanelContent,
-    hasSelectedKanbanIssue,
-    hasSelectedKanbanIssueParent,
+    hasSelectedKanbanTask,
+    hasSelectedKanbanTaskParent,
     kanbanCreateMode,
     isSignedIn,
   ]);

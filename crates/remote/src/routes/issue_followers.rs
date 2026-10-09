@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueFollowerRequest, DeleteResponse, IssueFollower, ListIssueFollowersQuery,
-    ListIssueFollowersResponse, MutationResponse,
+    CreateTaskFollowerRequest, DeleteResponse, ListTaskFollowersQuery, ListTaskFollowersResponse,
+    MutationResponse, TaskFollower,
 };
 use axum::{
     Json,
@@ -21,9 +21,9 @@ use crate::{
     mutation_definition::{MutationBuilder, NoUpdate},
 };
 
-/// Mutation definition for IssueFollower - provides both router and TypeScript metadata.
-pub fn mutation() -> MutationBuilder<IssueFollower, CreateIssueFollowerRequest, NoUpdate> {
-    MutationBuilder::new("issue_followers")
+/// Mutation definition for TaskFollower - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<TaskFollower, CreateTaskFollowerRequest, NoUpdate> {
+    MutationBuilder::new()
         .list(list_issue_followers)
         .get(get_issue_follower)
         .create(create_issue_follower)
@@ -42,8 +42,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_issue_followers(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueFollowersQuery>,
-) -> Result<Json<ListIssueFollowersResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskFollowersQuery>,
+) -> Result<Json<ListTaskFollowersResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_followers = IssueFollowerRepository::list_by_issue(state.pool(), query.issue_id)
@@ -56,7 +56,7 @@ async fn list_issue_followers(
             )
         })?;
 
-    Ok(Json(ListIssueFollowersResponse { issue_followers }))
+    Ok(Json(ListTaskFollowersResponse { issue_followers }))
 }
 
 #[instrument(
@@ -68,7 +68,7 @@ async fn get_issue_follower(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_follower_id): Path<Uuid>,
-) -> Result<Json<IssueFollower>, ErrorResponse> {
+) -> Result<Json<TaskFollower>, ErrorResponse> {
     let follower = IssueFollowerRepository::find_by_id(state.pool(), issue_follower_id)
         .await
         .map_err(|error| {
@@ -93,8 +93,8 @@ async fn get_issue_follower(
 async fn create_issue_follower(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueFollowerRequest>,
-) -> Result<Json<MutationResponse<IssueFollower>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskFollowerRequest>,
+) -> Result<Json<MutationResponse<TaskFollower>>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let response = IssueFollowerRepository::create(

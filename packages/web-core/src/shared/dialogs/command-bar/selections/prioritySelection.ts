@@ -1,9 +1,9 @@
-import type { IssuePriority } from 'shared/remote-types';
+import type { TaskPriority } from 'shared/remote-types';
 import type { PriorityItem } from '@/shared/types/selectionItems';
 import type { SelectionPage } from '../SelectionDialog';
 
 export interface PrioritySelectionResult {
-  priority: IssuePriority | null;
+  priority: TaskPriority | null;
 }
 
 const PRIORITY_ITEMS: PriorityItem[] = [

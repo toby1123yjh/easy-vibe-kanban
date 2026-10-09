@@ -1,13 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { SessionListItem, TaskSummary } from '../../../shared/types';
+import type { SessionListItem, ExecutionSummary } from '../../../shared/types';
 
 const timestamp = '2026-09-08T00:00:00Z';
-function task(id: number): TaskSummary {
+function task(id: number): ExecutionSummary {
   return {
     id: `task-${id}`,
     project_id: 'project-1',
-    issue_id: 'issue-1',
-    parent_task_id: null,
+    task_id: 'issue-1',
+    parent_execution_id: null,
     title: `Task ${id}`,
     execution_kind: 'agent',
     status: 'succeeded',
@@ -24,9 +24,9 @@ function session(id: number): SessionListItem {
   return {
     id: `session-${id}`,
     workspace_id: 'workspace-1',
-    task_id: id < 3 ? `task-${id}` : null,
+    execution_id: id < 3 ? `task-${id}` : null,
     project_id: id < 3 ? 'project-1' : null,
-    issue_id: id < 3 ? 'issue-1' : null,
+    task_id: id < 3 ? 'issue-1' : null,
     title: id < 3 ? `Task ${id}` : 'Standalone',
     executor: 'CODEX',
     created_at: timestamp,
@@ -95,7 +95,7 @@ async function setup(
       });
     }
     const match = url.pathname.match(
-      /^\/__fixture\/api\/sessions\/([^/]+)\/task$/
+      /^\/__fixture\/api\/sessions\/([^/]+)\/execution$/
     );
     if (match) {
       state.lookups++;
@@ -139,7 +139,7 @@ async function setup(
           409
         );
       const taskMatch = url.pathname.match(
-        /^\/__fixture\/api\/tasks\/([^/]+)$/
+        /^\/__fixture\/api\/executions\/([^/]+)$/
       );
       if (taskMatch) {
         const found = state.tasks.find((row) => row.id === taskMatch[1]);
@@ -340,7 +340,7 @@ for (const surface of ['project', 'sidebar'] as const) {
     state.requiresStop = true;
     const dialog = await openDelete(page, surface);
     await dialog
-      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .getByRole('button', { name: 'Delete Execution and session', exact: true })
       .click();
     await expect(
       dialog.getByRole('button', { name: 'Stop and delete', exact: true })
@@ -370,7 +370,7 @@ for (const surface of ['project', 'sidebar'] as const) {
     state.requiresStop = true;
     const dialog = await openDelete(page, surface);
     await dialog
-      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .getByRole('button', { name: 'Delete Execution and session', exact: true })
       .click();
     await expect(
       dialog.getByRole('button', { name: 'Stop and delete', exact: true })
@@ -386,7 +386,7 @@ for (const surface of ['project', 'sidebar'] as const) {
     const dialog = await openDelete(page, surface);
     await expect(dialog.getByText('Task 1', { exact: true })).toBeVisible();
     await expect(dialog).toContainText(
-      'This Task and its session history will be deleted. This cannot be undone.'
+      'This Execution and its session history will be deleted. This cannot be undone.'
     );
     await expect(dialog).toContainText(
       'Other sessions, projects, and native agent history are not affected.'
@@ -412,12 +412,12 @@ for (const surface of ['project', 'sidebar'] as const) {
     const state = await setup(page);
     const dialog = await openDelete(page, surface);
     await dialog
-      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .getByRole('button', { name: 'Delete Execution and session', exact: true })
       .click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByTestId('task-count')).toHaveText('1');
     await expect(page.getByTestId('session-count')).toHaveText('2');
-    await expect(page.getByTestId('project')).toContainText('Keep this Issue');
+    await expect(page.getByTestId('project')).toContainText('Keep this Task');
     await expect(
       page
         .getByTestId('project')
@@ -431,7 +431,7 @@ for (const surface of ['project', 'sidebar'] as const) {
     await expect(page.getByTestId('navigations')).toHaveText('1');
     expect(state.writes).toEqual([
       {
-        path: '/__fixture/api/tasks/task-1',
+        path: '/__fixture/api/executions/task-1',
         session: 'session-1',
         host: 'local',
         scope: 'explicit',
@@ -457,7 +457,7 @@ test('pending deletion blocks duplicate cross-entry activation and dismiss', asy
     .evaluate((button: HTMLButtonElement) => button.click());
   expect(state.lookups).toBe(1);
   await dialog
-    .getByRole('button', { name: 'Delete Task and session', exact: true })
+    .getByRole('button', { name: 'Delete Execution and session', exact: true })
     .click();
   await expect.poll(() => state.writes.length).toBe(1);
   await expect(
@@ -480,7 +480,7 @@ test('conflict keeps both records visible and offers retry', async ({
   state.deleteError = true;
   const dialog = await openDelete(page, 'sidebar');
   await dialog
-    .getByRole('button', { name: 'Delete Task and session', exact: true })
+    .getByRole('button', { name: 'Delete Execution and session', exact: true })
     .click();
   await expect(dialog.getByRole('alert')).toContainText('active run');
   await expect(page.getByTestId('task-count')).toHaveText('2');
@@ -488,7 +488,7 @@ test('conflict keeps both records visible and offers retry', async ({
   await expect(page.getByTestId('navigations')).toHaveText('0');
   state.deleteError = false;
   await dialog
-    .getByRole('button', { name: 'Delete Task and session', exact: true })
+    .getByRole('button', { name: 'Delete Execution and session', exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId('task-count')).toHaveText('1');
@@ -523,7 +523,7 @@ test('lookup failure never defaults to standalone and can retry', async ({
   await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(
     dialog.getByRole('button', {
-      name: 'Delete Task and session',
+      name: 'Delete Execution and session',
       exact: true,
     })
   ).toBeEnabled();
@@ -548,7 +548,7 @@ test('a repeated binding lookup failure clears the previously confirmed target',
   const dialog = await openDelete(page, 'project');
   await expect(
     dialog.getByRole('button', {
-      name: 'Delete Task and session',
+      name: 'Delete Execution and session',
       exact: true,
     })
   ).toBeEnabled();
@@ -603,7 +603,7 @@ for (const change of ['Switch host', 'Switch selection']) {
     const dialog = await openDelete(page, 'project');
     await expect(
       dialog.getByRole('button', {
-        name: 'Delete Task and session',
+        name: 'Delete Execution and session',
         exact: true,
       })
     ).toBeEnabled();
@@ -612,7 +612,7 @@ for (const change of ['Switch host', 'Switch selection']) {
       .getByRole('button', { name: change, exact: true, includeHidden: true })
       .evaluate((button: HTMLButtonElement) => button.click());
     await dialog
-      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .getByRole('button', { name: 'Delete Execution and session', exact: true })
       .click();
     await expect(dialog.getByRole('alert')).toContainText(
       'Host or selection has changed'
@@ -628,7 +628,7 @@ for (const change of ['Switch host', 'Switch selection']) {
     state.gate = deferred();
     const dialog = await openDelete(page, 'sidebar');
     await dialog
-      .getByRole('button', { name: 'Delete Task and session', exact: true })
+      .getByRole('button', { name: 'Delete Execution and session', exact: true })
       .click();
     await expect.poll(() => state.writes.length).toBe(1);
     await page

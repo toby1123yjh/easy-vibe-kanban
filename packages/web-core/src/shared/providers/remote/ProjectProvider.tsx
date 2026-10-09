@@ -1,25 +1,25 @@
 import { useMemo, useCallback, type ReactNode } from 'react';
 import { useShape } from '@/shared/integrations/electric/hooks';
 import {
-  PROJECT_ISSUES_SHAPE,
+  PROJECT_TASKS_SHAPE,
   PROJECT_PROJECT_STATUSES_SHAPE,
   PROJECT_TAGS_SHAPE,
-  PROJECT_ISSUE_ASSIGNEES_SHAPE,
-  PROJECT_ISSUE_FOLLOWERS_SHAPE,
-  PROJECT_ISSUE_TAGS_SHAPE,
-  PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
+  PROJECT_TASK_ASSIGNEES_SHAPE,
+  PROJECT_TASK_FOLLOWERS_SHAPE,
+  PROJECT_TASK_TAGS_SHAPE,
+  PROJECT_TASK_RELATIONSHIPS_SHAPE,
   PROJECT_PULL_REQUESTS_SHAPE,
-  PROJECT_PULL_REQUEST_ISSUES_SHAPE,
+  PROJECT_PULL_REQUEST_TASKS_SHAPE,
   PROJECT_WORKSPACES_SHAPE,
-  ISSUE_MUTATION,
+  TASK_MUTATION,
   PROJECT_STATUS_MUTATION,
   TAG_MUTATION,
-  ISSUE_ASSIGNEE_MUTATION,
-  ISSUE_FOLLOWER_MUTATION,
-  ISSUE_TAG_MUTATION,
-  ISSUE_RELATIONSHIP_MUTATION,
-  PULL_REQUEST_ISSUE_MUTATION,
-  type Issue,
+  TASK_ASSIGNEE_MUTATION,
+  TASK_FOLLOWER_MUTATION,
+  TASK_TAG_MUTATION,
+  TASK_RELATIONSHIP_MUTATION,
+  PULL_REQUEST_TASK_MUTATION,
+  type Task,
   type ProjectStatus,
   type Tag,
 } from 'shared/remote-types';
@@ -38,9 +38,9 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   const enabled = Boolean(projectId);
 
   // Shape subscriptions (with mutations where needed)
-  const issuesResult = useShape(PROJECT_ISSUES_SHAPE, params, {
+  const tasksResult = useShape(PROJECT_TASKS_SHAPE, params, {
     enabled,
-    mutation: ISSUE_MUTATION,
+    mutation: TASK_MUTATION,
   });
   const statusesResult = useShape(PROJECT_PROJECT_STATUSES_SHAPE, params, {
     enabled,
@@ -50,30 +50,30 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
     enabled,
     mutation: TAG_MUTATION,
   });
-  const issueAssigneesResult = useShape(PROJECT_ISSUE_ASSIGNEES_SHAPE, params, {
+  const taskAssigneesResult = useShape(PROJECT_TASK_ASSIGNEES_SHAPE, params, {
     enabled,
-    mutation: ISSUE_ASSIGNEE_MUTATION,
+    mutation: TASK_ASSIGNEE_MUTATION,
   });
-  const issueFollowersResult = useShape(PROJECT_ISSUE_FOLLOWERS_SHAPE, params, {
+  const taskFollowersResult = useShape(PROJECT_TASK_FOLLOWERS_SHAPE, params, {
     enabled,
-    mutation: ISSUE_FOLLOWER_MUTATION,
+    mutation: TASK_FOLLOWER_MUTATION,
   });
-  const issueTagsResult = useShape(PROJECT_ISSUE_TAGS_SHAPE, params, {
+  const taskTagsResult = useShape(PROJECT_TASK_TAGS_SHAPE, params, {
     enabled,
-    mutation: ISSUE_TAG_MUTATION,
+    mutation: TASK_TAG_MUTATION,
   });
-  const issueRelationshipsResult = useShape(
-    PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
+  const taskRelationshipsResult = useShape(
+    PROJECT_TASK_RELATIONSHIPS_SHAPE,
     params,
-    { enabled, mutation: ISSUE_RELATIONSHIP_MUTATION }
+    { enabled, mutation: TASK_RELATIONSHIP_MUTATION }
   );
   const pullRequestsResult = useShape(PROJECT_PULL_REQUESTS_SHAPE, params, {
     enabled,
   });
-  const pullRequestIssuesResult = useShape(
-    PROJECT_PULL_REQUEST_ISSUES_SHAPE,
+  const pullRequestTasksResult = useShape(
+    PROJECT_PULL_REQUEST_TASKS_SHAPE,
     params,
-    { enabled, mutation: PULL_REQUEST_ISSUE_MUTATION }
+    { enabled, mutation: PULL_REQUEST_TASK_MUTATION }
   );
   const workspacesResult = useShape(PROJECT_WORKSPACES_SHAPE, params, {
     enabled,
@@ -81,55 +81,55 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
 
   // Board readiness depends on core kanban data only.
   // Other project-scoped shapes hydrate opportunistically after render.
-  const isLoading = issuesResult.isLoading || statusesResult.isLoading;
+  const isLoading = tasksResult.isLoading || statusesResult.isLoading;
 
   // First error found
   const error =
-    issuesResult.error ||
+    tasksResult.error ||
     statusesResult.error ||
     tagsResult.error ||
-    issueAssigneesResult.error ||
-    issueFollowersResult.error ||
-    issueTagsResult.error ||
-    issueRelationshipsResult.error ||
+    taskAssigneesResult.error ||
+    taskFollowersResult.error ||
+    taskTagsResult.error ||
+    taskRelationshipsResult.error ||
     pullRequestsResult.error ||
-    pullRequestIssuesResult.error ||
+    pullRequestTasksResult.error ||
     workspacesResult.error ||
     null;
 
   // Combined retry
   const retry = useCallback(() => {
-    issuesResult.retry();
+    tasksResult.retry();
     statusesResult.retry();
     tagsResult.retry();
-    issueAssigneesResult.retry();
-    issueFollowersResult.retry();
-    issueTagsResult.retry();
-    issueRelationshipsResult.retry();
+    taskAssigneesResult.retry();
+    taskFollowersResult.retry();
+    taskTagsResult.retry();
+    taskRelationshipsResult.retry();
     pullRequestsResult.retry();
-    pullRequestIssuesResult.retry();
+    pullRequestTasksResult.retry();
     workspacesResult.retry();
   }, [
-    issuesResult,
+    tasksResult,
     statusesResult,
     tagsResult,
-    issueAssigneesResult,
-    issueFollowersResult,
-    issueTagsResult,
-    issueRelationshipsResult,
+    taskAssigneesResult,
+    taskFollowersResult,
+    taskTagsResult,
+    taskRelationshipsResult,
     pullRequestsResult,
-    pullRequestIssuesResult,
+    pullRequestTasksResult,
     workspacesResult,
   ]);
 
   // Computed Maps for O(1) lookup
-  const issuesById = useMemo(() => {
-    const map = new Map<string, Issue>();
-    for (const issue of issuesResult.data) {
-      map.set(issue.id, issue);
+  const tasksById = useMemo(() => {
+    const map = new Map<string, Task>();
+    for (const task of tasksResult.data) {
+      map.set(task.id, task);
     }
     return map;
-  }, [issuesResult.data]);
+  }, [tasksResult.data]);
 
   const statusesById = useMemo(() => {
     const map = new Map<string, ProjectStatus>();
@@ -148,53 +148,50 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
   }, [tagsResult.data]);
 
   // Lookup helpers
-  const getIssue = useCallback(
-    (issueId: string) => issuesById.get(issueId),
-    [issuesById]
+  const getTask = useCallback(
+    (taskId: string) => tasksById.get(taskId),
+    [tasksById]
   );
 
-  const getIssuesForStatus = useCallback(
+  const getTasksForStatus = useCallback(
     (statusId: string) =>
-      issuesResult.data.filter((i) => i.status_id === statusId),
-    [issuesResult.data]
+      tasksResult.data.filter((i) => i.status_id === statusId),
+    [tasksResult.data]
   );
 
-  const getAssigneesForIssue = useCallback(
-    (issueId: string) =>
-      issueAssigneesResult.data.filter((a) => a.issue_id === issueId),
-    [issueAssigneesResult.data]
+  const getAssigneesForTask = useCallback(
+    (taskId: string) =>
+      taskAssigneesResult.data.filter((a) => a.task_id === taskId),
+    [taskAssigneesResult.data]
   );
 
-  const getFollowersForIssue = useCallback(
-    (issueId: string) =>
-      issueFollowersResult.data.filter((f) => f.issue_id === issueId),
-    [issueFollowersResult.data]
+  const getFollowersForTask = useCallback(
+    (taskId: string) =>
+      taskFollowersResult.data.filter((f) => f.task_id === taskId),
+    [taskFollowersResult.data]
   );
 
-  const getTagsForIssue = useCallback(
-    (issueId: string) =>
-      issueTagsResult.data.filter((t) => t.issue_id === issueId),
-    [issueTagsResult.data]
+  const getTagsForTask = useCallback(
+    (taskId: string) => taskTagsResult.data.filter((t) => t.task_id === taskId),
+    [taskTagsResult.data]
   );
 
-  const getTagObjectsForIssue = useCallback(
-    (issueId: string) => {
-      const issueTags = issueTagsResult.data.filter(
-        (t) => t.issue_id === issueId
-      );
-      return issueTags
+  const getTagObjectsForTask = useCallback(
+    (taskId: string) => {
+      const taskTags = taskTagsResult.data.filter((t) => t.task_id === taskId);
+      return taskTags
         .map((it) => tagsById.get(it.tag_id))
         .filter((t): t is Tag => t !== undefined);
     },
-    [issueTagsResult.data, tagsById]
+    [taskTagsResult.data, tagsById]
   );
 
-  const getRelationshipsForIssue = useCallback(
-    (issueId: string) =>
-      issueRelationshipsResult.data.filter(
-        (r) => r.issue_id === issueId || r.related_issue_id === issueId
+  const getRelationshipsForTask = useCallback(
+    (taskId: string) =>
+      taskRelationshipsResult.data.filter(
+        (r) => r.task_id === taskId || r.related_task_id === taskId
       ),
-    [issueRelationshipsResult.data]
+    [taskRelationshipsResult.data]
   );
 
   const getStatus = useCallback(
@@ -207,20 +204,20 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
     [tagsById]
   );
 
-  const getPullRequestsForIssue = useCallback(
-    (issueId: string) => {
-      const prIds = pullRequestIssuesResult.data
-        .filter((link) => link.issue_id === issueId)
+  const getPullRequestsForTask = useCallback(
+    (taskId: string) => {
+      const prIds = pullRequestTasksResult.data
+        .filter((link) => link.task_id === taskId)
         .map((link) => link.pull_request_id);
       const prIdSet = new Set(prIds);
       return pullRequestsResult.data.filter((pr) => prIdSet.has(pr.id));
     },
-    [pullRequestIssuesResult.data, pullRequestsResult.data]
+    [pullRequestTasksResult.data, pullRequestsResult.data]
   );
 
-  const getWorkspacesForIssue = useCallback(
-    (issueId: string) =>
-      workspacesResult.data.filter((w) => w.issue_id === issueId),
+  const getWorkspacesForTask = useCallback(
+    (taskId: string) =>
+      workspacesResult.data.filter((w) => w.task_id === taskId),
     [workspacesResult.data]
   );
 
@@ -229,15 +226,15 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
       projectId,
 
       // Data
-      issues: issuesResult.data,
+      tasks: tasksResult.data,
       statuses: statusesResult.data,
       tags: tagsResult.data,
-      issueAssignees: issueAssigneesResult.data,
-      issueFollowers: issueFollowersResult.data,
-      issueTags: issueTagsResult.data,
-      issueRelationships: issueRelationshipsResult.data,
+      taskAssignees: taskAssigneesResult.data,
+      taskFollowers: taskFollowersResult.data,
+      taskTags: taskTagsResult.data,
+      taskRelationships: taskRelationshipsResult.data,
       pullRequests: pullRequestsResult.data,
-      pullRequestIssues: pullRequestIssuesResult.data,
+      pullRequestTasks: pullRequestTasksResult.data,
       workspaces: workspacesResult.data,
 
       // Loading/error
@@ -246,9 +243,9 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
       retry,
 
       // Issue mutations
-      insertIssue: issuesResult.insert,
-      updateIssue: issuesResult.update,
-      removeIssue: issuesResult.remove,
+      insertTask: tasksResult.insert,
+      updateTask: tasksResult.update,
+      removeTask: tasksResult.remove,
 
       // Status mutations
       insertStatus: statusesResult.insert,
@@ -261,70 +258,70 @@ export function ProjectProvider({ projectId, children }: ProjectProviderProps) {
       removeTag: tagsResult.remove,
 
       // IssueAssignee mutations
-      insertIssueAssignee: issueAssigneesResult.insert,
-      removeIssueAssignee: issueAssigneesResult.remove,
+      insertTaskAssignee: taskAssigneesResult.insert,
+      removeTaskAssignee: taskAssigneesResult.remove,
 
       // IssueFollower mutations
-      insertIssueFollower: issueFollowersResult.insert,
-      removeIssueFollower: issueFollowersResult.remove,
+      insertTaskFollower: taskFollowersResult.insert,
+      removeTaskFollower: taskFollowersResult.remove,
 
       // IssueTag mutations
-      insertIssueTag: issueTagsResult.insert,
-      removeIssueTag: issueTagsResult.remove,
+      insertTaskTag: taskTagsResult.insert,
+      removeTaskTag: taskTagsResult.remove,
 
       // IssueRelationship mutations
-      insertIssueRelationship: issueRelationshipsResult.insert,
-      removeIssueRelationship: issueRelationshipsResult.remove,
+      insertTaskRelationship: taskRelationshipsResult.insert,
+      removeTaskRelationship: taskRelationshipsResult.remove,
 
       // PullRequestIssue mutations
-      insertPullRequestIssue: pullRequestIssuesResult.insert,
-      removePullRequestIssue: pullRequestIssuesResult.remove,
+      insertPullRequestTask: pullRequestTasksResult.insert,
+      removePullRequestTask: pullRequestTasksResult.remove,
 
       // Lookup helpers
-      getIssue,
-      getIssuesForStatus,
-      getAssigneesForIssue,
-      getFollowersForIssue,
-      getTagsForIssue,
-      getTagObjectsForIssue,
-      getRelationshipsForIssue,
+      getTask,
+      getTasksForStatus,
+      getAssigneesForTask,
+      getFollowersForTask,
+      getTagsForTask,
+      getTagObjectsForTask,
+      getRelationshipsForTask,
       getStatus,
       getTag,
-      getPullRequestsForIssue,
-      getWorkspacesForIssue,
+      getPullRequestsForTask,
+      getWorkspacesForTask,
 
       // Computed aggregations
-      issuesById,
+      tasksById,
       statusesById,
       tagsById,
     }),
     [
       projectId,
-      issuesResult,
+      tasksResult,
       statusesResult,
       tagsResult,
-      issueAssigneesResult,
-      issueFollowersResult,
-      issueTagsResult,
-      issueRelationshipsResult,
+      taskAssigneesResult,
+      taskFollowersResult,
+      taskTagsResult,
+      taskRelationshipsResult,
       pullRequestsResult,
-      pullRequestIssuesResult,
+      pullRequestTasksResult,
       workspacesResult,
       isLoading,
       error,
       retry,
-      getIssue,
-      getIssuesForStatus,
-      getAssigneesForIssue,
-      getFollowersForIssue,
-      getTagsForIssue,
-      getTagObjectsForIssue,
-      getRelationshipsForIssue,
+      getTask,
+      getTasksForStatus,
+      getAssigneesForTask,
+      getFollowersForTask,
+      getTagsForTask,
+      getTagObjectsForTask,
+      getRelationshipsForTask,
       getStatus,
       getTag,
-      getPullRequestsForIssue,
-      getWorkspacesForIssue,
-      issuesById,
+      getPullRequestsForTask,
+      getWorkspacesForTask,
+      tasksById,
       statusesById,
       tagsById,
     ]

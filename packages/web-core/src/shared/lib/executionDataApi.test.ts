@@ -19,14 +19,14 @@ describe('execution data API', () => {
   beforeEach(() => {
     makeLocalApiRequest.mockReset();
     makeLocalApiRequest.mockResolvedValue(
-      success({ tasks: [], next_cursor: null })
+      success({ executions: [], next_cursor: null })
     );
   });
 
-  it('uses the canonical Task route with a complete stable cursor', async () => {
-    await executionDataApi.listTasks({
+  it('uses the canonical Execution route with a complete stable cursor', async () => {
+    await executionDataApi.listExecutions({
       projectId: 'project-1',
-      issueId: 'issue-1',
+      taskId: 'issue-1',
       cursor: {
         updated_at: '2026-08-29T12:34:56.789Z',
         id: 'task-1',
@@ -36,25 +36,25 @@ describe('execution data API', () => {
 
     expect(makeLocalApiRequest).toHaveBeenCalledOnce();
     expect(makeLocalApiRequest).toHaveBeenCalledWith(
-      '/api/tasks?project_id=project-1&issue_id=issue-1&cursor_updated_at=2026-08-29T12%3A34%3A56.789Z&cursor_id=task-1&limit=25'
+      '/api/executions?project_id=project-1&task_id=issue-1&cursor_updated_at=2026-08-29T12%3A34%3A56.789Z&cursor_id=task-1&limit=25'
     );
   });
 
   it('uses the canonical Task get and children routes', async () => {
     makeLocalApiRequest
       .mockResolvedValueOnce(success({ id: 'task/one' }))
-      .mockResolvedValueOnce(success({ tasks: [], next_cursor: null }));
+      .mockResolvedValueOnce(success({ executions: [], next_cursor: null }));
 
-    await executionDataApi.getTask('task/one');
-    await executionDataApi.listTaskChildren('task/one', { limit: 10 });
+    await executionDataApi.getExecution('task/one');
+    await executionDataApi.listExecutionChildren('task/one', { limit: 10 });
 
     expect(makeLocalApiRequest).toHaveBeenNthCalledWith(
       1,
-      '/api/tasks/task%2Fone'
+      '/api/executions/task%2Fone'
     );
     expect(makeLocalApiRequest).toHaveBeenNthCalledWith(
       2,
-      '/api/tasks/task%2Fone/children?limit=10'
+      '/api/executions/task%2Fone/children?limit=10'
     );
   });
 
@@ -65,7 +65,7 @@ describe('execution data API', () => {
       .mockResolvedValueOnce(
         success({
           owner: 'local_host',
-          task_queries: true,
+          execution_queries: true,
           execution_actions: true,
         })
       );

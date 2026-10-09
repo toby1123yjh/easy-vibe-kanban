@@ -1,3 +1,4 @@
+import { getCurrentHostId } from '@/shared/providers/HostIdProvider';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import type {
   WorkflowTemplateListResponse,
@@ -71,9 +72,10 @@ export function parseWorkflowEvent(
   return null;
 }
 
-async function localFetch(
+async function localRequest(
   path: string,
-  init: RequestInit = {}
+  init: RequestInit = {},
+  hostId?: string | null
 ): Promise<Response> {
   const headers = new Headers(init.headers ?? {});
   if (init.body && !headers.has('Content-Type')) {
@@ -82,7 +84,8 @@ async function localFetch(
   return makeLocalApiRequest(`${LOCAL_BASE}${path}`, {
     ...init,
     headers,
-    hostScope: 'none',
+    hostScope: 'explicit',
+    hostId: hostId === undefined ? getCurrentHostId() : hostId,
   });
 }
 
@@ -147,252 +150,264 @@ export interface SelectConditionBranchRequest {
   reason?: string | null;
 }
 
-export const workflowApi = {
-  async fileChanges(runId: string): Promise<WorkflowFileChangeSummary> {
-    return getJson(
-      await localFetch(`/workflow-runs/${runId}/file-changes`),
-      'Failed to load workflow file changes'
-    );
-  },
-  async setExternalAccess(
-    workflowId: string,
-    enabled: boolean
-  ): Promise<WorkflowTemplateResponse> {
-    return mutate(
-      await localFetch(`/workflows/${workflowId}/external-access`, {
-        method: 'PUT',
-        body: JSON.stringify({ enabled }),
-      }),
-      'Failed to update external access'
-    );
-  },
+export function createWorkflowApi(hostId?: string | null) {
+  const localFetch = (path: string, init?: RequestInit) =>
+    localRequest(path, init, hostId);
+  return {
+    async fileChanges(runId: string): Promise<WorkflowFileChangeSummary> {
+      return getJson(
+        await localFetch(`/workflow-runs/${runId}/file-changes`),
+        'Failed to load workflow file changes'
+      );
+    },
+    async setExternalAccess(
+      workflowId: string,
+      enabled: boolean
+    ): Promise<WorkflowTemplateResponse> {
+      return mutate(
+        await localFetch(`/workflows/${workflowId}/external-access`, {
+          method: 'PUT',
+          body: JSON.stringify({ enabled }),
+        }),
+        'Failed to update external access'
+      );
+    },
 
-  async list(projectId: string): Promise<WorkflowTemplateListResponse> {
-    return getJson(
-      await localFetch(`/projects/${projectId}/workflows`),
-      'Failed to list workflows'
-    );
-  },
+    async list(projectId: string): Promise<WorkflowTemplateListResponse> {
+      return getJson(
+        await localFetch(`/projects/${projectId}/workflows`),
+        'Failed to list workflows'
+      );
+    },
 
-  async create(
-    projectId: string,
-    payload: CreateWorkflowRequest
-  ): Promise<WorkflowTemplateResponse> {
-    return mutate(
-      await localFetch(`/projects/${projectId}/workflows`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to create workflow'
-    );
-  },
-
-  async get(workflowId: string): Promise<WorkflowTemplateResponse> {
-    return getJson(
-      await localFetch(`/workflows/${workflowId}`),
-      'Failed to get workflow'
-    );
-  },
-
-  async update(
-    workflowId: string,
-    payload: UpdateWorkflowRequest
-  ): Promise<WorkflowTemplateResponse> {
-    return mutate(
-      await localFetch(`/workflows/${workflowId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to update workflow'
-    );
-  },
-
-  async delete(workflowId: string): Promise<void> {
-    const response = await localFetch(`/workflows/${workflowId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      throw await parseError(response, 'Failed to delete workflow');
-    }
-    // Consume DeleteResponse payload
-    await response.json();
-  },
-
-  async trigger(
-    workflowId: string,
-    payload: TriggerWorkflowRequest
-  ): Promise<WorkflowRunResponse> {
-    return mutate(
-      await localFetch(`/workflows/${workflowId}/trigger`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to trigger workflow'
-    );
-  },
-
-  async listAttempts(
-    projectId: string,
-    issueId: string
-  ): Promise<WorkflowAttemptListResponse> {
-    return getJson(
-      await localFetch(
-        `/projects/${projectId}/issues/${issueId}/workflow-attempts`
-      ),
-      'Failed to list workflow attempts'
-    );
-  },
-
-  async listProjectAttempts(
-    projectId: string
-  ): Promise<WorkflowAttemptListResponse> {
-    return getJson(
-      await localFetch(`/projects/${projectId}/workflow-attempts`),
-      'Failed to list project workflow attempts'
-    );
-  },
-
-  async createAttempt(
-    projectId: string,
-    issueId: string,
-    payload: CreateWorkflowAttemptPayload
-  ): Promise<WorkflowAttemptResponse> {
-    return mutate(
-      await localFetch(
-        `/projects/${projectId}/issues/${issueId}/workflow-attempts`,
-        {
+    async create(
+      projectId: string,
+      payload: CreateWorkflowRequest
+    ): Promise<WorkflowTemplateResponse> {
+      return mutate(
+        await localFetch(`/projects/${projectId}/workflows`, {
           method: 'POST',
           body: JSON.stringify(payload),
-        }
-      ),
-      'Failed to create workflow attempt'
-    );
-  },
+        }),
+        'Failed to create workflow'
+      );
+    },
 
-  async getAttempt(attemptId: string): Promise<WorkflowAttemptResponse> {
-    return getJson(
-      await localFetch(`/workflow-attempts/${attemptId}`),
-      'Failed to get workflow attempt'
-    );
-  },
+    async get(workflowId: string): Promise<WorkflowTemplateResponse> {
+      return getJson(
+        await localFetch(`/workflows/${workflowId}`),
+        'Failed to get workflow'
+      );
+    },
 
-  async deleteAttempt(attemptId: string): Promise<void> {
-    const response = await localFetch(`/workflow-attempts/${attemptId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      throw await parseError(response, 'Failed to delete workflow attempt');
-    }
-    await response.json();
-  },
+    async update(
+      workflowId: string,
+      payload: UpdateWorkflowRequest
+    ): Promise<WorkflowTemplateResponse> {
+      return mutate(
+        await localFetch(`/workflows/${workflowId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+        'Failed to update workflow'
+      );
+    },
 
-  async getAttemptForWorkflow(
-    workflowId: string
-  ): Promise<WorkflowAttemptResponse | null> {
-    return getJson(
-      await localFetch(`/workflows/${workflowId}/attempt`),
-      'Failed to get workflow attempt'
-    );
-  },
+    async delete(workflowId: string): Promise<void> {
+      const response = await localFetch(`/workflows/${workflowId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw await parseError(response, 'Failed to delete workflow');
+      }
+      // Consume DeleteResponse payload
+      await response.json();
+    },
 
-  async runAttempt(
-    attemptId: string,
-    payload: RunWorkflowAttemptPayload
-  ): Promise<WorkflowRunResponse> {
-    return mutate(
-      await localFetch(`/workflow-attempts/${attemptId}/run`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to run workflow attempt'
-    );
-  },
-
-  async getRun(runId: string): Promise<WorkflowRunResponse> {
-    return getJson(
-      await localFetch(`/workflow-runs/${runId}`),
-      'Failed to get workflow run'
-    );
-  },
-
-  async cancelRun(runId: string): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(`/workflow-runs/${runId}/cancel`, {
-        method: 'POST',
-      }),
-      'Failed to cancel workflow run'
-    );
-  },
-
-  async approve(
-    runId: string,
-    nodeId: string,
-    payload: ApproveNodeRequest
-  ): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/approve`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to approve node'
-    );
-  },
-
-  async reject(
-    runId: string,
-    nodeId: string,
-    payload: RejectNodeRequest
-  ): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/reject`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to reject node'
-    );
-  },
-
-  async retry(runId: string, nodeId: string): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/retry`, {
-        method: 'POST',
-      }),
-      'Failed to retry node'
-    );
-  },
-
-  async selectArenaWinner(
-    runId: string,
-    nodeId: string,
-    payload: SelectArenaWinnerRequest
-  ): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/arena-winner`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-      'Failed to select arena winner'
-    );
-  },
-
-  async selectConditionBranch(
-    runId: string,
-    nodeId: string,
-    payload: SelectConditionBranchRequest
-  ): Promise<WorkflowActionResponse> {
-    return mutate(
-      await localFetch(
-        `/workflow-runs/${runId}/nodes/${nodeId}/condition-branch`,
-        {
+    async trigger(
+      workflowId: string,
+      payload: TriggerWorkflowRequest
+    ): Promise<WorkflowRunResponse> {
+      return mutate(
+        await localFetch(`/workflows/${workflowId}/trigger`, {
           method: 'POST',
           body: JSON.stringify(payload),
-        }
-      ),
-      'Failed to select condition branch'
-    );
-  },
+        }),
+        'Failed to trigger workflow'
+      );
+    },
 
-  eventsUrl(runId: string): string {
-    return `${LOCAL_BASE}/workflow-runs/${runId}/events`;
-  },
-};
+    async listAttempts(
+      projectId: string,
+      taskId: string
+    ): Promise<WorkflowAttemptListResponse> {
+      return getJson(
+        await localFetch(
+          `/projects/${projectId}/tasks/${taskId}/workflow-attempts`
+        ),
+        'Failed to list workflow attempts'
+      );
+    },
+
+    async listProjectAttempts(
+      projectId: string
+    ): Promise<WorkflowAttemptListResponse> {
+      return getJson(
+        await localFetch(`/projects/${projectId}/workflow-attempts`),
+        'Failed to list project workflow attempts'
+      );
+    },
+
+    async createAttempt(
+      projectId: string,
+      taskId: string,
+      payload: CreateWorkflowAttemptPayload
+    ): Promise<WorkflowAttemptResponse> {
+      return mutate(
+        await localFetch(
+          `/projects/${projectId}/tasks/${taskId}/workflow-attempts`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+        'Failed to create workflow attempt'
+      );
+    },
+
+    async getAttempt(attemptId: string): Promise<WorkflowAttemptResponse> {
+      return getJson(
+        await localFetch(`/workflow-attempts/${attemptId}`),
+        'Failed to get workflow attempt'
+      );
+    },
+
+    async deleteAttempt(attemptId: string): Promise<void> {
+      const response = await localFetch(`/workflow-attempts/${attemptId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw await parseError(response, 'Failed to delete workflow attempt');
+      }
+      await response.json();
+    },
+
+    async getAttemptForWorkflow(
+      workflowId: string
+    ): Promise<WorkflowAttemptResponse | null> {
+      return getJson(
+        await localFetch(`/workflows/${workflowId}/attempt`),
+        'Failed to get workflow attempt'
+      );
+    },
+
+    async runAttempt(
+      attemptId: string,
+      payload: RunWorkflowAttemptPayload
+    ): Promise<WorkflowRunResponse> {
+      return mutate(
+        await localFetch(`/workflow-attempts/${attemptId}/run`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+        'Failed to run workflow attempt'
+      );
+    },
+
+    async getRun(runId: string): Promise<WorkflowRunResponse> {
+      return getJson(
+        await localFetch(`/workflow-runs/${runId}`),
+        'Failed to get workflow run'
+      );
+    },
+
+    async cancelRun(runId: string): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(`/workflow-runs/${runId}/cancel`, {
+          method: 'POST',
+        }),
+        'Failed to cancel workflow run'
+      );
+    },
+
+    async approve(
+      runId: string,
+      nodeId: string,
+      payload: ApproveNodeRequest
+    ): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/approve`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+        'Failed to approve node'
+      );
+    },
+
+    async reject(
+      runId: string,
+      nodeId: string,
+      payload: RejectNodeRequest
+    ): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/reject`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+        'Failed to reject node'
+      );
+    },
+
+    async retry(
+      runId: string,
+      nodeId: string
+    ): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(`/workflow-runs/${runId}/nodes/${nodeId}/retry`, {
+          method: 'POST',
+        }),
+        'Failed to retry node'
+      );
+    },
+
+    async selectArenaWinner(
+      runId: string,
+      nodeId: string,
+      payload: SelectArenaWinnerRequest
+    ): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(
+          `/workflow-runs/${runId}/nodes/${nodeId}/arena-winner`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+        'Failed to select arena winner'
+      );
+    },
+
+    async selectConditionBranch(
+      runId: string,
+      nodeId: string,
+      payload: SelectConditionBranchRequest
+    ): Promise<WorkflowActionResponse> {
+      return mutate(
+        await localFetch(
+          `/workflow-runs/${runId}/nodes/${nodeId}/condition-branch`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+        'Failed to select condition branch'
+      );
+    },
+
+    eventsUrl(runId: string): string {
+      return `${LOCAL_BASE}/workflow-runs/${runId}/events`;
+    },
+  };
+}
+
+export const workflowApi = createWorkflowApi();

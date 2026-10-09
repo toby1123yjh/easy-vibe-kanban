@@ -84,7 +84,7 @@ test("keeps interactive task controls out of drag activation", async ({
     .getByRole("button", { name: "More actions for VK-1", exact: true })
     .click();
   await expect(
-    page.getByRole("menuitem", { name: "Delete issue" }),
+    page.getByRole("menuitem", { name: "Delete task" }),
   ).toBeVisible();
   await expect(page.getByTestId("move-count")).toHaveText("0");
 });
@@ -103,7 +103,7 @@ test("supports keyboard cross-column movement and emits one Escape event", async
     });
   });
 
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   await card.focus();
   await page.keyboard.press("Space");
   await page.keyboard.press("Escape");
@@ -128,13 +128,13 @@ test("supports keyboard cross-column movement and emits one Escape event", async
     page
       .locator(".vk-kanban-column")
       .nth(1)
-      .locator('[data-issue-id="issue-1"]'),
+      .locator('[data-task-id="issue-1"]'),
   ).toBeAttached();
 });
 
 test("rejects keyboard movement beyond the first column", async ({ page }) => {
   await gotoFixture(page);
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   const announcement = page.locator('.vk-visually-hidden[role="status"]');
 
   await card.focus();
@@ -150,9 +150,9 @@ test("rejects keyboard movement beyond the first column", async ({ page }) => {
 
 test("rejects pointer drops outside the board", async ({ page }) => {
   await gotoFixture(page);
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   const cardBox = await card.boundingBox();
-  if (!cardBox) throw new Error("Issue card did not produce geometry");
+  if (!cardBox) throw new Error("Task card did not produce geometry");
 
   await page.mouse.move(cardBox.x + 24, cardBox.y + 24);
   await page.mouse.down();
@@ -165,7 +165,7 @@ test("rejects pointer drops outside the board", async ({ page }) => {
     page
       .locator(".vk-kanban-column")
       .first()
-      .locator('[data-issue-id="issue-1"]'),
+      .locator('[data-task-id="issue-1"]'),
   ).toBeAttached();
 });
 
@@ -173,9 +173,9 @@ test("uses the pointer threshold and supports cross-column movement", async ({
   page,
 }) => {
   await gotoFixture(page);
-  const card = page.locator('[data-issue-id="issue-1"]');
+  const card = page.locator('[data-task-id="issue-1"]');
   const cardBox = await card.boundingBox();
-  if (!cardBox) throw new Error("Issue card did not produce geometry");
+  if (!cardBox) throw new Error("Task card did not produce geometry");
 
   await page.mouse.move(cardBox.x + 24, cardBox.y + 24);
   await page.mouse.down();
@@ -186,7 +186,7 @@ test("uses the pointer threshold and supports cross-column movement", async ({
 
   await card.click();
   await expect(
-    page.getByRole("complementary", { name: "Issue details" }),
+    page.getByRole("complementary", { name: "Task details" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close panel" }).click();
 
@@ -204,14 +204,14 @@ test("uses the pointer threshold and supports cross-column movement", async ({
   });
   await page.mouse.up();
   await expect(page.getByTestId("move-count")).toHaveText("1");
-  await expect(destination.locator('[data-issue-id="issue-1"]')).toBeAttached();
+  await expect(destination.locator('[data-task-id="issue-1"]')).toBeAttached();
 });
 
 test("supports keyboard pickup, cancellation, drop, and mutation rollback", async ({
   page,
 }) => {
   await gotoFixture(page);
-  const firstCard = page.locator('[data-issue-id="issue-1"]');
+  const firstCard = page.locator('[data-task-id="issue-1"]');
 
   await firstCard.focus();
   await page.keyboard.press("Space");
@@ -254,7 +254,7 @@ test("supports keyboard pickup, cancellation, drop, and mutation rollback", asyn
     page
       .locator(".vk-kanban-column")
       .first()
-      .locator('[data-issue-id="issue-1"]'),
+      .locator('[data-task-id="issue-1"]'),
   ).toBeAttached();
 });
 
@@ -266,8 +266,8 @@ test("floating panel preserves board geometry and becomes full-screen on mobile"
   await gotoFixture(page);
   const board = page.locator(".vk-kanban-scroll");
   const before = await board.boundingBox();
-  await page.locator('[data-issue-id="issue-1"]').press("Enter");
-  const panel = page.getByRole("complementary", { name: "Issue details" });
+  await page.locator('[data-task-id="issue-1"]').press("Enter");
+  const panel = page.getByRole("complementary", { name: "Task details" });
   await expect(panel).toBeVisible();
   expect(await board.boundingBox()).toEqual(before);
   const desktopBox = await panel.boundingBox();
@@ -281,13 +281,13 @@ test("floating panel preserves board geometry and becomes full-screen on mobile"
   });
   await gotoFixture(mobile);
   const handle = mobile.locator(
-    '[data-issue-id="issue-1"] [data-touch-drag-handle]',
+    '[data-task-id="issue-1"] [data-touch-drag-handle]',
   );
   await expect(handle).toBeVisible();
   expect(await handle.boundingBox()).toMatchObject({ width: 44, height: 44 });
-  await mobile.locator('[data-issue-id="issue-1"]').press("Enter");
+  await mobile.locator('[data-task-id="issue-1"]').press("Enter");
   const mobilePanel = mobile.getByRole("complementary", {
-    name: "Issue details",
+    name: "Task details",
   });
   await expect(mobilePanel).toHaveCSS("position", "fixed");
   expect(await mobilePanel.boundingBox()).toEqual({

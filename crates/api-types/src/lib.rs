@@ -1,15 +1,17 @@
 //! API types shared between local and remote backends.
 //!
 //! This crate contains:
-//! - Row types (e.g., `Issue`, `Project`) - the API representation of database entities
-//! - Request types (e.g., `CreateIssueRequest`, `UpdateIssueRequest`) - API input types
-//! - Shared enums (e.g., `IssuePriority`, `PullRequestStatus`)
+//! - Row types (e.g., `Task`, `Project`) - the API representation of database entities
+//! - Request types (e.g., `CreateTaskRequest`, `UpdateTaskRequest`) - API input types
+//! - Shared enums (e.g., `TaskPriority`, `PullRequestStatus`)
 
 use serde::{Deserialize, Deserializer};
 
 pub mod attachment;
+pub mod attachment_upload;
 pub mod auth;
 pub mod blob;
+pub mod contracts;
 pub mod export;
 pub mod issue;
 pub mod issue_assignee;
@@ -29,11 +31,14 @@ pub mod pull_requests_local;
 pub mod response;
 pub mod selected_skill;
 pub mod tag;
+#[cfg(feature = "typescript")]
+pub mod typescript;
 pub mod user;
 pub mod workspace;
 pub mod workspaces;
 
 pub use attachment::*;
+pub use attachment_upload::*;
 pub use auth::*;
 pub use blob::*;
 pub use export::*;

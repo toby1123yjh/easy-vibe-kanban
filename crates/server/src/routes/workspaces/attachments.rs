@@ -52,12 +52,14 @@ pub struct AssociateWorkspaceAttachmentsRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
-pub struct ImportIssueAttachmentsRequest {
+pub struct ImportTaskAttachmentsRequest {
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
 #[derive(Debug, Serialize, TS)]
-pub struct ImportIssueAttachmentsResponse {
+pub struct ImportTaskAttachmentsResponse {
     pub attachment_ids: Vec<Uuid>,
 }
 
@@ -116,8 +118,8 @@ pub async fn associate_workspace_attachments(
 pub async fn import_issue_attachments(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
-    axum::Json(payload): axum::Json<ImportIssueAttachmentsRequest>,
-) -> Result<ResponseJson<ApiResponse<ImportIssueAttachmentsResponse>>, ApiError> {
+    axum::Json(payload): axum::Json<ImportTaskAttachmentsRequest>,
+) -> Result<ResponseJson<ApiResponse<ImportTaskAttachmentsResponse>>, ApiError> {
     let client = deployment.remote_client()?;
     let imported_attachments =
         import_issue_attachments_from_remote(&client, deployment.file(), payload.issue_id).await?;
@@ -135,7 +137,7 @@ pub async fn import_issue_attachments(
         .await?;
 
     Ok(ResponseJson(ApiResponse::success(
-        ImportIssueAttachmentsResponse { attachment_ids },
+        ImportTaskAttachmentsResponse { attachment_ids },
     )))
 }
 
@@ -399,7 +401,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let metadata_router = Router::new()
         .route("/", get(get_workspace_files))
         .route("/associate", post(associate_workspace_attachments))
-        .route("/import-issue-attachments", post(import_issue_attachments))
+        .route("/import-task-attachments", post(import_issue_attachments))
         .route("/metadata", get(get_attachment_metadata))
         .route(
             "/upload",

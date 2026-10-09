@@ -70,7 +70,8 @@ pub struct ProjectFallbackQuery {
 
 /// Query params for issue-scoped fallback handlers.
 #[derive(Debug, Deserialize)]
-pub struct IssueFallbackQuery {
+pub struct TaskFallbackQuery {
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
@@ -105,10 +106,10 @@ pub enum ShapeScope {
     /// Electric params: `[project_id]`
     Project,
 
-    /// Issue-scoped: `{issue_id}` from URL path.
+    /// Task-scoped: `{issue_id}` from URL path.
     /// Auth: `assert_issue_access(issue_id, user_id)`
     /// Electric params: `[issue_id]`
-    Issue,
+    Task,
 
     /// User-scoped: no client-provided scope param.
     /// Auth: none (implicit — user can only see their own data)
@@ -236,7 +237,7 @@ fn build_proxy_handler(
             },
         ),
 
-        ShapeScope::Issue => get(
+        ShapeScope::Task => get(
             move |State(state): State<AppState>,
                   Extension(ctx): Extension<RequestContext>,
                   Path(issue_id): Path<Uuid>,

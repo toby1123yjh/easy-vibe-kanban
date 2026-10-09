@@ -10,7 +10,7 @@ use db::models::{
     merge::MergeStatus,
     pull_request::PullRequest,
     session::Session,
-    task::{CreateTask, Task, TaskExecutionKind},
+    task::{CreateExecution, Execution, ExecutionKind},
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -24,6 +24,7 @@ use crate::{DeploymentImpl, error::ApiError, middleware::load_workspace_middlewa
 #[derive(Debug, Deserialize)]
 pub struct LinkWorkspaceRequest {
     pub project_id: Uuid,
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
@@ -32,7 +33,7 @@ async fn ensure_local_agent_task(
     workspace: &Workspace,
     project_id: Uuid,
     issue_id: Uuid,
-) -> Result<Task, ApiError> {
+) -> Result<Execution, ApiError> {
     let issue_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM local_issues WHERE id = ? AND project_id = ?)",
     )
@@ -46,10 +47,10 @@ async fn ensure_local_agent_task(
         )));
     }
 
-    if let Some(task) = Task::find_agent_by_workspace_id(pool, workspace.id).await? {
+    if let Some(task) = Execution::find_agent_by_workspace_id(pool, workspace.id).await? {
         if task.project_id != project_id || task.issue_id != issue_id {
             return Err(ApiError::Conflict(format!(
-                "workspace {} is already owned by immutable Task {}",
+                "workspace {} is already owned by immutable Execution {}",
                 workspace.id, task.id
             )));
         }
@@ -60,7 +61,7 @@ async fn ensure_local_agent_task(
         .await?
         .ok_or_else(|| {
             ApiError::Conflict(
-                "An Agent Task can only be created after its Session exists".to_string(),
+                "An Agent Execution can only be created after its Session exists".to_string(),
             )
         })?;
     let title = workspace
@@ -71,15 +72,15 @@ async fn ensure_local_agent_task(
         .unwrap_or("Agent task")
         .to_string();
 
-    Ok(Task::create_agent_task(
+    Ok(Execution::create_agent_task(
         pool,
-        &CreateTask {
+        &CreateExecution {
             id: Uuid::new_v4(),
             project_id,
             issue_id,
             parent_task_id: None,
             title,
-            execution_kind: TaskExecutionKind::Agent,
+            execution_kind: ExecutionKind::Agent,
         },
         session.id,
     )
@@ -90,7 +91,7 @@ async fn delete_local_agent_task(
     pool: &sqlx::SqlitePool,
     workspace_id: Uuid,
 ) -> Result<(), ApiError> {
-    Task::delete_agent_by_workspace_id(pool, workspace_id).await?;
+    Execution::delete_agent_by_workspace_id(pool, workspace_id).await?;
     Ok(())
 }
 
@@ -100,6 +101,15 @@ pub(crate) async fn link_workspace_to_issue(
     project_id: Uuid,
     issue_id: Uuid,
 ) -> Result<(), ApiError> {
+    // Existing local sessions keep their immutable ownership/history even if a
+    // project directory becomes unavailable. Only new links need live task data.
+    if Execution::find_agent_by_workspace_id(&deployment.db().pool, workspace.id)
+        .await?
+        .is_none()
+    {
+        crate::routes::project_store::require_task(&deployment.db().pool, project_id, issue_id)
+            .await?;
+    }
     ensure_local_agent_task(&deployment.db().pool, workspace, project_id, issue_id).await?;
 
     if let Ok(client) = deployment.remote_client() {
@@ -217,7 +227,7 @@ mod tests {
     use chrono::Utc;
     use db::models::{
         session::{CreateSession, Session},
-        task::Task,
+        task::Execution,
         workspace::{ContainerOwnership, Workspace, WorkspaceKind},
     };
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -355,7 +365,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO tasks (id, project_id, issue_id, title, execution_kind) VALUES (?, ?, ?, 'Task', 'agent')")
+        sqlx::query("INSERT INTO tasks (id, project_id, issue_id, title, execution_kind) VALUES (?, ?, ?, 'Execution', 'agent')")
             .bind(task_id)
             .bind(Uuid::new_v4())
             .bind(Uuid::new_v4())
@@ -371,7 +381,7 @@ mod tests {
 
         delete_local_agent_task(&pool, workspace_id).await.unwrap();
         assert!(
-            Task::find_agent_by_workspace_id(&pool, workspace_id)
+            Execution::find_agent_by_workspace_id(&pool, workspace_id)
                 .await
                 .unwrap()
                 .is_none()

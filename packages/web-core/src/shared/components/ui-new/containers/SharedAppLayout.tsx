@@ -53,11 +53,19 @@ export function SharedAppLayout() {
         },
         projects: {
           availability: 'available',
-          navigate: () => void navigate({ to: '/projects' }),
+          navigate: () =>
+            void navigate({
+              to: '/projects',
+              search: { host_id: hostId ?? undefined },
+            }),
         },
         workflows: {
           availability: 'available',
-          navigate: () => void navigate({ to: '/workflows' }),
+          navigate: () =>
+            void navigate({
+              to: '/workflows',
+              search: { host_id: hostId ?? undefined },
+            }),
         },
         agents: {
           availability: 'available',
@@ -108,8 +116,16 @@ export function SharedAppLayout() {
           return;
         }
         if (route === '/dashboard') void navigate({ to: '/dashboard' });
-        else if (route === '/projects') void navigate({ to: '/projects' });
-        else if (route === '/workflows') void navigate({ to: '/workflows' });
+        else if (route === '/projects')
+          void navigate({
+            to: '/projects',
+            search: { host_id: hostId ?? undefined },
+          });
+        else if (route === '/workflows')
+          void navigate({
+            to: '/workflows',
+            search: { host_id: hostId ?? undefined },
+          });
       },
       openSettings: () => openSettings(),
       openUser: () => {

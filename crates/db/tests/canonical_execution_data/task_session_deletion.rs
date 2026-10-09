@@ -50,7 +50,7 @@ impl Fixture {
             self.project_id,
             self.issue_id,
             parent_task_id,
-            "Task",
+            "Execution",
             kind,
             BASELINE,
         )
@@ -58,14 +58,14 @@ impl Fixture {
     }
 
     async fn delete(&self) -> Result<(), SessionError> {
-        Task::delete_agent_with_session(&self.pool, self.task_id, self.session_id).await
+        Execution::delete_agent_with_session(&self.pool, self.task_id, self.session_id).await
     }
 
     async fn assert_retained(&self) {
-        let task = Task::find_agent_by_session_id(&self.pool, self.session_id)
+        let task = Execution::find_agent_by_session_id(&self.pool, self.session_id)
             .await
             .unwrap()
-            .expect("Task binding must survive failed deletion");
+            .expect("Execution binding must survive failed deletion");
         assert_eq!(task.id, self.task_id);
         for (table, id) in [
             ("tasks", self.task_id),
@@ -246,7 +246,7 @@ async fn exact_deletion_cleans_owned_history_and_preserves_siblings_and_parents(
         assert_eq!(count(pool, table, id).await, 1, "{table}");
     }
     assert_eq!(
-        Task::find_agent_by_session_id(pool, sibling_session_id)
+        Execution::find_agent_by_session_id(pool, sibling_session_id)
             .await
             .unwrap()
             .unwrap()
@@ -264,19 +264,23 @@ async fn exact_deletion_cleans_owned_history_and_preserves_siblings_and_parents(
 async fn unknown_task_wrong_session_and_wrong_execution_kind_do_not_delete() {
     let fixture = Fixture::new().await;
     assert!(matches!(
-        Task::delete_agent_with_session(&fixture.pool, uuid(99_999), fixture.session_id).await,
-        Err(SessionError::Task(TaskError::NotFound { .. }))
+        Execution::delete_agent_with_session(&fixture.pool, uuid(99_999), fixture.session_id).await,
+        Err(SessionError::Execution(ExecutionError::NotFound { .. }))
     ));
     assert!(matches!(
-        Task::delete_agent_with_session(&fixture.pool, fixture.task_id, uuid(99_999)).await,
-        Err(SessionError::Task(TaskError::InvalidBinding { .. }))
+        Execution::delete_agent_with_session(&fixture.pool, fixture.task_id, uuid(99_999)).await,
+        Err(SessionError::Execution(
+            ExecutionError::InvalidBinding { .. }
+        ))
     ));
     for kind in ["workflow", "arena"] {
         let task_id = Uuid::new_v4();
         fixture.add_task(task_id, None, kind).await;
         assert!(matches!(
-            Task::delete_agent_with_session(&fixture.pool, task_id, fixture.session_id).await,
-            Err(SessionError::Task(TaskError::DeletionBlocked { .. }))
+            Execution::delete_agent_with_session(&fixture.pool, task_id, fixture.session_id).await,
+            Err(SessionError::Execution(
+                ExecutionError::DeletionBlocked { .. }
+            ))
         ));
         assert_eq!(count(&fixture.pool, "tasks", task_id).await, 1);
     }
@@ -293,7 +297,9 @@ async fn missing_binding_is_not_repaired_by_deleting_the_supplied_session() {
         .unwrap();
     assert!(matches!(
         fixture.delete().await,
-        Err(SessionError::Task(TaskError::InvalidBinding { .. }))
+        Err(SessionError::Execution(
+            ExecutionError::InvalidBinding { .. }
+        ))
     ));
     assert_eq!(count(&fixture.pool, "tasks", fixture.task_id).await, 1);
     assert_eq!(
@@ -315,7 +321,9 @@ async fn child_and_descendant_tasks_are_never_deleted_recursively() {
         .await;
     assert!(matches!(
         fixture.delete().await,
-        Err(SessionError::Task(TaskError::DeletionBlocked { .. }))
+        Err(SessionError::Execution(
+            ExecutionError::DeletionBlocked { .. }
+        ))
     ));
     fixture.assert_retained().await;
     for id in [child_id, grandchild_id] {
@@ -333,7 +341,9 @@ async fn child_and_descendant_tasks_are_never_deleted_recursively() {
         .unwrap();
     assert!(matches!(
         child_fixture.delete().await,
-        Err(SessionError::Task(TaskError::DeletionBlocked { .. }))
+        Err(SessionError::Execution(
+            ExecutionError::DeletionBlocked { .. }
+        ))
     ));
     child_fixture.assert_retained().await;
 }
@@ -536,7 +546,7 @@ async fn legacy_workflow_session_reference_cannot_be_silently_cleared() {
         .execute(&fixture.pool)
         .await
         .unwrap();
-    // A migrated node may reference the Session without a canonical child Task.
+    // A migrated node may reference the Session without a canonical child Execution.
     sqlx::query("INSERT INTO node_executions (id, run_id, node_id, node_type, session_id) VALUES (?, ?, 'agent', 'agent', ?)")
         .bind(uuid(27_005))
         .bind(workflow_run_id)

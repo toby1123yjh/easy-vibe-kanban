@@ -1,0 +1,110 @@
+import { useCallback, useState } from 'react';
+import { useParams } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
+import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
+import { buildTaskWorkflowDraft } from '../model/taskWorkflow';
+import {
+  createTaskWorkflowAttemptDraft,
+  toTaskWorkflowAttemptDraftRouteId,
+} from '../model/workflowAttemptDraftStorage';
+import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
+import { getWorkflowDefaultGraphLabels } from './workflowI18n';
+import type { WorkflowTemplateResponse } from 'shared/types';
+
+interface UseCreateTaskWorkflowAttemptOptions {
+  taskId: string;
+  taskTitle: string;
+  taskDescription?: string | null;
+}
+
+interface CreateWorkflowAttemptOptions {
+  template?: WorkflowTemplateResponse | null;
+}
+
+export function useCreateTaskWorkflowAttempt({
+  taskId,
+  taskTitle,
+  taskDescription,
+}: UseCreateTaskWorkflowAttemptOptions) {
+  const { t } = useTranslation('common');
+  const { projectId } = useParams({ strict: false });
+  const navigation = useAppNavigation();
+  const [isPreparingDraft, setIsPreparingDraft] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
+    projectId,
+    taskId,
+    taskTitle,
+  });
+
+  const createWorkflowAttempt = useCallback(
+    async (options: CreateWorkflowAttemptOptions = {}) => {
+      if (!projectId || isPreparingDraft) {
+        return null;
+      }
+
+      setIsPreparingDraft(true);
+      setError(null);
+      try {
+        const workspace = await selectWorkflowRepositories();
+        if (!workspace) {
+          return null;
+        }
+
+        const workflowTitle =
+          taskTitle.trim() || t('workflow.draft.untitledTask');
+        const draftPayload = buildTaskWorkflowDraft({
+          title: taskTitle,
+          description: taskDescription,
+          name: t('workflow.draft.name', { title: workflowTitle }),
+          untitledTitle: t('workflow.draft.untitledTask'),
+          defaultGraphLabels: getWorkflowDefaultGraphLabels(t),
+          templateGraphJson: options.template?.graph_json ?? null,
+          repos: workspace.repos,
+        });
+        const draft = createTaskWorkflowAttemptDraft({
+          projectId,
+          taskId,
+          taskTitle,
+          taskDescription,
+          name:
+            draftPayload.name ??
+            t('workflow.draft.name', { title: workflowTitle }),
+          graphJson: draftPayload.graph_json,
+          repos: workspace.repos,
+          directoryPath: workspace.directory_path,
+        });
+        navigation.goToProjectWorkflowEdit(
+          projectId,
+          toTaskWorkflowAttemptDraftRouteId(draft.id)
+        );
+        return draft;
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : t('workflow.errors.createDraftFailed')
+        );
+        return null;
+      } finally {
+        setIsPreparingDraft(false);
+      }
+    },
+    [
+      projectId,
+      isPreparingDraft,
+      taskId,
+      taskTitle,
+      taskDescription,
+      selectWorkflowRepositories,
+      navigation,
+      t,
+    ]
+  );
+
+  return {
+    createWorkflowAttempt,
+    isCreatingWorkflowAttempt: isPreparingDraft,
+    workflowCreateError: error,
+  };
+}

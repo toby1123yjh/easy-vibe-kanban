@@ -33,7 +33,7 @@ import {
 export interface WorkflowArenaWinnerPanelProps {
   arenaGroupId: string | null;
   className?: string;
-  issueId: string;
+  taskId: string;
   nodeId: string;
   nodeExecutionId: string;
   projectId: string;
@@ -53,7 +53,7 @@ export function WorkflowArenaWinnerPanel(props: WorkflowArenaWinnerPanelProps) {
 function WorkflowArenaWinnerPanelForIdentity({
   arenaGroupId,
   className,
-  issueId,
+  taskId,
   nodeId,
   nodeExecutionId,
   projectId,
@@ -131,7 +131,7 @@ function WorkflowArenaWinnerPanelForIdentity({
   );
 
   const arenaHref = arenaGroupId
-    ? `/projects/${projectId}/issues/${issueId}/arena/${arenaGroupId}`
+    ? `/projects/${projectId}/tasks/${taskId}/arena/${arenaGroupId}`
     : null;
 
   const handleConfirmWinner = async () => {
@@ -246,7 +246,7 @@ function WorkflowArenaWinnerPanelForIdentity({
             <EmptyState compact title={t('workflow.arenaWinner.noAttempts')} />
           ) : null}
           {candidates.map((candidate) => {
-            const workspaceBaseHref = `/projects/${projectId}/issues/${issueId}/workspaces/${candidate.workspaceId}`;
+            const workspaceBaseHref = `/projects/${projectId}/tasks/${taskId}/workspaces/${candidate.workspaceId}`;
             const workspaceHref =
               buildWorkspaceSessionHref(
                 workspaceBaseHref,

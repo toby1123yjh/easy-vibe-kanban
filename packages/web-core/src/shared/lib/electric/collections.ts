@@ -2,6 +2,7 @@ import { electricCollectionOptions } from '@tanstack/electric-db-collection';
 import { createCollection } from '@tanstack/react-db';
 
 import { getAuthRuntime } from '@/shared/lib/auth/runtime';
+import { getCurrentHostId } from '@/shared/providers/HostIdProvider';
 import {
   getRemoteApiUrl,
   isLocalRemoteApiEnabled,
@@ -9,6 +10,7 @@ import {
 } from '@/shared/lib/remoteApi';
 import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
 import type { CollectionConfig, SyncError } from '@/shared/lib/electric/types';
+import { decodeTaskShapeRow, taskShapeCollectionKey } from './taskShapeDecoder';
 
 type ElectricRow = Record<string, unknown> & { [key: string]: unknown };
 
@@ -163,6 +165,10 @@ function buildSourceKey(table: string, params: Record<string, string>): string {
     .map(([key, value]) => `${key}=${value}`)
     .join('&');
   return `${table}?${values}`;
+}
+
+function catalogScopeKey(key: string, hostId: string | null): string {
+  return isLocalRemoteApiEnabled() ? `host:${hostId ?? 'local'}:${key}` : key;
 }
 
 function getRowKey(item: Record<string, unknown>): string {
@@ -416,9 +422,10 @@ function extractFallbackRows(
     throw new Error(`Fallback response for "${table}" is not an object`);
   }
 
-  const rows = (payload as Record<string, unknown>)[table];
+  const publicKey = taskShapeCollectionKey(table);
+  const rows = (payload as Record<string, unknown>)[publicKey];
   if (!Array.isArray(rows)) {
-    throw new Error(`Fallback response missing "${table}" array`);
+    throw new Error(`Fallback response missing "${publicKey}" array`);
   }
 
   return rows as Array<ElectricRow>;
@@ -444,7 +451,9 @@ async function parseResponseError(
       if (bodyText) {
         return withStatus(bodyText);
       }
-    } catch {}
+    } catch {
+      // A failed/empty response body still has the useful HTTP status below.
+    }
 
     return withStatus(fallbackMessage);
   }
@@ -455,6 +464,7 @@ function createFallbackSync(args: {
   shape: ShapeDefinition<unknown>;
   params: Record<string, string>;
   reportError: (error: SyncError) => void;
+  hostId: string | null;
 }) {
   return (syncParams: SyncParams): SyncResult => {
     const runtime = getOrCreateSourceRuntime(args.sourceKey);
@@ -473,7 +483,9 @@ function createFallbackSync(args: {
         try {
           const response = await makeRequest(
             buildFallbackRequestPath(args.shape.fallbackUrl, args.params),
-            { method: 'GET', cache: 'no-store' }
+            { method: 'GET', cache: 'no-store' },
+            true,
+            args.hostId
           );
 
           if (!response.ok) {
@@ -542,12 +554,14 @@ function createHybridSync(args: {
   params: Record<string, string>;
   reportError: (error: SyncError) => void;
   electricSync: SyncConfigLike['sync'];
+  hostId: string | null;
 }) {
   const fallbackSync = createFallbackSync({
     sourceKey: args.sourceKey,
     shape: args.shape,
     params: args.params,
     reportError: args.reportError,
+    hostId: args.hostId,
   });
 
   return (syncParams: SyncParams): SyncResult => {
@@ -562,7 +576,16 @@ function createHybridSync(args: {
     let usingFallback = false;
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
 
-    let activeSync = normalizeSyncResult(args.electricSync(syncParams));
+    let activeSync = normalizeSyncResult(
+      args.electricSync({
+        ...syncParams,
+        write: (message) =>
+          syncParams.write({
+            ...message,
+            value: decodeTaskShapeRow(args.shape.table, message.value),
+          }),
+      })
+    );
 
     const switchToFallback = () => {
       if (isCleanedUp || usingFallback) return;
@@ -636,9 +659,13 @@ function maybeRefreshFallbackAfterMutation(sourceKey: string): void {
 
 export function refreshShapeFallback<TRow extends ElectricRow>(
   shape: ShapeDefinition<TRow>,
-  params: Record<string, string>
+  params: Record<string, string>,
+  hostId: string | null = getCurrentHostId()
 ): void {
-  const sourceKey = buildSourceKey(shape.table, params);
+  const sourceKey = catalogScopeKey(
+    buildSourceKey(shape.table, params),
+    hostId
+  );
   if (!isSourceFallbackLocked(sourceKey)) return;
   invalidateFallbackCache(sourceKey);
   refreshFallbackSource(sourceKey);
@@ -646,7 +673,8 @@ export function refreshShapeFallback<TRow extends ElectricRow>(
 
 function buildMutationHandlers(
   mutation: MutationDefinition<unknown, unknown, unknown>,
-  sourceKey: string
+  sourceKey: string,
+  hostId: string | null
 ) {
   return {
     onInsert: async ({
@@ -655,10 +683,15 @@ function buildMutationHandlers(
       const txids = await Promise.all(
         transaction.mutations.map(async (mutationItem) => {
           const data = mutationItem.modified as Record<string, unknown>;
-          const response = await makeRequest(mutation.url, {
-            method: 'POST',
-            body: JSON.stringify(data),
-          });
+          const response = await makeRequest(
+            mutation.url,
+            {
+              method: 'POST',
+              body: JSON.stringify(data),
+            },
+            true,
+            hostId
+          );
 
           if (!response.ok) {
             const message = await parseResponseError(
@@ -699,10 +732,15 @@ function buildMutationHandlers(
           };
         });
 
-        const response = await makeRequest(`${mutation.url}/bulk`, {
-          method: 'POST',
-          body: JSON.stringify({ updates }),
-        });
+        const response = await makeRequest(
+          `${mutation.url}/bulk`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ updates }),
+          },
+          true,
+          hostId
+        );
 
         if (!response.ok) {
           const message = await parseResponseError(
@@ -725,7 +763,9 @@ function buildMutationHandlers(
           {
             method: 'PATCH',
             body: JSON.stringify(mutationItem.changes),
-          }
+          },
+          true,
+          hostId
         );
 
         if (!response.ok) {
@@ -758,7 +798,9 @@ function buildMutationHandlers(
             `${mutation.url}/${mutationItem.key}`,
             {
               method: 'DELETE',
-            }
+            },
+            true,
+            hostId
           );
 
           if (!response.ok) {
@@ -792,8 +834,16 @@ export function createShapeCollection<TRow extends ElectricRow>(
   mutation?: MutationDefinition<unknown, unknown, unknown>
 ) {
   const hasMutations = Boolean(mutation);
-  const collectionId = buildCollectionId(shape.table, params, hasMutations);
-  const sourceKey = buildSourceKey(shape.table, params);
+  const hostId =
+    config?.hostId !== undefined ? config.hostId : getCurrentHostId();
+  const collectionId = catalogScopeKey(
+    buildCollectionId(shape.table, params, hasMutations),
+    hostId
+  );
+  const sourceKey = catalogScopeKey(
+    buildSourceKey(shape.table, params),
+    hostId
+  );
 
   const cached = collectionCache.get(collectionId);
   if (cached) {
@@ -811,7 +861,7 @@ export function createShapeCollection<TRow extends ElectricRow>(
   });
 
   const mutationHandlers = mutation
-    ? buildMutationHandlers(mutation, sourceKey)
+    ? buildMutationHandlers(mutation, sourceKey, hostId)
     : {};
 
   const electricOptions = electricCollectionOptions({
@@ -829,6 +879,7 @@ export function createShapeCollection<TRow extends ElectricRow>(
     shape,
     params,
     reportError,
+    hostId,
   });
 
   const collectionOptions = {
@@ -843,6 +894,7 @@ export function createShapeCollection<TRow extends ElectricRow>(
             params,
             reportError,
             electricSync: electricSyncConfig.sync,
+            hostId,
           }),
     },
   };

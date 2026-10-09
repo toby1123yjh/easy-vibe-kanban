@@ -28,7 +28,7 @@ export interface KanbanTag {
 export interface KanbanRelationship {
   relationshipId: string;
   displayType: RelationshipDisplayType;
-  relatedIssueDisplayId: string;
+  relatedTaskDisplayId: string;
 }
 
 export interface KanbanPullRequest {
@@ -130,7 +130,7 @@ export type KanbanCardContentProps<TTag extends KanbanTag = KanbanTag> = {
   assignees: KanbanAssigneeUser[];
   pullRequests?: KanbanPullRequest[];
   relationships?: KanbanRelationship[];
-  isSubIssue?: boolean;
+  isSubTask?: boolean;
   isLoading?: boolean;
   className?: string;
   onPriorityClick?: (e: MouseEvent) => void;
@@ -149,7 +149,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
   assignees,
   pullRequests = [],
   relationships = [],
-  isSubIssue,
+  isSubTask,
   isLoading = false,
   className,
   onPriorityClick,
@@ -204,7 +204,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
       {/* Row 1: Task ID + sub-issue indicator + loading dots + more actions */}
       <div className="flex items-center justify-between gap-half">
         <div className="flex items-center gap-half min-w-0">
-          {isSubIssue && (
+          {isSubTask && (
             <span className="text-sm text-low">
               {t('kanban.subIssueIndicator')}
             </span>
@@ -329,7 +329,7 @@ export function KanbanCardContent<TTag extends KanbanTag = KanbanTag>({
             <RelationshipBadge
               key={rel.relationshipId}
               displayType={rel.displayType}
-              relatedIssueDisplayId={rel.relatedIssueDisplayId}
+              relatedTaskDisplayId={rel.relatedTaskDisplayId}
               compact
             />
           ))}

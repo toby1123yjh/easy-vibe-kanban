@@ -34,7 +34,7 @@ const ProjectsGuideDialogImpl = NiceModal.create<NoProps>(() => {
       title: t('kanban.projectsGuide.intro.title', 'Welcome'),
       content: t(
         'kanban.projectsGuide.intro.content',
-        'Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar.'
+        'Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first task. You can re-open this help dialog or give feedback anytime from the navbar.'
       ),
       imageSrc: '/guide-images/welcome.png',
     },
@@ -43,16 +43,16 @@ const ProjectsGuideDialogImpl = NiceModal.create<NoProps>(() => {
       title: t('kanban.projectsGuide.welcome.title', 'Projects'),
       content: t(
         'kanban.projectsGuide.welcome.content',
-        'The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more.'
+        'The project page is where you manage tasks. You can view your tasks as a kanban board, or as a list, and filter by status, tag, assignee and more.'
       ),
       imageSrc: '/guide-images/projects-kanban.png',
     },
     {
-      id: 'issues',
-      title: t('kanban.projectsGuide.issues.title', 'Issues'),
+      id: 'tasks',
+      title: t('kanban.projectsGuide.tasks.title', 'Issues'),
       content: t(
-        'kanban.projectsGuide.issues.content',
-        'Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more.'
+        'kanban.projectsGuide.tasks.content',
+        'Each task represents a feature or problem to solve. Tasks have statuses, priorities, assignees, tags, relationships, comments, sub-tasks and more.'
       ),
       imageSrc: '/guide-images/projects-issue.png',
     },
@@ -61,7 +61,7 @@ const ProjectsGuideDialogImpl = NiceModal.create<NoProps>(() => {
       title: t('kanban.projectsGuide.workspaces.title', 'Workspaces'),
       content: t(
         'kanban.projectsGuide.workspaces.content',
-        'To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens.'
+        'To start working on an task, create a workspace. A single task can have multiple workspaces. Tasks describe the work to be done, workspaces are where the work happens.'
       ),
       imageSrc: '/guide-images/projects-workspaces.png',
     },

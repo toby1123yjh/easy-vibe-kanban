@@ -1,8 +1,8 @@
 const session = {
   id: "session-1",
   workspace_id: "workspace-1",
-  name: "Issue task",
-  issue_id: null as string | null,
+  name: "Task task",
+  task_id: null as string | null,
 };
 export const state = { rows: [] as (typeof session)[], mode: "success" };
 export const workspacesApi = {
@@ -11,9 +11,9 @@ export const workspacesApi = {
     state.rows = [session];
     return { workspace: { id: session.workspace_id } };
   },
-  linkToIssue: async () => {
+  linkToTask: async () => {
     if (state.mode === "link-failure") throw new Error("link failed");
-    state.rows = [{ ...session, issue_id: "issue-1" }];
+    state.rows = [{ ...session, task_id: "issue-1" }];
   },
 };
 export const sessionsApi = {

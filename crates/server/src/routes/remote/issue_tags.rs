@@ -1,4 +1,4 @@
-use api_types::{CreateIssueTagRequest, IssueTag, ListIssueTagsResponse, MutationResponse};
+use api_types::{CreateTaskTagRequest, ListTaskTagsResponse, MutationResponse, TaskTag};
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
@@ -12,23 +12,24 @@ use uuid::Uuid;
 use crate::{DeploymentImpl, error::ApiError};
 
 #[derive(Debug, Deserialize)]
-pub(super) struct ListIssueTagsQuery {
+pub(super) struct ListTaskTagsQuery {
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
 pub(super) fn router() -> Router<DeploymentImpl> {
     Router::new()
-        .route("/issue-tags", get(list_issue_tags).post(create_issue_tag))
+        .route("/task-tags", get(list_issue_tags).post(create_issue_tag))
         .route(
-            "/issue-tags/{issue_tag_id}",
+            "/task-tags/{issue_tag_id}",
             get(get_issue_tag).delete(delete_issue_tag),
         )
 }
 
 async fn list_issue_tags(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<ListIssueTagsQuery>,
-) -> Result<ResponseJson<ApiResponse<ListIssueTagsResponse>>, ApiError> {
+    Query(query): Query<ListTaskTagsQuery>,
+) -> Result<ResponseJson<ApiResponse<ListTaskTagsResponse>>, ApiError> {
     let client = deployment.remote_client()?;
     let response = client.list_issue_tags(query.issue_id).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
@@ -37,7 +38,7 @@ async fn list_issue_tags(
 async fn get_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
-) -> Result<ResponseJson<ApiResponse<IssueTag>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<TaskTag>>, ApiError> {
     let client = deployment.remote_client()?;
     let response = client.get_issue_tag(issue_tag_id).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
@@ -45,8 +46,8 @@ async fn get_issue_tag(
 
 async fn create_issue_tag(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueTagRequest>,
-) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueTag>>>, ApiError> {
+    Json(request): Json<CreateTaskTagRequest>,
+) -> Result<ResponseJson<ApiResponse<MutationResponse<TaskTag>>>, ApiError> {
     let client = deployment.remote_client()?;
     let response = client.create_issue_tag(&request).await?;
     Ok(ResponseJson(ApiResponse::success(response)))

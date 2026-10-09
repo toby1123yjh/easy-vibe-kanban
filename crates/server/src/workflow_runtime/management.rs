@@ -2,7 +2,7 @@
 //! integrations. This module does not start a second scheduler or transcript.
 use std::collections::HashSet;
 
-use api_types::CreateIssueRequest;
+use api_types::CreateTaskRequest;
 use chrono::{DateTime, Utc};
 use db::models::{session::Session, workflow_management::WorkflowMainSessionBinding};
 use executors::profile::ExecutorConfig;
@@ -307,7 +307,7 @@ pub async fn read_workflow_context(
     }))
 }
 
-/// Preparing a discussion Session never creates an Issue, Task or AgentRun.
+/// Preparing a discussion Session never creates an Task, Task or AgentRun.
 pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
     pool: &SqlitePool,
     request: PrepareWorkflowMainSessionRequest,
@@ -326,6 +326,9 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
             "Workflow template is not available in this project".into(),
         ));
     }
+    if let Some(issue_id) = request.issue_id {
+        crate::routes::project_store::require_task(pool, request.project_id, issue_id).await?;
+    }
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     if let Some(issue_id) = request.issue_id {
         let valid: bool = sqlx::query_scalar(
@@ -337,7 +340,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
         .await?;
         if !valid {
             return Err(ApiError::Forbidden(
-                "Issue is not available in this project".into(),
+                "Task is not available in this project".into(),
             ));
         }
     }
@@ -368,7 +371,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
             .unwrap_or(row.try_get("workflow_id")?);
         if publication != request.workflow_id {
             return Err(ApiError::Conflict(
-                "INSTANCE_BINDING_CONFLICT: Issue is bound to a different workflow publication"
+                "INSTANCE_BINDING_CONFLICT: Task is bound to a different workflow publication"
                     .into(),
             ));
         }
@@ -399,7 +402,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
         .is_some_and(|row| row.get::<Uuid, _>("workflow_id") != request.workflow_id)
     {
         return Err(ApiError::Conflict(
-            "Issue already has a main Session for another publication".into(),
+            "Task already has a main Session for another publication".into(),
         ));
     }
     let reopening = bound_id.or(prepared.as_ref().map(|row| row.get("session_id")));
@@ -451,7 +454,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
             .ok_or(ApiError::Unauthorized)?;
         return Ok(WorkflowMainSessionView { session, context });
     }
-    // A second prepare key for the same Issue joins the first durable
+    // A second prepare key for the same Task joins the first durable
     // reservation, including recovery before any Session has been inserted.
     let shared = if let Some(issue_id) = request.issue_id {
         sqlx::query("SELECT * FROM workflow_main_session_requests WHERE issue_id=? ORDER BY created_at,request_id LIMIT 1")
@@ -464,7 +467,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
         .is_some_and(|row| row.get::<Uuid, _>("workflow_id") != request.workflow_id)
     {
         return Err(ApiError::Conflict(
-            "Issue main Session preparation already selected another publication".into(),
+            "Task main Session preparation already selected another publication".into(),
         ));
     }
     if shared
@@ -472,7 +475,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
         .is_some_and(|row| row.get::<Option<String>, _>("completed_at").is_some())
     {
         return Err(ApiError::Conflict(
-            "Issue's prepared original main Session was deleted; it cannot be replaced".into(),
+            "Task's prepared original main Session was deleted; it cannot be replaced".into(),
         ));
     }
     let captured_config = if let Some(row) = &existing_instance {
@@ -548,7 +551,7 @@ pub async fn prepare_workflow_main_session<W: WorkflowWorkspaceResolver>(
             .bind(issue_id).bind(session_id).fetch_one(&mut *tx).await?;
         if other {
             return Err(ApiError::Conflict(
-                "Issue already has a prepared main Session".into(),
+                "Task already has a prepared main Session".into(),
             ));
         }
     }
@@ -883,6 +886,8 @@ pub async fn submit_workflow(
             .await?
             .flatten();
     drop(read_conn);
+    // Business task authority must be available before accepting runtime work.
+    crate::routes::project_store::read(pool, initial_scope.project_id).await?;
     let working_dir = Session::resolve_agent_working_dir(pool, workspace_id).await?;
     if !materials.is_empty() {
         let mut root = std::path::PathBuf::from(
@@ -1027,6 +1032,7 @@ pub async fn submit_workflow(
         )
     };
 
+    let mut staged_task = None;
     let mut graph: WorkflowGraph = if let Some(instance_id) = scope.instance_id {
         let json:String=sqlx::query_scalar("SELECT COALESCE(a.frozen_graph_json,w.graph_json) FROM workflow_attempts a JOIN workflows w ON w.id=a.workflow_id WHERE a.id=?")
             .bind(instance_id).fetch_one(&mut *tx).await?;
@@ -1045,11 +1051,14 @@ pub async fn submit_workflow(
             issue_id
         } else {
             let status_id:Uuid=sqlx::query_scalar("SELECT id FROM local_project_statuses WHERE project_id=? AND hidden=0 ORDER BY CASE WHEN lower(name)='todo' THEN 0 ELSE 1 END,sort_order LIMIT 1")
-                .bind(scope.project_id).fetch_optional(&mut *tx).await?.ok_or_else(||ApiError::Conflict("Project has no Issue status".into()))?;
-            insert_local_issue(
+                .bind(scope.project_id).fetch_optional(&mut *tx).await?.ok_or_else(||ApiError::Conflict("Project has no Task status".into()))?;
+            let (issue_id, staged) = insert_local_issue(
                 &mut tx,
-                CreateIssueRequest {
-                    id: Some(Uuid::new_v4()),
+                CreateTaskRequest {
+                    id: Some(crate::routes::project_store::workflow_task_id(
+                        &scope.namespace,
+                        &submission.request_id,
+                    )),
                     project_id: scope.project_id,
                     status_id,
                     title: input
@@ -1070,12 +1079,14 @@ pub async fn submit_workflow(
                     extension_metadata: Value::Null,
                 },
             )
-            .await?
+            .await?;
+            staged_task = Some(staged);
+            issue_id
         };
         if let Some(existing)=sqlx::query("SELECT a.id,a.workflow_id,s.template_id,a.main_session_id,a.main_session_bound_at,a.workspace_id FROM workflow_attempts a LEFT JOIN workflow_attempt_sources s ON s.attempt_id=a.id WHERE a.issue_id=?")
             .bind(issue_id).fetch_optional(&mut *tx).await? {
             let publication=existing.try_get::<Option<Uuid>,_>("template_id")?.unwrap_or(existing.try_get("workflow_id")?);
-            if publication!=scope.publication_id {return Err(ApiError::Conflict("INSTANCE_BINDING_CONFLICT: Issue already has a different workflow instance".into()));}
+            if publication!=scope.publication_id {return Err(ApiError::Conflict("INSTANCE_BINDING_CONFLICT: Task already has a different workflow instance".into()));}
             let bound_at:Option<String>=existing.try_get("main_session_bound_at")?;
             if bound_at.is_some() && existing.try_get::<Option<Uuid>,_>("main_session_id")?!=scope.main_session_id {
                 return Err(ApiError::Conflict("Workflow instance's original main Session cannot be replaced".into()));
@@ -1086,7 +1097,7 @@ pub async fn submit_workflow(
                 .bind(scope.instance_id).fetch_one(&mut *tx).await?;
             graph=serde_json::from_str(&json).map_err(|_|ApiError::Conflict("Workflow instance graph is invalid".into()))?;
             let latest:Option<Uuid>=sqlx::query_scalar("SELECT latest_run_id FROM workflow_attempts WHERE id=?").bind(scope.instance_id).fetch_one(&mut *tx).await?;
-            if latest.is_some() {return Err(ApiError::Conflict("Issue already has accepted work; read its existing workflow instance first".into()));}
+            if latest.is_some() {return Err(ApiError::Conflict("Task already has accepted work; read its existing workflow instance first".into()));}
         }else{
             let instance_id=Uuid::new_v4();let workflow_id=Uuid::new_v4();
             workflows::insert_workflow_attempt(&mut tx,instance_id,workflow_id,scope.project_id,issue_id,row.try_get("name")?,serde_json::to_string(&graph).map_err(|_|ApiError::BadRequest("Invalid workflow graph".into()))?).await?;
@@ -1104,7 +1115,7 @@ pub async fn submit_workflow(
         .ok_or_else(|| ApiError::Conflict("Workflow instance was not prepared".into()))?;
     let issue_id = scope
         .issue_id
-        .ok_or_else(|| ApiError::Conflict("Workflow Issue was not prepared".into()))?;
+        .ok_or_else(|| ApiError::Conflict("Workflow Task was not prepared".into()))?;
     if let Some(session_id) = scope.main_session_id {
         let attached=sqlx::query("UPDATE workflow_attempts SET main_session_id=?,main_session_bound_at=COALESCE(main_session_bound_at,datetime('now','subsec')),workspace_id=COALESCE(workspace_id,?) WHERE id=? AND (main_session_bound_at IS NULL OR main_session_id=?)")
             .bind(session_id).bind(workspace_id).bind(instance_id).bind(session_id).execute(&mut *tx).await?.rows_affected();
@@ -1236,6 +1247,9 @@ pub async fn submit_workflow(
         .await?;
     }
     let view = accepted_view_in(&mut tx, run_id, &submission.request_id).await?;
+    if let Some(staged) = staged_task {
+        staged.publish()?;
+    }
     tx.commit().await?;
     Ok(view)
 }

@@ -32,7 +32,7 @@ async fn list_pull_requests(
 /// changes and sync them to the remote. No remote server call is made here;
 /// the actual remote PR creation is handled by the Electric mutation system.
 #[derive(Debug, Deserialize, Serialize, TS)]
-pub struct LinkPrToIssueRequest {
+pub struct LinkPrToTaskRequest {
     pub pr_url: String,
     pub pr_number: i32,
     pub base_branch: String,
@@ -40,7 +40,7 @@ pub struct LinkPrToIssueRequest {
 
 async fn link_pr_to_issue(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<LinkPrToIssueRequest>,
+    Json(request): Json<LinkPrToTaskRequest>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     PullRequest::create(
         &deployment.db().pool,

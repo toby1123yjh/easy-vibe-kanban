@@ -27,13 +27,13 @@ function App() {
     <>
       <CreateChatBoxContainer
         onWorkspaceCreated={(id) => fixture.created.push(id)}
-        requiredLinkedIssue={
-          new URLSearchParams(location.search).has("requiredIssue")
+        requiredLinkedTask={
+          new URLSearchParams(location.search).has("requiredTask")
             ? {
                 remoteProjectId: "project-1",
-                issueId: "route-issue",
+                taskId: "route-issue",
                 simpleId: "P-ROUTE",
-                title: "Route-owned Issue",
+                title: "Route-owned Task",
               }
             : undefined
         }

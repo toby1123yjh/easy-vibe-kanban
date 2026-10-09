@@ -70,9 +70,9 @@ const navigation: AppNavigation = {
   goToProjectWorkflows: noop,
   goToProjectWorkflowEdit: noop,
   goToProjectWorkflowRun: noop,
-  goToProjectIssue: noop,
-  goToProjectIssueWorkspace: noop,
-  goToProjectIssueWorkspaceCreate: noop,
+  goToProjectTask: noop,
+  goToProjectTaskWorkspace: noop,
+  goToProjectTaskWorkspaceCreate: noop,
   goToProjectWorkspaceCreate: noop,
 };
 

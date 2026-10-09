@@ -5,9 +5,9 @@ import {
   type KanbanRouteState,
 } from '@/shared/lib/routes/appNavigation';
 import {
-  buildKanbanIssueComposerKey,
-  useKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  useKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 
 export function useCurrentKanbanRouteState(): KanbanRouteState {
   const destination = useCurrentAppDestination();
@@ -15,15 +15,15 @@ export function useCurrentKanbanRouteState(): KanbanRouteState {
     () => resolveKanbanRouteState(destination),
     [destination]
   );
-  const issueComposerKey = useMemo(() => {
+  const taskComposerKey = useMemo(() => {
     if (!routeState.projectId) {
       return null;
     }
 
-    return buildKanbanIssueComposerKey(routeState.hostId, routeState.projectId);
+    return buildKanbanTaskComposerKey(routeState.hostId, routeState.projectId);
   }, [routeState.hostId, routeState.projectId]);
-  const issueComposer = useKanbanIssueComposer(issueComposerKey);
-  const isCreateMode = issueComposer !== null;
+  const taskComposer = useKanbanTaskComposer(taskComposerKey);
+  const isCreateMode = taskComposer !== null;
 
   return useMemo(
     () => ({

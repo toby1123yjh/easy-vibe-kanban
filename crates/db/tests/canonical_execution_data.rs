@@ -1,7 +1,7 @@
 use db::models::{
     project::Project,
     session::Session,
-    task::{Task, TaskError, TaskExecutionKind, TaskOpenTarget, TaskStatus},
+    task::{Execution, ExecutionError, ExecutionKind, ExecutionOpenTarget, ExecutionStatus},
 };
 use sqlx::{
     SqlitePool,
@@ -77,7 +77,7 @@ async fn insert_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid, seed:
     .bind(i64::from(seed))
     .bind(format!("LOCAL-{seed}"))
     .bind(status_id)
-    .bind(format!("Issue {seed}"))
+    .bind(format!("Task {seed}"))
     .execute(pool)
     .await
     .unwrap();
@@ -384,7 +384,7 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
             project_id,
             issue_id,
             None,
-            &format!("Task {index}"),
+            &format!("Execution {index}"),
             "agent",
             BASELINE,
         )
@@ -410,7 +410,7 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
         project_id,
         issue_id,
         Some(top_level_task_ids[0]),
-        "Child Task",
+        "Child Execution",
         "agent",
         BASELINE,
     )
@@ -428,10 +428,10 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
     )
     .await;
 
-    let first_tasks = Task::list_top_level(&pool, project_id, Some(issue_id), None, 2)
+    let first_tasks = Execution::list_top_level(&pool, project_id, Some(issue_id), None, 2)
         .await
         .unwrap();
-    let second_tasks = Task::list_top_level(
+    let second_tasks = Execution::list_top_level(
         &pool,
         project_id,
         Some(issue_id),
@@ -451,7 +451,7 @@ async fn project_session_and_task_cursors_are_stable_across_tied_timestamps() {
     );
     assert!(second_tasks.next_cursor.is_none());
 
-    let children = Task::list_children(&pool, top_level_task_ids[0], None, 10)
+    let children = Execution::list_children(&pool, top_level_task_ids[0], None, 10)
         .await
         .unwrap();
     assert_eq!(
@@ -879,50 +879,50 @@ async fn task_summary_projects_agent_workflow_and_arena_runtime_truth() {
     )
     .await;
 
-    let agent = Task::summary_by_id(&pool, agent_task_id)
+    let agent = Execution::summary_by_id(&pool, agent_task_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(agent.execution_kind, TaskExecutionKind::Agent);
-    assert_eq!(agent.status, TaskStatus::Running);
+    assert_eq!(agent.execution_kind, ExecutionKind::Agent);
+    assert_eq!(agent.status, ExecutionStatus::Running);
     assert_eq!(
         agent.open_target,
-        TaskOpenTarget::Agent {
+        ExecutionOpenTarget::Agent {
             session_id: agent_session_id,
             workspace_id: agent_workspace_id,
         }
     );
 
-    let workflow = Task::summary_by_id(&pool, workflow_task_id)
+    let workflow = Execution::summary_by_id(&pool, workflow_task_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(workflow.status, TaskStatus::Waiting);
+    assert_eq!(workflow.status, ExecutionStatus::Waiting);
     assert_eq!(
         workflow.open_target,
-        TaskOpenTarget::Workflow {
+        ExecutionOpenTarget::Workflow {
             attempt_id: workflow_attempt_id,
             workflow_id,
             latest_run_id: None,
         }
     );
 
-    let waiting_arena = Task::summary_by_id(&pool, waiting_arena_task_id)
+    let waiting_arena = Execution::summary_by_id(&pool, waiting_arena_task_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(waiting_arena.status, TaskStatus::Waiting);
+    assert_eq!(waiting_arena.status, ExecutionStatus::Waiting);
     assert_eq!(
         waiting_arena.open_target,
-        TaskOpenTarget::Arena {
+        ExecutionOpenTarget::Arena {
             arena_group_id: waiting_arena_group_id,
         }
     );
-    let cancelled_arena = Task::summary_by_id(&pool, cancelled_arena_task_id)
+    let cancelled_arena = Execution::summary_by_id(&pool, cancelled_arena_task_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(cancelled_arena.status, TaskStatus::Cancelled);
+    assert_eq!(cancelled_arena.status, ExecutionStatus::Cancelled);
 
     let invalid_task_id = uuid(1_500);
     insert_task(
@@ -937,11 +937,11 @@ async fn task_summary_projects_agent_workflow_and_arena_runtime_truth() {
     )
     .await;
     assert!(matches!(
-        Task::summary_by_id(&pool, invalid_task_id).await,
-        Err(TaskError::InvalidBinding { task_id, .. }) if task_id == invalid_task_id
+        Execution::summary_by_id(&pool, invalid_task_id).await,
+        Err(ExecutionError::InvalidBinding { task_id, .. }) if task_id == invalid_task_id
     ));
     assert!(
-        Task::summary_by_id(&pool, uuid(1_999))
+        Execution::summary_by_id(&pool, uuid(1_999))
             .await
             .unwrap()
             .is_none()
@@ -1056,10 +1056,12 @@ async fn runtime_activity_touches_owners_while_reads_and_seen_state_do_not() {
     Session::list_recent_task_bound(&pool, Some(project_id), None, 10)
         .await
         .unwrap();
-    Task::list_top_level(&pool, project_id, Some(issue_id), None, 10)
+    Execution::list_top_level(&pool, project_id, Some(issue_id), None, 10)
         .await
         .unwrap();
-    Task::summary_by_id(&pool, child_task_id).await.unwrap();
+    Execution::summary_by_id(&pool, child_task_id)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO agent_run_seen (agent_run_id, seen_at) VALUES (?, ?)")
         .bind(agent_run_id)
         .bind(WORKFLOW_ACTIVITY)

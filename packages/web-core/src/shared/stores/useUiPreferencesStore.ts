@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { create } from 'zustand';
 import type { RepoAction } from '@vibe/ui/components/RepoCard';
-import type { IssuePriority } from 'shared/remote-types';
+import type { TaskPriority } from 'shared/remote-types';
 
 export const RIGHT_MAIN_PANEL_MODES = {
   CHANGES: 'changes',
@@ -70,7 +70,7 @@ export type KanbanSortField =
 
 export type KanbanFilterState = {
   searchQuery: string;
-  priorities: IssuePriority[];
+  priorities: TaskPriority[];
   assigneeIds: string[]; // 'unassigned' or '__self__' or user IDs
   tagIds: string[];
   sortField: KanbanSortField;
@@ -100,14 +100,14 @@ export const DEFAULT_KANBAN_PROJECT_VIEW_ID = KANBAN_PROJECT_VIEW_IDS.TEAM;
 export const DEFAULT_KANBAN_SHOW_WORKSPACES = true;
 export const DEFAULT_KANBAN_HIDE_BLOCKED = false;
 
-export const getDefaultShowSubIssuesForView = (viewId: string): boolean =>
+export const getDefaultShowSubTasksForView = (viewId: string): boolean =>
   viewId === KANBAN_PROJECT_VIEW_IDS.PERSONAL;
 
 export type KanbanProjectView = {
   id: string;
   name: string;
   filters: KanbanFilterState;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
   hideBlocked: boolean;
 };
@@ -118,7 +118,7 @@ export type KanbanProjectViewSelection = {
 
 export type KanbanProjectViewPreferences = {
   filters: KanbanFilterState;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
   hideBlocked: boolean;
 };
@@ -126,7 +126,7 @@ export type KanbanProjectViewPreferences = {
 export type ResolvedKanbanProjectState = {
   activeViewId: string;
   filters: KanbanFilterState;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
   hideBlocked: boolean;
 };
@@ -157,7 +157,7 @@ const getKanbanDefaultView = (viewId: string): KanbanProjectView => {
         sortField: 'priority',
         sortDirection: 'asc',
       },
-      showSubIssues: getDefaultShowSubIssuesForView(
+      showSubTasks: getDefaultShowSubTasksForView(
         KANBAN_PROJECT_VIEW_IDS.PERSONAL
       ),
       showWorkspaces: DEFAULT_KANBAN_SHOW_WORKSPACES,
@@ -169,7 +169,7 @@ const getKanbanDefaultView = (viewId: string): KanbanProjectView => {
     id: KANBAN_PROJECT_VIEW_IDS.TEAM,
     name: 'Team',
     filters: cloneKanbanFilters(DEFAULT_KANBAN_FILTER_STATE),
-    showSubIssues: getDefaultShowSubIssuesForView(KANBAN_PROJECT_VIEW_IDS.TEAM),
+    showSubTasks: getDefaultShowSubTasksForView(KANBAN_PROJECT_VIEW_IDS.TEAM),
     showWorkspaces: DEFAULT_KANBAN_SHOW_WORKSPACES,
     hideBlocked: DEFAULT_KANBAN_HIDE_BLOCKED,
   };
@@ -181,7 +181,7 @@ const createDefaultKanbanProjectViewPreferences = (
   const view = getKanbanDefaultView(viewId);
   return {
     filters: cloneKanbanFilters(view.filters),
-    showSubIssues: view.showSubIssues,
+    showSubTasks: view.showSubTasks,
     showWorkspaces: view.showWorkspaces,
     hideBlocked: view.hideBlocked,
   };
@@ -199,7 +199,7 @@ export const resolveKanbanProjectState = (
   return {
     activeViewId,
     filters: cloneKanbanFilters(activeView.filters),
-    showSubIssues: activeView.showSubIssues,
+    showSubTasks: activeView.showSubTasks,
     showWorkspaces: activeView.showWorkspaces,
     hideBlocked: activeView.hideBlocked,
   };
@@ -263,9 +263,9 @@ export const PERSIST_KEYS = {
   rightMainPanel: 'right-main-panel',
   kanbanLeftPanel: 'kanban-left-panel',
   // Kanban issue panel sections
-  kanbanIssueSubIssues: 'kanban-issue-sub-issues',
-  kanbanIssueRelationships: 'kanban-issue-relationships',
-  kanbanIssueAttachments: 'kanban-issue-attachments',
+  kanbanTaskSubTasks: 'kanban-issue-sub-issues',
+  kanbanTaskRelationships: 'kanban-issue-relationships',
+  kanbanTaskAttachments: 'kanban-issue-attachments',
   // Dynamic keys (use helper functions)
   repoCard: (repoId: string) => `repo-card-${repoId}` as const,
 } as const;
@@ -294,9 +294,9 @@ export type PersistKey =
   | typeof PERSIST_KEYS.rightPanelprocesses
   | typeof PERSIST_KEYS.rightPanelPreview
   | typeof PERSIST_KEYS.kanbanLeftPanel
-  | typeof PERSIST_KEYS.kanbanIssueSubIssues
-  | typeof PERSIST_KEYS.kanbanIssueRelationships
-  | typeof PERSIST_KEYS.kanbanIssueAttachments
+  | typeof PERSIST_KEYS.kanbanTaskSubTasks
+  | typeof PERSIST_KEYS.kanbanTaskRelationships
+  | typeof PERSIST_KEYS.kanbanTaskAttachments
   | `repo-card-${string}`
   | `diff:${string}`
   | `edit:${string}`
@@ -405,7 +405,7 @@ type State = {
     viewId: string,
     filters: KanbanFilterState
   ) => void;
-  setKanbanProjectViewShowSubIssues: (
+  setKanbanProjectViewShowSubTasks: (
     projectId: string,
     viewId: string,
     show: boolean
@@ -685,7 +685,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     });
   },
 
-  setKanbanProjectViewShowSubIssues: (projectId, viewId, show) => {
+  setKanbanProjectViewShowSubTasks: (projectId, viewId, show) => {
     if (!isKanbanProjectViewId(viewId)) {
       return;
     }
@@ -704,7 +704,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
             ...projectPreferences,
             [viewId]: {
               ...existingPreferences,
-              showSubIssues: show,
+              showSubTasks: show,
             },
           },
         },

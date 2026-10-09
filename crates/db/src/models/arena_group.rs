@@ -68,6 +68,8 @@ pub enum ArenaGroupError {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct ArenaGroup {
     pub id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Uuid,
     pub prompt: String,
     pub base_branch: String,

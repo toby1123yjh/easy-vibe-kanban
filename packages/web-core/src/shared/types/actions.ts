@@ -14,7 +14,7 @@ import type {
   AppNavigation,
   SettingsNavigationSection,
 } from '@/shared/lib/routes/appNavigation';
-import type { ProjectIssueCreateOptions } from '@/shared/stores/useKanbanIssueComposerStore';
+import type { ProjectTaskCreateOptions } from '@/shared/stores/useKanbanTaskComposerStore';
 import type { AppRuntime } from '@/shared/hooks/useAppRuntime';
 
 // Portable type aliases (avoid importing from component containers)
@@ -42,10 +42,10 @@ export type DevServerState = 'stopped' | 'starting' | 'running' | 'stopping';
 
 // Project mutations interface (registered by ProjectProvider consumers)
 export interface ProjectMutations {
-  removeIssue: (id: string) => void;
-  duplicateIssue: (issueId: string) => void;
-  getIssue: (issueId: string) => { simple_id: string } | undefined;
-  getAssigneesForIssue: (issueId: string) => { user_id: string }[];
+  removeTask: (id: string) => void;
+  duplicateTask: (taskId: string) => void;
+  getTask: (taskId: string) => { simple_id: string } | undefined;
+  getAssigneesForTask: (taskId: string) => { user_id: string }[];
 }
 
 // Workspace type for sidebar (minimal subset needed for workspace selection)
@@ -75,30 +75,30 @@ export interface ActionExecutorContext {
   currentLogs: LogEntry[] | null;
   logsPanelContent: LogsPanelContent | null;
   // Command bar navigation
-  openStatusSelection: (projectId: string, issueIds: string[]) => Promise<void>;
+  openStatusSelection: (projectId: string, taskIds: string[]) => Promise<void>;
   openPrioritySelection: (
     projectId: string,
-    issueIds: string[]
+    taskIds: string[]
   ) => Promise<void>;
   openAssigneeSelection: (
     projectId: string,
-    issueIds: string[],
+    taskIds: string[],
     isCreateMode?: boolean
   ) => Promise<void>;
-  openSubIssueSelection: (
+  openSubTaskSelection: (
     projectId: string,
-    issueId: string,
+    taskId: string,
     mode?: 'addChild' | 'setParent'
   ) => Promise<{ type: string } | undefined>;
-  openWorkspaceSelection: (projectId: string, issueId: string) => Promise<void>;
+  openWorkspaceSelection: (projectId: string, taskId: string) => Promise<void>;
   openRelationshipSelection: (
     projectId: string,
-    issueId: string,
+    taskId: string,
     relationshipType: 'blocking' | 'related' | 'has_duplicate',
     direction: 'forward' | 'reverse'
   ) => Promise<void>;
   // Kanban navigation (URL-based)
-  navigateToCreateIssue: (options?: ProjectIssueCreateOptions) => void;
+  navigateToCreateTask: (options?: ProjectTaskCreateOptions) => void;
   // Default status for issue creation based on current kanban tab
   defaultCreateStatusId?: string;
   // Current kanban context (for project settings action)
@@ -149,9 +149,9 @@ export interface ActionVisibilityContext {
   logsPanelContent: LogsPanelContent | null;
 
   // Kanban state
-  hasSelectedKanbanIssue: boolean;
-  hasSelectedKanbanIssueParent: boolean;
-  isCreatingIssue: boolean;
+  hasSelectedKanbanTask: boolean;
+  hasSelectedKanbanTaskParent: boolean;
+  isCreatingTask: boolean;
 
   // Auth state
   isSignedIn: boolean;
@@ -162,7 +162,7 @@ export enum ActionTargetType {
   NONE = 'none',
   WORKSPACE = 'workspace',
   GIT = 'git',
-  ISSUE = 'issue',
+  TASK = 'task',
 }
 
 // Base properties shared by all actions
@@ -207,12 +207,12 @@ export interface GitActionDefinition extends ActionBase {
 }
 
 // Issue action (requires projectId + issueIds)
-export interface IssueActionDefinition extends ActionBase {
-  requiresTarget: ActionTargetType.ISSUE;
+export interface TaskActionDefinition extends ActionBase {
+  requiresTarget: ActionTargetType.TASK;
   execute: (
     ctx: ActionExecutorContext,
     projectId: string,
-    issueIds: string[]
+    taskIds: string[]
   ) => Promise<void> | void;
 }
 
@@ -221,7 +221,7 @@ export type ActionDefinition =
   | GlobalActionDefinition
   | WorkspaceActionDefinition
   | GitActionDefinition
-  | IssueActionDefinition;
+  | TaskActionDefinition;
 
 export const ContextBarDivider = { type: 'divider' } as const;
 export type ContextBarItem = ActionDefinition | typeof ContextBarDivider;

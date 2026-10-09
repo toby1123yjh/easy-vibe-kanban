@@ -10,7 +10,7 @@
   },
   "deleteProjectDialog": {
     "title": "Delete Project?",
-    "description": "This will permanently delete \"{{name}}\" and all its issues. This action cannot be undone.",
+    "description": "This will permanently delete \"{{name}}\" and all its tasks. This action cannot be undone.",
     "error": "Failed to delete project. Please try again."
   },
   "directory": {
@@ -35,7 +35,7 @@
     "noMatchesTitle": "Aucun projet correspondant",
     "noMatchesDescription": "Essayez un autre nom de projet.",
     "emptyTitle": "Aucun projet",
-    "emptyDescription": "Créez un projet pour organiser les issues et les tâches.",
+    "emptyDescription": "Créez un projet pour organiser les tasks et les tâches.",
     "degradedTitle": "Les projets peuvent être obsolètes",
     "degradedDescription": "Les projets chargés restent accessibles pendant la nouvelle tentative.",
     "searchingRemaining": "Recherche des projets restants…",

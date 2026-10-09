@@ -246,6 +246,7 @@ name = "api-types"
 version = "0.1.44"
 dependencies = [
  "chrono",
+ "relay-types",
  "schemars 1.2.1",
  "serde",
  "serde_json",

@@ -1,11 +1,11 @@
 //! All shape route declarations with authorization scope and REST fallback.
 
 use api_types::{
-    ListIssueAssigneesResponse, ListIssueCommentReactionsResponse, ListIssueCommentsResponse,
-    ListIssueFollowersResponse, ListIssueRelationshipsResponse, ListIssueTagsResponse,
-    ListIssuesResponse, ListProjectStatusesResponse, ListProjectsResponse,
-    ListPullRequestIssuesResponse, ListPullRequestsResponse, ListTagsResponse, Notification,
-    OrganizationMember, SearchIssuesRequest, User, Workspace,
+    ListProjectStatusesResponse, ListProjectsResponse, ListPullRequestTasksResponse,
+    ListPullRequestsResponse, ListTagsResponse, ListTaskAssigneesResponse,
+    ListTaskCommentReactionsResponse, ListTaskCommentsResponse, ListTaskFollowersResponse,
+    ListTaskRelationshipsResponse, ListTaskTagsResponse, ListTasksResponse, Notification,
+    OrganizationMember, SearchTasksRequest, User, Workspace,
 };
 use axum::{
     Json,
@@ -32,8 +32,8 @@ use crate::{
         organization_members::{ensure_issue_access, ensure_member_access, ensure_project_access},
     },
     shape_route::{
-        IssueFallbackQuery, NoQueryParams, OrgFallbackQuery, ProjectFallbackQuery, ShapeRoute,
-        ShapeScope,
+        NoQueryParams, OrgFallbackQuery, ProjectFallbackQuery, ShapeRoute, ShapeScope,
+        TaskFallbackQuery,
     },
     shapes,
 };
@@ -75,106 +75,106 @@ pub fn all_shape_routes() -> Vec<ShapeRoute> {
         ShapeRoute::new(
             &shapes::PROJECTS_SHAPE,
             ShapeScope::Org,
-            "/fallback/projects",
+            shapes::PROJECTS_SHAPE.fallback_url,
             fallback_list_projects,
         ),
         ShapeRoute::new(
             &shapes::NOTIFICATIONS_SHAPE,
             ShapeScope::User,
-            "/fallback/notifications",
+            shapes::NOTIFICATIONS_SHAPE.fallback_url,
             fallback_list_notifications,
         ),
         ShapeRoute::new(
             &shapes::ORGANIZATION_MEMBERS_SHAPE,
             ShapeScope::Org,
-            "/fallback/organization_members",
+            shapes::ORGANIZATION_MEMBERS_SHAPE.fallback_url,
             fallback_list_organization_members,
         ),
         ShapeRoute::new(
             &shapes::USERS_SHAPE,
             ShapeScope::Org,
-            "/fallback/users",
+            shapes::USERS_SHAPE.fallback_url,
             fallback_list_users,
         ),
         // Project-scoped
         ShapeRoute::new(
             &shapes::PROJECT_TAGS_SHAPE,
             ShapeScope::Project,
-            "/fallback/tags",
+            shapes::PROJECT_TAGS_SHAPE.fallback_url,
             fallback_list_tags,
         ),
         ShapeRoute::new(
             &shapes::PROJECT_PROJECT_STATUSES_SHAPE,
             ShapeScope::Project,
-            "/fallback/project_statuses",
+            shapes::PROJECT_PROJECT_STATUSES_SHAPE.fallback_url,
             fallback_list_project_statuses,
         ),
         ShapeRoute::new(
-            &shapes::PROJECT_ISSUES_SHAPE,
+            &shapes::PROJECT_TASKS_SHAPE,
             ShapeScope::Project,
-            "/fallback/issues",
+            shapes::PROJECT_TASKS_SHAPE.fallback_url,
             fallback_list_issues,
         ),
         ShapeRoute::new(
             &shapes::USER_WORKSPACES_SHAPE,
             ShapeScope::User,
-            "/fallback/user_workspaces",
+            shapes::USER_WORKSPACES_SHAPE.fallback_url,
             fallback_list_user_workspaces,
         ),
         ShapeRoute::new(
             &shapes::PROJECT_WORKSPACES_SHAPE,
             ShapeScope::Project,
-            "/fallback/project_workspaces",
+            shapes::PROJECT_WORKSPACES_SHAPE.fallback_url,
             fallback_list_project_workspaces,
         ),
         // Project-scoped issue-related
         ShapeRoute::new(
-            &shapes::PROJECT_ISSUE_ASSIGNEES_SHAPE,
+            &shapes::PROJECT_TASK_ASSIGNEES_SHAPE,
             ShapeScope::Project,
-            "/fallback/issue_assignees",
+            shapes::PROJECT_TASK_ASSIGNEES_SHAPE.fallback_url,
             fallback_list_issue_assignees,
         ),
         ShapeRoute::new(
-            &shapes::PROJECT_ISSUE_FOLLOWERS_SHAPE,
+            &shapes::PROJECT_TASK_FOLLOWERS_SHAPE,
             ShapeScope::Project,
-            "/fallback/issue_followers",
+            shapes::PROJECT_TASK_FOLLOWERS_SHAPE.fallback_url,
             fallback_list_issue_followers,
         ),
         ShapeRoute::new(
-            &shapes::PROJECT_ISSUE_TAGS_SHAPE,
+            &shapes::PROJECT_TASK_TAGS_SHAPE,
             ShapeScope::Project,
-            "/fallback/issue_tags",
+            shapes::PROJECT_TASK_TAGS_SHAPE.fallback_url,
             fallback_list_issue_tags,
         ),
         ShapeRoute::new(
-            &shapes::PROJECT_ISSUE_RELATIONSHIPS_SHAPE,
+            &shapes::PROJECT_TASK_RELATIONSHIPS_SHAPE,
             ShapeScope::Project,
-            "/fallback/issue_relationships",
+            shapes::PROJECT_TASK_RELATIONSHIPS_SHAPE.fallback_url,
             fallback_list_issue_relationships,
         ),
         ShapeRoute::new(
             &shapes::PROJECT_PULL_REQUESTS_SHAPE,
             ShapeScope::Project,
-            "/fallback/pull_requests",
+            shapes::PROJECT_PULL_REQUESTS_SHAPE.fallback_url,
             fallback_list_pull_requests,
         ),
         ShapeRoute::new(
-            &shapes::PROJECT_PULL_REQUEST_ISSUES_SHAPE,
+            &shapes::PROJECT_PULL_REQUEST_TASKS_SHAPE,
             ShapeScope::Project,
-            "/fallback/pull_request_issues",
+            shapes::PROJECT_PULL_REQUEST_TASKS_SHAPE.fallback_url,
             fallback_list_pull_request_issues,
         ),
-        // Issue-scoped
+        // Task-scoped
         ShapeRoute::new(
-            &shapes::ISSUE_COMMENTS_SHAPE,
-            ShapeScope::Issue,
-            "/fallback/issue_comments",
+            &shapes::TASK_COMMENTS_SHAPE,
+            ShapeScope::Task,
+            shapes::TASK_COMMENTS_SHAPE.fallback_url,
             fallback_list_issue_comments,
         ),
         ShapeRoute::new(
-            &shapes::ISSUE_REACTIONS_SHAPE,
-            ShapeScope::Issue,
-            "/fallback/issue_comment_reactions",
+            &shapes::TASK_REACTIONS_SHAPE,
+            ShapeScope::Task,
+            shapes::TASK_REACTIONS_SHAPE.fallback_url,
             fallback_list_issue_comment_reactions,
         ),
     ]
@@ -310,12 +310,12 @@ async fn fallback_list_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListIssuesResponse>, ErrorResponse> {
+) -> Result<Json<ListTasksResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let response = IssueRepository::search(
         state.pool(),
-        &SearchIssuesRequest {
+        &SearchTasksRequest {
             project_id: query.project_id,
             status_id: None,
             status_ids: None,
@@ -362,7 +362,7 @@ async fn fallback_list_issue_assignees(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListIssueAssigneesResponse>, ErrorResponse> {
+) -> Result<Json<ListTaskAssigneesResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let issue_assignees =
@@ -376,14 +376,14 @@ async fn fallback_list_issue_assignees(
                 )
             })?;
 
-    Ok(Json(ListIssueAssigneesResponse { issue_assignees }))
+    Ok(Json(ListTaskAssigneesResponse { issue_assignees }))
 }
 
 async fn fallback_list_issue_followers(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListIssueFollowersResponse>, ErrorResponse> {
+) -> Result<Json<ListTaskFollowersResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let issue_followers =
@@ -397,14 +397,14 @@ async fn fallback_list_issue_followers(
                 )
             })?;
 
-    Ok(Json(ListIssueFollowersResponse { issue_followers }))
+    Ok(Json(ListTaskFollowersResponse { issue_followers }))
 }
 
 async fn fallback_list_issue_tags(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListIssueTagsResponse>, ErrorResponse> {
+) -> Result<Json<ListTaskTagsResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let issue_tags = IssueTagRepository::list_by_project(state.pool(), query.project_id)
@@ -417,14 +417,14 @@ async fn fallback_list_issue_tags(
             )
         })?;
 
-    Ok(Json(ListIssueTagsResponse { issue_tags }))
+    Ok(Json(ListTaskTagsResponse { issue_tags }))
 }
 
 async fn fallback_list_issue_relationships(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListIssueRelationshipsResponse>, ErrorResponse> {
+) -> Result<Json<ListTaskRelationshipsResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let issue_relationships =
@@ -438,7 +438,7 @@ async fn fallback_list_issue_relationships(
                 )
             })?;
 
-    Ok(Json(ListIssueRelationshipsResponse {
+    Ok(Json(ListTaskRelationshipsResponse {
         issue_relationships,
     }))
 }
@@ -467,7 +467,7 @@ async fn fallback_list_pull_request_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ProjectFallbackQuery>,
-) -> Result<Json<ListPullRequestIssuesResponse>, ErrorResponse> {
+) -> Result<Json<ListPullRequestTasksResponse>, ErrorResponse> {
     ensure_project_access(state.pool(), ctx.user.id, query.project_id).await?;
 
     let pull_request_issues =
@@ -481,7 +481,7 @@ async fn fallback_list_pull_request_issues(
                 )
             })?;
 
-    Ok(Json(ListPullRequestIssuesResponse {
+    Ok(Json(ListPullRequestTasksResponse {
         pull_request_issues,
     }))
 }
@@ -509,14 +509,14 @@ async fn fallback_list_user_workspaces(
 }
 
 // =============================================================================
-// Issue-scoped fallback handlers
+// Task-scoped fallback handlers
 // =============================================================================
 
 async fn fallback_list_issue_comments(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<IssueFallbackQuery>,
-) -> Result<Json<ListIssueCommentsResponse>, ErrorResponse> {
+    Query(query): Query<TaskFallbackQuery>,
+) -> Result<Json<ListTaskCommentsResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_comments = IssueCommentRepository::list_by_issue(state.pool(), query.issue_id)
@@ -529,14 +529,14 @@ async fn fallback_list_issue_comments(
             )
         })?;
 
-    Ok(Json(ListIssueCommentsResponse { issue_comments }))
+    Ok(Json(ListTaskCommentsResponse { issue_comments }))
 }
 
 async fn fallback_list_issue_comment_reactions(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<IssueFallbackQuery>,
-) -> Result<Json<ListIssueCommentReactionsResponse>, ErrorResponse> {
+    Query(query): Query<TaskFallbackQuery>,
+) -> Result<Json<ListTaskCommentReactionsResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_comment_reactions =
@@ -550,7 +550,7 @@ async fn fallback_list_issue_comment_reactions(
                 )
             })?;
 
-    Ok(Json(ListIssueCommentReactionsResponse {
+    Ok(Json(ListTaskCommentReactionsResponse {
         issue_comment_reactions,
     }))
 }

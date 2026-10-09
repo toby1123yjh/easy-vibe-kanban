@@ -23,7 +23,7 @@ use crate::{DeploymentImpl, error::ApiError};
 pub mod files;
 mod projects;
 pub mod workflows;
-pub use projects::{CreateExternalIssue, CreateExternalProject, project_root};
+pub use projects::{CreateExternalProject, CreateExternalTask, project_root};
 
 #[derive(Debug, Clone)]
 pub struct IntegrationCaller {

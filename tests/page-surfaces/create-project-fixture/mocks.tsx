@@ -5,6 +5,23 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
+export * from '../../../packages/web-core/src/shared/lib/remoteApi';
+export * from '../../../packages/web-core/src/shared/lib/electric/collections';
+
+export const isLocalRemoteApiEnabled = () => new URLSearchParams(location.search).has('local');
+export async function openLocalProjectDirectory(input: { name: string; color: string }, hostId: string | null) {
+  record('opens', { input, hostId });
+  return {
+    id: 'restored-project', organization_id: 'org-1', name: 'Portable project', color: input.color,
+  };
+}
+export function refreshShapeFallback(_shape: unknown, params: unknown, hostId: string | null) {
+  record('refreshes', { params, hostId });
+}
+export async function makeLocalApiRequest(path: string, options: object) {
+  record('requests', { path, ...options });
+  return new Response(JSON.stringify({ tasks: [], data: {}, templates: [] }), { status: 200 });
+}
 
 function record(key: string, value: unknown) {
   const data = document.documentElement.dataset;

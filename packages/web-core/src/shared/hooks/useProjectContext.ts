@@ -3,27 +3,27 @@ import { createHmrContext } from '@/shared/lib/hmrContext';
 import type { InsertResult, MutationResult } from '@/shared/lib/electric/types';
 import type { SyncError } from '@/shared/lib/electric/types';
 import type {
-  Issue,
+  Task,
   ProjectStatus,
   Tag,
-  IssueAssignee,
-  IssueFollower,
-  IssueTag,
-  IssueRelationship,
+  TaskAssignee,
+  TaskFollower,
+  TaskTag,
+  TaskRelationship,
   PullRequest,
-  PullRequestIssue,
+  PullRequestTask,
   Workspace,
-  CreateIssueRequest,
-  UpdateIssueRequest,
+  CreateTaskRequest,
+  UpdateTaskRequest,
   CreateProjectStatusRequest,
   UpdateProjectStatusRequest,
   CreateTagRequest,
   UpdateTagRequest,
-  CreateIssueAssigneeRequest,
-  CreateIssueFollowerRequest,
-  CreateIssueTagRequest,
-  CreateIssueRelationshipRequest,
-  CreatePullRequestIssueRequest,
+  CreateTaskAssigneeRequest,
+  CreateTaskFollowerRequest,
+  CreateTaskTagRequest,
+  CreateTaskRelationshipRequest,
+  CreatePullRequestTaskRequest,
 } from 'shared/remote-types';
 
 /**
@@ -45,15 +45,15 @@ export interface ProjectContextValue {
   projectId: string;
 
   // Normalized data arrays
-  issues: Issue[];
+  tasks: Task[];
   statuses: ProjectStatus[];
   tags: Tag[];
-  issueAssignees: IssueAssignee[];
-  issueFollowers: IssueFollower[];
-  issueTags: IssueTag[];
-  issueRelationships: IssueRelationship[];
+  taskAssignees: TaskAssignee[];
+  taskFollowers: TaskFollower[];
+  taskTags: TaskTag[];
+  taskRelationships: TaskRelationship[];
   pullRequests: PullRequest[];
-  pullRequestIssues: PullRequestIssue[];
+  pullRequestTasks: PullRequestTask[];
   workspaces: Workspace[];
 
   // Loading/error state
@@ -62,12 +62,12 @@ export interface ProjectContextValue {
   retry: () => void;
 
   // Issue mutations
-  insertIssue: (data: CreateIssueRequest) => InsertResult<Issue>;
-  updateIssue: (
+  insertTask: (data: CreateTaskRequest) => InsertResult<Task>;
+  updateTask: (
     id: string,
-    changes: Partial<UpdateIssueRequest>
+    changes: Partial<UpdateTaskRequest>
   ) => MutationResult;
-  removeIssue: (id: string) => MutationResult;
+  removeTask: (id: string) => MutationResult;
 
   // Status mutations
   insertStatus: (
@@ -85,48 +85,48 @@ export interface ProjectContextValue {
   removeTag: (id: string) => MutationResult;
 
   // IssueAssignee mutations
-  insertIssueAssignee: (
-    data: CreateIssueAssigneeRequest
-  ) => InsertResult<IssueAssignee>;
-  removeIssueAssignee: (id: string) => MutationResult;
+  insertTaskAssignee: (
+    data: CreateTaskAssigneeRequest
+  ) => InsertResult<TaskAssignee>;
+  removeTaskAssignee: (id: string) => MutationResult;
 
   // IssueFollower mutations
-  insertIssueFollower: (
-    data: CreateIssueFollowerRequest
-  ) => InsertResult<IssueFollower>;
-  removeIssueFollower: (id: string) => MutationResult;
+  insertTaskFollower: (
+    data: CreateTaskFollowerRequest
+  ) => InsertResult<TaskFollower>;
+  removeTaskFollower: (id: string) => MutationResult;
 
   // IssueTag mutations
-  insertIssueTag: (data: CreateIssueTagRequest) => InsertResult<IssueTag>;
-  removeIssueTag: (id: string) => MutationResult;
+  insertTaskTag: (data: CreateTaskTagRequest) => InsertResult<TaskTag>;
+  removeTaskTag: (id: string) => MutationResult;
 
   // IssueRelationship mutations
-  insertIssueRelationship: (
-    data: CreateIssueRelationshipRequest
-  ) => InsertResult<IssueRelationship>;
-  removeIssueRelationship: (id: string) => MutationResult;
+  insertTaskRelationship: (
+    data: CreateTaskRelationshipRequest
+  ) => InsertResult<TaskRelationship>;
+  removeTaskRelationship: (id: string) => MutationResult;
 
   // PullRequestIssue mutations
-  insertPullRequestIssue: (
-    data: CreatePullRequestIssueRequest
-  ) => InsertResult<PullRequestIssue>;
-  removePullRequestIssue: (id: string) => MutationResult;
+  insertPullRequestTask: (
+    data: CreatePullRequestTaskRequest
+  ) => InsertResult<PullRequestTask>;
+  removePullRequestTask: (id: string) => MutationResult;
 
   // Lookup helpers
-  getIssue: (issueId: string) => Issue | undefined;
-  getIssuesForStatus: (statusId: string) => Issue[];
-  getAssigneesForIssue: (issueId: string) => IssueAssignee[];
-  getFollowersForIssue: (issueId: string) => IssueFollower[];
-  getTagsForIssue: (issueId: string) => IssueTag[];
-  getTagObjectsForIssue: (issueId: string) => Tag[];
-  getRelationshipsForIssue: (issueId: string) => IssueRelationship[];
+  getTask: (taskId: string) => Task | undefined;
+  getTasksForStatus: (statusId: string) => Task[];
+  getAssigneesForTask: (taskId: string) => TaskAssignee[];
+  getFollowersForTask: (taskId: string) => TaskFollower[];
+  getTagsForTask: (taskId: string) => TaskTag[];
+  getTagObjectsForTask: (taskId: string) => Tag[];
+  getRelationshipsForTask: (taskId: string) => TaskRelationship[];
   getStatus: (statusId: string) => ProjectStatus | undefined;
   getTag: (tagId: string) => Tag | undefined;
-  getPullRequestsForIssue: (issueId: string) => PullRequest[];
-  getWorkspacesForIssue: (issueId: string) => Workspace[];
+  getPullRequestsForTask: (taskId: string) => PullRequest[];
+  getWorkspacesForTask: (taskId: string) => Workspace[];
 
   // Computed aggregations (Maps for O(1) lookup)
-  issuesById: Map<string, Issue>;
+  tasksById: Map<string, Task>;
   statusesById: Map<string, ProjectStatus>;
   tagsById: Map<string, Tag>;
 }

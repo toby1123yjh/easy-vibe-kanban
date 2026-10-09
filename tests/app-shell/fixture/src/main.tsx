@@ -32,9 +32,9 @@ const PROJECTS: ProjectListItem[] = Array.from(
 const SESSIONS: SessionListItem[] = Array.from({ length: 16 }, (_, index) => ({
   id: `session-${index + 1}`,
   workspace_id: index < 3 ? 'workspace-shared' : `workspace-${index + 1}`,
-  task_id: `task-${index + 1}`,
+  execution_id: `task-${index + 1}`,
   project_id: `project-${(index % 4) + 1}`,
-  issue_id: `issue-${index + 1}`,
+  task_id: `issue-${index + 1}`,
   title: `Session ${String(index + 1).padStart(2, '0')}`,
   executor: index % 2 === 0 ? 'Codex' : 'Claude Code',
   created_at: '2026-08-01T00:00:00Z',

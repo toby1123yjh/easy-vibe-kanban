@@ -6,7 +6,7 @@ use axum::{
 };
 use db::models::{
     arena_group::ArenaGroupError, execution_process::ExecutionProcessError, repo::RepoError,
-    scratch::ScratchError, session::SessionError, task::TaskError, workspace::WorkspaceError,
+    scratch::ScratchError, session::SessionError, task::ExecutionError, workspace::WorkspaceError,
 };
 use deployment::{DeploymentError, RelayHostsNotConfigured, RemoteClientNotConfigured};
 use executors::{command::CommandBuildError, executors::ExecutorError};
@@ -40,7 +40,7 @@ pub enum ApiError {
     #[error(transparent)]
     Session(#[from] SessionError),
     #[error(transparent)]
-    Task(#[from] TaskError),
+    Execution(#[from] ExecutionError),
     #[error(transparent)]
     ScratchError(#[from] ScratchError),
     #[error(transparent)]
@@ -337,20 +337,27 @@ impl IntoResponse for ApiError {
             }
 
             ApiError::Session(SessionError::Database(_)) => ErrorInfo::internal("SessionError"),
-            ApiError::Session(SessionError::Task(error)) | ApiError::Task(error) => match error {
-                TaskError::Database(_) => ErrorInfo::internal("TaskError"),
-                TaskError::EmptyTitle => {
-                    ErrorInfo::bad_request("TaskError", "Task title must not be empty.")
+            ApiError::Session(SessionError::Execution(error)) | ApiError::Execution(error) => {
+                match error {
+                    ExecutionError::Database(_) => ErrorInfo::internal("ExecutionError"),
+                    ExecutionError::EmptyTitle => ErrorInfo::bad_request(
+                        "ExecutionError",
+                        "Execution title must not be empty.",
+                    ),
+                    ExecutionError::InvalidBinding { detail, .. } => {
+                        ErrorInfo::conflict("ExecutionError", detail.clone())
+                    }
+                    ExecutionError::DeletionBlocked { reason, .. } => {
+                        ErrorInfo::conflict("ExecutionError", reason.clone())
+                    }
+                    ExecutionError::InvalidRuntimeStatus { .. } => {
+                        ErrorInfo::internal("ExecutionError")
+                    }
+                    ExecutionError::NotFound { .. } => {
+                        ErrorInfo::not_found("ExecutionError", "Execution not found.")
+                    }
                 }
-                TaskError::InvalidBinding { detail, .. } => {
-                    ErrorInfo::conflict("TaskError", detail.clone())
-                }
-                TaskError::DeletionBlocked { reason, .. } => {
-                    ErrorInfo::conflict("TaskError", reason.clone())
-                }
-                TaskError::InvalidRuntimeStatus { .. } => ErrorInfo::internal("TaskError"),
-                TaskError::NotFound { .. } => ErrorInfo::not_found("TaskError", "Task not found."),
-            },
+            }
             ApiError::Session(SessionError::NotFound) => {
                 ErrorInfo::not_found("SessionError", "Session not found.")
             }
@@ -369,7 +376,7 @@ impl IntoResponse for ApiError {
             ApiError::Session(SessionError::AgentTaskBound { task_id }) => ErrorInfo::conflict(
                 "SessionError",
                 format!(
-                    "Session is bound to Agent Task {task_id}; delete the task before deleting this session."
+                    "Session is bound to Agent Execution {task_id}; delete the task before deleting this session."
                 ),
             ),
             ApiError::Session(SessionError::ActiveAgentRun) => ErrorInfo::conflict(
@@ -698,7 +705,7 @@ impl From<RelayPairingClientError> for ApiError {
 #[cfg(test)]
 mod deletion_tests {
     use axum::{body::to_bytes, http::StatusCode, response::IntoResponse};
-    use db::models::{session::SessionError, task::TaskError};
+    use db::models::{session::SessionError, task::ExecutionError};
     use uuid::Uuid;
 
     use super::ApiError;
@@ -706,13 +713,13 @@ mod deletion_tests {
     #[tokio::test]
     async fn deletion_conflicts_return_readable_api_errors() {
         for error in [
-            ApiError::Task(TaskError::DeletionBlocked {
+            ApiError::Execution(ExecutionError::DeletionBlocked {
                 task_id: Uuid::new_v4(),
                 reason: "Only Agent Tasks can be deleted with this action.".to_string(),
             }),
-            ApiError::Session(SessionError::Task(TaskError::InvalidBinding {
+            ApiError::Session(SessionError::Execution(ExecutionError::InvalidBinding {
                 task_id: Uuid::new_v4(),
-                detail: "Task session binding changed or is missing.".to_string(),
+                detail: "Execution session binding changed or is missing.".to_string(),
             })),
             ApiError::Session(SessionError::ActiveAgentRun),
             ApiError::Session(SessionError::ActiveExecutionProcess),
@@ -733,7 +740,7 @@ mod deletion_tests {
     fn deleted_or_unknown_targets_are_not_found() {
         for error in [
             ApiError::Session(SessionError::NotFound),
-            ApiError::Session(SessionError::Task(TaskError::NotFound {
+            ApiError::Session(SessionError::Execution(ExecutionError::NotFound {
                 task_id: Uuid::new_v4(),
             })),
         ] {

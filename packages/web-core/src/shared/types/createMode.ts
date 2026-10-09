@@ -1,7 +1,7 @@
 import type { ExecutorConfig } from 'shared/types';
 
-export interface LinkedIssue {
-  issueId: string;
+export interface LinkedTask {
+  taskId: string;
   simpleId?: string;
   title?: string;
   remoteProjectId: string;
@@ -15,6 +15,6 @@ export interface CreateModeInitialState {
   }> | null;
   preferredDirectoryPath?: string | null;
   project_id?: string | null;
-  linkedIssue?: LinkedIssue | null;
+  linkedTask?: LinkedTask | null;
   executorConfig?: ExecutorConfig | null;
 }

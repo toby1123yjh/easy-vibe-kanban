@@ -1,5 +1,5 @@
 use api_types::{
-    CreateIssueAssigneeRequest, IssueAssignee, ListIssueAssigneesResponse, MutationResponse,
+    CreateTaskAssigneeRequest, ListTaskAssigneesResponse, MutationResponse, TaskAssignee,
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, schemars, tool,
@@ -11,16 +11,18 @@ use uuid::Uuid;
 use super::McpServer;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpListIssueAssigneesRequest {
-    #[schemars(description = "Issue ID to list assignees for")]
+struct McpListTaskAssigneesRequest {
+    #[schemars(description = "Task ID to list assignees for")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct IssueAssigneeSummary {
-    #[schemars(description = "Issue assignee ID")]
+    #[schemars(description = "Task assignee ID")]
     id: String,
-    #[schemars(description = "Issue ID")]
+    #[schemars(description = "Task ID")]
+    #[serde(rename = "task_id")]
     issue_id: String,
     #[schemars(description = "User ID")]
     user_id: String,
@@ -29,51 +31,54 @@ struct IssueAssigneeSummary {
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpListIssueAssigneesResponse {
+struct McpListTaskAssigneesResponse {
+    #[serde(rename = "task_id")]
     issue_id: String,
+    #[serde(rename = "task_assignees")]
     issue_assignees: Vec<IssueAssigneeSummary>,
     count: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpAssignIssueRequest {
-    #[schemars(description = "Issue ID to assign")]
+struct McpAssignTaskRequest {
+    #[schemars(description = "Task ID to assign")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
-    #[schemars(description = "User ID to assign to the issue")]
+    #[schemars(description = "User ID to assign to the task")]
     user_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpAssignIssueResponse {
+struct McpAssignTaskResponse {
+    #[serde(rename = "task_assignee_id")]
     issue_assignee_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpUnassignIssueRequest {
-    #[schemars(description = "Issue assignee ID to remove")]
+struct McpUnassignTaskRequest {
+    #[schemars(description = "Task assignee ID to remove")]
+    #[serde(rename = "task_assignee_id")]
     issue_assignee_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpUnassignIssueResponse {
+struct McpUnassignTaskResponse {
     success: bool,
+    #[serde(rename = "task_assignee_id")]
     issue_assignee_id: String,
 }
 
 #[tool_router(router = issue_assignees_tools_router, vis = "pub")]
 impl McpServer {
-    #[tool(description = "List assignees for an issue.")]
-    async fn list_issue_assignees(
+    #[tool(description = "List assignees for an task.")]
+    async fn list_task_assignees(
         &self,
-        Parameters(McpListIssueAssigneesRequest { issue_id }): Parameters<
-            McpListIssueAssigneesRequest,
+        Parameters(McpListTaskAssigneesRequest { issue_id }): Parameters<
+            McpListTaskAssigneesRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!(
-            "/api/remote/issue-assignees?issue_id={}",
-            issue_id
-        ));
-        let response: ListIssueAssigneesResponse = match self.send_json(self.client.get(&url)).await
+        let url = self.url(&format!("/api/remote/task-assignees?task_id={}", issue_id));
+        let response: ListTaskAssigneesResponse = match self.send_json(self.client.get(&url)).await
         {
             Ok(r) => r,
             Err(e) => return Ok(Self::tool_error(e)),
@@ -90,52 +95,49 @@ impl McpServer {
             })
             .collect::<Vec<_>>();
 
-        McpServer::success(&McpListIssueAssigneesResponse {
+        McpServer::success(&McpListTaskAssigneesResponse {
             issue_id: issue_id.to_string(),
             count: assignees.len(),
             issue_assignees: assignees,
         })
     }
 
-    #[tool(description = "Assign a user to an issue.")]
-    async fn assign_issue(
+    #[tool(description = "Assign a user to an task.")]
+    async fn assign_task(
         &self,
-        Parameters(McpAssignIssueRequest { issue_id, user_id }): Parameters<McpAssignIssueRequest>,
+        Parameters(McpAssignTaskRequest { issue_id, user_id }): Parameters<McpAssignTaskRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let payload = CreateIssueAssigneeRequest {
+        let payload = CreateTaskAssigneeRequest {
             id: None,
             issue_id,
             user_id,
         };
 
-        let url = self.url("/api/remote/issue-assignees");
-        let response: MutationResponse<IssueAssignee> =
+        let url = self.url("/api/remote/task-assignees");
+        let response: MutationResponse<TaskAssignee> =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(r) => r,
                 Err(e) => return Ok(Self::tool_error(e)),
             };
 
-        McpServer::success(&McpAssignIssueResponse {
+        McpServer::success(&McpAssignTaskResponse {
             issue_assignee_id: response.data.id.to_string(),
         })
     }
 
-    #[tool(description = "Remove an assignee from an issue using issue_assignee_id.")]
-    async fn unassign_issue(
+    #[tool(description = "Remove an assignee from an task using task_assignee_id.")]
+    async fn unassign_task(
         &self,
-        Parameters(McpUnassignIssueRequest { issue_assignee_id }): Parameters<
-            McpUnassignIssueRequest,
+        Parameters(McpUnassignTaskRequest { issue_assignee_id }): Parameters<
+            McpUnassignTaskRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
-        let url = self.url(&format!(
-            "/api/remote/issue-assignees/{}",
-            issue_assignee_id
-        ));
+        let url = self.url(&format!("/api/remote/task-assignees/{}", issue_assignee_id));
         if let Err(e) = self.send_empty_json(self.client.delete(&url)).await {
             return Ok(Self::tool_error(e));
         }
 
-        McpServer::success(&McpUnassignIssueResponse {
+        McpServer::success(&McpUnassignTaskResponse {
             success: true,
             issue_assignee_id: issue_assignee_id.to_string(),
         })

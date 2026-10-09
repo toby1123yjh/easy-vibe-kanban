@@ -32,7 +32,7 @@ describe('create mode bootstrap direct folders', () => {
           repos: [],
           directory_path: 'F:\\notes',
           executor_config: null,
-          linked_issue: null,
+          linked_task: null,
           attachments: [],
         },
         isValidProfile,

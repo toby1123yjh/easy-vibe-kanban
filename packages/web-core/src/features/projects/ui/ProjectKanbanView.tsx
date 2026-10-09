@@ -52,19 +52,22 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react';
-import type { TaskStatus, TaskSummary } from 'shared/types';
+import type { ExecutionStatus, ExecutionSummary } from 'shared/types';
 import {
   KANBAN_POINTER_ACTIVATION_DISTANCE,
-  findKanbanIssue,
+  findKanbanTask,
   isInteractiveDragTarget,
-  moveKanbanIssue,
-  taskStatusLabel,
+  moveKanbanTask,
+  executionStatusLabel,
   type KanbanColumnProjection,
-  type KanbanIssueProjection,
+  type KanbanTaskProjection,
   type KanbanMoveUpdate,
 } from '../model/project-kanban';
 import './project-surfaces.css';
-import { TaskDeleteButton, type TaskDeletionActions } from './TaskDeleteButton';
+import {
+  ExecutionDeleteButton,
+  type ExecutionDeletionActions,
+} from './ExecutionDeleteButton';
 
 const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') {
@@ -100,12 +103,12 @@ const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   if (!targetColumn) return undefined;
 
   const collisionCenter = collisionRect.top + collisionRect.height / 2;
-  const closestIssue = droppableContainers
+  const closestTask = droppableContainers
     .getEnabled()
     .flatMap((container) => {
       const data = container.data.current;
       const rect = droppableRects.get(container.id);
-      return data?.type === 'issue' &&
+      return data?.type === 'task' &&
         data.statusId === targetColumn.statusId &&
         rect
         ? [
@@ -117,18 +120,18 @@ const kanbanKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
         : [];
     })
     .sort((left, right) => left.distance - right.distance)[0];
-  const targetRect = closestIssue?.rect ?? targetColumn.rect;
+  const targetRect = closestTask?.rect ?? targetColumn.rect;
   return { x: targetRect.left, y: targetRect.top };
 };
 
-interface ProjectKanbanViewProps extends TaskDeletionActions {
+interface ProjectKanbanViewProps extends ExecutionDeletionActions {
   projectName: string;
   projectActions?: ReactNode;
   sessionColumn?: ReactNode;
   columns: KanbanColumnProjection[];
-  issueCount: number;
+  taskCount: number;
   query: string;
-  selectedIssueId: string | null;
+  selectedTaskId: string | null;
   dragDisabled: boolean;
   projectSource?: {
     title: string;
@@ -136,7 +139,7 @@ interface ProjectKanbanViewProps extends TaskDeletionActions {
     retry(): void;
     retrying?: boolean;
   };
-  taskSource: {
+  executionSource: {
     state: 'ready' | 'loading' | 'degraded';
     title?: string;
     description?: string;
@@ -145,15 +148,15 @@ interface ProjectKanbanViewProps extends TaskDeletionActions {
   };
   panel?: ReactNode;
   onQueryChange(query: string): void;
-  onCreateIssue(statusId?: string): void;
-  onOpenIssue(issueId: string, trigger: HTMLElement): void;
-  onOpenTask(task: TaskSummary): void;
-  onDeleteIssue(issueId: string): Promise<void>;
-  getTaskUnavailableReason(task: TaskSummary): string | null;
+  onCreateTask(statusId?: string): void;
+  onOpenTask(taskId: string, trigger: HTMLElement): void;
+  onOpenExecution(execution: ExecutionSummary): void;
+  onDeleteTask(taskId: string): Promise<void>;
+  getExecutionUnavailableReason(execution: ExecutionSummary): string | null;
   onMove(updates: KanbanMoveUpdate[]): Promise<void>;
 }
 
-const STATUS_ICON: Record<TaskStatus, typeof Circle> = {
+const STATUS_ICON: Record<ExecutionStatus, typeof Circle> = {
   draft: CircleDashed,
   pending: Clock3,
   running: LoaderCircle,
@@ -163,35 +166,35 @@ const STATUS_ICON: Record<TaskStatus, typeof Circle> = {
   cancelled: XCircle,
 };
 
-function TaskStatusIcon({ status }: { status: TaskStatus }) {
+function ExecutionStatusIcon({ status }: { status: ExecutionStatus }) {
   const Icon = STATUS_ICON[status];
   return (
     <Icon
       className={status === 'running' ? 'vk-task-status-icon--running' : ''}
       data-status={status}
-      aria-label={taskStatusLabel(status)}
+      aria-label={executionStatusLabel(status)}
       size={14}
     />
   );
 }
 
-function IssueTaskPreview({
-  task,
+function TaskExecutionPreview({
+  execution,
   onOpen,
   unavailableReason,
   preview = false,
-  onDeleteTask,
+  onDeleteExecution,
   deletingSessionId,
-}: TaskDeletionActions & {
-  task: TaskSummary;
+}: ExecutionDeletionActions & {
+  execution: ExecutionSummary;
   onOpen(): void;
   unavailableReason: string | null;
   preview?: boolean;
 }) {
   const content = (
     <>
-      <TaskStatusIcon status={task.status} />
-      <span>{task.title}</span>
+      <ExecutionStatusIcon status={execution.status} />
+      <span>{execution.title}</span>
       <ArrowRight aria-hidden="true" size={13} />
     </>
   );
@@ -204,7 +207,11 @@ function IssueTaskPreview({
         >
           {content}
         </div>
-        <TaskDeleteButton task={task} onDeleteTask={onDeleteTask} preview />
+        <ExecutionDeleteButton
+          execution={execution}
+          onDeleteExecution={onDeleteExecution}
+          preview
+        />
       </div>
     );
   return (
@@ -222,73 +229,73 @@ function IssueTaskPreview({
       >
         {content}
       </button>
-      <TaskDeleteButton
-        task={task}
-        onDeleteTask={onDeleteTask}
+      <ExecutionDeleteButton
+        execution={execution}
+        onDeleteExecution={onDeleteExecution}
         deletingSessionId={deletingSessionId}
       />
     </div>
   );
 }
 
-function IssueCardContent({
-  issue,
+function TaskCardContent({
+  task,
   actions,
   preview = false,
   onOpenMore,
-  onOpenTask,
-  onDeleteTask,
+  onOpenExecution,
+  onDeleteExecution,
   deletingSessionId,
-  getTaskUnavailableReason,
-}: TaskDeletionActions & {
-  issue: KanbanIssueProjection;
+  getExecutionUnavailableReason,
+}: ExecutionDeletionActions & {
+  task: KanbanTaskProjection;
   actions?: ReactNode;
   preview?: boolean;
   onOpenMore?: (trigger: HTMLElement) => void;
-  onOpenTask?: (task: TaskSummary) => void;
-  getTaskUnavailableReason: (task: TaskSummary) => string | null;
+  onOpenExecution?: (execution: ExecutionSummary) => void;
+  getExecutionUnavailableReason: (execution: ExecutionSummary) => string | null;
 }) {
   return (
     <>
       <header className="vk-kanban-issue-card__meta">
-        <span>{issue.simpleId}</span>
+        <span>{task.simpleId}</span>
         {actions}
       </header>
-      <h3 title={issue.title}>{issue.title}</h3>
+      <h3 title={task.title}>{task.title}</h3>
       <div className="vk-kanban-issue-card__labels">
-        {issue.priority ? (
+        {task.priority ? (
           <span
             className="vk-priority"
-            data-priority={issue.priority}
+            data-priority={task.priority}
             data-no-drag
           >
-            {issue.priority}
+            {task.priority}
           </span>
         ) : null}
-        {issue.tags.map((tag) => (
-          <span key={tag.id} className="vk-issue-tag" data-no-drag>
+        {task.tags.map((tag) => (
+          <span key={tag.id} className="vk-task-tag" data-no-drag>
             {tag.name}
           </span>
         ))}
       </div>
-      {issue.tasks.length > 0 ? (
+      {task.executions.length > 0 ? (
         <div className="vk-kanban-issue-card__tasks" data-no-drag>
-          <small>{issue.tasks.length} tasks</small>
-          {issue.tasks.slice(0, 2).map((task) => (
-            <IssueTaskPreview
-              key={task.id}
-              task={task}
+          <small>{task.executions.length} executions</small>
+          {task.executions.slice(0, 2).map((execution) => (
+            <TaskExecutionPreview
+              key={execution.id}
+              execution={execution}
               preview={preview}
-              onDeleteTask={onDeleteTask}
+              onDeleteExecution={onDeleteExecution}
               deletingSessionId={deletingSessionId}
-              onOpen={() => onOpenTask?.(task)}
-              unavailableReason={getTaskUnavailableReason(task)}
+              onOpen={() => onOpenExecution?.(execution)}
+              unavailableReason={getExecutionUnavailableReason(execution)}
             />
           ))}
-          {issue.tasks.length > 2 ? (
+          {task.executions.length > 2 ? (
             preview ? (
               <span className="vk-kanban-more-tasks">
-                +{issue.tasks.length - 2} tasks
+                +{task.executions.length - 2} executions
               </span>
             ) : (
               <button
@@ -300,7 +307,7 @@ function IssueCardContent({
                   onOpenMore?.(event.currentTarget);
                 }}
               >
-                +{issue.tasks.length - 2} tasks
+                +{task.executions.length - 2} executions
               </button>
             )
           ) : null}
@@ -310,29 +317,29 @@ function IssueCardContent({
   );
 }
 
-interface KanbanIssueCardProps extends TaskDeletionActions {
-  issue: KanbanIssueProjection;
+interface KanbanTaskCardProps extends ExecutionDeletionActions {
+  task: KanbanTaskProjection;
   selected: boolean;
   dragDisabled: boolean;
   onOpen(trigger: HTMLElement): void;
-  onOpenTask(task: TaskSummary): void;
+  onOpenExecution(execution: ExecutionSummary): void;
   onDelete(): Promise<void>;
-  getTaskUnavailableReason(task: TaskSummary): string | null;
+  getExecutionUnavailableReason(execution: ExecutionSummary): string | null;
   placeholderHeight?: number;
 }
 
-function KanbanIssueCard({
-  issue,
+function KanbanTaskCard({
+  task,
   selected,
   dragDisabled,
   onOpen,
-  onOpenTask,
-  onDeleteTask,
+  onOpenExecution,
+  onDeleteExecution,
   deletingSessionId,
   onDelete,
-  getTaskUnavailableReason,
+  getExecutionUnavailableReason,
   placeholderHeight,
-}: KanbanIssueCardProps) {
+}: KanbanTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -341,8 +348,8 @@ function KanbanIssueCard({
     transition,
     isDragging,
   } = useSortable({
-    id: issue.id,
-    data: { type: 'issue', statusId: issue.statusId },
+    id: task.id,
+    data: { type: 'task', statusId: task.statusId },
     disabled: dragDisabled,
   });
   const pointerOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -436,7 +443,7 @@ function KanbanIssueCard({
     <article
       ref={setNodeRef}
       className="vk-kanban-issue-card"
-      data-issue-id={issue.id}
+      data-task-id={task.id}
       data-selected={selected}
       data-dragging={isDragging}
       data-drag-disabled={dragDisabled}
@@ -453,17 +460,17 @@ function KanbanIssueCard({
       }}
       onKeyDown={handleKeyDown}
       onClick={handleClick}
-      aria-label={`${issue.simpleId}: ${issue.title}. ${
+      aria-label={`${task.simpleId}: ${task.title}. ${
         dragDisabled ? '' : 'Press Space to move or '
       }press Enter to open.`}
     >
-      <IssueCardContent
-        issue={issue}
+      <TaskCardContent
+        task={task}
         onOpenMore={onOpen}
-        onOpenTask={onOpenTask}
-        onDeleteTask={onDeleteTask}
+        onOpenExecution={onOpenExecution}
+        onDeleteExecution={onDeleteExecution}
         deletingSessionId={deletingSessionId}
-        getTaskUnavailableReason={getTaskUnavailableReason}
+        getExecutionUnavailableReason={getExecutionUnavailableReason}
         actions={
           <>
             <button
@@ -471,7 +478,7 @@ function KanbanIssueCard({
               type="button"
               className="vk-kanban-issue-card__menu"
               data-no-drag
-              aria-label={`More actions for ${issue.simpleId}`}
+              aria-label={`More actions for ${task.simpleId}`}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={(event) => {
@@ -485,8 +492,8 @@ function KanbanIssueCard({
               type="button"
               className="vk-kanban-card-drag-handle"
               data-touch-drag-handle
-              aria-label={`Drag ${issue.simpleId}`}
-              title="Drag issue"
+              aria-label={`Drag ${task.simpleId}`}
+              title="Drag task"
             >
               <GripVertical aria-hidden="true" size={16} />
             </button>
@@ -507,7 +514,7 @@ function KanbanIssueCard({
                   }}
                 >
                   <Trash2 aria-hidden="true" size={15} />
-                  Delete issue
+                  Delete task
                 </button>
               </div>
             ) : null}
@@ -520,25 +527,25 @@ function KanbanIssueCard({
 
 function KanbanColumn({
   column,
-  selectedIssueId,
+  selectedTaskId,
   dragDisabled,
-  onCreateIssue,
-  onOpenIssue,
+  onCreateTask,
   onOpenTask,
-  onDeleteTask,
+  onOpenExecution,
+  onDeleteExecution,
   deletingSessionId,
-  onDeleteIssue,
-  getTaskUnavailableReason,
+  onDeleteTask,
+  getExecutionUnavailableReason,
   dragSnapshot,
-}: TaskDeletionActions & {
+}: ExecutionDeletionActions & {
   column: KanbanColumnProjection;
-  selectedIssueId: string | null;
+  selectedTaskId: string | null;
   dragDisabled: boolean;
-  onCreateIssue(): void;
-  onOpenIssue(issueId: string, trigger: HTMLElement): void;
-  onOpenTask(task: TaskSummary): void;
-  onDeleteIssue(issueId: string): Promise<void>;
-  getTaskUnavailableReason(task: TaskSummary): string | null;
+  onCreateTask(): void;
+  onOpenTask(taskId: string, trigger: HTMLElement): void;
+  onOpenExecution(execution: ExecutionSummary): void;
+  onDeleteTask(taskId: string): Promise<void>;
+  getExecutionUnavailableReason(execution: ExecutionSummary): string | null;
   dragSnapshot: KanbanDragSnapshot | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -561,39 +568,39 @@ function KanbanColumn({
           aria-hidden="true"
         />
         <h2 id={`kanban-column-${column.id}`}>{column.name}</h2>
-        <span className="vk-kanban-column__count">{column.issues.length}</span>
+        <span className="vk-kanban-column__count">{column.tasks.length}</span>
         <button
           type="button"
-          onClick={onCreateIssue}
-          aria-label={`Create issue in ${column.name}`}
+          onClick={onCreateTask}
+          aria-label={`Create task in ${column.name}`}
         >
           <Plus aria-hidden="true" size={16} />
         </button>
       </header>
       <SortableContext
-        items={column.issues.map((issue) => issue.id)}
+        items={column.tasks.map((task) => task.id)}
         strategy={verticalListSortingStrategy}
       >
         <div className="vk-kanban-column__cards">
-          {column.issues.map((issue) => (
-            <KanbanIssueCard
-              key={issue.id}
-              issue={
-                dragSnapshot?.issue.id === issue.id ? dragSnapshot.issue : issue
+          {column.tasks.map((task) => (
+            <KanbanTaskCard
+              key={task.id}
+              task={
+                dragSnapshot?.task.id === task.id ? dragSnapshot.task : task
               }
               placeholderHeight={
-                dragSnapshot?.issue.id === issue.id
+                dragSnapshot?.task.id === task.id
                   ? dragSnapshot.height
                   : undefined
               }
-              selected={issue.id === selectedIssueId}
+              selected={task.id === selectedTaskId}
               dragDisabled={dragDisabled}
-              onOpen={(trigger) => onOpenIssue(issue.id, trigger)}
-              onOpenTask={onOpenTask}
-              onDeleteTask={onDeleteTask}
+              onOpen={(trigger) => onOpenTask(task.id, trigger)}
+              onOpenExecution={onOpenExecution}
+              onDeleteExecution={onDeleteExecution}
               deletingSessionId={deletingSessionId}
-              onDelete={() => onDeleteIssue(issue.id)}
-              getTaskUnavailableReason={getTaskUnavailableReason}
+              onDelete={() => onDeleteTask(task.id)}
+              getExecutionUnavailableReason={getExecutionUnavailableReason}
             />
           ))}
         </div>
@@ -603,7 +610,7 @@ function KanbanColumn({
 }
 
 interface KanbanDragSnapshot {
-  issue: KanbanIssueProjection;
+  task: KanbanTaskProjection;
   width: number;
   height: number;
   previewHeight: number;
@@ -615,26 +622,26 @@ export function ProjectKanbanView({
   projectActions,
   sessionColumn,
   columns,
-  issueCount,
+  taskCount,
   query,
-  selectedIssueId,
+  selectedTaskId,
   dragDisabled,
   projectSource,
-  taskSource,
+  executionSource,
   panel,
   onQueryChange,
-  onCreateIssue,
-  onOpenIssue,
+  onCreateTask,
   onOpenTask,
-  onDeleteTask,
+  onOpenExecution,
+  onDeleteExecution,
   deletingSessionId,
-  onDeleteIssue,
-  getTaskUnavailableReason,
+  onDeleteTask,
+  getExecutionUnavailableReason,
   onMove,
 }: ProjectKanbanViewProps) {
   const { t } = useTranslation('common');
   const [displayColumns, setDisplayColumns] = useState(columns);
-  const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<KanbanDragSnapshot | null>(
     null
   );
@@ -710,28 +717,29 @@ export function ProjectKanbanView({
           ...projectSource,
         }
       : null,
-    taskSource.state === 'ready' ? null : { id: 'tasks', ...taskSource },
+    executionSource.state === 'ready'
+      ? null
+      : { id: 'tasks', ...executionSource },
   ].filter((source) => source !== null);
 
   useEffect(() => setDisplayColumns(columns), [columns]);
 
-  const activeIssue = useMemo(
-    () =>
-      activeIssueId ? findKanbanIssue(displayColumns, activeIssueId) : null,
-    [activeIssueId, displayColumns]
+  const activeTask = useMemo(
+    () => (activeTaskId ? findKanbanTask(displayColumns, activeTaskId) : null),
+    [activeTaskId, displayColumns]
   );
 
   const handleDragStart = (event: DragStartEvent) => {
     dropCleanupRef.current?.();
-    const issue = findKanbanIssue(displayColumns, String(event.active.id));
+    const task = findKanbanTask(displayColumns, String(event.active.id));
     const source = event.activatorEvent.target;
     const rect =
       event.active.rect.current.initial ??
       (source instanceof Element
-        ? source.closest('[data-issue-id]')?.getBoundingClientRect()
+        ? source.closest('[data-task-id]')?.getBoundingClientRect()
         : undefined);
     setDragSnapshot(null);
-    if (issue && rect) {
+    if (task && rect) {
       const previewHeight = Math.min(
         rect.height,
         Math.min(480, window.innerHeight * 0.65)
@@ -739,7 +747,7 @@ export function ProjectKanbanView({
       const pointer = getEventCoordinates(event.activatorEvent);
       const gripY = pointer ? pointer.y - rect.top : 0;
       setDragSnapshot({
-        issue: structuredClone(issue),
+        task: structuredClone(task),
         width: rect.width,
         height: rect.height,
         previewHeight,
@@ -749,69 +757,69 @@ export function ProjectKanbanView({
             : 0,
       });
     }
-    setActiveIssueId(issue?.id ?? null);
-    if (issue) setAnnouncement(`Picked up ${issue.simpleId}.`);
+    setActiveTaskId(task?.id ?? null);
+    if (task) setAnnouncement(`Picked up ${task.simpleId}.`);
   };
 
   const handleDragCancel = (event?: DragCancelEvent) => {
-    const cancelledIssue = event
-      ? findKanbanIssue(displayColumns, String(event.active.id))
-      : activeIssue;
-    if (cancelledIssue) {
-      setAnnouncement(`Movement cancelled for ${cancelledIssue.simpleId}.`);
+    const cancelledTask = event
+      ? findKanbanTask(displayColumns, String(event.active.id))
+      : activeTask;
+    if (cancelledTask) {
+      setAnnouncement(`Movement cancelled for ${cancelledTask.simpleId}.`);
     }
-    setActiveIssueId(null);
+    setActiveTaskId(null);
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
-    const issue = findKanbanIssue(displayColumns, String(event.active.id));
+    const task = findKanbanTask(displayColumns, String(event.active.id));
     const overId = event.over ? String(event.over.id) : null;
-    if (!issue || !overId) {
+    if (!task || !overId) {
       handleDragCancel();
       return;
     }
 
-    const targetIssue = findKanbanIssue(displayColumns, overId);
-    if (targetIssue?.id === issue.id) {
-      setAnnouncement(`No valid destination for ${issue.simpleId}.`);
-      setActiveIssueId(null);
+    const targetTask = findKanbanTask(displayColumns, overId);
+    if (targetTask?.id === task.id) {
+      setAnnouncement(`No valid destination for ${task.simpleId}.`);
+      setActiveTaskId(null);
       return;
     }
-    const targetColumn = targetIssue
-      ? displayColumns.find((column) => column.id === targetIssue.statusId)
+    const targetColumn = targetTask
+      ? displayColumns.find((column) => column.id === targetTask.statusId)
       : displayColumns.find((column) => column.id === overId);
     if (!targetColumn) {
-      setAnnouncement(`No valid destination for ${issue.simpleId}.`);
-      setActiveIssueId(null);
+      setAnnouncement(`No valid destination for ${task.simpleId}.`);
+      setActiveTaskId(null);
       return;
     }
 
-    const targetIndex = targetIssue
-      ? targetColumn.issues.findIndex(
-          (candidate) => candidate.id === targetIssue.id
+    const targetIndex = targetTask
+      ? targetColumn.tasks.findIndex(
+          (candidate) => candidate.id === targetTask.id
         )
-      : targetColumn.issues.length;
-    const move = moveKanbanIssue(displayColumns, {
-      issueId: issue.id,
-      sourceStatusId: issue.statusId,
+      : targetColumn.tasks.length;
+    const move = moveKanbanTask(displayColumns, {
+      taskId: task.id,
+      sourceStatusId: task.statusId,
       targetStatusId: targetColumn.id,
       targetIndex,
     });
-    setActiveIssueId(null);
+    setActiveTaskId(null);
     if (!move) {
-      setAnnouncement(`No valid destination for ${issue.simpleId}.`);
+      setAnnouncement(`No valid destination for ${task.simpleId}.`);
       return;
     }
 
     const previousColumns = displayColumns;
     setDisplayColumns(move.columns);
-    setAnnouncement(`Moved ${issue.simpleId} to ${targetColumn.name}.`);
+    setAnnouncement(`Moved ${task.simpleId} to ${targetColumn.name}.`);
     try {
       await onMove(move.updates);
     } catch {
       setDisplayColumns(previousColumns);
       setAnnouncement(
-        `Move failed. ${issue.simpleId} was returned to its previous position.`
+        `Move failed. ${task.simpleId} was returned to its previous position.`
       );
     }
   };
@@ -829,25 +837,25 @@ export function ProjectKanbanView({
         <label className="vk-kanban-search">
           <Search aria-hidden="true" size={16} />
           <span className="vk-visually-hidden">
-            Search issues in {projectName}
+            Search tasks in {projectName}
           </span>
           <input
             type="search"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search issues"
+            placeholder="Search tasks"
           />
         </label>
         <span className="vk-project-kanban__issue-count">
-          {issueCount} {issueCount === 1 ? 'Issue' : 'Issues'}
+          {taskCount} {taskCount === 1 ? 'Task' : 'Tasks'}
         </span>
         <button
           type="button"
           className="vk-primary-action"
-          onClick={() => onCreateIssue()}
+          onClick={() => onCreateTask()}
         >
           <Plus aria-hidden="true" size={16} />
-          New issue
+          New task
         </button>
       </header>
 
@@ -861,7 +869,7 @@ export function ProjectKanbanView({
                 key={source.id}
                 compact
                 className="w-full !flex-row !justify-start !rounded-none !text-left"
-                title={source.title ?? 'Loading execution tasks…'}
+                title={source.title ?? 'Loading executions…'}
                 description={source.description}
                 action={
                   source.retry ? (
@@ -906,16 +914,16 @@ export function ProjectKanbanView({
                 <KanbanColumn
                   key={column.id}
                   column={column}
-                  selectedIssueId={selectedIssueId}
+                  selectedTaskId={selectedTaskId}
                   dragDisabled={dragDisabled}
-                  onCreateIssue={() => onCreateIssue(column.id)}
-                  onOpenIssue={onOpenIssue}
+                  onCreateTask={() => onCreateTask(column.id)}
                   onOpenTask={onOpenTask}
-                  onDeleteTask={onDeleteTask}
+                  onOpenExecution={onOpenExecution}
+                  onDeleteExecution={onDeleteExecution}
                   deletingSessionId={deletingSessionId}
-                  onDeleteIssue={onDeleteIssue}
-                  getTaskUnavailableReason={getTaskUnavailableReason}
-                  dragSnapshot={activeIssueId ? dragSnapshot : null}
+                  onDeleteTask={onDeleteTask}
+                  getExecutionUnavailableReason={getExecutionUnavailableReason}
+                  dragSnapshot={activeTaskId ? dragSnapshot : null}
                 />
               ))}
             </div>
@@ -926,7 +934,7 @@ export function ProjectKanbanView({
             modifiers={previewModifiers}
             dropAnimation={dropAnimation}
           >
-            {activeIssueId && dragSnapshot ? (
+            {activeTaskId && dragSnapshot ? (
               <div
                 className="vk-kanban-issue-card vk-kanban-drag-preview"
                 data-clipped={dragSnapshot.previewHeight < dragSnapshot.height}
@@ -936,11 +944,11 @@ export function ProjectKanbanView({
                   height: dragSnapshot.previewHeight,
                 }}
               >
-                <IssueCardContent
-                  issue={dragSnapshot.issue}
+                <TaskCardContent
+                  task={dragSnapshot.task}
                   preview
-                  onDeleteTask={onDeleteTask}
-                  getTaskUnavailableReason={getTaskUnavailableReason}
+                  onDeleteExecution={onDeleteExecution}
+                  getExecutionUnavailableReason={getExecutionUnavailableReason}
                   actions={
                     <>
                       <div className="vk-kanban-issue-card__menu">

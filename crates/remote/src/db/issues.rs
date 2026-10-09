@@ -1,6 +1,8 @@
+// Private SQLx annotation name preserves the checked historical query hashes.
+// The public Rust/Serde/TypeScript contract is Task-owned.
 use api_types::{
-    DeleteResponse, Issue, IssuePriority, IssueSortField, ListIssuesResponse, MutationResponse,
-    PullRequestStatus, SearchIssuesRequest, SortDirection,
+    DeleteResponse, ListTasksResponse, MutationResponse, PullRequestStatus, SearchTasksRequest,
+    SortDirection, Task, TaskPriority as IssuePriority, TaskPriority, TaskSortField,
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -24,7 +26,7 @@ pub enum IssueError {
     #[error("workspace error: {0}")]
     Workspace(#[from] super::workspaces::WorkspaceError),
     #[error("issue assignee error: {0}")]
-    IssueAssignee(#[from] super::issue_assignees::IssueAssigneeError),
+    TaskAssignee(#[from] super::issue_assignees::IssueAssigneeError),
 }
 
 pub struct IssueRepository;
@@ -36,13 +38,13 @@ enum IssueWorkflowSignal {
 }
 
 impl IssueRepository {
-    fn sort_field_key(sort_field: IssueSortField) -> &'static str {
+    fn sort_field_key(sort_field: TaskSortField) -> &'static str {
         match sort_field {
-            IssueSortField::SortOrder => "sort_order",
-            IssueSortField::Priority => "priority",
-            IssueSortField::CreatedAt => "created_at",
-            IssueSortField::UpdatedAt => "updated_at",
-            IssueSortField::Title => "title",
+            TaskSortField::SortOrder => "sort_order",
+            TaskSortField::Priority => "priority",
+            TaskSortField::CreatedAt => "created_at",
+            TaskSortField::UpdatedAt => "updated_at",
+            TaskSortField::Title => "title",
         }
     }
 
@@ -62,8 +64,8 @@ impl IssueRepository {
 
     pub async fn search(
         pool: &PgPool,
-        query: &SearchIssuesRequest,
-    ) -> Result<ListIssuesResponse, IssueError> {
+        query: &SearchTasksRequest,
+    ) -> Result<ListTasksResponse, IssueError> {
         let status_ids = query.status_ids.as_deref();
         let search_pattern = query
             .search
@@ -72,8 +74,7 @@ impl IssueRepository {
             .map(|search| format!("%{search}%"));
         let simple_id = query.simple_id.as_deref().map(Self::escape_like_pattern);
         let tag_ids = query.tag_ids.as_deref();
-        let sort_field =
-            Self::sort_field_key(query.sort_field.unwrap_or(IssueSortField::SortOrder));
+        let sort_field = Self::sort_field_key(query.sort_field.unwrap_or(TaskSortField::SortOrder));
         let sort_direction =
             Self::sort_direction_key(query.sort_direction.unwrap_or(SortDirection::Asc));
         let offset = query.offset.unwrap_or(0).max(0) as usize;
@@ -125,7 +126,7 @@ impl IssueRepository {
             query.project_id,
             query.status_id,
             status_ids,
-            query.priority as Option<IssuePriority>,
+            query.priority as Option<TaskPriority>,
             query.parent_issue_id,
             search_pattern.as_deref(),
             simple_id.as_deref(),
@@ -138,7 +139,7 @@ impl IssueRepository {
         .unwrap_or(0) as usize;
 
         let issues = sqlx::query_as!(
-            Issue,
+            Task,
             r#"
             SELECT
                 i.id                  AS "id!: Uuid",
@@ -240,7 +241,7 @@ impl IssueRepository {
             query.project_id,
             query.status_id,
             status_ids,
-            query.priority as Option<IssuePriority>,
+            query.priority as Option<TaskPriority>,
             query.parent_issue_id,
             search_pattern.as_deref(),
             simple_id.as_deref(),
@@ -257,7 +258,7 @@ impl IssueRepository {
 
         let limit = query.limit.unwrap_or(issues.len() as i32).max(0) as usize;
 
-        Ok(ListIssuesResponse {
+        Ok(ListTasksResponse {
             issues,
             total_count,
             limit,
@@ -265,12 +266,12 @@ impl IssueRepository {
         })
     }
 
-    pub async fn find_by_id<'e, E>(executor: E, id: Uuid) -> Result<Option<Issue>, IssueError>
+    pub async fn find_by_id<'e, E>(executor: E, id: Uuid) -> Result<Option<Task>, IssueError>
     where
         E: Executor<'e, Database = Postgres>,
     {
         let record = sqlx::query_as!(
-            Issue,
+            Task,
             r#"
             SELECT
                 id                  AS "id!: Uuid",
@@ -329,7 +330,7 @@ impl IssueRepository {
         status_id: Uuid,
         title: String,
         description: Option<String>,
-        priority: Option<IssuePriority>,
+        priority: Option<TaskPriority>,
         start_date: Option<DateTime<Utc>>,
         target_date: Option<DateTime<Utc>>,
         completed_at: Option<DateTime<Utc>>,
@@ -338,13 +339,13 @@ impl IssueRepository {
         parent_issue_sort_order: Option<f64>,
         extension_metadata: Value,
         creator_user_id: Uuid,
-    ) -> Result<MutationResponse<Issue>, IssueError> {
+    ) -> Result<MutationResponse<Task>, IssueError> {
         let mut tx = super::begin_tx(pool).await?;
 
         let id = id.unwrap_or_else(Uuid::new_v4);
         // Note: issue_number and simple_id are auto-generated by the DB trigger
         let data = sqlx::query_as!(
-            Issue,
+            Task,
             r#"
             INSERT INTO issues (
                 id, project_id, status_id, title, description, priority,
@@ -378,7 +379,7 @@ impl IssueRepository {
             status_id,
             title,
             description,
-            priority as Option<IssuePriority>,
+            priority as Option<TaskPriority>,
             start_date,
             target_date,
             completed_at,
@@ -411,7 +412,7 @@ impl IssueRepository {
         status_id: Option<Uuid>,
         title: Option<String>,
         description: Option<Option<String>>,
-        priority: Option<Option<IssuePriority>>,
+        priority: Option<Option<TaskPriority>>,
         start_date: Option<Option<DateTime<Utc>>>,
         target_date: Option<Option<DateTime<Utc>>>,
         completed_at: Option<Option<DateTime<Utc>>>,
@@ -419,7 +420,7 @@ impl IssueRepository {
         parent_issue_id: Option<Option<Uuid>>,
         parent_issue_sort_order: Option<Option<f64>>,
         extension_metadata: Option<Value>,
-    ) -> Result<Issue, IssueError>
+    ) -> Result<Task, IssueError>
     where
         E: Executor<'e, Database = Postgres>,
     {
@@ -441,7 +442,7 @@ impl IssueRepository {
         let parent_issue_sort_order_value = parent_issue_sort_order.flatten();
 
         let data = sqlx::query_as!(
-            Issue,
+            Task,
             r#"
             UPDATE issues
             SET
@@ -483,7 +484,7 @@ impl IssueRepository {
             update_description,
             description_value,
             update_priority,
-            priority_value as Option<IssuePriority>,
+            priority_value as Option<TaskPriority>,
             update_start_date,
             start_date_value,
             update_target_date,

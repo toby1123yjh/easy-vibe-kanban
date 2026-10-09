@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Json as ResponseJson},
     routing::get,
 };
-use db::models::scratch::{CreateScratch, Scratch, ScratchType, UpdateScratch};
+use db::models::scratch::{CreateScratch, Scratch, ScratchPayload, ScratchType, UpdateScratch};
 use deployment::Deployment;
 use futures_util::{StreamExt, TryStreamExt};
 use serde::Deserialize;
@@ -73,6 +73,10 @@ pub async fn create_scratch(
         .validate_type(scratch_type)
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
+    if let ScratchPayload::ProjectRepoDefaults(defaults) = &payload.payload {
+        super::project_store::validate_directory_binding(&deployment.db().pool, id, defaults)
+            .await?;
+    }
     let scratch = Scratch::create(&deployment.db().pool, id, &payload).await?;
     Ok(ResponseJson(ApiResponse::success(scratch)))
 }
@@ -98,6 +102,10 @@ pub async fn update_scratch(
         .validate_type(scratch_type)
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
+    if let ScratchPayload::ProjectRepoDefaults(defaults) = &payload.payload {
+        super::project_store::validate_directory_binding(&deployment.db().pool, id, defaults)
+            .await?;
+    }
     // Upsert: creates if not exists, updates if exists
     let scratch = Scratch::update(&deployment.db().pool, id, &scratch_type, &payload).await?;
     Ok(ResponseJson(ApiResponse::success(scratch)))
@@ -108,6 +116,19 @@ pub async fn delete_scratch(
     Path(ScratchPath { scratch_type, id }): Path<ScratchPath>,
 ) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
     guard_default_project(&scratch_type, id)?;
+    if matches!(scratch_type, ScratchType::ProjectRepoDefaults) {
+        let mounted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM project_task_mounts WHERE project_id=?)",
+        )
+        .bind(id)
+        .fetch_one(&deployment.db().pool)
+        .await?;
+        if mounted {
+            return Err(ApiError::Conflict(
+                "A file-owned project must retain its registered directory".into(),
+            ));
+        }
+    }
     let rows = Scratch::delete(&deployment.db().pool, id, &scratch_type).await?;
     if rows == 0 {
         return Err(ApiError::BadRequest("Scratch not found".to_string()));

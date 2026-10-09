@@ -13,7 +13,7 @@ test('existing sessions can open or delete but cannot change their project', asy
   });
   await page.route('**/api/sessions/recent?*', route => route.fulfill({ json: {
     success: true,
-    data: { sessions: [{ id: 'session-1', workspace_id: 'workspace-1', task_id: null, title: 'Independent chat' }], next_cursor: null },
+    data: { sessions: [{ id: 'session-1', workspace_id: 'workspace-1', execution_id: null, title: 'Independent chat' }], next_cursor: null },
   } }));
   await page.goto('/?defaultProject');
   await expect(page.getByRole('heading', { name: 'Default project' })).toBeVisible();
@@ -30,7 +30,7 @@ test('session list failure keeps real retry without project move controls', asyn
   let failed = true;
   await page.route('**/api/sessions/recent?*', route => failed
     ? route.fulfill({ status: 500, json: { success: false, message: 'Read failed' } })
-    : route.fulfill({ json: { success: true, data: { sessions: [{ id: 's', workspace_id: 'w', task_id: null, title: 'Recovered session' }], next_cursor: null } } }));
+    : route.fulfill({ json: { success: true, data: { sessions: [{ id: 's', workspace_id: 'w', execution_id: null, title: 'Recovered session' }], next_cursor: null } } }));
   await page.goto('/?defaultProject');
   await expect(page.getByRole('alert')).toBeVisible();
   failed = false;

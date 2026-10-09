@@ -410,12 +410,12 @@
       "action": "重命名",
       "renaming": "正在重命名..."
     },
-    "unlinkFromIssue": "从问题取消关联",
+    "unlinkFromIssue": "从任务取消关联",
     "deleteWorkspace": "删除工作空间",
     "unlink": "取消关联",
     "delete": "删除",
-    "unlinkConfirmMessage": "确定要将此工作空间与问题取消关联吗？工作空间仍将存在，但不再与此问题关联。",
-    "deleteConfirmMessage": "确定要删除此工作空间吗？这将取消与问题的关联并删除本地工作空间。此操作无法撤销。",
+    "unlinkConfirmMessage": "确定要将此工作空间与任务取消关联吗？工作空间仍将存在，但不再与此任务关联。",
+    "deleteConfirmMessage": "确定要删除此工作空间吗？这将取消与任务的关联并删除本地工作空间。此操作无法撤销。",
     "unlinkError": "取消关联工作空间失败",
     "deleteError": "删除工作空间失败",
     "filesChanged": "{{count}} 个文件",
@@ -424,7 +424,7 @@
       "description": "确定要删除此工作空间吗？此操作无法撤销。",
       "deleteBranchLabel": "删除分支",
       "cannotDeleteOpenPr": "PR 开启时无法删除分支",
-      "unlinkFromIssueLabel": "同时取消与议题的关联"
+      "unlinkFromIssueLabel": "同时取消与任务的关联"
     },
     "linkError": "关联工作空间失败"
   },
@@ -656,7 +656,7 @@
     },
     "runDialog": {
       "title": "运行工作流执行",
-      "description": "启动这个关联议题的工作流执行。",
+      "description": "启动这个关联任务的工作流执行。",
       "mainWorkspace": "主工作空间",
       "createWorkflowWorkspace": "创建工作流工作空间",
       "usesExistingWorkspace": "使用现有工作空间。",
@@ -683,7 +683,7 @@
       "time": "时间",
       "weekday": "星期",
       "timezone": "时区",
-      "contextIssue": "上下文议题",
+      "contextIssue": "上下文任务",
       "inputText": "运行输入",
       "inputPlaceholder": "描述本次运行要做什么。",
       "save": "保存",
@@ -693,7 +693,7 @@
       "lastTriggered": "上次触发",
       "lastStatus": "上次状态",
       "target": "目标",
-      "noIssue": "没有可用议题",
+      "noIssue": "没有可用任务",
       "none": "无",
       "saveBeforeSchedule": "请先保存这个工作流，再添加定时任务。",
       "deleteTitle": "删除定时任务？",
@@ -718,7 +718,7 @@
         "sunday": "日"
       },
       "errors": {
-        "issueRequired": "请选择上下文议题。",
+        "issueRequired": "请选择上下文任务。",
         "timeRequired": "请选择有效时间。",
         "weekdayRequired": "请选择星期。",
         "inputRequired": "保存定时任务前请填写运行输入。",
@@ -990,7 +990,7 @@
       "noSourceOutput": "来源执行没有文字输出。",
       "noRuntimeOutput": "暂时没有运行输出。",
       "technicalDetails": "技术详情",
-      "taskId": "任务 ID",
+      "taskId": "执行 ID",
       "updatingDecision": "正在更新...",
       "approveAndContinue": "批准继续",
       "openFullSession": "打开完整会话",
@@ -1034,7 +1034,7 @@
     },
     "dashboard": {
       "runDetails": "运行详情",
-      "issueId": "议题 ID",
+      "issueId": "任务 ID",
       "workflow": "工作流",
       "runId": "运行 ID",
       "status": "状态",
@@ -1301,7 +1301,7 @@
       "goTo": "前往 (G ...)",
       "workspace": "工作空间 (W ...)",
       "view": "视图 (V ...)",
-      "issues": "问题 (I ...)",
+      "issues": "任务 (I ...)",
       "git": "Git (X ...)",
       "yank": "复制 (Y ...)",
       "toggle": "切换 (T ...)",
@@ -1332,16 +1332,16 @@
       "toggle-preview-mode": "切换预览面板",
       "toggle-left-sidebar": "切换左侧边栏",
       "toggle-left-main-panel": "切换聊天面板",
-      "create-issue": "创建问题",
+      "create-issue": "创建任务",
       "change-issue-status": "更改状态",
       "change-issue-priority": "更改优先级",
       "change-assignees": "更改负责人",
-      "make-sub-issue-of": "设为子问题",
-      "add-sub-issue": "添加子问题",
+      "make-sub-issue-of": "设为子任务",
+      "add-sub-issue": "添加子任务",
       "remove-parent-issue": "移除父级",
       "link-workspace": "关联工作空间",
-      "duplicate-issue": "复制问题",
-      "delete-issue": "删除问题",
+      "duplicate-issue": "复制任务",
+      "delete-issue": "删除任务",
       "git-create-pr": "创建 Pull Request",
       "git-merge": "合并分支",
       "git-rebase": "变基分支",
@@ -1367,11 +1367,11 @@
     "noCommands": "此智能体没有可用的命令。"
   },
   "kanban": {
-    "noVisibleStatuses": "所有状态已隐藏。请使用显示设置或切换到其他标签页查看问题。",
+    "noVisibleStatuses": "所有状态已隐藏。请使用显示设置或切换到其他标签页查看任务。",
     "noProjectFound": "未找到项目",
     "unassigned": "未分配",
     "noTagsAvailable": "无可用标签",
-    "createNewIssue": "创建新问题",
+    "createNewIssue": "创建新任务",
     "searchTags": "搜索标签...",
     "selectColorFor": "选择颜色：",
     "createTag": "创建",
@@ -1390,12 +1390,12 @@
     "moreActions": "更多操作",
     "closePanel": "关闭面板",
     "copyLink": "复制链接",
-    "issueTitlePlaceholder": "问题标题...",
+    "issueTitlePlaceholder": "任务标题...",
     "issueDescriptionPlaceholder": "输入任务描述...",
     "createDraftWorkspaceImmediately": "立即创建草稿工作空间",
-    "createDraftWorkspaceDescription": "创建议题后，打开预填了议题详情的工作空间创建表单",
+    "createDraftWorkspaceDescription": "创建任务后，打开预填了任务详情的工作空间创建表单",
     "createIssue": "创建任务",
-    "newIssue": "新问题",
+    "newIssue": "新任务",
     "previewCodeBlock": "[代码块]",
     "previewImage": "[图片]",
     "previewImageWithName": "[图片: {{name}}]",
@@ -1410,7 +1410,7 @@
     "downloadAttachment": "下载附件",
     "subIssues": "子任务",
     "noSubIssues": "无子任务",
-    "markIndependentIssue": "标记为独立问题",
+    "markIndependentIssue": "标记为独立任务",
     "parentIssue": "父级",
     "subIssueIndicator": "↳",
     "viewTabs": {
@@ -1424,7 +1424,7 @@
     },
     "team": "团队",
     "personal": "个人",
-    "searchPlaceholder": "搜索问题...",
+    "searchPlaceholder": "搜索任务...",
     "filters": "筛选",
     "clearFilters": "清除筛选",
     "filtersDescription": "调整此看板视图的筛选和排序。",
@@ -1455,7 +1455,7 @@
     "assignee": "负责人",
     "self": "我",
     "priority": "优先级",
-    "subIssuesFilterLabel": "子问题",
+    "subIssuesFilterLabel": "子任务",
     "workspacesFilterLabel": "工作空间",
     "selectAssignees": "选择负责人...",
     "relationships": "关系",
@@ -1469,7 +1469,7 @@
     "changeColor": "更改颜色",
     "editName": "编辑名称",
     "deleteStatus": "删除状态",
-    "cannotDeleteWithIssues": "请先移动问题",
+    "cannotDeleteWithIssues": "请先移动任务",
     "lastVisibleStatus": "至少需要保留一个可见状态",
     "showStatus": "显示状态",
     "hideStatus": "隐藏状态",
@@ -1480,19 +1480,19 @@
     "projectsGuide": {
       "intro": {
         "title": "欢迎",
-        "content": "欢迎使用 Vibe Kanban。使用此面板中的帮助内容了解基本流程，然后创建第一个问题。你可以随时从导航栏重新打开此帮助对话框或提交反馈。"
+        "content": "欢迎使用 Vibe Kanban。使用此面板中的帮助内容了解基本流程，然后创建第一个任务。你可以随时从导航栏重新打开此帮助对话框或提交反馈。"
       },
       "welcome": {
         "title": "项目",
-        "content": "项目页面用于管理问题。你可以用看板或列表查看问题，并按状态、标签、负责人等条件筛选。"
+        "content": "项目页面用于管理任务。你可以用看板或列表查看任务，并按状态、标签、负责人等条件筛选。"
       },
       "issues": {
-        "title": "问题",
-        "content": "每个问题代表一个要实现的功能或要解决的问题。问题可以包含状态、优先级、负责人、标签、关系、评论、子问题等信息。"
+        "title": "任务",
+        "content": "每个任务代表一个要实现的功能或要解决的任务。任务可以包含状态、优先级、负责人、标签、关系、评论、子任务等信息。"
       },
       "workspaces": {
         "title": "工作空间",
-        "content": "开始处理问题时，请创建一个工作空间。一个问题可以有多个工作空间。问题描述要完成的工作，工作空间承载实际执行过程。"
+        "content": "开始处理任务时，请创建一个工作空间。一个任务可以有多个工作空间。任务描述要完成的工作，工作空间承载实际执行过程。"
       },
       "organizations": {
         "title": "邀请你的团队",
@@ -1674,9 +1674,9 @@
         "command": "命令",
         "project": "项目",
         "session": "会话",
-        "issue": "议题",
         "workflow": "工作流",
-        "run": "执行"
+        "run": "执行",
+        "task": "任务"
       }
     },
     "moduleLanding": {
@@ -1696,7 +1696,7 @@
         "agentConfiguration": "智能体配置"
       },
       "unavailable": {
-        "globalStatistics": "项目、Issue 和智能体运行的规范总数尚未提供。侧边栏分页数据不会作为全局统计展示。",
+        "globalStatistics": "项目、Task 和智能体运行的规范总数尚未提供。侧边栏分页数据不会作为全局统计展示。",
         "attention": "规范的关注项投影尚未提供。此区域保持独立，不会从日志文本推断告警。",
         "activeRuns": "会话列表不包含运行时状态。规范运行时投影提供后，这里才会显示运行中的任务。",
         "agentConfiguration": "连接、默认模型、API 地址和运行数量的规范摘要尚未提供。运行时 API 能力不会替代配置数据。"
@@ -2116,5 +2116,15 @@
     "submitting": "正在提交回答...",
     "answeredCount": "已回答{{count}}个问题",
     "answeredCount_other": "已回答{{count}}个问题"
+  },
+  "taskDetails": {
+    "executions": "执行",
+    "noExecutions": "此任务尚未发起执行。",
+    "newExecution": "发起执行",
+    "singleAgent": "单智能体",
+    "workflow": "工作流",
+    "arena": "竞技场",
+    "information": "任务信息",
+    "description": "描述"
   }
 }

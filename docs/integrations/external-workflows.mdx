@@ -1,11 +1,25 @@
 ---
 title: "External workflow API"
-description: "Create projects and Issues, upload materials, and run prepared workflows from another system."
+description: "Create projects and Tasks, upload materials, and run prepared workflows from another system."
 ---
 
-You can use Vibe Kanban as a workflow service for documents, research, coding, or other file-based work. Your application creates a project and an Issue, selects a workflow prepared in Vibe Kanban, and submits an asynchronous run. Files stay in the project's working directory.
+You can use Vibe Kanban as a workflow service for documents, research, coding, or other file-based work. Your application creates a project and a Task, selects a workflow prepared in Vibe Kanban, and submits an asynchronous run. Files stay in the project's working directory.
 
 You use the same HTTP API from the same machine or another machine. You do not need a Git repository for ordinary workflows. Nodes with Git-specific requirements, such as Arena nodes, still require a suitable repository.
+
+A **Task** describes the work you want done. An **Execution** is an Agent, Workflow, or Arena execution attached to that Task. A **Run** records an individual runtime occurrence. These names replace the former Issue and subordinate Task terminology; they do not introduce another task system.
+
+## Project-owned task data
+
+On an execution host, your project's `.vibe-kanban/project.json` stores its task definitions, statuses, tags, and task relationships. The board, local API, external API, and workflow main agent use the same data. The host database keeps local execution and conversation records, plus an index derived from the project document.
+
+To move your tasks to another host, copy the project directory, including `.vibe-kanban`, then open that directory as a project in Vibe Kanban. Existing project and task identities are retained. Opening the directory does not start an agent.
+
+<Note>
+This moves business task data, not conversations, execution history, workflow templates, credentials, or running processes. Configure agents and workflow templates on the destination host before starting new work.
+</Note>
+
+If a registered project document is missing or invalid, task operations report an error. They do not restore old task content from the host database or overwrite the document with an empty board. Keep `.vibe-kanban` in your project backups. Removing a project from Vibe Kanban does not delete its working directory.
 
 ## Prepare access
 
@@ -66,25 +80,25 @@ curl --fail-with-body --silent --show-error \
   --form 'file=@brief.txt' | jq -e '.data'
 ```
 
-The multipart request must contain exactly one field named `file`. Uploading does not create an Issue or start a workflow. Existing files cause a conflict unless you explicitly pass `overwrite=true`. If an upload response is lost, inspect or download the existing file before deciding whether to overwrite it.
+The multipart request must contain exactly one field named `file`. Uploading does not create a Task or start a workflow. Existing files cause a conflict unless you explicitly pass `overwrite=true`. If an upload response is lost, inspect or download the existing file before deciding whether to overwrite it.
 
 </Step>
-<Step title="Create an Issue">
+<Step title="Create a Task">
 
 ```bash
-ISSUE_ID=$(curl --fail-with-body --silent --show-error \
-  "$VK_API/projects/$PROJECT_ID/issues" \
+TASK_ID=$(curl --fail-with-body --silent --show-error \
+  "$VK_API/projects/$PROJECT_ID/tasks" \
   -H "Authorization: Bearer $VK_API_KEY" \
-  -H "Idempotency-Key: $VK_REQUEST_PREFIX-issue" \
+  -H "Idempotency-Key: $VK_REQUEST_PREFIX-task" \
   -H 'Content-Type: application/json' \
   --data '{"title":"Summarise the research brief","description":"Produce a concise summary from the uploaded materials."}' \
   | jq -er '.data.id')
 ```
 
-You can optionally supply a `status_id` belonging to this project. Otherwise, Vibe Kanban uses its first visible status. Creating the Issue does not start execution.
+You can optionally supply a `status_id` belonging to this project. Otherwise, Vibe Kanban uses its first visible status. Creating the Task does not start execution.
 
 </Step>
-<Step title="Select a prepared template and create a workflow task">
+<Step title="Select a prepared template and create a workflow execution">
 
 ```bash
 curl --fail-with-body --silent --show-error \
@@ -95,7 +109,7 @@ read -r -p 'Prepared template ID from the list: ' TEMPLATE_ID
 : "${TEMPLATE_ID:?A template ID is required}"
 
 ATTEMPT_ID=$(curl --fail-with-body --silent --show-error \
-  "$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-attempts" \
+  "$VK_API/projects/$PROJECT_ID/tasks/$TASK_ID/workflow-attempts" \
   -H "Authorization: Bearer $VK_API_KEY" \
   -H "Idempotency-Key: $VK_REQUEST_PREFIX-attempt" \
   -H 'Content-Type: application/json' \
@@ -104,20 +118,20 @@ ATTEMPT_ID=$(curl --fail-with-body --silent --show-error \
   | jq -er '.data.id')
 ```
 
-Only templates enabled for external access appear in the list. An attempt is the workflow task attached to your Issue. It captures a prepared template; you cannot submit an arbitrary workflow graph through this API.
+Only templates enabled for external access appear in the list. An attempt is the workflow execution attached to your Task. It captures a prepared template; you cannot submit an arbitrary workflow graph through this API.
 
 </Step>
 <Step title="Submit an asynchronous run">
 
 ```bash
 RUN_ID=$(curl --fail-with-body --silent --show-error \
-  "$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-attempts/$ATTEMPT_ID/run" \
+  "$VK_API/projects/$PROJECT_ID/tasks/$TASK_ID/workflow-attempts/$ATTEMPT_ID/run" \
   -H "Authorization: Bearer $VK_API_KEY" \
   -H "Idempotency-Key: $VK_REQUEST_PREFIX-run" \
   -H 'Content-Type: application/json' \
   --data '{"input_text":"Read brief.txt and write a concise summary to summary.md.","material_paths":["brief.txt"]}' \
   | jq -er '.data.id')
-RUN_URL="$VK_API/projects/$PROJECT_ID/issues/$ISSUE_ID/workflow-runs/$RUN_ID"
+RUN_URL="$VK_API/projects/$PROJECT_ID/tasks/$TASK_ID/workflow-runs/$RUN_ID"
 ```
 
 HTTP `202` means the run has been accepted, not completed. Materials must already exist inside the project directory. Their paths identify inputs; they do not upload, copy, or freeze those files.
@@ -174,9 +188,9 @@ curl --fail-with-body --silent --show-error --request POST \
   | jq '.data | {id,status,queue_phase}'
 ```
 
-Continue querying until cancellation completes. A cancellation request alone does not prove that the agent process has stopped. Disabling external access on a template prevents new tasks and runs; it does not withdraw work already accepted into the queue.
+Continue querying until cancellation completes. A cancellation request alone does not prove that the agent process has stopped. Disabling external access on a template prevents new executions and runs; it does not withdraw work already accepted into the queue.
 
-Running the same workflow task again can reuse its existing Node tasks and sessions. Creating a new attempt creates a separate workflow task. Execution remains tied to its established directory; changing a project's directory is not a way to move a running task.
+Running the same workflow execution again can reuse its existing Node executions and sessions. Creating a new attempt creates a separate workflow execution. Execution remains tied to its established directory; changing a project's directory is not a way to move a running execution.
 
 The queue serialises workflow runs, not all filesystem activity. Uploads, manual edits, and other applications can still change the shared directory.
 
@@ -189,7 +203,7 @@ curl --fail-with-body --silent --show-error "$RUN_URL/interactions" \
   -H "Authorization: Bearer $VK_API_KEY" | jq '.data'
 ```
 
-Use the returned interaction `id`, not just the Node name. Each interaction identifies a particular Node execution and iteration. Send one of these JSON bodies to `POST /projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response`:
+Use the returned interaction `id`, not just the Node name. Each interaction identifies a particular Node execution and iteration. Send one of these JSON bodies to `POST /projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response`:
 
 | Decision | JSON body |
 | --- | --- |
@@ -202,7 +216,7 @@ Use the interaction's `branch_targets` for branch choices and `arena_candidate_i
 
 ## Files and change evidence
 
-All Issues and runs in a project use its project directory. The API does not create mandatory Issue, input, output, or run subdirectories. You control the relative filenames and can create your own structure through uploads.
+All Tasks and runs in a project use its project directory. The API does not create mandatory Task, input, output, or run subdirectories. You control the relative filenames and can create your own structure through uploads.
 
 Directory listing accepts `path`, `limit` (1–1,000; default 100), and `cursor`. Follow `data.next_cursor` until it is `null`, and list child directories separately. Hidden and Git-ignored files appear in the listing. Pagination reads a live directory, so concurrent edits can affect successive pages.
 
@@ -227,7 +241,7 @@ An empty change list does not mean that nothing changed. Current provider eviden
 
 ## Retry requests safely
 
-Project, Issue, attempt, and run creation require an `Idempotency-Key` header containing 1–200 characters. The key is scoped to the integration, operation, and parent resource. Retrying with the same key and equivalent body returns the original resource identity. Reusing it with different parameters returns HTTP `409`.
+Project, Task, attempt, and run creation require an `Idempotency-Key` header containing 1–200 characters. The key is scoped to the integration, operation, and parent resource. Retrying with the same key and equivalent body returns the original resource identity. Reusing it with different parameters returns HTTP `409`.
 
 Keep keys with your calling system's job records. A lost response must not cause you to generate a new key and accidentally create another run. Retries still check authorisation; deleting a result or removing access does not make an old key create a replacement.
 
@@ -241,17 +255,17 @@ All paths below are relative to `/api/integrations/v1`. JSON successes contain `
 | --- | --- | --- |
 | POST | `/projects` | Create a project and its directory |
 | GET | `/projects/{project_id}` | Read an authorised project |
-| POST | `/projects/{project_id}/issues` | Create an Issue |
-| GET | `/projects/{project_id}/issues/{issue_id}` | Read an Issue |
+| POST | `/projects/{project_id}/tasks` | Create a Task |
+| GET | `/projects/{project_id}/tasks/{task_id}` | Read a Task |
 | GET / POST | `/projects/{project_id}/files` | List a directory / upload one file |
 | GET | `/projects/{project_id}/files/download` | Download a current file |
 | GET | `/projects/{project_id}/workflows` | List enabled templates |
-| POST | `/projects/{project_id}/issues/{issue_id}/workflow-attempts` | Create a workflow task from a template |
-| POST | `/projects/{project_id}/issues/{issue_id}/workflow-attempts/{attempt_id}/run` | Queue a run; returns HTTP 202 |
-| GET | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}` | Read state, output, and file evidence |
-| POST | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/cancel` | Request cancellation |
-| GET | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions` | List pending decisions |
-| POST | `/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response` | Answer one decision |
+| POST | `/projects/{project_id}/tasks/{task_id}/workflow-attempts` | Create a workflow execution from a template |
+| POST | `/projects/{project_id}/tasks/{task_id}/workflow-attempts/{attempt_id}/run` | Queue a run; returns HTTP 202 |
+| GET | `/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}` | Read state, output, and file evidence |
+| POST | `/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/cancel` | Request cancellation |
+| GET | `/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/interactions` | List pending decisions |
+| POST | `/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response` | Answer one decision |
 
 ## Handle errors
 

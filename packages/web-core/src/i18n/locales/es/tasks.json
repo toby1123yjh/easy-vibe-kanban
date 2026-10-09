@@ -564,7 +564,7 @@
   },
   "linkPrToIssue": {
     "title": "Vincular solicitud de extracción",
-    "description": "Vincular una solicitud de extracción existente a este issue.",
+    "description": "Vincular una solicitud de extracción existente a este task.",
     "urlTab": "Desde URL",
     "browseTab": "Explorar",
     "urlLabel": "URL de la solicitud de extracción",

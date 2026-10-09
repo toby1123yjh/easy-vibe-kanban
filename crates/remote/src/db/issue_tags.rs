@@ -1,4 +1,4 @@
-use api_types::{DeleteResponse, IssueTag, MutationResponse};
+use api_types::{DeleteResponse, MutationResponse, TaskTag};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -14,9 +14,9 @@ pub enum IssueTagError {
 pub struct IssueTagRepository;
 
 impl IssueTagRepository {
-    pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<IssueTag>, IssueTagError> {
+    pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<TaskTag>, IssueTagError> {
         let record = sqlx::query_as!(
-            IssueTag,
+            TaskTag,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -36,9 +36,9 @@ impl IssueTagRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueTag>, IssueTagError> {
+    ) -> Result<Vec<TaskTag>, IssueTagError> {
         let records = sqlx::query_as!(
-            IssueTag,
+            TaskTag,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -58,9 +58,9 @@ impl IssueTagRepository {
     pub async fn list_by_project(
         pool: &PgPool,
         project_id: Uuid,
-    ) -> Result<Vec<IssueTag>, IssueTagError> {
+    ) -> Result<Vec<TaskTag>, IssueTagError> {
         let records = sqlx::query_as!(
-            IssueTag,
+            TaskTag,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -81,11 +81,11 @@ impl IssueTagRepository {
         id: Option<Uuid>,
         issue_id: Uuid,
         tag_id: Uuid,
-    ) -> Result<MutationResponse<IssueTag>, IssueTagError> {
+    ) -> Result<MutationResponse<TaskTag>, IssueTagError> {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueTag,
+            TaskTag,
             r#"
             INSERT INTO issue_tags (id, issue_id, tag_id)
             VALUES ($1, $2, $3)

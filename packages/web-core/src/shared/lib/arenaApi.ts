@@ -1,3 +1,4 @@
+import { getCurrentHostId } from '@/shared/providers/HostIdProvider';
 // Arena (race mode) API client.
 //
 // Backed by `crates/server/src/routes/local_remote.rs` — these endpoints
@@ -107,7 +108,7 @@ export function isRetryableArenaAgentRunStatus(
 
 export interface ArenaGroup {
   id: string;
-  task_id: string;
+  execution_id: string;
   prompt: string;
   base_branch: string;
   mode: ArenaMode;
@@ -232,155 +233,164 @@ export interface ArenaMessageRequest {
 
 // ── Transport ───────────────────────────────────────────────────────
 
-const LOCAL_BASE = '/api/local/v1';
+export function createArenaApi(hostId?: string | null) {
+  const LOCAL_BASE = '/api/local/v1';
 
-interface MutationResponse<T> {
-  data: T;
-  txid: number;
-}
-
-async function localFetch(
-  path: string,
-  init: RequestInit = {}
-): Promise<Response> {
-  const headers = new Headers(init.headers ?? {});
-  if (!headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
+  interface MutationResponse<T> {
+    data: T;
+    txid: number;
   }
-  return makeLocalApiRequest(`${LOCAL_BASE}${path}`, {
-    ...init,
-    headers,
-    hostScope: 'none',
-  });
-}
 
-async function parseError(
-  response: Response,
-  fallback: string
-): Promise<Error> {
-  try {
-    const body = await response.json();
-    const message = body?.message || body?.error || fallback;
-    return new Error(`${message} (${response.status} ${response.statusText})`);
-  } catch {
-    return new Error(`${fallback} (${response.status} ${response.statusText})`);
+  async function localFetch(
+    path: string,
+    init: RequestInit = {}
+  ): Promise<Response> {
+    const headers = new Headers(init.headers ?? {});
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+    return makeLocalApiRequest(`${LOCAL_BASE}${path}`, {
+      ...init,
+      headers,
+      hostScope: 'explicit',
+      hostId: hostId === undefined ? getCurrentHostId() : hostId,
+    });
   }
-}
 
-async function getJson<T>(path: string, fallback: string): Promise<T> {
-  const response = await localFetch(path, { method: 'GET' });
-  if (!response.ok) {
-    throw await parseError(response, fallback);
+  async function parseError(
+    response: Response,
+    fallback: string
+  ): Promise<Error> {
+    try {
+      const body = await response.json();
+      const message = body?.message || body?.error || fallback;
+      return new Error(
+        `${message} (${response.status} ${response.statusText})`
+      );
+    } catch {
+      return new Error(
+        `${fallback} (${response.status} ${response.statusText})`
+      );
+    }
   }
-  return response.json() as Promise<T>;
-}
 
-async function mutate<T>(
-  path: string,
-  init: RequestInit,
-  fallback: string
-): Promise<T> {
-  const response = await localFetch(path, init);
-  if (!response.ok) {
-    throw await parseError(response, fallback);
+  async function getJson<T>(path: string, fallback: string): Promise<T> {
+    const response = await localFetch(path, { method: 'GET' });
+    if (!response.ok) {
+      throw await parseError(response, fallback);
+    }
+    return response.json() as Promise<T>;
   }
-  const body = (await response.json()) as MutationResponse<T>;
-  return body.data;
+
+  async function mutate<T>(
+    path: string,
+    init: RequestInit,
+    fallback: string
+  ): Promise<T> {
+    const response = await localFetch(path, init);
+    if (!response.ok) {
+      throw await parseError(response, fallback);
+    }
+    const body = (await response.json()) as MutationResponse<T>;
+    return body.data;
+  }
+
+  // ── Public API ──────────────────────────────────────────────────────
+
+  return {
+    /** POST /v1/tasks/{issue_id}/arena */
+    create: (
+      taskId: string,
+      payload: CreateArenaRequest
+    ): Promise<ArenaGroupResponse> =>
+      mutate<ArenaGroupResponse>(
+        `/tasks/${taskId}/arena`,
+        { method: 'POST', body: JSON.stringify(payload) },
+        'Failed to create arena group'
+      ),
+
+    /** GET /v1/tasks/{issue_id}/arena/active */
+    getActiveForTask: (taskId: string): Promise<ArenaGroupResponse | null> =>
+      getJson<ArenaGroupResponse | null>(
+        `/tasks/${taskId}/arena/active`,
+        'Failed to load active arena group'
+      ),
+
+    /** GET /v1/arena/{group_id} */
+    get: (groupId: string): Promise<ArenaGroupResponse> =>
+      getJson<ArenaGroupResponse>(
+        `/arena/${groupId}`,
+        'Failed to load arena group'
+      ),
+
+    /** POST /v1/arena/{group_id}/promote */
+    promote: (
+      groupId: string,
+      payload: PromoteArenaRequest
+    ): Promise<ArenaGroupResponse> =>
+      mutate<ArenaGroupResponse>(
+        `/arena/${groupId}/promote`,
+        { method: 'POST', body: JSON.stringify(payload) },
+        'Failed to promote arena workspace'
+      ),
+
+    /** POST /v1/arena/{group_id}/workspaces/{workspace_id}/retry */
+    retry: (
+      groupId: string,
+      workspaceId: string,
+      payload: RetryArenaRequest
+    ): Promise<ArenaGroupResponse> =>
+      mutate<ArenaGroupResponse>(
+        `/arena/${groupId}/workspaces/${workspaceId}/retry`,
+        { method: 'POST', body: JSON.stringify(payload) },
+        'Failed to retry arena workspace'
+      ),
+
+    /** DELETE /v1/arena/{group_id} */
+    dissolve: (groupId: string): Promise<DissolveArenaResponse> =>
+      mutate<DissolveArenaResponse>(
+        `/arena/${groupId}`,
+        { method: 'DELETE' },
+        'Failed to dissolve arena group'
+      ),
+
+    /** POST /v1/arena/{group_id}/close */
+    close: (groupId: string): Promise<CloseArenaResponse> =>
+      mutate<CloseArenaResponse>(
+        `/arena/${groupId}/close`,
+        { method: 'POST' },
+        'Failed to close arena group'
+      ),
+
+    /** POST /v1/arena/{group_id}/message */
+    message: (
+      groupId: string,
+      payload: ArenaMessageRequest
+    ): Promise<ArenaGroupResponse> =>
+      mutate<ArenaGroupResponse>(
+        `/arena/${groupId}/message`,
+        { method: 'POST', body: JSON.stringify(payload) },
+        'Failed to send arena message'
+      ),
+
+    /** POST /v1/arena/{group_id}/start-implementation */
+    startImplementation: (
+      groupId: string,
+      payload: StartArenaImplementationRequest
+    ): Promise<ArenaGroupResponse> =>
+      mutate<ArenaGroupResponse>(
+        `/arena/${groupId}/start-implementation`,
+        { method: 'POST', body: JSON.stringify(payload) },
+        'Failed to start arena implementation'
+      ),
+
+    /** GET /v1/tasks/{issue_id}/workspaces */
+    listTaskWorkspaces: (taskId: string): Promise<Workspace[]> =>
+      getJson<Workspace[]>(
+        `/tasks/${taskId}/workspaces`,
+        'Failed to list task workspaces'
+      ),
+  };
 }
 
-// ── Public API ──────────────────────────────────────────────────────
-
-export const arenaApi = {
-  /** POST /v1/issues/{issue_id}/arena */
-  create: (
-    issueId: string,
-    payload: CreateArenaRequest
-  ): Promise<ArenaGroupResponse> =>
-    mutate<ArenaGroupResponse>(
-      `/issues/${issueId}/arena`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Failed to create arena group'
-    ),
-
-  /** GET /v1/issues/{issue_id}/arena/active */
-  getActiveForIssue: (issueId: string): Promise<ArenaGroupResponse | null> =>
-    getJson<ArenaGroupResponse | null>(
-      `/issues/${issueId}/arena/active`,
-      'Failed to load active arena group'
-    ),
-
-  /** GET /v1/arena/{group_id} */
-  get: (groupId: string): Promise<ArenaGroupResponse> =>
-    getJson<ArenaGroupResponse>(
-      `/arena/${groupId}`,
-      'Failed to load arena group'
-    ),
-
-  /** POST /v1/arena/{group_id}/promote */
-  promote: (
-    groupId: string,
-    payload: PromoteArenaRequest
-  ): Promise<ArenaGroupResponse> =>
-    mutate<ArenaGroupResponse>(
-      `/arena/${groupId}/promote`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Failed to promote arena workspace'
-    ),
-
-  /** POST /v1/arena/{group_id}/workspaces/{workspace_id}/retry */
-  retry: (
-    groupId: string,
-    workspaceId: string,
-    payload: RetryArenaRequest
-  ): Promise<ArenaGroupResponse> =>
-    mutate<ArenaGroupResponse>(
-      `/arena/${groupId}/workspaces/${workspaceId}/retry`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Failed to retry arena workspace'
-    ),
-
-  /** DELETE /v1/arena/{group_id} */
-  dissolve: (groupId: string): Promise<DissolveArenaResponse> =>
-    mutate<DissolveArenaResponse>(
-      `/arena/${groupId}`,
-      { method: 'DELETE' },
-      'Failed to dissolve arena group'
-    ),
-
-  /** POST /v1/arena/{group_id}/close */
-  close: (groupId: string): Promise<CloseArenaResponse> =>
-    mutate<CloseArenaResponse>(
-      `/arena/${groupId}/close`,
-      { method: 'POST' },
-      'Failed to close arena group'
-    ),
-
-  /** POST /v1/arena/{group_id}/message */
-  message: (
-    groupId: string,
-    payload: ArenaMessageRequest
-  ): Promise<ArenaGroupResponse> =>
-    mutate<ArenaGroupResponse>(
-      `/arena/${groupId}/message`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Failed to send arena message'
-    ),
-
-  /** POST /v1/arena/{group_id}/start-implementation */
-  startImplementation: (
-    groupId: string,
-    payload: StartArenaImplementationRequest
-  ): Promise<ArenaGroupResponse> =>
-    mutate<ArenaGroupResponse>(
-      `/arena/${groupId}/start-implementation`,
-      { method: 'POST', body: JSON.stringify(payload) },
-      'Failed to start arena implementation'
-    ),
-
-  /** GET /v1/issues/{issue_id}/workspaces */
-  listIssueWorkspaces: (issueId: string): Promise<Workspace[]> =>
-    getJson<Workspace[]>(
-      `/issues/${issueId}/workspaces`,
-      'Failed to list issue workspaces'
-    ),
-};
+export const arenaApi = createArenaApi();

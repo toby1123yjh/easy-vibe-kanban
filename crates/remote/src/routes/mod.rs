@@ -199,3 +199,14 @@ pub fn all_mutation_definitions() -> Vec<crate::mutation_definition::MutationDef
         pull_request_issues::mutation().definition(),
     ]
 }
+
+#[cfg(test)]
+mod contract_tests {
+    #[test]
+    fn registered_mutations_match_generated_client_contracts() {
+        assert_eq!(
+            super::all_mutation_definitions(),
+            api_types::contracts::mutations::all_mutation_definitions()
+        );
+    }
+}

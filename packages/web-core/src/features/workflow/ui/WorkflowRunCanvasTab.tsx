@@ -82,7 +82,7 @@ import { consumeWorkflowRunNodeFocus } from '../model/workflowRunNodeFocus';
 import {
   getWorkflowNodeActionGate,
   getWorkflowNodeExecutionForWork,
-  getWorkflowNodeTaskTarget,
+  getWorkflowNodeExecutionTarget,
   getWorkflowNodeWork,
   getWorkflowRuntimeAttentionItems,
   getWorkflowRuntimeView,
@@ -302,7 +302,7 @@ function buildRunWorkspaceHref(
   run: WorkflowRunResponse
 ): string | null {
   return run.workspace_id
-    ? `/projects/${projectId}/issues/${run.issue_id}/workspaces/${run.workspace_id}`
+    ? `/projects/${projectId}/tasks/${run.task_id}/workspaces/${run.workspace_id}`
     : null;
 }
 
@@ -803,7 +803,7 @@ function WorkflowRunNodeDetailsDialog({
   if (!node) return null;
 
   const actionGate = getWorkflowNodeActionGate(work);
-  const taskTarget = getWorkflowNodeTaskTarget(execution, work);
+  const taskTarget = getWorkflowNodeExecutionTarget(execution, work);
   const workspaceHref = buildRunWorkspaceHref(projectId, run);
   const sessionHref =
     taskTarget?.kind === 'agent-session'
@@ -978,7 +978,7 @@ function WorkflowRunNodeDetailsDialog({
                 {execution.node_id}
               </MetadataRow>
               <MetadataRow label={t('workflow.runCanvas.taskId')}>
-                {execution.task_id ?? t('workflow.dashboard.notAvailable')}
+                {execution.execution_id ?? t('workflow.dashboard.notAvailable')}
               </MetadataRow>
               <MetadataRow label={t('workflow.nodeSession.sessionId')}>
                 {execution.session_id ?? t('workflow.dashboard.notAvailable')}
@@ -1047,16 +1047,16 @@ function WorkflowRunNodeDetailsDialog({
             <Button
               type="button"
               size="sm"
-              disabled={!navigation.goToProjectIssueArena}
+              disabled={!navigation.goToProjectTaskArena}
               title={
-                navigation.goToProjectIssueArena
+                navigation.goToProjectTaskArena
                   ? undefined
                   : navigation.projectWorkflowUnavailableReason
               }
               onClick={() =>
-                navigation.goToProjectIssueArena?.(
+                navigation.goToProjectTaskArena?.(
                   projectId,
-                  run.issue_id,
+                  run.task_id,
                   taskTarget.arenaGroupId
                 )
               }

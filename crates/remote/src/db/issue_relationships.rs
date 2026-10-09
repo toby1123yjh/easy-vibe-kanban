@@ -1,4 +1,9 @@
-use api_types::{DeleteResponse, IssueRelationship, IssueRelationshipType, MutationResponse};
+// Private SQLx annotation name preserves the checked historical query hashes.
+// The public Rust/Serde/TypeScript contract is Task-owned.
+use api_types::{
+    DeleteResponse, MutationResponse, TaskRelationship,
+    TaskRelationshipType as IssueRelationshipType, TaskRelationshipType,
+};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -18,9 +23,9 @@ impl IssueRelationshipRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<IssueRelationship>, IssueRelationshipError> {
+    ) -> Result<Option<TaskRelationship>, IssueRelationshipError> {
         let record = sqlx::query_as!(
-            IssueRelationship,
+            TaskRelationship,
             r#"
             SELECT
                 id                AS "id!: Uuid",
@@ -42,9 +47,9 @@ impl IssueRelationshipRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueRelationship>, IssueRelationshipError> {
+    ) -> Result<Vec<TaskRelationship>, IssueRelationshipError> {
         let records = sqlx::query_as!(
-            IssueRelationship,
+            TaskRelationship,
             r#"
             SELECT
                 id                AS "id!: Uuid",
@@ -66,9 +71,9 @@ impl IssueRelationshipRepository {
     pub async fn list_by_project(
         pool: &PgPool,
         project_id: Uuid,
-    ) -> Result<Vec<IssueRelationship>, IssueRelationshipError> {
+    ) -> Result<Vec<TaskRelationship>, IssueRelationshipError> {
         let records = sqlx::query_as!(
-            IssueRelationship,
+            TaskRelationship,
             r#"
             SELECT
                 id                AS "id!: Uuid",
@@ -91,12 +96,12 @@ impl IssueRelationshipRepository {
         id: Option<Uuid>,
         issue_id: Uuid,
         related_issue_id: Uuid,
-        relationship_type: IssueRelationshipType,
-    ) -> Result<MutationResponse<IssueRelationship>, IssueRelationshipError> {
+        relationship_type: TaskRelationshipType,
+    ) -> Result<MutationResponse<TaskRelationship>, IssueRelationshipError> {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueRelationship,
+            TaskRelationship,
             r#"
             INSERT INTO issue_relationships (id, issue_id, related_issue_id, relationship_type)
             VALUES ($1, $2, $3, $4)
@@ -110,7 +115,7 @@ impl IssueRelationshipRepository {
             id,
             issue_id,
             related_issue_id,
-            relationship_type as IssueRelationshipType
+            relationship_type as TaskRelationshipType
         )
         .fetch_one(&mut *tx)
         .await?;

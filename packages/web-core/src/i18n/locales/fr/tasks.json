@@ -564,7 +564,7 @@
   },
   "linkPrToIssue": {
     "title": "Lier une pull request",
-    "description": "Lier une pull request existante à ce ticket.",
+    "description": "Lier une pull request existante à ce tâche.",
     "urlTab": "Depuis une URL",
     "browseTab": "Parcourir",
     "urlLabel": "URL de la pull request",

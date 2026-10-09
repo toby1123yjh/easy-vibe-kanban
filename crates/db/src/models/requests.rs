@@ -23,8 +23,10 @@ pub struct CreateWorkspaceApiRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
-pub struct LinkedIssueInfo {
+pub struct LinkedTaskInfo {
     pub remote_project_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
@@ -61,7 +63,9 @@ pub struct CreateAndStartWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub directory_path: Option<String>,
-    pub linked_issue: Option<LinkedIssueInfo>,
+    #[serde(rename = "linked_task")]
+    #[ts(rename = "linked_task")]
+    pub linked_issue: Option<LinkedTaskInfo>,
     pub executor_config: ExecutorConfig,
     pub prompt: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

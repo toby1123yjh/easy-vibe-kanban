@@ -40,7 +40,7 @@ interface CreatePRDialogProps {
   attempt: Workspace;
   repoId: string;
   targetBranch?: string;
-  issueIdentifier?: string;
+  taskIdentifier?: string;
 }
 
 export type CreatePRDialogResult = {
@@ -58,7 +58,7 @@ const appendPrTitleSuffix = (title: string): string => {
 };
 
 const CreatePRDialogImpl = create<CreatePRDialogProps>(
-  ({ attempt, repoId, targetBranch, issueIdentifier }) => {
+  ({ attempt, repoId, targetBranch, taskIdentifier }) => {
     const modal = useModal();
     const { t } = useTranslation('tasks');
     const { isLoaded } = useAuth();
@@ -141,7 +141,7 @@ const CreatePRDialogImpl = create<CreatePRDialogProps>(
       return () => {
         isCancelled = true;
       };
-    }, [attempt.id, modal.visible, isLoaded, issueIdentifier]);
+    }, [attempt.id, modal.visible, isLoaded, taskIdentifier]);
 
     // Set default base branch when branches are loaded
     useEffect(() => {

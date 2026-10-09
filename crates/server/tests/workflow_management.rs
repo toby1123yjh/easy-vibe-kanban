@@ -168,6 +168,10 @@ impl Fixture {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("INSERT INTO scratch(id,scratch_type,payload) VALUES (?,'PROJECT_REPO_DEFAULTS',?)")
+            .bind(project_id)
+            .bind(json!({"type":"PROJECT_REPO_DEFAULTS","data":{"repos":[],"directory_path":directory.path().to_string_lossy()}}).to_string())
+            .execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO local_project_statuses(id,project_id,name,color,sort_order,hidden) VALUES (?,?,'Todo','210 80% 52%',0,0)")
             .bind(Uuid::new_v4()).bind(project_id).execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO workspaces(id,container_ref,workspace_kind,container_ownership,branch) VALUES (?,?,'direct_folder','external','direct-folder')")
@@ -422,6 +426,38 @@ async fn first_acceptance_is_singleton_atomic_locked_and_idempotent() {
         "old key replays after latest basis moves"
     );
     assert_eq!(f.count("workflow_runs").await, 2);
+}
+
+#[tokio::test]
+async fn unavailable_project_file_blocks_new_work_but_not_accepted_history() {
+    let f = Fixture::new(false).await;
+    let prepared = f.prepare("file-boundary-prepare", None).await;
+    let caller = main_caller(prepared.session.id);
+    let request = submission("file-boundary-start", WorkflowSubmissionAction::Start, None);
+    let accepted = management::submit_workflow(&f.pool, &caller, request.clone(), None, "fixture")
+        .await
+        .unwrap();
+    let path = f._directory.path().join(".vibe-kanban/project.json");
+    tokio::fs::write(&path, b"{corrupt").await.unwrap();
+    // Idempotent receipt/history remains available for already accepted work.
+    let replay = management::submit_workflow(&f.pool, &caller, request, None, "fixture")
+        .await
+        .unwrap();
+    assert_eq!(replay.run_id, accepted.run_id);
+    runner::get_workflow_run_response(&f.pool, accepted.run_id)
+        .await
+        .unwrap();
+    let new_request = submission(
+        "file-boundary-rework",
+        WorkflowSubmissionAction::Rework,
+        Some(accepted.run_id),
+    );
+    let error = management::submit_workflow(&f.pool, &caller, new_request, None, "fixture")
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("PROJECT_DATA_INVALID"));
+    assert_eq!(f.count("workflow_runs").await, 1);
+    assert_eq!(tokio::fs::read(path).await.unwrap(), b"{corrupt");
 }
 
 #[tokio::test]

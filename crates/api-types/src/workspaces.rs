@@ -10,6 +10,7 @@ pub struct DeleteWorkspaceRequest {
 pub struct CreateWorkspaceRequest {
     pub project_id: Uuid,
     pub local_workspace_id: Uuid,
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

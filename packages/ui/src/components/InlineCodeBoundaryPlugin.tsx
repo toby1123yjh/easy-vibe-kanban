@@ -23,8 +23,8 @@ import {
  * the next markdown export/import cycle.
  *
  * Workaround for upstream issues:
- * - https://github.com/facebook/lexical/issues/5518
- * - https://github.com/facebook/lexical/issues/6781
+ * - https://github.com/facebook/lexical/tasks/5518
+ * - https://github.com/facebook/lexical/tasks/6781
  */
 export function InlineCodeBoundaryPlugin() {
   const [editor] = useLexicalComposerContext();

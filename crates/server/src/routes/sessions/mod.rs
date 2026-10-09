@@ -23,7 +23,7 @@ use db::models::{
     requests::UpdateSession,
     scratch::{Scratch, ScratchType},
     session::{CreateSession, Session, SessionError},
-    task::{Task, TaskError, TaskSummary},
+    task::{Execution, ExecutionError, ExecutionSummary},
     workspace::{Workspace, WorkspaceError},
     workspace_repo::WorkspaceRepo,
 };
@@ -153,13 +153,13 @@ pub(crate) async fn lock_session_for_deletion(
 pub async fn get_session_task(
     State(deployment): State<DeploymentImpl>,
     Extension(session): Extension<Session>,
-) -> Result<ResponseJson<ApiResponse<Option<TaskSummary>>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<Option<ExecutionSummary>>>, ApiError> {
     let pool = &deployment.db().pool;
-    let task = match Task::find_agent_by_session_id(pool, session.id).await? {
+    let task = match Execution::find_agent_by_session_id(pool, session.id).await? {
         Some(task) => Some(
-            Task::summary_by_id(pool, task.id)
+            Execution::summary_by_id(pool, task.id)
                 .await?
-                .ok_or(TaskError::NotFound { task_id: task.id })?,
+                .ok_or(ExecutionError::NotFound { task_id: task.id })?,
         ),
         None => None,
     };
@@ -649,7 +649,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(get_session).put(update_session).delete(delete_session),
         )
         .route("/follow-up", post(follow_up))
-        .route("/task", get(get_session_task))
+        .route("/execution", get(get_session_task))
         .route(
             "/deletion-info",
             get(super::workspaces::managed_directory::deletion_info),

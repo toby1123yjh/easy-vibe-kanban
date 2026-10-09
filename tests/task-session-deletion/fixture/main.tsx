@@ -7,8 +7,8 @@ import {
   QueryClientProvider,
   useQuery,
 } from '@tanstack/react-query';
-import type { SessionListItem, TaskSummary } from 'shared/types';
-import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
+import type { SessionListItem, ExecutionSummary } from 'shared/types';
+import { useDeleteExecutionSession } from '@/shared/hooks/useDeleteExecutionSession';
 import { getHostRequestScopeQueryKey } from '@/shared/lib/hostRequestScope';
 import { ProductSidebar } from '@/features/app-shell/ui/ProductSidebar';
 import { ProjectKanbanView } from '@/features/projects/ui/ProjectKanbanView';
@@ -45,16 +45,16 @@ function Fixture() {
     queryFn: async () =>
       (await fetch(`/__fixture/sessions?host=${hostId ?? 'local'}`)).json(),
   });
-  const { data: tasks = [] } = useQuery<TaskSummary[]>({
+  const { data: tasks = [] } = useQuery<ExecutionSummary[]>({
     queryKey: [
-      'project-tasks',
+      'project-executions',
       'project-1',
       getHostRequestScopeQueryKey(hostId),
     ],
     queryFn: async () =>
       (await fetch(`/__fixture/tasks?host=${hostId ?? 'local'}`)).json(),
   });
-  const deletion = useDeleteTaskSession({
+  const deletion = useDeleteExecutionSession({
     hostId,
     scopeKey: scope,
     discoveryScopeKey: discoveryScope,
@@ -66,7 +66,7 @@ function Fixture() {
     },
   });
   // Production surfaces mount independently; exercise shared confirmation ownership.
-  const projectDeletion = useDeleteTaskSession({
+  const projectDeletion = useDeleteExecutionSession({
     hostId,
     scopeKey: scope,
     discoveryScopeKey: discoveryScope,
@@ -153,44 +153,44 @@ function Fixture() {
           <ProjectKanbanView
             projectName="Fixture project"
             query=""
-            selectedIssueId={null}
-            issueCount={1}
+            selectedTaskId={null}
+            taskCount={1}
             dragDisabled={false}
-            taskSource={{ state: 'ready' }}
+            executionSource={{ state: 'ready' }}
             columns={[
               {
                 id: 'todo',
                 name: 'Todo',
                 color: '220 16% 56%',
                 sortOrder: 1,
-                issues: [
+                tasks: [
                   {
                     id: 'issue-1',
                     simpleId: 'VK-1',
-                    title: 'Keep this Issue',
+                    title: 'Keep this Task',
                     statusId: 'todo',
                     priority: null,
                     sortOrder: 1,
                     tags: [],
-                    tasks,
+                    executions: tasks,
                   },
                 ],
               },
             ]}
             onQueryChange={() => {}}
-            onCreateIssue={() => {}}
-            onOpenIssue={() => {}}
+            onCreateTask={() => {}}
             onOpenTask={() => {}}
-            onDeleteIssue={async () => {
-              throw new Error('Must not delete Issue');
+            onOpenExecution={() => {}}
+            onDeleteTask={async () => {
+              throw new Error('Must not delete Task');
             }}
-            getTaskUnavailableReason={() => null}
+            getExecutionUnavailableReason={() => null}
             onMove={async () => {}}
             deletingSessionId={projectDeletion.pendingSessionId}
-            onDeleteTask={(task) => {
+            onDeleteExecution={(task) => {
               if (task.open_target.kind === 'agent')
                 void projectDeletion.deleteSession({
-                  taskId: task.id,
+                  executionId: task.id,
                   sessionId: task.open_target.session_id,
                   workspaceId: task.open_target.workspace_id,
                   title: task.title,

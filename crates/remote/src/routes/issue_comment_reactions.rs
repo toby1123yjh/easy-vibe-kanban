@@ -1,7 +1,7 @@
 use api_types::{
-    CreateIssueCommentReactionRequest, DeleteResponse, IssueComment, IssueCommentReaction,
-    ListIssueCommentReactionsQuery, ListIssueCommentReactionsResponse, MutationResponse,
-    NotificationPayload, NotificationType, UpdateIssueCommentReactionRequest,
+    CreateTaskCommentReactionRequest, DeleteResponse, ListTaskCommentReactionsQuery,
+    ListTaskCommentReactionsResponse, MutationResponse, NotificationPayload, NotificationType,
+    TaskComment, TaskCommentReaction, UpdateTaskCommentReactionRequest,
 };
 use axum::{
     Json,
@@ -27,13 +27,13 @@ use crate::{
     notifications::send_issue_notifications,
 };
 
-/// Mutation definition for IssueCommentReaction - provides both router and TypeScript metadata.
+/// Mutation definition for TaskCommentReaction - provides both router and TypeScript metadata.
 pub fn mutation() -> MutationBuilder<
-    IssueCommentReaction,
-    CreateIssueCommentReactionRequest,
-    UpdateIssueCommentReactionRequest,
+    TaskCommentReaction,
+    CreateTaskCommentReactionRequest,
+    UpdateTaskCommentReactionRequest,
 > {
-    MutationBuilder::new("issue_comment_reactions")
+    MutationBuilder::new()
         .list(list_issue_comment_reactions)
         .get(get_issue_comment_reaction)
         .create(create_issue_comment_reaction)
@@ -49,7 +49,7 @@ async fn notify_comment_author_about_reaction(
     state: &AppState,
     organization_id: Uuid,
     actor_user_id: Uuid,
-    comment: &IssueComment,
+    comment: &TaskComment,
     emoji: &str,
 ) {
     let Some(comment_author_id) = comment.author_id else {
@@ -74,7 +74,7 @@ async fn notify_comment_author_about_reaction(
         actor_user_id,
         &[comment_author_id],
         &issue,
-        NotificationType::IssueCommentReaction,
+        NotificationType::TaskCommentReaction,
         NotificationPayload {
             comment_preview: Some(comment.message.chars().take(100).collect::<String>()),
             emoji: Some(emoji.to_owned()),
@@ -94,8 +94,8 @@ async fn notify_comment_author_about_reaction(
 async fn list_issue_comment_reactions(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueCommentReactionsQuery>,
-) -> Result<Json<ListIssueCommentReactionsResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskCommentReactionsQuery>,
+) -> Result<Json<ListTaskCommentReactionsResponse>, ErrorResponse> {
     let comment = IssueCommentRepository::find_by_id(state.pool(), query.comment_id)
         .await
         .map_err(|error| {
@@ -117,7 +117,7 @@ async fn list_issue_comment_reactions(
                 )
             })?;
 
-    Ok(Json(ListIssueCommentReactionsResponse {
+    Ok(Json(ListTaskCommentReactionsResponse {
         issue_comment_reactions,
     }))
 }
@@ -131,7 +131,7 @@ async fn get_issue_comment_reaction(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_comment_reaction_id): Path<Uuid>,
-) -> Result<Json<IssueCommentReaction>, ErrorResponse> {
+) -> Result<Json<TaskCommentReaction>, ErrorResponse> {
     let reaction =
         IssueCommentReactionRepository::find_by_id(state.pool(), issue_comment_reaction_id)
             .await
@@ -162,8 +162,8 @@ async fn get_issue_comment_reaction(
 async fn create_issue_comment_reaction(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueCommentReactionRequest>,
-) -> Result<Json<MutationResponse<IssueCommentReaction>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskCommentReactionRequest>,
+) -> Result<Json<MutationResponse<TaskCommentReaction>>, ErrorResponse> {
     let comment = IssueCommentRepository::find_by_id(state.pool(), payload.comment_id)
         .await
         .map_err(|error| {
@@ -208,8 +208,8 @@ async fn update_issue_comment_reaction(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_comment_reaction_id): Path<Uuid>,
-    Json(payload): Json<UpdateIssueCommentReactionRequest>,
-) -> Result<Json<MutationResponse<IssueCommentReaction>>, ErrorResponse> {
+    Json(payload): Json<UpdateTaskCommentReactionRequest>,
+) -> Result<Json<MutationResponse<TaskCommentReaction>>, ErrorResponse> {
     let reaction =
         IssueCommentReactionRepository::find_by_id(state.pool(), issue_comment_reaction_id)
             .await

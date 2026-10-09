@@ -92,13 +92,13 @@ interface PriorityItem {
   };
 }
 
-interface CreateSubIssueItem {
-  type: 'createSubIssue';
+interface CreateSubTaskItem {
+  type: 'createSubTask';
 }
 
-interface IssueItem {
-  type: 'issue';
-  issue: {
+interface TaskItem {
+  type: 'task';
+  task: {
     id: string;
     simple_id: string;
     title: string;
@@ -121,8 +121,8 @@ export type CommandBarGroupItem<
   | BranchItem
   | StatusItem
   | PriorityItem
-  | CreateSubIssueItem
-  | IssueItem
+  | CreateSubTaskItem
+  | TaskItem
   | ActionItem<TAction>;
 
 interface CommandBarProps<
@@ -345,11 +345,11 @@ export function CommandBar<
                 );
               }
 
-              if (item.type === 'createSubIssue') {
+              if (item.type === 'createSubTask') {
                 return (
                   <CommandItem
                     key="create-sub-issue"
-                    value="create new issue"
+                    value="create new task"
                     onSelect={() => onSelect(item)}
                   >
                     <PlusIcon
@@ -361,16 +361,16 @@ export function CommandBar<
                 );
               }
 
-              if (item.type === 'issue') {
-                const config = getPriorityConfig(item.issue.priority ?? null);
+              if (item.type === 'task') {
+                const config = getPriorityConfig(item.task.priority ?? null);
                 const PriorityIconComponent = config?.icon;
                 const statusColor =
-                  statuses.find((status) => status.id === item.issue.status_id)
+                  statuses.find((status) => status.id === item.task.status_id)
                     ?.color ?? '0 0% 50%';
                 return (
                   <CommandItem
-                    key={item.issue.id}
-                    value={`${item.issue.id} ${item.issue.simple_id} ${item.issue.title}`}
+                    key={item.task.id}
+                    value={`${item.task.id} ${item.task.simple_id} ${item.task.title}`}
                     onSelect={() => onSelect(item)}
                   >
                     {PriorityIconComponent && (
@@ -380,13 +380,13 @@ export function CommandBar<
                       />
                     )}
                     <span className="font-mono text-low shrink-0">
-                      {item.issue.simple_id}
+                      {item.task.simple_id}
                     </span>
                     <div
                       className="h-2 w-2 rounded-full shrink-0"
                       style={{ backgroundColor: `hsl(${statusColor})` }}
                     />
-                    <span className="truncate">{item.issue.title}</span>
+                    <span className="truncate">{item.task.title}</span>
                   </CommandItem>
                 );
               }
@@ -443,11 +443,11 @@ function getItemSearchLabel<
   if (item.type === 'priority') {
     return `${item.priority.id ?? 'none'} ${item.priority.name}`;
   }
-  if (item.type === 'issue') {
-    return `${item.issue.id} ${item.issue.simple_id} ${item.issue.title}`;
+  if (item.type === 'task') {
+    return `${item.task.id} ${item.task.simple_id} ${item.task.title}`;
   }
-  if (item.type === 'createSubIssue') {
-    return 'create new issue';
+  if (item.type === 'createSubTask') {
+    return 'create new task';
   }
   const keywords = item.action.keywords?.join(' ') ?? '';
   return `${item.action.id} ${getLabel(item.action)} ${keywords}`.trim();

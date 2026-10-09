@@ -1,4 +1,4 @@
-import type { IssueRelationship, Issue } from 'shared/remote-types';
+import type { TaskRelationship, Task } from 'shared/remote-types';
 
 export type RelationshipDisplayType =
   | 'blocks'
@@ -10,21 +10,21 @@ export type RelationshipDisplayType =
 export interface ResolvedRelationship {
   relationshipId: string;
   displayType: RelationshipDisplayType;
-  relatedIssueId: string;
-  relatedIssueDisplayId: string;
+  relatedTaskId: string;
+  relatedTaskDisplayId: string;
 }
 
-export function resolveRelationshipsForIssue(
-  issueId: string,
-  relationships: IssueRelationship[],
-  issuesById: Map<string, Issue>
+export function resolveRelationshipsForTask(
+  taskId: string,
+  relationships: TaskRelationship[],
+  tasksById: Map<string, Task>
 ): ResolvedRelationship[] {
   return relationships
     .map((r) => {
-      const isSource = r.issue_id === issueId;
-      const otherIssueId = isSource ? r.related_issue_id : r.issue_id;
-      const otherIssue = issuesById.get(otherIssueId);
-      if (!otherIssue) return null;
+      const isSource = r.task_id === taskId;
+      const otherTaskId = isSource ? r.related_task_id : r.task_id;
+      const otherTask = tasksById.get(otherTaskId);
+      if (!otherTask) return null;
 
       let displayType: RelationshipDisplayType;
       if (r.relationship_type === 'blocking') {
@@ -38,8 +38,8 @@ export function resolveRelationshipsForIssue(
       return {
         relationshipId: r.id,
         displayType,
-        relatedIssueId: otherIssueId,
-        relatedIssueDisplayId: otherIssue.simple_id,
+        relatedTaskId: otherTaskId,
+        relatedTaskDisplayId: otherTask.simple_id,
       };
     })
     .filter((r): r is ResolvedRelationship => r !== null);

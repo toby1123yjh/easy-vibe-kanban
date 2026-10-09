@@ -12,10 +12,19 @@ export function getPayload(n: Notification): NotificationPayload {
 }
 
 export function getDeeplinkPath(n: Notification): string | null {
-  return getPayload(n).deeplink_path ?? null;
+  return normalizeTaskDeeplink(getPayload(n).deeplink_path);
 }
 
-type IssueChangeField =
+/** Persisted notification links remain usable after the business rename. */
+export function normalizeTaskDeeplink(
+  path: string | null | undefined
+): string | null {
+  return (
+    path?.replace(/^(\/projects\/[^/?#]+)\/issues(?=\/)/, '$1/tasks') ?? null
+  );
+}
+
+type TaskChangeField =
   | 'title'
   | 'description'
   | 'priority'
@@ -32,13 +41,13 @@ export type GroupedNotification = {
   deeplinkPath: string | null;
   notificationCount: number;
   unseenNotificationIds: string[];
-  issueChangeCount: number;
+  taskChangeCount: number;
 };
 
 type NotificationGroupingMeta = {
   groupKind: GroupableNotificationKind;
-  issueChangeField?: IssueChangeField;
-  scope: 'issue' | 'project';
+  taskChangeField?: TaskChangeField;
+  scope: 'task' | 'project';
 };
 
 type GroupAccumulator = {
@@ -46,7 +55,7 @@ type GroupAccumulator = {
   kind: GroupableNotificationKind;
   notifications: Notification[];
   latest: Notification;
-  issueChangeFields: Set<IssueChangeField>;
+  taskChangeFields: Set<TaskChangeField>;
 };
 
 type ActiveGroup = {
@@ -57,45 +66,45 @@ type ActiveGroup = {
 const NOTIFICATION_GROUPING_META: Partial<
   Record<NotificationType, NotificationGroupingMeta>
 > = {
-  issue_title_changed: {
-    groupKind: 'issue_changes',
-    issueChangeField: 'title',
-    scope: 'issue',
+  task_title_changed: {
+    groupKind: 'task_changes',
+    taskChangeField: 'title',
+    scope: 'task',
   },
-  issue_description_changed: {
-    groupKind: 'issue_changes',
-    issueChangeField: 'description',
-    scope: 'issue',
+  task_description_changed: {
+    groupKind: 'task_changes',
+    taskChangeField: 'description',
+    scope: 'task',
   },
-  issue_priority_changed: {
-    groupKind: 'issue_changes',
-    issueChangeField: 'priority',
-    scope: 'issue',
+  task_priority_changed: {
+    groupKind: 'task_changes',
+    taskChangeField: 'priority',
+    scope: 'task',
   },
-  issue_status_changed: {
+  task_status_changed: {
     groupKind: 'status_changes',
-    scope: 'issue',
+    scope: 'task',
   },
-  issue_assignee_changed: {
-    groupKind: 'issue_changes',
-    issueChangeField: 'assignee',
-    scope: 'issue',
+  task_assignee_changed: {
+    groupKind: 'task_changes',
+    taskChangeField: 'assignee',
+    scope: 'task',
   },
-  issue_unassigned: {
-    groupKind: 'issue_changes',
-    issueChangeField: 'unassigned',
-    scope: 'issue',
+  task_unassigned: {
+    groupKind: 'task_changes',
+    taskChangeField: 'unassigned',
+    scope: 'task',
   },
-  issue_comment_added: {
+  task_comment_added: {
     groupKind: 'comments',
-    scope: 'issue',
+    scope: 'task',
   },
-  issue_comment_reaction: {
+  task_comment_reaction: {
     groupKind: 'reactions',
-    scope: 'issue',
+    scope: 'task',
   },
-  issue_deleted: {
-    groupKind: 'issue_deleted',
+  task_deleted: {
+    groupKind: 'task_deleted',
     scope: 'project',
   },
 };
@@ -125,12 +134,12 @@ function getGroupKey(
     return `${meta.groupKind}:${actorId}:${projectPath}`;
   }
 
-  const issueId = payload.issue_id ?? notification.issue_id;
-  if (!issueId) {
+  const taskId = payload.task_id ?? notification.task_id;
+  if (!taskId) {
     return null;
   }
 
-  return `${meta.groupKind}:${actorId}:${issueId}`;
+  return `${meta.groupKind}:${actorId}:${taskId}`;
 }
 
 function buildGroupedNotification(
@@ -138,7 +147,7 @@ function buildGroupedNotification(
   kind: NotificationGroupKind,
   latest: Notification,
   notifications: Notification[],
-  issueChangeCount: number
+  taskChangeCount: number
 ): GroupedNotification {
   const unseenNotificationIds = notifications
     .filter((notification) => !notification.seen)
@@ -152,7 +161,7 @@ function buildGroupedNotification(
     deeplinkPath: getDeeplinkPath(latest),
     notificationCount: notifications.length,
     unseenNotificationIds,
-    issueChangeCount,
+    taskChangeCount,
   };
 }
 
@@ -173,9 +182,9 @@ function createAccumulator(
   groupKey: string,
   meta: NotificationGroupingMeta
 ): GroupAccumulator {
-  const issueChangeFields = new Set<IssueChangeField>();
-  if (meta.issueChangeField) {
-    issueChangeFields.add(meta.issueChangeField);
+  const taskChangeFields = new Set<TaskChangeField>();
+  if (meta.taskChangeField) {
+    taskChangeFields.add(meta.taskChangeField);
   }
 
   return {
@@ -183,7 +192,7 @@ function createAccumulator(
     kind: meta.groupKind,
     notifications: [notification],
     latest: notification,
-    issueChangeFields,
+    taskChangeFields,
   };
 }
 
@@ -207,9 +216,7 @@ function finalizeGroup(group: GroupAccumulator): GroupedNotification {
     group.kind,
     group.latest,
     group.notifications,
-    group.kind === 'issue_changes'
-      ? Math.max(group.issueChangeFields.size, 1)
-      : 0
+    group.kind === 'task_changes' ? Math.max(group.taskChangeFields.size, 1) : 0
   );
 }
 
@@ -220,8 +227,8 @@ function addNotificationToGroup(
 ) {
   group.notifications.push(notification);
 
-  if (meta.issueChangeField) {
-    group.issueChangeFields.add(meta.issueChangeField);
+  if (meta.taskChangeField) {
+    group.taskChangeFields.add(meta.taskChangeField);
   }
 }
 

@@ -49,15 +49,15 @@ test.describe('P8-R1 Project Kanban geometry', () => {
     });
   }
 
-  test('mobile issue panel becomes full-screen without changing board width', async ({
+  test('mobile task panel becomes full-screen without changing board width', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await gotoFixture(page);
     const board = page.locator('.vk-kanban-scroll');
     const before = await board.boundingBox();
-    await page.locator('[data-issue-id="issue-1"]').press('Enter');
-    const panel = page.getByRole('complementary', { name: 'Issue details' });
+    await page.locator('[data-task-id="issue-1"]').press('Enter');
+    const panel = page.getByRole('complementary', { name: 'Task details' });
     await expect(panel).toBeVisible();
     await expect(panel).toHaveCSS('position', 'fixed');
     expect(await panel.boundingBox()).toEqual({

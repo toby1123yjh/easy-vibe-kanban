@@ -31,7 +31,7 @@ import { defineModal } from '@/shared/lib/modals';
 
 interface CreateArenaDialogProps {
   projectId: string;
-  issueId: string;
+  taskId: string;
   hostId?: string | null;
   /** Suggested initial prompt (e.g. issue title + description). */
   initialPrompt?: string;
@@ -100,7 +100,7 @@ function isActiveArenaConflict(errorMessage: string): boolean {
 const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
   ({
     projectId,
-    issueId,
+    taskId,
     hostId,
     initialPrompt = '',
     maxAttempts: maxAttemptsProp,
@@ -415,10 +415,10 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
       };
 
       try {
-        const group = await arenaApi.create(issueId, payload);
+        const group = await arenaApi.create(taskId, payload);
         if (canceledRef.current) return;
         queryClient.setQueryData(arenaQueryKeys.group(group.id), group);
-        queryClient.setQueryData(arenaQueryKeys.activeForIssue(issueId), group);
+        queryClient.setQueryData(arenaQueryKeys.activeForTask(taskId), group);
         modal.resolve({
           kind: 'created',
           groupId: group.id,
@@ -429,14 +429,14 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
           err instanceof Error ? err.message : t('arena.errors.createFailed');
         if (isActiveArenaConflict(message)) {
           const activeGroup = await arenaApi
-            .getActiveForIssue(issueId)
+            .getActiveForTask(taskId)
             .catch(() => null);
           if (canceledRef.current) return;
           if (activeGroup) {
             if (activeGroup.workspaces.length === 0) {
               await arenaApi.dissolve(activeGroup.id).catch(() => null);
               await queryClient.invalidateQueries({
-                queryKey: arenaQueryKeys.activeForIssue(issueId),
+                queryKey: arenaQueryKeys.activeForTask(taskId),
               });
               setError(t('arena.errors.emptyGroupRecovered'));
               return;
@@ -447,7 +447,7 @@ const CreateArenaDialogImpl = create<CreateArenaDialogProps>(
               activeGroup
             );
             queryClient.setQueryData(
-              arenaQueryKeys.activeForIssue(issueId),
+              arenaQueryKeys.activeForTask(taskId),
               activeGroup
             );
             modal.resolve({

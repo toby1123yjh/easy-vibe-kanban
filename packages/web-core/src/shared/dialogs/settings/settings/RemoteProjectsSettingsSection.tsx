@@ -59,7 +59,7 @@ import {
   PROJECT_MUTATION,
   PROJECT_PROJECT_STATUSES_SHAPE,
   PROJECT_STATUS_MUTATION,
-  PROJECT_ISSUES_SHAPE,
+  PROJECT_TASKS_SHAPE,
 } from 'shared/remote-types';
 import { getRandomPresetColor, PRESET_COLORS } from '@/shared/lib/colors';
 import { InlineColorPicker } from '@vibe/ui/components/ColorPicker';
@@ -151,7 +151,7 @@ function StatusRowClone({ status, provided }: StatusRowCloneProps) {
 interface StatusRowProps {
   status: StatusItem;
   index: number;
-  issueCount: number;
+  taskCount: number;
   visibleCount: number;
   editingId: string | null;
   editingColorId: string | null;
@@ -167,7 +167,7 @@ interface StatusRowProps {
 function StatusRow({
   status,
   index,
-  issueCount,
+  taskCount,
   visibleCount,
   editingId,
   editingColorId,
@@ -184,7 +184,7 @@ function StatusRow({
   const isEditing = editingId === status.id;
   const isEditingColor = editingColorId === status.id;
   const isLastVisible = !status.hidden && visibleCount === 1;
-  const canDelete = issueCount === 0;
+  const canDelete = taskCount === 0;
 
   useEffect(() => {
     setLocalName(status.name);
@@ -317,7 +317,7 @@ function StatusRow({
               title={
                 canDelete
                   ? t('kanban.deleteStatus', 'Delete status')
-                  : t('kanban.cannotDeleteWithIssues', 'Move issues first')
+                  : t('kanban.cannotDeleteWithIssues', 'Move tasks first')
               }
               disabled={!canDelete}
             >
@@ -417,7 +417,7 @@ export function RemoteProjectsSettingsSection({
     data: orgsResponse,
     isLoading: orgsLoading,
     error: orgsError,
-  } = useUserOrganizations();
+  } = useUserOrganizations({ hostId: selectedHost?.apiHostId ?? null });
 
   const organizations = useMemo(
     () => orgsResponse?.organizations ?? [],
@@ -448,6 +448,7 @@ export function RemoteProjectsSettingsSection({
     retry: retryProjects,
     update,
   } = useShape(PROJECTS_SHAPE, params, {
+    hostId: selectedHost?.apiHostId ?? null,
     enabled: !!selectedOrgId,
     mutation: PROJECT_MUTATION,
   });
@@ -469,6 +470,7 @@ export function RemoteProjectsSettingsSection({
   );
   const { deleteProject: handleDeleteProject, pendingProjectId } =
     useDeleteProject({
+      hostId: selectedHost?.apiHostId ?? null,
       scopeKey: `settings:${selectedOrgId}:${selectedProjectId}:${selectedHostId}`,
       enabled: isSignedIn && !isSaving && !projectsLoading && !projectsError,
       onDeleted: (project) => {
@@ -483,7 +485,12 @@ export function RemoteProjectsSettingsSection({
             setContextDirty('remote-projects', false);
           });
         }
-        if (scoped) void navigate({ to: '/projects', replace: true });
+        if (scoped)
+          void navigate({
+            to: '/projects',
+            search: { host_id: selectedHost?.apiHostId ?? undefined },
+            replace: true,
+          });
       },
     });
 
@@ -499,31 +506,29 @@ export function RemoteProjectsSettingsSection({
     update: updateProjectStatus,
     remove: removeProjectStatus,
   } = useShape(PROJECT_PROJECT_STATUSES_SHAPE, projectParams, {
+    hostId: selectedHost?.apiHostId ?? null,
     enabled: !!selectedProjectId && !isDefaultProject(selectedProjectId),
     mutation: PROJECT_STATUS_MUTATION,
   });
 
-  const { data: projectIssues } = useShape(
-    PROJECT_ISSUES_SHAPE,
-    projectParams,
-    {
-      enabled: !!selectedProjectId && !isDefaultProject(selectedProjectId),
-    }
-  );
+  const { data: projectTasks } = useShape(PROJECT_TASKS_SHAPE, projectParams, {
+    enabled: !!selectedProjectId && !isDefaultProject(selectedProjectId),
+    hostId: selectedHost?.apiHostId ?? null,
+  });
 
-  const issueCountByStatus = useMemo(() => {
+  const taskCountByStatus = useMemo(() => {
     const counts: Record<string, number> = {};
 
     for (const status of projectStatuses) {
       counts[status.id] = 0;
     }
 
-    for (const issue of projectIssues) {
-      counts[issue.status_id] = (counts[issue.status_id] ?? 0) + 1;
+    for (const task of projectTasks) {
+      counts[task.status_id] = (counts[task.status_id] ?? 0) + 1;
     }
 
     return counts;
-  }, [projectStatuses, projectIssues]);
+  }, [projectStatuses, projectTasks]);
 
   const sortedProjectStatuses = useMemo(
     () => [...projectStatuses].sort((a, b) => a.sort_order - b.sort_order),
@@ -931,7 +936,10 @@ export function RemoteProjectsSettingsSection({
     }
 
     if (bulkUpdates.length > 1) {
-      await bulkUpdateProjectStatuses(bulkUpdates);
+      await bulkUpdateProjectStatuses(
+        bulkUpdates,
+        selectedHost?.apiHostId ?? null
+      );
     } else if (bulkUpdates.length === 1) {
       const result = updateProjectStatus(
         bulkUpdates[0].id,
@@ -945,6 +953,7 @@ export function RemoteProjectsSettingsSection({
     projectStatuses,
     localStatuses,
     selectedProjectId,
+    selectedHost?.apiHostId,
     removeProjectStatus,
     insertProjectStatus,
     updateProjectStatus,
@@ -1699,7 +1708,7 @@ export function RemoteProjectsSettingsSection({
                         key={status.id}
                         status={status}
                         index={index}
-                        issueCount={issueCountByStatus[status.id] ?? 0}
+                        taskCount={taskCountByStatus[status.id] ?? 0}
                         visibleCount={visibleStatusCount}
                         editingId={editingStatusId}
                         editingColorId={editingStatusColorId}

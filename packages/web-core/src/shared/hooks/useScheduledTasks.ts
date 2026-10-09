@@ -1,10 +1,11 @@
+import { getCurrentHostId, useHostId } from '@/shared/providers/HostIdProvider';
 import {
   useMutation,
   useQuery,
   useQueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { scheduledTaskApi } from '@/shared/lib/scheduledTaskApi';
+import { createScheduledTaskApi } from '@/shared/lib/scheduledTaskApi';
 import type {
   ListScheduledTasksQuery,
   ScheduledTaskListResponse,
@@ -18,22 +19,37 @@ import { workflowRunQueryKeys } from './useWorkflowRun';
 
 export const scheduledTaskQueryKeys = {
   all: ['scheduled-tasks'] as const,
-  project: (projectId: string) =>
-    ['scheduled-tasks', 'project', projectId] as const,
+  host: (hostId = getCurrentHostId()) => ['scheduled-tasks', hostId] as const,
+  project: (projectId: string, hostId = getCurrentHostId()) =>
+    ['scheduled-tasks', hostId, 'project', projectId] as const,
   projectFiltered: (
     projectId: string,
-    filters: ListScheduledTasksQuery | undefined
+    filters: ListScheduledTasksQuery | undefined,
+    hostId = getCurrentHostId()
   ) =>
     [
       'scheduled-tasks',
+      hostId,
       'project',
       projectId,
       filters?.target_type ?? 'all',
       filters?.target_id ?? 'all',
     ] as const,
-  workflow: (projectId: string, workflowId: string) =>
-    ['scheduled-tasks', 'project', projectId, 'workflow', workflowId] as const,
-  detail: (taskId: string) => ['scheduled-tasks', 'detail', taskId] as const,
+  workflow: (
+    projectId: string,
+    workflowId: string,
+    hostId = getCurrentHostId()
+  ) =>
+    [
+      'scheduled-tasks',
+      hostId,
+      'project',
+      projectId,
+      'workflow',
+      workflowId,
+    ] as const,
+  detail: (taskId: string, hostId = getCurrentHostId()) =>
+    ['scheduled-tasks', hostId, 'detail', taskId] as const,
 };
 
 interface UseScheduledTasksOptions {
@@ -42,12 +58,16 @@ interface UseScheduledTasksOptions {
 
 function setScheduledTaskCaches(
   queryClient: ReturnType<typeof useQueryClient>,
-  task: ScheduledTaskResponse
+  task: ScheduledTaskResponse,
+  hostId: string | null
 ) {
-  queryClient.setQueryData(scheduledTaskQueryKeys.detail(task.id), task);
+  queryClient.setQueryData(
+    scheduledTaskQueryKeys.detail(task.id, hostId),
+    task
+  );
   if (task.target_type === 'workflow') {
     queryClient.setQueryData(
-      scheduledTaskQueryKeys.workflow(task.project_id, task.target_id),
+      scheduledTaskQueryKeys.workflow(task.project_id, task.target_id, hostId),
       task
     );
   }
@@ -58,11 +78,13 @@ export function useScheduledTasks(
   filters?: ListScheduledTasksQuery,
   options: UseScheduledTasksOptions = {}
 ): UseQueryResult<ScheduledTaskListResponse> {
+  const hostId = useHostId();
+  const scheduledTaskApi = createScheduledTaskApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey: projectId
-      ? scheduledTaskQueryKeys.projectFiltered(projectId, filters)
+      ? scheduledTaskQueryKeys.projectFiltered(projectId, filters, hostId)
       : ['scheduled-tasks', 'noop'],
     queryFn: () => scheduledTaskApi.list(projectId as string, filters),
     enabled: !!projectId && enabled,
@@ -74,12 +96,14 @@ export function useWorkflowScheduledTask(
   workflowId: string | null | undefined,
   options: UseScheduledTasksOptions = {}
 ): UseQueryResult<ScheduledTaskResponse | null> {
+  const hostId = useHostId();
+  const scheduledTaskApi = createScheduledTaskApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey:
       projectId && workflowId
-        ? scheduledTaskQueryKeys.workflow(projectId, workflowId)
+        ? scheduledTaskQueryKeys.workflow(projectId, workflowId, hostId)
         : ['scheduled-tasks', 'workflow', 'noop'],
     queryFn: async () => {
       const response = await scheduledTaskApi.list(projectId as string, {
@@ -93,6 +117,8 @@ export function useWorkflowScheduledTask(
 }
 
 export function useScheduledTaskMutations() {
+  const hostId = useHostId();
+  const scheduledTaskApi = createScheduledTaskApi(hostId);
   const queryClient = useQueryClient();
 
   const upsertMutation = useMutation({
@@ -104,9 +130,9 @@ export function useScheduledTaskMutations() {
       payload: UpsertScheduledTaskRequest;
     }) => scheduledTaskApi.upsert(projectId, payload),
     onSuccess: (task) => {
-      setScheduledTaskCaches(queryClient, task);
+      setScheduledTaskCaches(queryClient, task, hostId);
       void queryClient.invalidateQueries({
-        queryKey: scheduledTaskQueryKeys.project(task.project_id),
+        queryKey: scheduledTaskQueryKeys.project(task.project_id, hostId),
       });
     },
   });
@@ -120,9 +146,9 @@ export function useScheduledTaskMutations() {
       payload: UpdateScheduledTaskRequest;
     }) => scheduledTaskApi.update(taskId, payload),
     onSuccess: (task) => {
-      setScheduledTaskCaches(queryClient, task);
+      setScheduledTaskCaches(queryClient, task, hostId);
       void queryClient.invalidateQueries({
-        queryKey: scheduledTaskQueryKeys.project(task.project_id),
+        queryKey: scheduledTaskQueryKeys.project(task.project_id, hostId),
       });
     },
   });
@@ -132,14 +158,18 @@ export function useScheduledTaskMutations() {
       scheduledTaskApi.delete(task.id),
     onSuccess: (_, task) => {
       queryClient.removeQueries({
-        queryKey: scheduledTaskQueryKeys.detail(task.id),
+        queryKey: scheduledTaskQueryKeys.detail(task.id, hostId),
       });
       queryClient.setQueryData(
-        scheduledTaskQueryKeys.workflow(task.project_id, task.target_id),
+        scheduledTaskQueryKeys.workflow(
+          task.project_id,
+          task.target_id,
+          hostId
+        ),
         null
       );
       void queryClient.invalidateQueries({
-        queryKey: scheduledTaskQueryKeys.project(task.project_id),
+        queryKey: scheduledTaskQueryKeys.project(task.project_id, hostId),
       });
     },
   });
@@ -147,21 +177,27 @@ export function useScheduledTaskMutations() {
   const runNowMutation = useMutation({
     mutationFn: (taskId: string) => scheduledTaskApi.runNow(taskId),
     onSuccess: (result: ScheduledTaskRunNowResponse) => {
-      setScheduledTaskCaches(queryClient, result.task);
+      setScheduledTaskCaches(queryClient, result.task, hostId);
       if (result.run) {
         queryClient.setQueryData(
-          workflowRunQueryKeys.detail(result.run.id),
+          workflowRunQueryKeys.detail(result.run.id, hostId),
           result.run
         );
       }
       void queryClient.invalidateQueries({
-        queryKey: scheduledTaskQueryKeys.project(result.task.project_id),
+        queryKey: scheduledTaskQueryKeys.project(
+          result.task.project_id,
+          hostId
+        ),
       });
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.project(result.task.project_id),
+        queryKey: workflowAttemptQueryKeys.project(
+          result.task.project_id,
+          hostId
+        ),
       });
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.all,
+        queryKey: workflowAttemptQueryKeys.host(hostId),
       });
     },
   });

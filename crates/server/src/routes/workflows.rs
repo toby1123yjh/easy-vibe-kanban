@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use db::models::{
     scratch::DraftWorkspaceRepo,
     session::{CreateSession, Session},
-    task::{CreateTask, Task, TaskExecutionKind},
+    task::{CreateExecution, Execution, ExecutionKind},
     workflow::{NodeExecutionStatus, WorkflowAttemptStatus, WorkflowRunStatus, WorkflowSource},
     workflow_file_changes::{
         WorkflowFileChangeSummary, WorkflowFileChanges, WorkflowFileCollectionStatus,
@@ -141,6 +141,8 @@ impl From<WorkflowUpdateError> for ApiError {
 
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct TriggerWorkflowRequest {
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -197,6 +199,8 @@ pub struct SelectConditionBranchRequest {
 pub struct WorkflowAttemptResponse {
     pub id: Uuid,
     pub project_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workflow_id: Uuid,
     pub template_id: Option<Uuid>,
@@ -222,6 +226,8 @@ pub struct WorkflowRunResponse {
     pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -246,6 +252,8 @@ pub struct WorkflowRunResponse {
 pub struct WorkflowNodeExecutionResponse {
     pub id: Uuid,
     pub run_id: Uuid,
+    #[serde(rename = "execution_id")]
+    #[ts(rename = "execution_id")]
     pub task_id: Option<Uuid>,
     pub node_id: String,
     pub node_type: String,
@@ -358,6 +366,7 @@ pub struct FallbackWorkflowsQuery {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FallbackWorkflowRunsQuery {
+    #[serde(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub workflow_id: Option<Uuid>,
 }
@@ -373,6 +382,7 @@ struct WorkflowRunFallbackRow {
     pub orchestration_run_id: Option<Uuid>,
     pub workflow_id: Uuid,
     pub attempt_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub trigger_source: String,
@@ -439,7 +449,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(list_project_workflow_attempts),
         )
         .route(
-            "/v1/projects/{project_id}/issues/{issue_id}/workflow-attempts",
+            "/v1/projects/{project_id}/tasks/{task_id}/workflow-attempts",
             get(list_issue_workflow_attempts).post(create_workflow_attempt),
         )
         .route(
@@ -546,6 +556,7 @@ async fn create_workflow_attempt(
     Path((project_id, issue_id)): Path<(Uuid, Uuid)>,
     Json(request): Json<CreateWorkflowAttemptRequest>,
 ) -> Result<ResponseJson<MutationResponse<WorkflowAttemptResponse>>, ApiError> {
+    super::project_store::require_task(&deployment.db().pool, project_id, issue_id).await?;
     let workspace_resolver = DeploymentWorkflowWorkspaceResolver::new(deployment.clone());
     let data = create_issue_workflow_attempt_with_resources(
         &deployment.db().pool,
@@ -778,7 +789,7 @@ pub async fn create_issue_workflow_attempt(
             .await?
     {
         return Err(ApiError::Conflict(format!(
-            "Issue already has workflow instance {id}; use that instance instead of creating another"
+            "Task already has workflow instance {id}; use that instance instead of creating another"
         )));
     }
 
@@ -825,20 +836,20 @@ pub async fn insert_workflow_attempt(
     .bind(workflow_id)
     .bind(project_id)
     .bind(&name)
-    .bind("Issue-bound workflow attempt backing graph. Hidden from template lists.")
+    .bind("Task-bound workflow attempt backing graph. Hidden from template lists.")
     .bind(graph_json)
     .execute(&mut *transaction)
     .await?;
 
-    Task::create(
+    Execution::create(
         &mut *transaction,
-        &CreateTask {
+        &CreateExecution {
             id: attempt_id,
             project_id,
             issue_id,
             parent_task_id: None,
             title: name,
-            execution_kind: TaskExecutionKind::Workflow,
+            execution_kind: ExecutionKind::Workflow,
         },
     )
     .await?;
@@ -1479,10 +1490,11 @@ pub async fn accept_workflow_template_for_issue<W: WorkflowWorkspaceResolver>(
         .bind(request.issue_id)
         .fetch_optional(pool)
         .await?
-        .ok_or_else(|| ApiError::BadRequest("Issue does not exist".into()))?;
+        .ok_or_else(|| ApiError::BadRequest("Task does not exist".into()))?;
+    super::project_store::require_task(pool, project_id, request.issue_id).await?;
     if template.project_id.is_some_and(|id| id != project_id) {
         return Err(ApiError::Forbidden(
-            "Workflow is not available in this Issue's project".into(),
+            "Workflow is not available in this Task's project".into(),
         ));
     }
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -1497,7 +1509,7 @@ pub async fn accept_workflow_template_for_issue<W: WorkflowWorkspaceResolver>(
                 != workflow_id
         {
             return Err(ApiError::Conflict(
-                "INSTANCE_BINDING_CONFLICT: Issue already has a different workflow publication"
+                "INSTANCE_BINDING_CONFLICT: Task already has a different workflow publication"
                     .into(),
             ));
         }
@@ -1990,7 +2002,7 @@ async fn ensure_issue_belongs_to_project(
 
     if count == 0 {
         return Err(ApiError::BadRequest(
-            "Issue not found for project".to_string(),
+            "Task not found for project".to_string(),
         ));
     }
 

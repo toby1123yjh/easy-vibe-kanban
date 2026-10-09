@@ -1,4 +1,4 @@
-use api_types::{DeleteResponse, IssueCommentReaction, MutationResponse};
+use api_types::{DeleteResponse, MutationResponse, TaskCommentReaction};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -18,9 +18,9 @@ impl IssueCommentReactionRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<IssueCommentReaction>, IssueCommentReactionError> {
+    ) -> Result<Option<TaskCommentReaction>, IssueCommentReactionError> {
         let record = sqlx::query_as!(
-            IssueCommentReaction,
+            TaskCommentReaction,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -42,9 +42,9 @@ impl IssueCommentReactionRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueCommentReaction>, IssueCommentReactionError> {
+    ) -> Result<Vec<TaskCommentReaction>, IssueCommentReactionError> {
         let records = sqlx::query_as!(
-            IssueCommentReaction,
+            TaskCommentReaction,
             r#"
             SELECT
                 id          AS "id!: Uuid",
@@ -68,12 +68,12 @@ impl IssueCommentReactionRepository {
         comment_id: Uuid,
         user_id: Uuid,
         emoji: String,
-    ) -> Result<MutationResponse<IssueCommentReaction>, IssueCommentReactionError> {
+    ) -> Result<MutationResponse<TaskCommentReaction>, IssueCommentReactionError> {
         let mut tx = super::begin_tx(pool).await?;
         let id = id.unwrap_or_else(Uuid::new_v4);
         let created_at = Utc::now();
         let data = sqlx::query_as!(
-            IssueCommentReaction,
+            TaskCommentReaction,
             r#"
             INSERT INTO issue_comment_reactions (id, comment_id, user_id, emoji, created_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -104,10 +104,10 @@ impl IssueCommentReactionRepository {
         pool: &PgPool,
         id: Uuid,
         emoji: Option<String>,
-    ) -> Result<MutationResponse<IssueCommentReaction>, IssueCommentReactionError> {
+    ) -> Result<MutationResponse<TaskCommentReaction>, IssueCommentReactionError> {
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueCommentReaction,
+            TaskCommentReaction,
             r#"
             UPDATE issue_comment_reactions
             SET
@@ -147,9 +147,9 @@ impl IssueCommentReactionRepository {
     pub async fn list_by_comment(
         pool: &PgPool,
         comment_id: Uuid,
-    ) -> Result<Vec<IssueCommentReaction>, IssueCommentReactionError> {
+    ) -> Result<Vec<TaskCommentReaction>, IssueCommentReactionError> {
         let records = sqlx::query_as!(
-            IssueCommentReaction,
+            TaskCommentReaction,
             r#"
             SELECT
                 id          AS "id!: Uuid",

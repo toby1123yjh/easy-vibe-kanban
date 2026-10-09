@@ -378,7 +378,7 @@
       "description": "Êtes-vous sûr de vouloir supprimer cet espace de travail ? Cette action est irréversible.",
       "deleteBranchLabel": "Supprimer la branche",
       "cannotDeleteOpenPr": "Impossible de supprimer la branche tant que la PR est ouverte",
-      "unlinkFromIssueLabel": "Également dissocier du ticket"
+      "unlinkFromIssueLabel": "Également dissocier du tâche"
     },
     "linkError": "Failed to link workspace"
   },
@@ -543,7 +543,7 @@
       "goTo": "Aller à (G ...)",
       "workspace": "Espace de travail (W ...)",
       "view": "Vue (V ...)",
-      "issues": "Tickets (I ...)",
+      "issues": "Tâches (I ...)",
       "git": "Git (X ...)",
       "yank": "Copier (Y ...)",
       "toggle": "Basculer (T ...)",
@@ -574,16 +574,16 @@
       "toggle-preview-mode": "Basculer le panneau Aperçu",
       "toggle-left-sidebar": "Basculer la barre latérale gauche",
       "toggle-left-main-panel": "Basculer le panneau Chat",
-      "create-issue": "Créer un ticket",
+      "create-issue": "Créer un tâche",
       "change-issue-status": "Changer le statut",
       "change-issue-priority": "Changer la priorité",
       "change-assignees": "Changer les assignés",
-      "make-sub-issue-of": "Transformer en sous-ticket de",
-      "add-sub-issue": "Ajouter un sous-ticket",
+      "make-sub-issue-of": "Transformer en sous-tâche de",
+      "add-sub-issue": "Ajouter un sous-tâche",
       "remove-parent-issue": "Retirer le parent",
       "link-workspace": "Lier un espace de travail",
-      "duplicate-issue": "Dupliquer le ticket",
-      "delete-issue": "Supprimer le ticket",
+      "duplicate-issue": "Dupliquer le tâche",
+      "delete-issue": "Supprimer le tâche",
       "git-create-pr": "Créer une Pull Request",
       "git-merge": "Fusionner la branche",
       "git-rebase": "Rebaser la branche",
@@ -613,7 +613,7 @@
     "noProjectFound": "Aucun projet trouvé",
     "unassigned": "Non assigné",
     "noTagsAvailable": "Aucun tag disponible",
-    "createNewIssue": "Créer un nouveau ticket",
+    "createNewIssue": "Créer un nouveau tâche",
     "searchTags": "Rechercher des tags...",
     "selectColorFor": "Sélectionner la couleur pour",
     "createTag": "Créer",
@@ -632,12 +632,12 @@
     "moreActions": "Plus d'actions",
     "closePanel": "Fermer le panneau",
     "copyLink": "Copier le lien",
-    "issueTitlePlaceholder": "Titre du ticket...",
+    "issueTitlePlaceholder": "Titre du tâche...",
     "issueDescriptionPlaceholder": "Entrez la description de la tâche...",
     "createDraftWorkspaceImmediately": "Créer immédiatement un espace de travail brouillon",
-    "createDraftWorkspaceDescription": "Après la création de l'issue, ouvrir le formulaire de création de workspace pré-rempli avec les détails de l'issue",
+    "createDraftWorkspaceDescription": "Après la création de l'task, ouvrir le formulaire de création de workspace pré-rempli avec les détails de l'task",
     "createIssue": "Créer la tâche",
-    "newIssue": "Nouveau ticket",
+    "newIssue": "Nouveau tâche",
     "previewCodeBlock": "[Bloc de code]",
     "previewImage": "[Image]",
     "previewImageWithName": "[Image : {{name}}]",
@@ -666,7 +666,7 @@
     },
     "team": "Team",
     "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
+    "searchPlaceholder": "Search tasks...",
     "filters": "Filters",
     "clearFilters": "Clear filters",
     "filtersDescription": "Adjust filters and sorting for this board view.",
@@ -697,7 +697,7 @@
     "assignee": "Assignee",
     "self": "Me",
     "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
+    "subIssuesFilterLabel": "Sub-tasks",
     "workspacesFilterLabel": "Workspaces",
     "selectAssignees": "Select assignees...",
     "relationships": "Relationships",
@@ -711,7 +711,7 @@
     "changeColor": "Change color",
     "editName": "Edit name",
     "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
+    "cannotDeleteWithIssues": "Move tasks first",
     "lastVisibleStatus": "At least one status must be visible",
     "showStatus": "Show status",
     "hideStatus": "Hide status",
@@ -722,19 +722,19 @@
     "projectsGuide": {
       "intro": {
         "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first task. You can re-open this help dialog or give feedback anytime from the navbar."
       },
       "welcome": {
         "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "content": "The project page is where you manage tasks. You can view your tasks as a kanban board, or as a list, and filter by status, tag, assignee and more."
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "Tasks",
+        "content": "Each task represents a feature or problem to solve. Tasks have statuses, priorities, assignees, tags, relationships, comments, sub-tasks and more."
       },
       "workspaces": {
         "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "content": "To start working on an task, create a workspace. A single task can have multiple workspaces. Tasks describe the work to be done, workspaces are where the work happens."
       },
       "organizations": {
         "title": "Invite your team",
@@ -893,9 +893,9 @@
         "command": "Commande",
         "project": "Projet",
         "session": "Session",
-        "issue": "Problème",
         "workflow": "Flux de travail",
-        "run": "Exécution"
+        "run": "Exécution",
+        "task": "Tâche"
       }
     },
     "moduleLanding": {
@@ -1511,7 +1511,7 @@
     },
     "runDialog": {
       "title": "Run workflow attempt",
-      "description": "Start this issue-bound workflow attempt.",
+      "description": "Start this task-bound workflow attempt.",
       "mainWorkspace": "Main workspace",
       "createWorkflowWorkspace": "Create workflow workspace",
       "usesExistingWorkspace": "Uses existing workspace.",
@@ -1780,7 +1780,7 @@
       "noSourceOutput": "The source execution has no text output.",
       "noRuntimeOutput": "Aucune sortie d’exécution n’est encore disponible.",
       "technicalDetails": "Détails techniques",
-      "taskId": "ID de tâche",
+      "taskId": "Exécutions ID",
       "updatingDecision": "Mise à jour...",
       "approveAndContinue": "Approuver et continuer",
       "openFullSession": "Ouvrir la session complète",
@@ -1824,7 +1824,7 @@
     },
     "dashboard": {
       "runDetails": "Run details",
-      "issueId": "Issue ID",
+      "issueId": "Task ID",
       "workflow": "Workflow",
       "runId": "Run ID",
       "status": "Status",
@@ -1971,7 +1971,7 @@
       "time": "Time",
       "weekday": "Weekday",
       "timezone": "Timezone",
-      "contextIssue": "Context issue",
+      "contextIssue": "Context task",
       "inputText": "Run input",
       "inputPlaceholder": "Describe what this run should do.",
       "save": "Save",
@@ -1981,7 +1981,7 @@
       "lastTriggered": "Last triggered",
       "lastStatus": "Last status",
       "target": "Target",
-      "noIssue": "No issues available",
+      "noIssue": "No tasks available",
       "none": "None",
       "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
       "deleteTitle": "Delete scheduled task?",
@@ -2006,7 +2006,7 @@
         "sunday": "Sunday"
       },
       "errors": {
-        "issueRequired": "Choose a context issue.",
+        "issueRequired": "Choose a context task.",
         "timeRequired": "Choose a valid time.",
         "weekdayRequired": "Choose a weekday.",
         "inputRequired": "Add run input before saving the scheduled task.",
@@ -2041,5 +2041,15 @@
     "more": "Show last 30 days",
     "pending": "Will resume: {{title}} · {{time}}",
     "clear": "Clear resume session"
+  },
+  "taskDetails": {
+    "executions": "Exécutions",
+    "noExecutions": "Aucune exécution pour cette tâche.",
+    "newExecution": "Nouvelle exécution",
+    "singleAgent": "Agent unique",
+    "workflow": "Workflow",
+    "arena": "Arène",
+    "information": "Informations sur la tâche",
+    "description": "Description"
   }
 }

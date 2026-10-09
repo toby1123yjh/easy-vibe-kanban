@@ -1,3 +1,4 @@
+import { getCurrentHostId, useHostId } from '@/shared/providers/HostIdProvider';
 import {
   useMutation,
   useQuery,
@@ -6,7 +7,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import {
-  workflowApi,
+  createWorkflowApi,
   type CreateWorkflowAttemptPayload,
   type RunWorkflowAttemptPayload,
 } from '@/shared/lib/workflowApi';
@@ -21,14 +22,22 @@ import { workflowTemplateQueryKeys } from './useWorkflowTemplates';
 
 export const workflowAttemptQueryKeys = {
   all: ['workflow-attempts'] as const,
-  project: (projectId: string) =>
-    ['workflow-attempts', 'project', projectId] as const,
-  issue: (projectId: string, issueId: string) =>
-    ['workflow-attempts', 'project', projectId, 'issue', issueId] as const,
-  detail: (attemptId: string) =>
-    ['workflow-attempts', 'detail', attemptId] as const,
-  workflow: (workflowId: string) =>
-    ['workflow-attempts', 'workflow', workflowId] as const,
+  host: (hostId = getCurrentHostId()) => ['workflow-attempts', hostId] as const,
+  project: (projectId: string, hostId = getCurrentHostId()) =>
+    ['workflow-attempts', hostId, 'project', projectId] as const,
+  task: (projectId: string, taskId: string, hostId = getCurrentHostId()) =>
+    [
+      'workflow-attempts',
+      hostId,
+      'project',
+      projectId,
+      'task',
+      taskId,
+    ] as const,
+  detail: (attemptId: string, hostId = getCurrentHostId()) =>
+    ['workflow-attempts', hostId, 'detail', attemptId] as const,
+  workflow: (workflowId: string, hostId = getCurrentHostId()) =>
+    ['workflow-attempts', hostId, 'workflow', workflowId] as const,
 };
 
 function workflowAttemptStatusFromRunStatus(
@@ -40,11 +49,12 @@ function workflowAttemptStatusFromRunStatus(
 function updateCachedWorkflowAttempt(
   queryClient: QueryClient,
   attemptId: string,
-  updater: (attempt: WorkflowAttemptResponse) => WorkflowAttemptResponse | null
+  updater: (attempt: WorkflowAttemptResponse) => WorkflowAttemptResponse | null,
+  hostId: string | null
 ) {
   queryClient
     .getQueriesData<WorkflowAttemptListResponse>({
-      queryKey: workflowAttemptQueryKeys.all,
+      queryKey: workflowAttemptQueryKeys.host(hostId),
     })
     .forEach(([queryKey, data]) => {
       if (!data?.attempts) return;
@@ -62,7 +72,7 @@ function updateCachedWorkflowAttempt(
 
   queryClient
     .getQueriesData<WorkflowAttemptResponse | null>({
-      queryKey: workflowAttemptQueryKeys.all,
+      queryKey: workflowAttemptQueryKeys.host(hostId),
     })
     .forEach(([queryKey, data]) => {
       if (data?.id === attemptId) {
@@ -73,19 +83,21 @@ function updateCachedWorkflowAttempt(
 
 export function useWorkflowAttempts(
   projectId: string | null | undefined,
-  issueId: string | null | undefined,
+  taskId: string | null | undefined,
   options: { enabled?: boolean } = {}
 ): UseQueryResult<WorkflowAttemptListResponse> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey:
-      projectId && issueId
-        ? workflowAttemptQueryKeys.issue(projectId, issueId)
+      projectId && taskId
+        ? workflowAttemptQueryKeys.task(projectId, taskId, hostId)
         : ['workflow-attempts', 'noop'],
     queryFn: () =>
-      workflowApi.listAttempts(projectId as string, issueId as string),
-    enabled: !!projectId && !!issueId && enabled,
+      workflowApi.listAttempts(projectId as string, taskId as string),
+    enabled: !!projectId && !!taskId && enabled,
   });
 }
 
@@ -93,11 +105,13 @@ export function useProjectWorkflowAttempts(
   projectId: string | null | undefined,
   options: { enabled?: boolean } = {}
 ): UseQueryResult<WorkflowAttemptListResponse> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey: projectId
-      ? workflowAttemptQueryKeys.project(projectId)
+      ? workflowAttemptQueryKeys.project(projectId, hostId)
       : ['workflow-attempts', 'project', 'noop'],
     queryFn: () => workflowApi.listProjectAttempts(projectId as string),
     enabled: !!projectId && enabled,
@@ -108,11 +122,13 @@ export function useWorkflowAttemptForWorkflow(
   workflowId: string | null | undefined,
   options: { enabled?: boolean } = {}
 ): UseQueryResult<WorkflowAttemptResponse | null> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true } = options;
 
   return useQuery({
     queryKey: workflowId
-      ? workflowAttemptQueryKeys.workflow(workflowId)
+      ? workflowAttemptQueryKeys.workflow(workflowId, hostId)
       : ['workflow-attempts', 'workflow', 'noop'],
     queryFn: () => workflowApi.getAttemptForWorkflow(workflowId as string),
     enabled: !!workflowId && enabled,
@@ -121,37 +137,40 @@ export function useWorkflowAttemptForWorkflow(
 }
 
 export function useWorkflowAttemptMutations() {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const queryClient = useQueryClient();
 
   const createAttemptMutation = useMutation({
     mutationFn: ({
       projectId,
-      issueId,
+      taskId,
       payload,
     }: {
       projectId: string;
-      issueId: string;
+      taskId: string;
       payload: CreateWorkflowAttemptPayload;
-    }) => workflowApi.createAttempt(projectId, issueId, payload),
+    }) => workflowApi.createAttempt(projectId, taskId, payload),
     onSuccess: (attempt, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.issue(
+        queryKey: workflowAttemptQueryKeys.task(
           variables.projectId,
-          variables.issueId
+          variables.taskId,
+          hostId
         ),
       });
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.project(variables.projectId),
+        queryKey: workflowAttemptQueryKeys.project(variables.projectId, hostId),
       });
       void queryClient.invalidateQueries({
-        queryKey: workflowTemplateQueryKeys.list(variables.projectId),
+        queryKey: workflowTemplateQueryKeys.list(variables.projectId, hostId),
       });
       queryClient.setQueryData(
-        workflowAttemptQueryKeys.detail(attempt.id),
+        workflowAttemptQueryKeys.detail(attempt.id, hostId),
         attempt
       );
       queryClient.setQueryData(
-        workflowAttemptQueryKeys.workflow(attempt.workflow_id),
+        workflowAttemptQueryKeys.workflow(attempt.workflow_id, hostId),
         attempt
       );
     },
@@ -166,22 +185,30 @@ export function useWorkflowAttemptMutations() {
       payload: RunWorkflowAttemptPayload;
     }) => workflowApi.runAttempt(attemptId, payload),
     onSuccess: (run) => {
-      queryClient.setQueryData(workflowRunQueryKeys.detail(run.id), run);
+      queryClient.setQueryData(
+        workflowRunQueryKeys.detail(run.id, hostId),
+        run
+      );
       if (run.attempt_id) {
-        updateCachedWorkflowAttempt(queryClient, run.attempt_id, (attempt) => ({
-          ...attempt,
-          latest_run_id: run.id,
-          workspace_id: run.workspace_id ?? attempt.workspace_id,
-          status: workflowAttemptStatusFromRunStatus(run.status),
-          updated_at: run.updated_at,
-        }));
+        updateCachedWorkflowAttempt(
+          queryClient,
+          run.attempt_id,
+          (attempt) => ({
+            ...attempt,
+            latest_run_id: run.id,
+            workspace_id: run.workspace_id ?? attempt.workspace_id,
+            status: workflowAttemptStatusFromRunStatus(run.status),
+            updated_at: run.updated_at,
+          }),
+          hostId
+        );
       }
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.all,
+        queryKey: workflowAttemptQueryKeys.host(hostId),
       });
       if (run.workflow_id) {
         void queryClient.invalidateQueries({
-          queryKey: workflowAttemptQueryKeys.workflow(run.workflow_id),
+          queryKey: workflowAttemptQueryKeys.workflow(run.workflow_id, hostId),
         });
       }
     },
@@ -191,16 +218,16 @@ export function useWorkflowAttemptMutations() {
     mutationFn: (attemptId: string) => workflowApi.deleteAttempt(attemptId),
     onMutate: async (attemptId) => {
       await queryClient.cancelQueries({
-        queryKey: workflowAttemptQueryKeys.all,
+        queryKey: workflowAttemptQueryKeys.host(hostId),
       });
 
       const previousLists =
         queryClient.getQueriesData<WorkflowAttemptListResponse>({
-          queryKey: workflowAttemptQueryKeys.all,
+          queryKey: workflowAttemptQueryKeys.host(hostId),
         });
       const previousDetails =
         queryClient.getQueriesData<WorkflowAttemptResponse | null>({
-          queryKey: workflowAttemptQueryKeys.all,
+          queryKey: workflowAttemptQueryKeys.host(hostId),
         });
 
       previousLists.forEach(([queryKey, data]) => {
@@ -229,10 +256,10 @@ export function useWorkflowAttemptMutations() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({
-        queryKey: workflowAttemptQueryKeys.all,
+        queryKey: workflowAttemptQueryKeys.host(hostId),
       });
       void queryClient.invalidateQueries({
-        queryKey: workflowTemplateQueryKeys.all,
+        queryKey: workflowTemplateQueryKeys.host(hostId),
       });
     },
   });

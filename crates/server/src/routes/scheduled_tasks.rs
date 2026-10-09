@@ -78,6 +78,8 @@ pub struct ScheduledTaskResponse {
     pub project_id: Uuid,
     pub target_type: ScheduledTaskTargetType,
     pub target_id: Uuid,
+    #[serde(rename = "context_task_id")]
+    #[ts(rename = "context_task_id")]
     pub context_issue_id: Uuid,
     pub name: Option<String>,
     pub enabled: bool,
@@ -115,6 +117,8 @@ pub struct ListScheduledTasksQuery {
 pub struct UpsertScheduledTaskRequest {
     pub target_type: ScheduledTaskTargetType,
     pub target_id: Uuid,
+    #[serde(rename = "context_task_id")]
+    #[ts(rename = "context_task_id")]
     pub context_issue_id: Uuid,
     #[serde(default)]
     #[ts(optional)]
@@ -133,6 +137,8 @@ pub struct UpsertScheduledTaskRequest {
 pub struct UpdateScheduledTaskRequest {
     #[serde(default)]
     #[ts(optional)]
+    #[serde(rename = "context_task_id")]
+    #[ts(rename = "context_task_id")]
     pub context_issue_id: Option<Uuid>,
     #[serde(default)]
     #[ts(optional)]
@@ -236,7 +242,7 @@ async fn upsert_scheduled_task(
     Path(project_id): Path<Uuid>,
     Json(request): Json<UpsertScheduledTaskRequest>,
 ) -> Result<ResponseJson<MutationResponse<ScheduledTaskResponse>>, ApiError> {
-    let data = upsert_scheduled_task_record(&deployment.db().pool, project_id, request).await?;
+    let data = upsert_file_owned_schedule(&deployment.db().pool, project_id, request).await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -245,7 +251,7 @@ async fn update_scheduled_task(
     Path(task_id): Path<Uuid>,
     Json(request): Json<UpdateScheduledTaskRequest>,
 ) -> Result<ResponseJson<MutationResponse<ScheduledTaskResponse>>, ApiError> {
-    let data = update_scheduled_task_record(&deployment.db().pool, task_id, request).await?;
+    let data = update_file_owned_schedule(&deployment.db().pool, task_id, request).await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -355,9 +361,29 @@ async fn dispatch_scheduled_task_inner(
     manual: bool,
 ) -> Result<ScheduledTaskRunNowResponse, ApiError> {
     let pool = &deployment.db().pool;
-    dispatch_scheduled_task_record(pool, task_id, manual, |task, manual| {
+    dispatch_file_owned_schedule(pool, task_id, manual, |task, manual| {
         let deployment = deployment.clone();
         async move { dispatch_workflow_scheduled_task(&deployment, &task, manual).await }
+    })
+    .await
+}
+
+async fn dispatch_file_owned_schedule<F, Fut>(
+    pool: &SqlitePool,
+    task_id: Uuid,
+    manual: bool,
+    dispatch_target: F,
+) -> Result<ScheduledTaskRunNowResponse, ApiError>
+where
+    F: FnOnce(ScheduledTaskResponse, bool) -> Fut,
+    Fut: Future<Output = Result<(WorkflowAttemptResponse, WorkflowRunResponse), ApiError>>,
+{
+    dispatch_scheduled_task_record(pool, task_id, manual, |task, manual| async move {
+        // Validate before the callback can create a draft Execution/instance,
+        // not only later when the Run is accepted. Failures retain the schedule
+        // and use its normal failure/backoff reporting; active Runs still skip.
+        super::project_store::require_task(pool, task.project_id, task.context_issue_id).await?;
+        dispatch_target(task, manual).await
     })
     .await
 }
@@ -487,6 +513,34 @@ async fn dispatch_workflow_scheduled_task(
     .await?;
 
     Ok((attempt, run))
+}
+
+async fn upsert_file_owned_schedule(
+    pool: &SqlitePool,
+    project_id: Uuid,
+    request: UpsertScheduledTaskRequest,
+) -> Result<ScheduledTaskResponse, ApiError> {
+    super::project_store::require_task(pool, project_id, request.context_issue_id).await?;
+    upsert_scheduled_task_record(pool, project_id, request).await
+}
+
+async fn update_file_owned_schedule(
+    pool: &SqlitePool,
+    task_id: Uuid,
+    request: UpdateScheduledTaskRequest,
+) -> Result<ScheduledTaskResponse, ApiError> {
+    let existing = scheduled_task_by_id(pool, task_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Scheduled task not found".to_string()))?;
+    let context_id = request
+        .context_issue_id
+        .unwrap_or(existing.context_issue_id);
+    // An unavailable directory must not prevent disabling an existing schedule.
+    // Enabling or changing its business Task always needs current file authority.
+    if request.enabled.unwrap_or(existing.enabled) || context_id != existing.context_issue_id {
+        super::project_store::require_task(pool, existing.project_id, context_id).await?;
+    }
+    update_scheduled_task_record(pool, task_id, request).await
 }
 
 async fn upsert_scheduled_task_record(
@@ -879,7 +933,7 @@ async fn ensure_issue_belongs_to_project(
 
     if count == 0 {
         return Err(ApiError::BadRequest(
-            "Issue not found for project".to_string(),
+            "Task not found for project".to_string(),
         ));
     }
     Ok(())
@@ -1373,7 +1427,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.to_string().contains("Issue not found for project"));
+        assert!(err.to_string().contains("Task not found for project"));
     }
 
     #[tokio::test]
@@ -1487,6 +1541,153 @@ mod tests {
         assert!(result.task.next_run_at.is_some());
     }
 
+    #[tokio::test]
+    async fn file_owned_schedule_rejects_stale_projection_before_write_or_dispatch() {
+        use crate::routes::{
+            project_store,
+            workflows::{CreateWorkflowRequest, create_project_workflow},
+        };
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let project = project_store::open(
+            &pool,
+            directory.path().to_str().unwrap(),
+            api_types::CreateProjectRequest {
+                id: None,
+                organization_id: Uuid::from_u128(2),
+                name: "Scheduled project".into(),
+                color: "210 80% 52%".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let task_id = project_store::mutate(&pool, project.id, |document| {
+            document.insert_task(
+                serde_json::from_value(json!({
+                    "project_id": project.id,
+                    "status_id": document.statuses[0].id,
+                    "title": "Scheduled business task",
+                    "sort_order": 0.0,
+                    "extension_metadata": null
+                }))
+                .unwrap(),
+            )
+        })
+        .await
+        .unwrap();
+        let workflow = create_project_workflow(
+            &pool,
+            project.id,
+            CreateWorkflowRequest {
+                name: "Scheduled workflow".into(),
+                description: None,
+                graph_json: valid_graph_json(),
+            },
+        )
+        .await
+        .unwrap();
+        let schedule =
+            upsert_file_owned_schedule(&pool, project.id, upsert_request(workflow.id, task_id))
+                .await
+                .unwrap();
+        let path = directory.path().join(".vibe-kanban/project.json");
+        let original = std::fs::read(&path).unwrap();
+
+        for missing in [false, true] {
+            if missing {
+                std::fs::remove_file(&path).unwrap();
+            } else {
+                std::fs::write(&path, b"{invalid").unwrap();
+            }
+            assert!(
+                upsert_file_owned_schedule(
+                    &pool,
+                    project.id,
+                    upsert_request(workflow.id, task_id),
+                )
+                .await
+                .is_err()
+            );
+            assert!(
+                update_file_owned_schedule(
+                    &pool,
+                    schedule.id,
+                    serde_json::from_value(json!({ "enabled": true })).unwrap(),
+                )
+                .await
+                .is_err()
+            );
+            assert!(
+                dispatch_file_owned_schedule(&pool, schedule.id, true, |_, _| async {
+                    panic!("missing task authority must not create an Execution or Run")
+                })
+                .await
+                .is_err()
+            );
+            let automatic = dispatch_file_owned_schedule(&pool, schedule.id, false, |_, _| async {
+                panic!("automatic dispatch must check the same task authority")
+            })
+            .await
+            .unwrap();
+            assert_eq!(automatic.task.last_status, ScheduledTaskLastStatus::Failed);
+            assert!(automatic.task.last_error.is_some());
+            assert!(automatic.task.next_run_at.is_some());
+            assert!(automatic.run.is_none());
+            let runtime: i64 = sqlx::query_scalar(
+                "SELECT (SELECT COUNT(*) FROM tasks) + (SELECT COUNT(*) FROM workflow_attempts) + (SELECT COUNT(*) FROM workflow_runs)",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(runtime, 0);
+            let indexed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_issues WHERE id=?")
+                .bind(task_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                indexed, 1,
+                "the stale projection remains, but cannot authorize work"
+            );
+        }
+
+        let disabled = update_file_owned_schedule(
+            &pool,
+            schedule.id,
+            serde_json::from_value(json!({ "enabled": false })).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(!disabled.enabled);
+        assert!(disabled.next_run_at.is_none());
+        // Restoring the same authoritative file permits normal enabling again.
+        std::fs::write(&path, original).unwrap();
+        let enabled = update_file_owned_schedule(
+            &pool,
+            schedule.id,
+            serde_json::from_value(json!({ "enabled": true })).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(enabled.enabled);
+        std::fs::remove_file(&path).unwrap();
+        delete_scheduled_task_record(&pool, schedule.id)
+            .await
+            .unwrap();
+        assert!(
+            scheduled_task_by_id(&pool, schedule.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
     struct ScheduledTaskFixtureIds {
         project_id: Uuid,
         issue_id: Uuid,
@@ -1526,6 +1727,10 @@ mod tests {
                 name TEXT NOT NULL,
                 description TEXT,
                 graph_json TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1,
+                external_enabled INTEGER NOT NULL DEFAULT 0,
+                main_agent_config_json TEXT,
+                main_agent_prompt TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 CHECK (
@@ -1537,6 +1742,7 @@ mod tests {
             r#"
             CREATE TABLE workflow_attempts (
                 id BLOB PRIMARY KEY,
+                task_id BLOB NOT NULL,
                 project_id BLOB NOT NULL,
                 issue_id BLOB NOT NULL,
                 workflow_id BLOB NOT NULL,
@@ -1544,9 +1750,28 @@ mod tests {
                 workspace_id BLOB,
                 name TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'draft',
+                main_session_id BLOB,
+                main_session_bound_at TEXT,
+                definition_locked_at TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 UNIQUE (workflow_id)
+            )
+            "#,
+            r#"
+            CREATE TABLE tasks (
+                id BLOB PRIMARY KEY,
+                project_id BLOB NOT NULL,
+                issue_id BLOB NOT NULL,
+                title TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
+            CREATE TABLE workflow_attempt_sources (
+                attempt_id BLOB PRIMARY KEY,
+                template_id BLOB NOT NULL,
+                template_revision INTEGER NOT NULL
             )
             "#,
             r#"
@@ -1645,7 +1870,7 @@ mod tests {
     }
 
     async fn insert_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid) {
-        sqlx::query("INSERT INTO local_issues (id, project_id, title) VALUES (?, ?, 'Issue')")
+        sqlx::query("INSERT INTO local_issues (id, project_id, title) VALUES (?, ?, 'Task')")
             .bind(issue_id)
             .bind(project_id)
             .execute(pool)

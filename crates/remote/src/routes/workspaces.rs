@@ -26,6 +26,7 @@ use crate::{
 struct CreateWorkspaceRequest {
     pub project_id: Uuid,
     pub local_workspace_id: Option<Uuid>,
+    #[serde(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub name: Option<String>,
     pub archived: Option<bool>,

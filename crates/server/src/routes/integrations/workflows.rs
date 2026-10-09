@@ -104,12 +104,12 @@ pub enum WorkflowInteractionResponse {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/projects/{project_id}/workflows",get(list_templates))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-attempts",post(create_attempt))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-attempts/{attempt_id}/run",post(submit_run))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}",get(get_run))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/cancel",post(cancel_run))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions",get(interactions))
-        .route("/projects/{project_id}/issues/{issue_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response",post(respond))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-attempts",post(create_attempt))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-attempts/{attempt_id}/run",post(submit_run))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}",get(get_run))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/cancel",post(cancel_run))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/interactions",get(interactions))
+        .route("/projects/{project_id}/tasks/{task_id}/workflow-runs/{run_id}/interactions/{interaction_id}/response",post(respond))
 }
 
 async fn list_templates(
@@ -147,7 +147,7 @@ async fn ensure_issue(
             .await?;
     if !valid {
         return Err(ApiError::Forbidden(
-            "Issue is not available in this project".into(),
+            "Task is not available in this project".into(),
         ));
     }
     Ok(())
@@ -169,7 +169,7 @@ async fn ensure_run(
             .await?;
     if !valid {
         return Err(ApiError::Forbidden(
-            "Run is not available in this Issue".into(),
+            "Run is not available in this Task".into(),
         ));
     }
     Ok(())
@@ -184,12 +184,13 @@ async fn create_attempt(
 ) -> Result<Json<ApiResponse<WorkflowAttemptResponse>>, ApiError> {
     let pool = &deployment.db().pool;
     ensure_issue(pool, &caller, project_id, issue_id).await?;
+    crate::routes::project_store::require_task(pool, project_id, issue_id).await?;
     let root = project_root(&deployment, project_id).await?;
     let key = request_key(&headers)?;
     let hash = request_hash(&request)?;
     let scope = format!("{project_id}:{issue_id}");
     // Reservation and business identities are one transaction. Filesystem setup
-    // may be retried without re-creating the Issue Task or copying old sessions.
+    // may be retried without re-creating the Task Task or copying old sessions.
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let mut reserved = IntegrationRequest::reserve(
         &mut tx,
@@ -227,7 +228,7 @@ async fn create_attempt(
         if let Some(existing)=sqlx::query("SELECT a.id,a.workflow_id,s.template_id FROM workflow_attempts a LEFT JOIN workflow_attempt_sources s ON s.attempt_id=a.id WHERE a.issue_id=?")
             .bind(issue_id).fetch_optional(&mut *tx).await? {
             if existing.try_get::<Option<Uuid>,_>("template_id")?.unwrap_or(existing.try_get("workflow_id")?)!=request.template_id {
-                return Err(ApiError::Conflict("INSTANCE_BINDING_CONFLICT: Issue already has a different workflow instance".into()));
+                return Err(ApiError::Conflict("INSTANCE_BINDING_CONFLICT: Task already has a different workflow instance".into()));
             }
             reserved.resource_id=existing.try_get("id")?;
             sqlx::query("UPDATE external_integration_requests SET resource_id=? WHERE integration_id=? AND operation='workflow_attempt' AND scope=? AND request_key=?")
@@ -382,9 +383,7 @@ async fn submit_run(
     let attempt = workflows::workflow_attempt_by_id(pool, attempt_id)
         .await?
         .filter(|a| a.project_id == project_id && a.issue_id == issue_id)
-        .ok_or_else(|| {
-            ApiError::Forbidden("Workflow Task is not available in this Issue".into())
-        })?;
+        .ok_or_else(|| ApiError::Forbidden("Workflow Task is not available in this Task".into()))?;
     let key = request_key(&headers)?;
     let hash = request_hash(&request)?;
     let scope = attempt_id.to_string();

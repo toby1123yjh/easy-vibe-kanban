@@ -1,6 +1,6 @@
 use api_types::{
-    CreateIssueRelationshipRequest, IssueRelationship, ListIssueRelationshipsQuery,
-    ListIssueRelationshipsResponse, MutationResponse,
+    CreateTaskRelationshipRequest, ListTaskRelationshipsQuery, ListTaskRelationshipsResponse,
+    MutationResponse, TaskRelationship,
 };
 use axum::{
     Router,
@@ -16,19 +16,19 @@ use crate::{DeploymentImpl, error::ApiError};
 pub(super) fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route(
-            "/issue-relationships",
+            "/task-relationships",
             get(list_issue_relationships).post(create_issue_relationship),
         )
         .route(
-            "/issue-relationships/{relationship_id}",
+            "/task-relationships/{relationship_id}",
             axum::routing::delete(delete_issue_relationship),
         )
 }
 
 async fn list_issue_relationships(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<ListIssueRelationshipsQuery>,
-) -> Result<ResponseJson<ApiResponse<ListIssueRelationshipsResponse>>, ApiError> {
+    Query(query): Query<ListTaskRelationshipsQuery>,
+) -> Result<ResponseJson<ApiResponse<ListTaskRelationshipsResponse>>, ApiError> {
     let client = deployment.remote_client()?;
     let response = client.list_issue_relationships(query.issue_id).await?;
     Ok(ResponseJson(ApiResponse::success(response)))
@@ -36,8 +36,8 @@ async fn list_issue_relationships(
 
 async fn create_issue_relationship(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueRelationshipRequest>,
-) -> Result<ResponseJson<ApiResponse<MutationResponse<IssueRelationship>>>, ApiError> {
+    Json(request): Json<CreateTaskRelationshipRequest>,
+) -> Result<ResponseJson<ApiResponse<MutationResponse<TaskRelationship>>>, ApiError> {
     let client = deployment.remote_client()?;
     let response = client.create_issue_relationship(&request).await?;
     Ok(ResponseJson(ApiResponse::success(response)))

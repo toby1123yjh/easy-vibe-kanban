@@ -15,7 +15,7 @@ export const workflowManagementApi = {
       project_id: string;
       workflow_id: string;
       request_id: string;
-      issue_id?: string;
+      task_id?: string;
     },
     hostId?: string | null
   ): Promise<WorkflowMainSessionView> {

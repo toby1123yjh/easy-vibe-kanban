@@ -1,14 +1,14 @@
-import type { TaskStatus, TaskSummary } from 'shared/types';
+import type { ExecutionStatus, ExecutionSummary } from 'shared/types';
 import type {
-  Issue,
-  IssuePriority,
+  Task,
+  TaskPriority,
   ProjectStatus,
   Tag,
 } from 'shared/remote-types';
 
 export const KANBAN_POINTER_ACTIVATION_DISTANCE = 8;
 
-const TASK_STATUS_ATTENTION_ORDER: Record<TaskStatus, number> = {
+const EXECUTION_STATUS_ATTENTION_ORDER: Record<ExecutionStatus, number> = {
   waiting: 0,
   failed: 1,
   running: 2,
@@ -18,15 +18,15 @@ const TASK_STATUS_ATTENTION_ORDER: Record<TaskStatus, number> = {
   cancelled: 5,
 };
 
-export interface KanbanIssueProjection {
+export interface KanbanTaskProjection {
   id: string;
   simpleId: string;
   title: string;
   statusId: string;
-  priority: IssuePriority | null;
+  priority: TaskPriority | null;
   sortOrder: number;
   tags: Tag[];
-  tasks: TaskSummary[];
+  executions: ExecutionSummary[];
 }
 
 export interface KanbanColumnProjection {
@@ -34,11 +34,11 @@ export interface KanbanColumnProjection {
   name: string;
   color: string;
   sortOrder: number;
-  issues: KanbanIssueProjection[];
+  tasks: KanbanTaskProjection[];
 }
 
 export interface KanbanMoveIntent {
-  issueId: string;
+  taskId: string;
   sourceStatusId: string;
   targetStatusId: string;
   targetIndex: number;
@@ -55,11 +55,13 @@ export interface KanbanMoveResult {
   updates: KanbanMoveUpdate[];
 }
 
-export function sortTaskSummaries(tasks: TaskSummary[]): TaskSummary[] {
-  return [...tasks].sort((left, right) => {
+export function sortExecutionSummaries(
+  executions: ExecutionSummary[]
+): ExecutionSummary[] {
+  return [...executions].sort((left, right) => {
     const attention =
-      TASK_STATUS_ATTENTION_ORDER[left.status] -
-      TASK_STATUS_ATTENTION_ORDER[right.status];
+      EXECUTION_STATUS_ATTENTION_ORDER[left.status] -
+      EXECUTION_STATUS_ATTENTION_ORDER[right.status];
     if (attention !== 0) return attention;
 
     const updated = right.updated_at.localeCompare(left.updated_at);
@@ -67,73 +69,73 @@ export function sortTaskSummaries(tasks: TaskSummary[]): TaskSummary[] {
   });
 }
 
-export function groupTopLevelTasksByIssue(
-  tasks: TaskSummary[]
-): Map<string, TaskSummary[]> {
-  const grouped = new Map<string, TaskSummary[]>();
-  for (const task of tasks) {
-    if (task.parent_task_id !== null) continue;
-    const issueTasks = grouped.get(task.issue_id) ?? [];
-    issueTasks.push(task);
-    grouped.set(task.issue_id, issueTasks);
+export function groupTopLevelExecutionsByTask(
+  executions: ExecutionSummary[]
+): Map<string, ExecutionSummary[]> {
+  const grouped = new Map<string, ExecutionSummary[]>();
+  for (const execution of executions) {
+    if (execution.parent_execution_id !== null) continue;
+    const taskExecutions = grouped.get(execution.task_id) ?? [];
+    taskExecutions.push(execution);
+    grouped.set(execution.task_id, taskExecutions);
   }
-  for (const [issueId, issueTasks] of grouped) {
-    grouped.set(issueId, sortTaskSummaries(issueTasks));
+  for (const [taskId, taskExecutions] of grouped) {
+    grouped.set(taskId, sortExecutionSummaries(taskExecutions));
   }
   return grouped;
 }
 
 export function buildKanbanColumns({
   statuses,
-  issues,
-  tags,
-  issueTags,
   tasks,
+  tags,
+  taskTags,
+  executions,
   query,
 }: {
   statuses: ProjectStatus[];
-  issues: Issue[];
+  tasks: Task[];
   tags: Tag[];
-  issueTags: Array<{ issue_id: string; tag_id: string }>;
-  tasks: TaskSummary[];
+  taskTags: Array<{ task_id: string; tag_id: string }>;
+  executions: ExecutionSummary[];
   query: string;
 }): KanbanColumnProjection[] {
   const tagsById = new Map(tags.map((tag) => [tag.id, tag]));
-  const tagIdsByIssue = new Map<string, string[]>();
-  for (const link of issueTags) {
-    const ids = tagIdsByIssue.get(link.issue_id) ?? [];
+  const tagIdsByTask = new Map<string, string[]>();
+  for (const link of taskTags) {
+    const ids = tagIdsByTask.get(link.task_id) ?? [];
     ids.push(link.tag_id);
-    tagIdsByIssue.set(link.issue_id, ids);
+    tagIdsByTask.set(link.task_id, ids);
   }
-  const tasksByIssue = groupTopLevelTasksByIssue(tasks);
+  const executionsByTask = groupTopLevelExecutionsByTask(executions);
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
-  const projectedIssues = issues
-    .filter((issue) => {
+  const projectedTasks = tasks
+    .filter((task) => {
       if (!normalizedQuery) return true;
-      return `${issue.simple_id} ${issue.title}`
+      return `${task.simple_id} ${task.title}`
         .toLocaleLowerCase()
         .includes(normalizedQuery);
     })
-    .map<KanbanIssueProjection>((issue) => ({
-      id: issue.id,
-      simpleId: issue.simple_id,
-      title: issue.title,
-      statusId: issue.status_id,
-      priority: issue.priority,
-      sortOrder: issue.sort_order,
-      tags: (tagIdsByIssue.get(issue.id) ?? [])
+    .map<KanbanTaskProjection>((task) => ({
+      id: task.id,
+      simpleId: task.simple_id,
+      title: task.title,
+      statusId: task.status_id,
+      priority: task.priority,
+      sortOrder: task.sort_order,
+      tags: (tagIdsByTask.get(task.id) ?? [])
         .map((tagId) => tagsById.get(tagId))
         .filter((tag): tag is Tag => tag !== undefined)
         .slice(0, 2),
-      tasks: tasksByIssue.get(issue.id) ?? [],
+      executions: executionsByTask.get(task.id) ?? [],
     }));
 
-  const issuesByStatus = new Map<string, KanbanIssueProjection[]>();
-  for (const issue of projectedIssues) {
-    const statusIssues = issuesByStatus.get(issue.statusId) ?? [];
-    statusIssues.push(issue);
-    issuesByStatus.set(issue.statusId, statusIssues);
+  const tasksByStatus = new Map<string, KanbanTaskProjection[]>();
+  for (const task of projectedTasks) {
+    const statusTasks = tasksByStatus.get(task.statusId) ?? [];
+    statusTasks.push(task);
+    tasksByStatus.set(task.statusId, statusTasks);
   }
 
   return statuses
@@ -147,25 +149,25 @@ export function buildKanbanColumns({
       name: status.name,
       color: status.color,
       sortOrder: status.sort_order,
-      issues: [...(issuesByStatus.get(status.id) ?? [])].sort(
+      tasks: [...(tasksByStatus.get(status.id) ?? [])].sort(
         (left, right) =>
           left.sortOrder - right.sortOrder || left.id.localeCompare(right.id)
       ),
     }));
 }
 
-export function findKanbanIssue(
+export function findKanbanTask(
   columns: KanbanColumnProjection[],
-  issueId: string
-): KanbanIssueProjection | null {
+  taskId: string
+): KanbanTaskProjection | null {
   for (const column of columns) {
-    const issue = column.issues.find((candidate) => candidate.id === issueId);
-    if (issue) return issue;
+    const task = column.tasks.find((candidate) => candidate.id === taskId);
+    if (task) return task;
   }
   return null;
 }
 
-export function moveKanbanIssue(
+export function moveKanbanTask(
   columns: KanbanColumnProjection[],
   intent: KanbanMoveIntent
 ): KanbanMoveResult | null {
@@ -177,27 +179,27 @@ export function moveKanbanIssue(
   );
   if (sourceColumnIndex < 0 || targetColumnIndex < 0) return null;
 
-  const sourceIssueIndex = columns[sourceColumnIndex].issues.findIndex(
-    (issue) => issue.id === intent.issueId
+  const sourceTaskIndex = columns[sourceColumnIndex].tasks.findIndex(
+    (task) => task.id === intent.taskId
   );
-  if (sourceIssueIndex < 0) return null;
+  if (sourceTaskIndex < 0) return null;
 
   const nextColumns = columns.map((column) => ({
     ...column,
-    issues: column.issues.map((issue) => ({ ...issue })),
+    tasks: column.tasks.map((task) => ({ ...task })),
   }));
-  const [movedIssue] = nextColumns[sourceColumnIndex].issues.splice(
-    sourceIssueIndex,
+  const [movedTask] = nextColumns[sourceColumnIndex].tasks.splice(
+    sourceTaskIndex,
     1
   );
-  movedIssue.statusId = intent.targetStatusId;
+  movedTask.statusId = intent.targetStatusId;
 
-  const targetIssues = nextColumns[targetColumnIndex].issues;
+  const targetTasks = nextColumns[targetColumnIndex].tasks;
   const targetIndex = Math.max(
     0,
-    Math.min(intent.targetIndex, targetIssues.length)
+    Math.min(intent.targetIndex, targetTasks.length)
   );
-  targetIssues.splice(targetIndex, 0, movedIssue);
+  targetTasks.splice(targetIndex, 0, movedTask);
 
   const affectedStatusIds = new Set([
     intent.sourceStatusId,
@@ -210,15 +212,15 @@ export function moveKanbanIssue(
   for (const column of nextColumns) {
     if (!affectedStatusIds.has(column.id)) continue;
     const columnIndex = statusColumnIndex.get(column.id) ?? 1;
-    column.issues.forEach((issue, index) => {
+    column.tasks.forEach((task, index) => {
       // Keep the established canonical ordering range for each status column.
       // Re-numbering every column from 1 would create duplicate sort values
       // across statuses and drift from existing inserts/mutations.
-      issue.sortOrder = 1000 * columnIndex + index + 1;
+      task.sortOrder = 1000 * columnIndex + index + 1;
       updates.push({
-        id: issue.id,
+        id: task.id,
         statusId: column.id,
-        sortOrder: issue.sortOrder,
+        sortOrder: task.sortOrder,
       });
     });
   }
@@ -237,8 +239,8 @@ export function isInteractiveDragTarget(
   return interactive !== null && interactive !== draggableRoot;
 }
 
-export function taskStatusLabel(status: TaskStatus): string {
-  const labels: Record<TaskStatus, string> = {
+export function executionStatusLabel(status: ExecutionStatus): string {
+  const labels: Record<ExecutionStatus, string> = {
     draft: 'Draft',
     pending: 'Pending',
     running: 'Running',
@@ -250,8 +252,8 @@ export function taskStatusLabel(status: TaskStatus): string {
   return labels[status];
 }
 
-export function taskExecutionLabel(
-  executionKind: TaskSummary['execution_kind']
+export function executionKindLabel(
+  executionKind: ExecutionSummary['execution_kind']
 ): string {
   return executionKind === 'agent'
     ? 'Single agent'

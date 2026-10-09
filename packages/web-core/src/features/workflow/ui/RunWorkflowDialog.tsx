@@ -18,7 +18,7 @@ import { useWorkflowAttemptMutations } from '@/shared/hooks/useWorkflowAttempts'
 import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
-} from '../model/issueWorkflow';
+} from '../model/taskWorkflow';
 import { useWorkflowRepositorySelection } from './useWorkflowRepositorySelection';
 import type { WorkflowWorkspaceInput } from '../model/workflowWorkspaceSelection';
 
@@ -32,9 +32,9 @@ export interface WorkflowWorkspaceOption {
 
 export interface RunWorkflowDialogProps {
   projectId: string;
-  issueId: string;
-  issueTitle: string;
-  issueDescription?: string | null;
+  taskId: string;
+  taskTitle: string;
+  taskDescription?: string | null;
   attemptId: string;
   attemptName: string;
   workspaces?: WorkflowWorkspaceOption[];
@@ -47,9 +47,9 @@ export type RunWorkflowDialogResult =
 const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
   ({
     projectId,
-    issueId,
-    issueTitle,
-    issueDescription,
+    taskId,
+    taskTitle,
+    taskDescription,
     attemptId,
     attemptName,
     workspaces = [],
@@ -60,8 +60,8 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
     const { runAttempt, isRunningAttempt } = useWorkflowAttemptMutations();
     const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
       projectId,
-      issueId,
-      issueTitle,
+      taskId,
+      taskTitle,
     });
 
     const [selectedWorkspaceValue, setSelectedWorkspaceValue] = useState(
@@ -69,8 +69,8 @@ const RunWorkflowDialogImpl = create<RunWorkflowDialogProps>(
     );
     const [inputText, setInputText] = useState(() =>
       buildWorkflowRunInput({
-        title: issueTitle,
-        description: issueDescription,
+        title: taskTitle,
+        description: taskDescription,
       })
     );
     const [error, setError] = useState<string | null>(null);

@@ -12,8 +12,8 @@ export function isWorkspaceRoutePath(pathname: string): boolean {
     return false;
   }
 
-  const isIssueWorkspacePath =
-    segments[4] === "issues" &&
+  const isTaskWorkspacePath =
+    segments[4] === "tasks" &&
     !!segments[5] &&
     segments[6] === "workspaces" &&
     !!segments[7];
@@ -21,7 +21,7 @@ export function isWorkspaceRoutePath(pathname: string): boolean {
   const isProjectWorkspaceCreatePath =
     segments[4] === "workspaces" && segments[5] === "create" && !!segments[6];
 
-  return isIssueWorkspacePath || isProjectWorkspaceCreatePath;
+  return isTaskWorkspacePath || isProjectWorkspaceCreatePath;
 }
 
 export function parseRelayHostIdFromPathname(pathname: string): string | null {

@@ -4,19 +4,19 @@ use std::time::Duration;
 
 use api_types::{
     AcceptInvitationResponse, AuthMethodsResponse, CreateInvitationRequest,
-    CreateInvitationResponse, CreateIssueAssigneeRequest, CreateIssueRelationshipRequest,
-    CreateIssueRequest, CreateIssueTagRequest, CreateOrganizationRequest,
-    CreateOrganizationResponse, CreateWorkspaceRequest, DeleteResponse, DeleteWorkspaceRequest,
+    CreateInvitationResponse, CreateOrganizationRequest, CreateOrganizationResponse,
+    CreateTaskAssigneeRequest, CreateTaskRelationshipRequest, CreateTaskRequest,
+    CreateTaskTagRequest, CreateWorkspaceRequest, DeleteResponse, DeleteWorkspaceRequest,
     GetInvitationResponse, GetOrganizationResponse, HandoffInitRequest, HandoffInitResponse,
-    HandoffRedeemRequest, HandoffRedeemResponse, Issue, IssueAssignee, IssueRelationship, IssueTag,
-    ListAttachmentsResponse, ListInvitationsResponse, ListIssueAssigneesResponse,
-    ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse, ListMembersResponse,
-    ListOrganizationsResponse, ListProjectStatusesResponse, ListProjectsResponse,
-    ListPullRequestsResponse, ListTagsResponse, LocalLoginRequest, LocalLoginResponse,
-    MutationResponse, Organization, ProfileResponse, PullRequest, RevokeInvitationRequest,
-    SearchIssuesRequest, Tag, TokenRefreshRequest, TokenRefreshResponse, UpdateIssueRequest,
-    UpdateMemberRoleRequest, UpdateMemberRoleResponse, UpdateOrganizationRequest,
-    UpdatePullRequestApiRequest, UpdateWorkspaceRequest, UpsertPullRequestRequest, Workspace,
+    HandoffRedeemRequest, HandoffRedeemResponse, ListAttachmentsResponse, ListInvitationsResponse,
+    ListMembersResponse, ListOrganizationsResponse, ListProjectStatusesResponse,
+    ListProjectsResponse, ListPullRequestsResponse, ListTagsResponse, ListTaskAssigneesResponse,
+    ListTaskRelationshipsResponse, ListTaskTagsResponse, ListTasksResponse, LocalLoginRequest,
+    LocalLoginResponse, MutationResponse, Organization, ProfileResponse, PullRequest,
+    RevokeInvitationRequest, SearchTasksRequest, Tag, Task, TaskAssignee, TaskRelationship,
+    TaskTag, TokenRefreshRequest, TokenRefreshResponse, UpdateMemberRoleRequest,
+    UpdateMemberRoleResponse, UpdateOrganizationRequest, UpdatePullRequestApiRequest,
+    UpdateTaskRequest, UpdateWorkspaceRequest, UpsertPullRequestRequest, Workspace,
 };
 use backon::{ExponentialBuilder, Retryable};
 use chrono::Duration as ChronoDuration;
@@ -757,39 +757,39 @@ impl RemoteClient {
     pub async fn list_issues(
         &self,
         project_id: Uuid,
-    ) -> Result<ListIssuesResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issues?project_id={project_id}"))
+    ) -> Result<ListTasksResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks?project_id={project_id}"))
             .await
     }
 
     /// Searches issues for a project using the canonical JSON request shape.
     pub async fn search_issues(
         &self,
-        request: &SearchIssuesRequest,
-    ) -> Result<ListIssuesResponse, RemoteClientError> {
-        self.post_authed("/v1/issues/search", Some(request)).await
+        request: &SearchTasksRequest,
+    ) -> Result<ListTasksResponse, RemoteClientError> {
+        self.post_authed("/v1/tasks/search", Some(request)).await
     }
 
     /// Gets a single issue by ID.
-    pub async fn get_issue(&self, issue_id: Uuid) -> Result<Issue, RemoteClientError> {
-        self.get_authed(&format!("/v1/issues/{issue_id}")).await
+    pub async fn get_issue(&self, issue_id: Uuid) -> Result<Task, RemoteClientError> {
+        self.get_authed(&format!("/v1/tasks/{issue_id}")).await
     }
 
     /// Creates a new issue.
     pub async fn create_issue(
         &self,
-        request: &CreateIssueRequest,
-    ) -> Result<MutationResponse<Issue>, RemoteClientError> {
-        self.post_authed("/v1/issues", Some(request)).await
+        request: &CreateTaskRequest,
+    ) -> Result<MutationResponse<Task>, RemoteClientError> {
+        self.post_authed("/v1/tasks", Some(request)).await
     }
 
     /// Updates an existing issue.
     pub async fn update_issue(
         &self,
         issue_id: Uuid,
-        request: &UpdateIssueRequest,
-    ) -> Result<MutationResponse<Issue>, RemoteClientError> {
-        self.patch_authed(&format!("/v1/issues/{issue_id}"), request)
+        request: &UpdateTaskRequest,
+    ) -> Result<MutationResponse<Task>, RemoteClientError> {
+        self.patch_authed(&format!("/v1/tasks/{issue_id}"), request)
             .await
     }
 
@@ -798,7 +798,7 @@ impl RemoteClient {
         let res = self
             .send(
                 reqwest::Method::DELETE,
-                &format!("/v1/issues/{issue_id}"),
+                &format!("/v1/tasks/{issue_id}"),
                 true,
                 None::<&()>,
             )
@@ -808,14 +808,14 @@ impl RemoteClient {
             .map_err(|e| RemoteClientError::Serde(e.to_string()))
     }
 
-    // ── Issue Assignees ────────────────────────────────────────────────
+    // ── Task Assignees ────────────────────────────────────────────────
 
     /// Lists assignees for an issue.
     pub async fn list_issue_assignees(
         &self,
         issue_id: Uuid,
-    ) -> Result<ListIssueAssigneesResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issue_assignees?issue_id={issue_id}"))
+    ) -> Result<ListTaskAssigneesResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/task_assignees?task_id={issue_id}"))
             .await
     }
 
@@ -823,17 +823,17 @@ impl RemoteClient {
     pub async fn get_issue_assignee(
         &self,
         issue_assignee_id: Uuid,
-    ) -> Result<IssueAssignee, RemoteClientError> {
-        self.get_authed(&format!("/v1/issue_assignees/{issue_assignee_id}"))
+    ) -> Result<TaskAssignee, RemoteClientError> {
+        self.get_authed(&format!("/v1/task_assignees/{issue_assignee_id}"))
             .await
     }
 
     /// Creates a new issue assignee.
     pub async fn create_issue_assignee(
         &self,
-        request: &CreateIssueAssigneeRequest,
-    ) -> Result<MutationResponse<IssueAssignee>, RemoteClientError> {
-        self.post_authed("/v1/issue_assignees", Some(request)).await
+        request: &CreateTaskAssigneeRequest,
+    ) -> Result<MutationResponse<TaskAssignee>, RemoteClientError> {
+        self.post_authed("/v1/task_assignees", Some(request)).await
     }
 
     /// Deletes an issue assignee.
@@ -844,7 +844,7 @@ impl RemoteClient {
         let res = self
             .send(
                 reqwest::Method::DELETE,
-                &format!("/v1/issue_assignees/{issue_assignee_id}"),
+                &format!("/v1/task_assignees/{issue_assignee_id}"),
                 true,
                 None::<&()>,
             )
@@ -867,29 +867,29 @@ impl RemoteClient {
         self.get_authed(&format!("/v1/tags/{tag_id}")).await
     }
 
-    // ── Issue Tags ─────────────────────────────────────────────────────
+    // ── Task Tags ─────────────────────────────────────────────────────
 
     /// Lists tags attached to an issue.
     pub async fn list_issue_tags(
         &self,
         issue_id: Uuid,
-    ) -> Result<ListIssueTagsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issue_tags?issue_id={issue_id}"))
+    ) -> Result<ListTaskTagsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/task_tags?task_id={issue_id}"))
             .await
     }
 
     /// Gets a single issue-tag relation by ID.
-    pub async fn get_issue_tag(&self, issue_tag_id: Uuid) -> Result<IssueTag, RemoteClientError> {
-        self.get_authed(&format!("/v1/issue_tags/{issue_tag_id}"))
+    pub async fn get_issue_tag(&self, issue_tag_id: Uuid) -> Result<TaskTag, RemoteClientError> {
+        self.get_authed(&format!("/v1/task_tags/{issue_tag_id}"))
             .await
     }
 
     /// Attaches a tag to an issue.
     pub async fn create_issue_tag(
         &self,
-        request: &CreateIssueTagRequest,
-    ) -> Result<MutationResponse<IssueTag>, RemoteClientError> {
-        self.post_authed("/v1/issue_tags", Some(request)).await
+        request: &CreateTaskTagRequest,
+    ) -> Result<MutationResponse<TaskTag>, RemoteClientError> {
+        self.post_authed("/v1/task_tags", Some(request)).await
     }
 
     /// Removes a tag from an issue.
@@ -900,7 +900,7 @@ impl RemoteClient {
         let res = self
             .send(
                 reqwest::Method::DELETE,
-                &format!("/v1/issue_tags/{issue_tag_id}"),
+                &format!("/v1/task_tags/{issue_tag_id}"),
                 true,
                 None::<&()>,
             )
@@ -910,23 +910,23 @@ impl RemoteClient {
             .map_err(|e| RemoteClientError::Serde(e.to_string()))
     }
 
-    // ── Issue Relationships ────────────────────────────────────────────
+    // ── Task Relationships ────────────────────────────────────────────
 
     /// Lists relationships for an issue.
     pub async fn list_issue_relationships(
         &self,
         issue_id: Uuid,
-    ) -> Result<ListIssueRelationshipsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issue_relationships?issue_id={issue_id}"))
+    ) -> Result<ListTaskRelationshipsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/task_relationships?task_id={issue_id}"))
             .await
     }
 
     /// Creates a new issue relationship.
     pub async fn create_issue_relationship(
         &self,
-        request: &CreateIssueRelationshipRequest,
-    ) -> Result<MutationResponse<IssueRelationship>, RemoteClientError> {
-        self.post_authed("/v1/issue_relationships", Some(request))
+        request: &CreateTaskRelationshipRequest,
+    ) -> Result<MutationResponse<TaskRelationship>, RemoteClientError> {
+        self.post_authed("/v1/task_relationships", Some(request))
             .await
     }
 
@@ -935,7 +935,7 @@ impl RemoteClient {
         &self,
         relationship_id: Uuid,
     ) -> Result<(), RemoteClientError> {
-        self.delete_authed(&format!("/v1/issue_relationships/{relationship_id}"))
+        self.delete_authed(&format!("/v1/task_relationships/{relationship_id}"))
             .await
     }
 
@@ -1002,7 +1002,7 @@ impl RemoteClient {
         &self,
         issue_id: Uuid,
     ) -> Result<ListPullRequestsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/pull_requests?issue_id={issue_id}"))
+        self.get_authed(&format!("/v1/pull_requests?task_id={issue_id}"))
             .await
     }
 
@@ -1011,7 +1011,7 @@ impl RemoteClient {
         &self,
         issue_id: Uuid,
     ) -> Result<ListAttachmentsResponse, RemoteClientError> {
-        self.get_authed(&format!("/v1/issues/{issue_id}/attachments"))
+        self.get_authed(&format!("/v1/tasks/{issue_id}/attachments"))
             .await
     }
 

@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use db::models::{
     scratch::DraftWorkspaceRepo,
@@ -89,8 +89,17 @@ async fn run_workflow_attempt_runtime_with_arena<
 }
 
 async fn setup_workflow_pool() -> SqlitePool {
+    let project_directories = Arc::new(tempfile::tempdir().expect("project fixture directories"));
+    let retained = project_directories.clone();
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
+        .after_release(move |_, _| {
+            let retained = retained.clone();
+            Box::pin(async move {
+                drop(retained);
+                Ok(true)
+            })
+        })
         .connect("sqlite::memory:")
         .await
         .expect("connect in-memory sqlite");
@@ -113,7 +122,20 @@ async fn setup_workflow_pool() -> SqlitePool {
         CREATE TABLE local_issues (
             id BLOB PRIMARY KEY,
             project_id BLOB NOT NULL,
+            issue_number INTEGER NOT NULL,
+            simple_id TEXT NOT NULL,
+            status_id BLOB NOT NULL,
             title TEXT NOT NULL,
+            description TEXT,
+            priority TEXT,
+            start_date TEXT,
+            target_date TEXT,
+            completed_at TEXT,
+            sort_order REAL NOT NULL DEFAULT 0,
+            parent_issue_id BLOB,
+            parent_issue_sort_order REAL,
+            extension_metadata TEXT NOT NULL DEFAULT 'null',
+            creator_user_id BLOB,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
         )
@@ -586,6 +608,35 @@ async fn setup_workflow_pool() -> SqlitePool {
     .await
     .expect("apply workflow management schema");
 
+    for statement in [
+        "CREATE TABLE local_project_metadata(project_id BLOB PRIMARY KEY,organization_id BLOB NOT NULL,color TEXT NOT NULL,sort_order INTEGER NOT NULL)",
+        "CREATE TABLE local_project_statuses(id BLOB PRIMARY KEY,project_id BLOB NOT NULL,name TEXT NOT NULL,color TEXT NOT NULL,sort_order INTEGER NOT NULL,hidden INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT (datetime('now','subsec')))",
+        "CREATE TABLE local_tags(id BLOB PRIMARY KEY,project_id BLOB NOT NULL,name TEXT NOT NULL,color TEXT NOT NULL)",
+        "CREATE TABLE local_issue_tags(id BLOB PRIMARY KEY,issue_id BLOB NOT NULL,tag_id BLOB NOT NULL)",
+        "CREATE TABLE local_issue_assignees(id BLOB PRIMARY KEY,issue_id BLOB NOT NULL,user_id BLOB NOT NULL,assigned_at TEXT NOT NULL)",
+        "CREATE TABLE local_issue_followers(id BLOB PRIMARY KEY,issue_id BLOB NOT NULL,user_id BLOB NOT NULL)",
+        "CREATE TABLE local_issue_relationships(id BLOB PRIMARY KEY,issue_id BLOB NOT NULL,related_issue_id BLOB NOT NULL,relationship_type TEXT NOT NULL,created_at TEXT NOT NULL)",
+        "CREATE TABLE scratch(id BLOB NOT NULL,scratch_type TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(id,scratch_type))",
+        "CREATE TABLE project_repos(project_id BLOB NOT NULL,repo_id BLOB NOT NULL)",
+        "CREATE TABLE fixture_project_root(directory_path TEXT NOT NULL)",
+    ] {
+        sqlx::query(statement)
+            .execute(&pool)
+            .await
+            .expect("portable task fixture schema");
+    }
+    sqlx::raw_sql(include_str!(
+        "../../db/migrations/20261008120000_project_task_mounts.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO fixture_project_root(directory_path) VALUES (?)")
+        .bind(project_directories.path().to_string_lossy().as_ref())
+        .execute(&pool)
+        .await
+        .unwrap();
+
     pool
 }
 
@@ -596,16 +647,54 @@ async fn insert_project(pool: &SqlitePool, project_id: Uuid) {
         .execute(pool)
         .await
         .expect("insert project");
+    let root: String = sqlx::query_scalar("SELECT directory_path FROM fixture_project_root")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let path = std::path::PathBuf::from(root).join(project_id.to_string());
+    tokio::fs::create_dir_all(&path).await.unwrap();
+    sqlx::query("INSERT INTO scratch(id,scratch_type,payload) VALUES (?,'PROJECT_REPO_DEFAULTS',?)").bind(project_id).bind(json!({"type":"PROJECT_REPO_DEFAULTS","data":{"repos":[],"directory_path":path.to_string_lossy()}}).to_string()).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO local_project_statuses(id,project_id,name,color,sort_order,hidden) VALUES (?,?,'Todo','210 80% 52%',0,0)").bind(Uuid::new_v4()).bind(project_id).execute(pool).await.unwrap();
 }
 
 async fn insert_local_issue(pool: &SqlitePool, project_id: Uuid, issue_id: Uuid, title: &str) {
-    sqlx::query("INSERT INTO local_issues (id, project_id, title) VALUES (?, ?, ?)")
+    sqlx::query("INSERT INTO local_issues (id, project_id, title,issue_number,simple_id,status_id) SELECT ?,?,?,COALESCE((SELECT MAX(issue_number) FROM local_issues WHERE project_id=?),0)+1,'TASK-'||?,(SELECT id FROM local_project_statuses WHERE project_id=? LIMIT 1)")
         .bind(issue_id)
         .bind(project_id)
         .bind(title)
+        .bind(project_id)
+        .bind(issue_id.to_string())
+        .bind(project_id)
         .execute(pool)
         .await
         .expect("insert local issue");
+    let mounted: Option<String> =
+        sqlx::query_scalar("SELECT directory_path FROM project_task_mounts WHERE project_id=?")
+            .bind(project_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+    if let Some(root) = mounted {
+        let path = std::path::PathBuf::from(root).join(".vibe-kanban/project.json");
+        let mut document: Value =
+            serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+        let number: i64 = sqlx::query_scalar("SELECT issue_number FROM local_issues WHERE id=?")
+            .bind(issue_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let status: Uuid = sqlx::query_scalar("SELECT status_id FROM local_issues WHERE id=?")
+            .bind(issue_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let now = chrono::Utc::now();
+        document["tasks"].as_array_mut().unwrap().push(json!({"id":issue_id,"project_id":project_id,"task_number":number,"simple_id":format!("TASK-{issue_id}"),"status_id":status,"title":title,"description":null,"priority":null,"start_date":null,"target_date":null,"completed_at":null,"sort_order":0.0,"parent_task_id":null,"parent_task_sort_order":null,"extension_metadata":null,"creator_user_id":null,"created_at":now,"updated_at":now}));
+        document["revision"] = json!(document["revision"].as_i64().unwrap() + 1);
+        tokio::fs::write(path, serde_json::to_vec_pretty(&document).unwrap())
+            .await
+            .unwrap();
+    }
 }
 
 async fn link_canonical_orchestration_fixture(
@@ -2125,7 +2214,7 @@ async fn workflow_attempt_create_rejects_issue_from_another_project() {
     .await
     .expect_err("issue must belong to project");
 
-    assert!(err.to_string().contains("Issue not found for project"));
+    assert!(err.to_string().contains("Task not found for project"));
 }
 
 #[tokio::test]

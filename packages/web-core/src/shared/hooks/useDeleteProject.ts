@@ -4,6 +4,7 @@ import { useRouter } from '@tanstack/react-router';
 import { DeleteRemoteProjectDialog } from '@/shared/dialogs/org/DeleteRemoteProjectDialog';
 import { deleteProjectById } from '@/shared/lib/projectSettings';
 import { useAppShellProjects } from './useAppShellProjects';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 interface ProjectDeleteTarget {
   id: string;
@@ -25,17 +26,21 @@ const notify = () => listeners.forEach((listener) => listener());
 export function useDeleteProject({
   scopeKey,
   enabled = true,
+  hostId: explicitHostId,
   onDeleted,
 }: {
   scopeKey: string;
   enabled?: boolean;
+  hostId?: string | null;
   onDeleted?(project: ProjectDeleteTarget): void;
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const projectsState = useAppShellProjects();
+  const routeHostId = useHostId();
+  const hostId = explicitHostId !== undefined ? explicitHostId : routeHostId;
   const pending = useSyncExternalStore(subscribe, getPending, getPending);
-  const owner = `${projectsState?.scopeKey ?? 'settings'}:${scopeKey}`;
+  const owner = `${hostId}:${projectsState?.scopeKey ?? 'settings'}:${scopeKey}`;
   const live = useRef({ owner, enabled, mounted: true, epoch: 0, onDeleted });
   if (live.current.owner !== owner) live.current.epoch += 1;
   Object.assign(live.current, { owner, enabled, onDeleted });
@@ -71,7 +76,7 @@ export function useDeleteProject({
         onDelete: async () => {
           if (!canDelete())
             throw new Error('Project scope changed. Reopen the project menu.');
-          await deleteProjectById(project.id, canDelete);
+          await deleteProjectById(project.id, canDelete, hostId);
           // Shape deletion can unmount the board before persistence resolves.
           // The unchanged route/scope still owns navigation after durable success.
           // A cache refresh or navigation error must never retry a committed DELETE.

@@ -1,5 +1,7 @@
+// Keep historical SQLx annotation names private; public records are Tasks.
 use api_types::{
-    AttachmentWithBlob, Issue, IssueAssignee, IssuePriority, Project, ProjectStatus, User,
+    AttachmentWithBlob, Project, ProjectStatus, Task, TaskAssignee, TaskPriority as IssuePriority,
+    User,
 };
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -89,9 +91,9 @@ impl ExportRepository {
     pub async fn list_all_issues_by_projects(
         pool: &PgPool,
         project_ids: &[Uuid],
-    ) -> Result<Vec<Issue>, ExportError> {
+    ) -> Result<Vec<Task>, ExportError> {
         let issues = sqlx::query_as!(
-            Issue,
+            Task,
             r#"
             SELECT
                 id                  AS "id!: Uuid",
@@ -156,9 +158,9 @@ impl ExportRepository {
     pub async fn list_assignees_by_projects(
         pool: &PgPool,
         project_ids: &[Uuid],
-    ) -> Result<Vec<IssueAssignee>, ExportError> {
+    ) -> Result<Vec<TaskAssignee>, ExportError> {
         let records = sqlx::query_as!(
-            IssueAssignee,
+            TaskAssignee,
             r#"
             SELECT
                 ia.id          AS "id!: Uuid",

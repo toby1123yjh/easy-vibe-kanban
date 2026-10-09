@@ -15,16 +15,16 @@ export type SessionProjectTarget =
 export function useSessionProjectTarget(
   hostId: string | null,
   initialProjectId?: string,
-  issueProjectId?: string
+  taskProjectId?: string
 ) {
   const shell = useAppShellProjects();
-  const selectionScope = `${hostId ?? 'local'}:${initialProjectId ?? DEFAULT_PROJECT_ID}:${issueProjectId ?? ''}`;
+  const selectionScope = `${hostId ?? 'local'}:${initialProjectId ?? DEFAULT_PROJECT_ID}:${taskProjectId ?? ''}`;
   const [selection, setSelection] = useState({
     scope: selectionScope,
     id: initialProjectId ?? DEFAULT_PROJECT_ID,
   });
   const projectId =
-    issueProjectId ??
+    taskProjectId ??
     (selection.scope === selectionScope
       ? selection.id
       : (initialProjectId ?? DEFAULT_PROJECT_ID));

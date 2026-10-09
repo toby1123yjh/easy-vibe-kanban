@@ -6,7 +6,7 @@ import {
   TagIcon,
   UsersIcon,
 } from '@phosphor-icons/react';
-import type { IssuePriority, Tag } from 'shared/remote-types';
+import type { TaskPriority, Tag } from 'shared/remote-types';
 import type { OrganizationMemberWithProfile } from 'shared/types';
 import { cn } from '@/shared/lib/utils';
 import {
@@ -52,16 +52,16 @@ interface KanbanFiltersDialogProps {
   tags: Tag[];
   users: OrganizationMemberWithProfile[];
   filters: KanbanFilterState;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
-  onPrioritiesChange: (priorities: IssuePriority[]) => void;
+  onPrioritiesChange: (priorities: TaskPriority[]) => void;
   onAssigneesChange: (assigneeIds: string[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onSortChange: (
     sortField: KanbanSortField,
     sortDirection: 'asc' | 'desc'
   ) => void;
-  onShowSubIssuesChange: (show: boolean) => void;
+  onShowSubTasksChange: (show: boolean) => void;
   onShowWorkspacesChange: (show: boolean) => void;
   hideBlocked: boolean;
   onHideBlockedChange: (hide: boolean) => void;
@@ -75,13 +75,13 @@ export function KanbanFiltersDialog({
   tags,
   users,
   filters,
-  showSubIssues,
+  showSubTasks,
   showWorkspaces,
   onPrioritiesChange,
   onAssigneesChange,
   onTagsChange,
   onSortChange,
-  onShowSubIssuesChange,
+  onShowSubTasksChange,
   onShowWorkspacesChange,
   hideBlocked,
   onHideBlockedChange,
@@ -181,7 +181,7 @@ export function KanbanFiltersDialog({
   const handleOpenAssigneeDialog = useCallback(() => {
     void AssigneeSelectionDialog.show({
       projectId,
-      issueIds: [],
+      taskIds: [],
       isCreateMode: true,
       createModeAssigneeIds: filters.assigneeIds,
       onCreateModeAssigneesChange: onAssigneesChange,
@@ -285,8 +285,8 @@ export function KanbanFiltersDialog({
                 {t('kanban.subIssuesFilterLabel', 'Sub-issues')}
               </span>
               <Switch
-                checked={showSubIssues}
-                onCheckedChange={onShowSubIssuesChange}
+                checked={showSubTasks}
+                onCheckedChange={onShowSubTasksChange}
               />
             </div>
 

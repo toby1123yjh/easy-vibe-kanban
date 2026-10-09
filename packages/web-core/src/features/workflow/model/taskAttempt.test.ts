@@ -25,7 +25,7 @@ describe('task attempt view model', () => {
         {
           id: 'workflow-attempt-1',
           project_id: 'project-1',
-          issue_id: 'issue-1',
+          task_id: 'issue-1',
           workflow_id: 'workflow-1',
           latest_run_id: 'run-1',
           workspace_id: 'workspace-2',
@@ -91,7 +91,7 @@ describe('task attempt view model', () => {
         {
           id: 'workflow-attempt-1',
           project_id: 'project-1',
-          issue_id: 'issue-1',
+          task_id: 'issue-1',
           workflow_id: 'workflow-1',
           latest_run_id: null,
           workspace_id: 'workflow-workspace-1',

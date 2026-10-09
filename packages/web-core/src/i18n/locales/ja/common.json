@@ -364,12 +364,12 @@
       "action": "名前を変更",
       "renaming": "名前を変更中..."
     },
-    "unlinkFromIssue": "課題からリンク解除",
+    "unlinkFromIssue": "タスクからリンク解除",
     "deleteWorkspace": "ワークスペースを削除",
     "unlink": "リンク解除",
     "delete": "削除",
-    "unlinkConfirmMessage": "このワークスペースを課題からリンク解除してもよろしいですか？ワークスペースは引き続き存在しますが、この課題との関連付けは解除されます。",
-    "deleteConfirmMessage": "このワークスペースを削除してもよろしいですか？これにより課題からのリンクが解除され、ローカルワークスペースが削除されます。この操作は元に戻せません。",
+    "unlinkConfirmMessage": "このワークスペースをタスクからリンク解除してもよろしいですか？ワークスペースは引き続き存在しますが、このタスクとの関連付けは解除されます。",
+    "deleteConfirmMessage": "このワークスペースを削除してもよろしいですか？これによりタスクからのリンクが解除され、ローカルワークスペースが削除されます。この操作は元に戻せません。",
     "unlinkError": "ワークスペースのリンク解除に失敗しました",
     "deleteError": "ワークスペースの削除に失敗しました",
     "filesChanged": "{{count}}ファイル",
@@ -378,7 +378,7 @@
       "description": "このワークスペースを削除してもよろしいですか？この操作は元に戻せません。",
       "deleteBranchLabel": "ブランチを削除",
       "cannotDeleteOpenPr": "PRがオープン中はブランチを削除できません",
-      "unlinkFromIssueLabel": "イシューからもリンク解除する"
+      "unlinkFromIssueLabel": "タスクからもリンク解除する"
     },
     "linkError": "Failed to link workspace"
   },
@@ -543,7 +543,7 @@
       "goTo": "移動 (G ...)",
       "workspace": "ワークスペース (W ...)",
       "view": "表示 (V ...)",
-      "issues": "課題 (I ...)",
+      "issues": "タスク (I ...)",
       "git": "Git (X ...)",
       "yank": "コピー (Y ...)",
       "toggle": "切り替え (T ...)",
@@ -574,16 +574,16 @@
       "toggle-preview-mode": "プレビューパネルの切り替え",
       "toggle-left-sidebar": "左サイドバーの切り替え",
       "toggle-left-main-panel": "チャットパネルの切り替え",
-      "create-issue": "課題を作成",
+      "create-issue": "タスクを作成",
       "change-issue-status": "ステータスを変更",
       "change-issue-priority": "優先度を変更",
       "change-assignees": "担当者を変更",
-      "make-sub-issue-of": "サブ課題にする",
-      "add-sub-issue": "サブ課題を追加",
+      "make-sub-issue-of": "サブタスクにする",
+      "add-sub-issue": "サブタスクを追加",
       "remove-parent-issue": "親課題を解除",
       "link-workspace": "ワークスペースをリンク",
-      "duplicate-issue": "課題を複製",
-      "delete-issue": "課題を削除",
+      "duplicate-issue": "タスクを複製",
+      "delete-issue": "タスクを削除",
       "git-create-pr": "Pull Requestを作成",
       "git-merge": "ブランチをマージ",
       "git-rebase": "ブランチをリベース",
@@ -609,11 +609,11 @@
     "noCommands": "このエージェントで利用可能なコマンドはありません。"
   },
   "kanban": {
-    "noVisibleStatuses": "すべてのステータスが非表示です。表示設定を使用するか、別のタブに切り替えて課題を表示してください。",
+    "noVisibleStatuses": "すべてのステータスが非表示です。表示設定を使用するか、別のタブに切り替えてタスクを表示してください。",
     "noProjectFound": "プロジェクトが見つかりません",
     "unassigned": "未割り当て",
     "noTagsAvailable": "利用可能なタグがありません",
-    "createNewIssue": "新しい課題を作成",
+    "createNewIssue": "新しいタスクを作成",
     "searchTags": "タグを検索...",
     "selectColorFor": "色を選択:",
     "createTag": "作成",
@@ -632,12 +632,12 @@
     "moreActions": "その他の操作",
     "closePanel": "パネルを閉じる",
     "copyLink": "リンクをコピー",
-    "issueTitlePlaceholder": "課題タイトル...",
+    "issueTitlePlaceholder": "タスクタイトル...",
     "issueDescriptionPlaceholder": "タスクの説明を入力してください...",
     "createDraftWorkspaceImmediately": "下書きワークスペースをすぐに作成",
-    "createDraftWorkspaceDescription": "課題を作成した後、課題の詳細が入力されたワークスペース作成フォームを開きます",
+    "createDraftWorkspaceDescription": "タスクを作成した後、タスクの詳細が入力されたワークスペース作成フォームを開きます",
     "createIssue": "タスクを作成",
-    "newIssue": "新しい課題",
+    "newIssue": "新しいタスク",
     "previewCodeBlock": "[コードブロック]",
     "previewImage": "[画像]",
     "previewImageWithName": "[画像: {{name}}]",
@@ -650,9 +650,9 @@
     "unknownError": "不明なエラー",
     "failedToUploadFile": "{{filename}} のアップロードに失敗しました: {{message}}",
     "downloadAttachment": "添付ファイルをダウンロード",
-    "subIssues": "サブ課題",
-    "noSubIssues": "サブ課題なし",
-    "markIndependentIssue": "独立した課題としてマーク",
+    "subIssues": "サブタスク",
+    "noSubIssues": "サブタスクなし",
+    "markIndependentIssue": "独立したタスクとしてマーク",
     "parentIssue": "親",
     "subIssueIndicator": "↳",
     "viewTabs": {
@@ -666,7 +666,7 @@
     },
     "team": "Team",
     "personal": "Personal",
-    "searchPlaceholder": "Search issues...",
+    "searchPlaceholder": "Search tasks...",
     "filters": "Filters",
     "clearFilters": "Clear filters",
     "filtersDescription": "Adjust filters and sorting for this board view.",
@@ -697,7 +697,7 @@
     "assignee": "Assignee",
     "self": "Me",
     "priority": "Priority",
-    "subIssuesFilterLabel": "Sub-issues",
+    "subIssuesFilterLabel": "Sub-tasks",
     "workspacesFilterLabel": "Workspaces",
     "selectAssignees": "Select assignees...",
     "relationships": "Relationships",
@@ -711,7 +711,7 @@
     "changeColor": "Change color",
     "editName": "Edit name",
     "deleteStatus": "Delete status",
-    "cannotDeleteWithIssues": "Move issues first",
+    "cannotDeleteWithIssues": "Move tasks first",
     "lastVisibleStatus": "At least one status must be visible",
     "showStatus": "Show status",
     "hideStatus": "Hide status",
@@ -722,19 +722,19 @@
     "projectsGuide": {
       "intro": {
         "title": "Welcome",
-        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first issue. You can re-open this help dialog or give feedback anytime from the navbar."
+        "content": "Welcome to Vibe Kanban. Use the help sections in this panel to learn how things work, then create your first task. You can re-open this help dialog or give feedback anytime from the navbar."
       },
       "welcome": {
         "title": "Projects",
-        "content": "The project page is where you manage issues. You can view your issues as a kanban board, or as a list, and filter by status, tag, assignee and more."
+        "content": "The project page is where you manage tasks. You can view your tasks as a kanban board, or as a list, and filter by status, tag, assignee and more."
       },
       "issues": {
-        "title": "Issues",
-        "content": "Each issue represents a feature or problem to solve. Issues have statuses, priorities, assignees, tags, relationships, comments, sub-issues and more."
+        "title": "Tasks",
+        "content": "Each task represents a feature or problem to solve. Tasks have statuses, priorities, assignees, tags, relationships, comments, sub-tasks and more."
       },
       "workspaces": {
         "title": "Workspaces",
-        "content": "To start working on an issue, create a workspace. A single issue can have multiple workspaces. Issues describe the work to be done, workspaces are where the work happens."
+        "content": "To start working on an task, create a workspace. A single task can have multiple workspaces. Tasks describe the work to be done, workspaces are where the work happens."
       },
       "organizations": {
         "title": "Invite your team",
@@ -893,9 +893,9 @@
         "command": "コマンド",
         "project": "プロジェクト",
         "session": "セッション",
-        "issue": "Issue",
         "workflow": "ワークフロー",
-        "run": "実行"
+        "run": "実行",
+        "task": "タスク"
       }
     },
     "moduleLanding": {
@@ -915,7 +915,7 @@
         "agentConfiguration": "エージェント設定"
       },
       "unavailable": {
-        "globalStatistics": "プロジェクト、Issue、エージェント実行の正規の合計はまだ公開されていません。サイドバーのページ分割された行は全体統計として表示しません。",
+        "globalStatistics": "プロジェクト、Task、エージェント実行の正規の合計はまだ公開されていません。サイドバーのページ分割された行は全体統計として表示しません。",
         "attention": "正規の要確認プロジェクションはまだ利用できません。このセクションは独立しており、ログテキストからアラートを推測しません。",
         "activeRuns": "セッション一覧にはランタイム状態がありません。正規のランタイムプロジェクションが提供されると実行中の項目が表示されます。",
         "agentConfiguration": "接続、既定モデル、APIエンドポイント、実行数の正規サマリーはまだ公開されていません。ランタイムAPIの機能を設定データとして代用しません。"
@@ -1511,7 +1511,7 @@
     },
     "runDialog": {
       "title": "Run workflow attempt",
-      "description": "Start this issue-bound workflow attempt.",
+      "description": "Start this task-bound workflow attempt.",
       "mainWorkspace": "Main workspace",
       "createWorkflowWorkspace": "Create workflow workspace",
       "usesExistingWorkspace": "Uses existing workspace.",
@@ -1780,7 +1780,7 @@
       "noSourceOutput": "The source execution has no text output.",
       "noRuntimeOutput": "実行出力はまだありません。",
       "technicalDetails": "技術情報",
-      "taskId": "タスク ID",
+      "taskId": "実行 ID",
       "updatingDecision": "更新中...",
       "approveAndContinue": "承認して続行",
       "openFullSession": "完全なセッションを開く",
@@ -1824,7 +1824,7 @@
     },
     "dashboard": {
       "runDetails": "Run details",
-      "issueId": "Issue ID",
+      "issueId": "Task ID",
       "workflow": "Workflow",
       "runId": "Run ID",
       "status": "Status",
@@ -1971,7 +1971,7 @@
       "time": "Time",
       "weekday": "Weekday",
       "timezone": "Timezone",
-      "contextIssue": "Context issue",
+      "contextIssue": "Context task",
       "inputText": "Run input",
       "inputPlaceholder": "Describe what this run should do.",
       "save": "Save",
@@ -1981,7 +1981,7 @@
       "lastTriggered": "Last triggered",
       "lastStatus": "Last status",
       "target": "Target",
-      "noIssue": "No issues available",
+      "noIssue": "No tasks available",
       "none": "None",
       "saveBeforeSchedule": "Save this workflow before adding a scheduled task.",
       "deleteTitle": "Delete scheduled task?",
@@ -2006,7 +2006,7 @@
         "sunday": "Sunday"
       },
       "errors": {
-        "issueRequired": "Choose a context issue.",
+        "issueRequired": "Choose a context task.",
         "timeRequired": "Choose a valid time.",
         "weekdayRequired": "Choose a weekday.",
         "inputRequired": "Add run input before saving the scheduled task.",
@@ -2041,5 +2041,15 @@
     "more": "Show last 30 days",
     "pending": "Will resume: {{title}} · {{time}}",
     "clear": "Clear resume session"
+  },
+  "taskDetails": {
+    "executions": "実行",
+    "noExecutions": "このタスクはまだ実行されていません。",
+    "newExecution": "新しい実行",
+    "singleAgent": "単一エージェント",
+    "workflow": "ワークフロー",
+    "arena": "アリーナ",
+    "information": "タスク情報",
+    "description": "説明"
   }
 }

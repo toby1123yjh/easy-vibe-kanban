@@ -97,9 +97,9 @@ const navigation: AppNavigation = {
   goToProjectWorkflows: unexpectedNavigation,
   goToProjectWorkflowEdit: unexpectedNavigation,
   goToProjectWorkflowRun: unexpectedNavigation,
-  goToProjectIssue: unexpectedNavigation,
-  goToProjectIssueWorkspace: unexpectedNavigation,
-  goToProjectIssueWorkspaceCreate: unexpectedNavigation,
+  goToProjectTask: unexpectedNavigation,
+  goToProjectTaskWorkspace: unexpectedNavigation,
+  goToProjectTaskWorkspaceCreate: unexpectedNavigation,
   goToProjectWorkspaceCreate: unexpectedNavigation,
 };
 
@@ -109,7 +109,7 @@ function makeRun(status: "running" | "succeeded"): WorkflowRunResponse {
     orchestration_run_id: null,
     workflow_id: "visual-template",
     attempt_id: null,
-    issue_id: "visual-issue",
+    task_id: "visual-issue",
     workspace_id: "visual-workspace",
     trigger_source: "manual",
     input_text: "Visual fixture",
@@ -175,7 +175,7 @@ function makeReusedRun(): WorkflowRunResponse {
     {
       id: "fresh-build-execution",
       run_id: run.id,
-      task_id: "fresh-build-task",
+      execution_id: "fresh-build-task",
       node_id: "build",
       node_type: "agent",
       iteration: 0n,

@@ -25,7 +25,7 @@ import type {
   SelectedSkill,
 } from 'shared/types';
 import { CreateChatBox } from '@vibe/ui/components/CreateChatBox';
-import type { LinkedIssue } from '@/shared/types/createMode';
+import type { LinkedTask } from '@/shared/types/createMode';
 import { useSettingsNavigation } from '@/shared/hooks/useSettingsNavigation';
 import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDialog';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
@@ -36,12 +36,12 @@ import {
 
 interface CreateChatBoxContainerProps {
   onWorkspaceCreated: (workspaceId: string) => void;
-  requiredLinkedIssue?: LinkedIssue;
+  requiredLinkedTask?: LinkedTask;
 }
 
 export function CreateChatBoxContainer({
   onWorkspaceCreated,
-  requiredLinkedIssue,
+  requiredLinkedTask,
 }: CreateChatBoxContainerProps) {
   const { t } = useTranslation('common');
   const { openAgentCenter } = useSettingsNavigation();
@@ -52,15 +52,15 @@ export function CreateChatBoxContainer({
     setMessage,
     clearDraft,
     hasInitialValue,
-    linkedIssue: draftLinkedIssue,
-    clearLinkedIssue,
+    linkedTask: draftLinkedTask,
+    clearLinkedTask,
     preferredExecutorConfig,
     executorConfig: draftConfig,
     setExecutorConfig: setDraftConfig,
     attachments: draftAttachments,
     setAttachments: setDraftAttachments,
   } = useCreateMode();
-  const linkedIssue = requiredLinkedIssue ?? draftLinkedIssue;
+  const linkedTask = requiredLinkedTask ?? draftLinkedTask;
 
   const { createWorkspace } = useCreateWorkspace();
   const destination = useCurrentAppDestination();
@@ -79,9 +79,9 @@ export function CreateChatBoxContainer({
   const project = useSessionProjectTarget(
     hostId,
     destinationProjectId ?? initialProjectId,
-    linkedIssue?.remoteProjectId
+    linkedTask?.remoteProjectId
   );
-  const scopeIdentity = `${hostId ?? 'local'}:${project.projectId}:${linkedIssue?.issueId ?? 'standalone'}`;
+  const scopeIdentity = `${hostId ?? 'local'}:${project.projectId}:${linkedTask?.taskId ?? 'standalone'}`;
   const scopeRef = useRef({
     identity: scopeIdentity,
     generation: 0,
@@ -354,10 +354,10 @@ export function CreateChatBoxContainer({
           workspaceMode === 'direct_folder'
             ? directFolderPath.trim()
             : undefined,
-        linked_issue: linkedIssue
+        linked_task: linkedTask
           ? {
-              remote_project_id: linkedIssue.remoteProjectId,
-              issue_id: linkedIssue.issueId,
+              remote_project_id: linkedTask.remoteProjectId,
+              task_id: linkedTask.taskId,
             }
           : null,
         selected_skills:
@@ -368,16 +368,16 @@ export function CreateChatBoxContainer({
         resume_scope_path: resumeScopePath,
         attachment_ids: getAttachmentIds(),
       };
-      const linkToIssue = linkedIssue
+      const linkToTask = linkedTask
         ? {
-            remoteProjectId: linkedIssue.remoteProjectId,
-            issueId: linkedIssue.issueId,
+            remoteProjectId: linkedTask.remoteProjectId,
+            taskId: linkedTask.taskId,
           }
         : undefined;
 
       const result = await createWorkspace.mutateAsync({
         data,
-        linkToIssue,
+        linkToTask,
       });
       if (
         !scopeRef.current.mounted ||
@@ -413,7 +413,7 @@ export function CreateChatBoxContainer({
     getAttachmentIds,
     clearAttachments,
     clearDraft,
-    linkedIssue,
+    linkedTask,
   ]);
 
   // Determine error to display
@@ -439,7 +439,7 @@ export function CreateChatBoxContainer({
         disabled={
           createWorkspace.isPending ||
           isConfiguring ||
-          !!linkedIssue ||
+          !!linkedTask ||
           !project.enabled ||
           project.projects.isPending
         }
@@ -577,14 +577,14 @@ export function CreateChatBoxContainer({
                 localAttachments={localAttachments}
                 dropzone={{ getRootProps, getInputProps, isDragActive }}
                 projectSelector={projectSelector}
-                linkedIssue={
-                  linkedIssue?.simpleId
+                linkedTask={
+                  linkedTask?.simpleId
                     ? {
-                        simpleId: linkedIssue.simpleId,
-                        title: linkedIssue.title ?? '',
-                        onRemove: requiredLinkedIssue
+                        simpleId: linkedTask.simpleId,
+                        title: linkedTask.title ?? '',
+                        onRemove: requiredLinkedTask
                           ? undefined
-                          : clearLinkedIssue,
+                          : clearLinkedTask,
                       }
                     : null
                 }

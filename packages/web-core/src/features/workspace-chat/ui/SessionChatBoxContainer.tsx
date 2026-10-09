@@ -75,7 +75,7 @@ import { PrCommentsDialog } from '@/shared/dialogs/tasks/PrCommentsDialog';
 import type { NormalizedComment } from '@vibe/ui/components/pr-comment-node';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { sessionsApi } from '@/shared/lib/api';
-import { useDeleteTaskSession } from '@/shared/hooks/useDeleteTaskSession';
+import { useDeleteExecutionSession } from '@/shared/hooks/useDeleteExecutionSession';
 import { RenameSessionDialog } from '@vibe/ui/components/RenameSessionDialog';
 import type { TurnNavigationItem } from '@vibe/ui/components/TurnNavigationPopup';
 import { deriveRuntimeActionPolicy } from '@/shared/lib/runtimeActionPolicy';
@@ -219,7 +219,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   );
 
   const { deleteSession, pendingSessionId: deletingSessionId } =
-    useDeleteTaskSession({
+    useDeleteExecutionSession({
       hostId,
       scopeKey: JSON.stringify([
         hostId,

@@ -1,3 +1,4 @@
+import { getCurrentHostId, useHostId } from '@/shared/providers/HostIdProvider';
 import {
   useQuery,
   useMutation,
@@ -5,7 +6,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import {
-  workflowApi,
+  createWorkflowApi,
   type ApproveNodeRequest,
   type RejectNodeRequest,
   type SelectArenaWinnerRequest,
@@ -15,7 +16,9 @@ import type { WorkflowRunResponse, TriggerWorkflowRequest } from 'shared/types';
 
 export const workflowRunQueryKeys = {
   all: ['workflow-runs'] as const,
-  detail: (runId: string) => ['workflow-runs', 'detail', runId] as const,
+  host: (hostId = getCurrentHostId()) => ['workflow-runs', hostId] as const,
+  detail: (runId: string, hostId = getCurrentHostId()) =>
+    ['workflow-runs', hostId, 'detail', runId] as const,
 };
 
 export interface UseWorkflowRunOptions {
@@ -29,12 +32,14 @@ export function useWorkflowRun(
   runId: string | null | undefined,
   options: UseWorkflowRunOptions = {}
 ): UseQueryResult<WorkflowRunResponse> {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const { enabled = true, refetchIntervalMs = DEFAULT_REFETCH_INTERVAL_MS } =
     options;
 
   return useQuery({
     queryKey: runId
-      ? workflowRunQueryKeys.detail(runId)
+      ? workflowRunQueryKeys.detail(runId, hostId)
       : ['workflow-runs', 'noop'],
     queryFn: () => workflowApi.getRun(runId as string),
     enabled: !!runId && enabled,
@@ -55,6 +60,8 @@ export function useWorkflowRun(
 }
 
 export function useWorkflowRunMutations() {
+  const hostId = useHostId();
+  const workflowApi = createWorkflowApi(hostId);
   const queryClient = useQueryClient();
 
   const triggerMutation = useMutation({
@@ -66,7 +73,10 @@ export function useWorkflowRunMutations() {
       payload: TriggerWorkflowRequest;
     }) => workflowApi.trigger(workflowId, payload),
     onSuccess: (data) => {
-      queryClient.setQueryData(workflowRunQueryKeys.detail(data.id), data);
+      queryClient.setQueryData(
+        workflowRunQueryKeys.detail(data.id, hostId),
+        data
+      );
     },
   });
 
@@ -74,7 +84,7 @@ export function useWorkflowRunMutations() {
     mutationFn: (runId: string) => workflowApi.cancelRun(runId),
     onSuccess: (_, runId) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(runId),
+        queryKey: workflowRunQueryKeys.detail(runId, hostId),
       });
     },
   });
@@ -91,7 +101,7 @@ export function useWorkflowRunMutations() {
     }) => workflowApi.approve(runId, nodeId, payload),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(variables.runId),
+        queryKey: workflowRunQueryKeys.detail(variables.runId, hostId),
       });
     },
   });
@@ -108,7 +118,7 @@ export function useWorkflowRunMutations() {
     }) => workflowApi.reject(runId, nodeId, payload),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(variables.runId),
+        queryKey: workflowRunQueryKeys.detail(variables.runId, hostId),
       });
     },
   });
@@ -118,7 +128,7 @@ export function useWorkflowRunMutations() {
       workflowApi.retry(runId, nodeId),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(variables.runId),
+        queryKey: workflowRunQueryKeys.detail(variables.runId, hostId),
       });
     },
   });
@@ -135,7 +145,7 @@ export function useWorkflowRunMutations() {
     }) => workflowApi.selectArenaWinner(runId, nodeId, payload),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(variables.runId),
+        queryKey: workflowRunQueryKeys.detail(variables.runId, hostId),
       });
     },
   });
@@ -152,7 +162,7 @@ export function useWorkflowRunMutations() {
     }) => workflowApi.selectConditionBranch(runId, nodeId, payload),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(variables.runId),
+        queryKey: workflowRunQueryKeys.detail(variables.runId, hostId),
       });
     },
   });

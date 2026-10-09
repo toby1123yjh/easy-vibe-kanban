@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useActions } from '@/shared/hooks/useActions';
 import { Actions } from '@/shared/actions';
 import { BulkActionBar } from '@vibe/ui/components/BulkActionBar';
-import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
+import { useTaskSelectionStore } from '@/shared/stores/useTaskSelectionStore';
 
 interface BulkActionBarContainerProps {
   projectId: string;
@@ -11,8 +11,8 @@ interface BulkActionBarContainerProps {
 export function BulkActionBarContainer({
   projectId,
 }: BulkActionBarContainerProps) {
-  const selectedIssueIds = useIssueSelectionStore((s) => s.selectedIssueIds);
-  const clearSelection = useIssueSelectionStore((s) => s.clearSelection);
+  const selectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
+  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
   const {
     executeAction,
     openStatusSelection,
@@ -20,28 +20,28 @@ export function BulkActionBarContainer({
     openAssigneeSelection,
   } = useActions();
 
-  const issueIds = useMemo(() => [...selectedIssueIds], [selectedIssueIds]);
+  const taskIds = useMemo(() => [...selectedTaskIds], [selectedTaskIds]);
 
   const handleChangeStatus = useCallback(async () => {
-    await openStatusSelection(projectId, issueIds);
-  }, [projectId, issueIds, openStatusSelection]);
+    await openStatusSelection(projectId, taskIds);
+  }, [projectId, taskIds, openStatusSelection]);
 
   const handleChangePriority = useCallback(async () => {
-    await openPrioritySelection(projectId, issueIds);
-  }, [projectId, issueIds, openPrioritySelection]);
+    await openPrioritySelection(projectId, taskIds);
+  }, [projectId, taskIds, openPrioritySelection]);
 
   const handleChangeAssignees = useCallback(async () => {
-    await openAssigneeSelection(projectId, issueIds);
-  }, [projectId, issueIds, openAssigneeSelection]);
+    await openAssigneeSelection(projectId, taskIds);
+  }, [projectId, taskIds, openAssigneeSelection]);
 
   const handleDelete = useCallback(async () => {
-    await executeAction(Actions.DeleteIssue, undefined, projectId, issueIds);
+    await executeAction(Actions.DeleteTask, undefined, projectId, taskIds);
     clearSelection();
-  }, [executeAction, projectId, issueIds, clearSelection]);
+  }, [executeAction, projectId, taskIds, clearSelection]);
 
   return (
     <BulkActionBar
-      selectedCount={selectedIssueIds.size}
+      selectedCount={selectedTaskIds.size}
       onChangeStatus={handleChangeStatus}
       onChangePriority={handleChangePriority}
       onChangeAssignees={handleChangeAssignees}

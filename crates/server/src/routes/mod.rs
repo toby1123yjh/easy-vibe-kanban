@@ -29,6 +29,7 @@ pub mod local_remote;
 pub mod oauth;
 pub mod organizations;
 pub mod preview;
+pub(crate) mod project_store;
 pub mod relay_auth;
 pub mod releases;
 pub mod remote;

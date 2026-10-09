@@ -10,30 +10,30 @@ import {
 } from '@vibe/ui/components/CommandBar';
 import type { PageId, ResolvedGroupItem } from '@/shared/types/commandBar';
 import type { StatusItem } from '@/shared/types/selectionItems';
-import type { Issue } from 'shared/remote-types';
+import type { Task } from 'shared/remote-types';
 import { buildStatusSelectionPages } from './statusSelection';
 import { buildPrioritySelectionPages } from './prioritySelection';
-import { buildSubIssueSelectionPages } from './subIssueSelection';
+import { buildSubTaskSelectionPages } from './subTaskSelection';
 import { buildRelationshipSelectionPages } from './relationshipSelection';
 import { resolveLabel, type ActionDefinition } from '@/shared/types/actions';
 import type { SelectionPage } from '../SelectionDialog';
 import type { StatusSelectionResult } from './statusSelection';
 import type { PrioritySelectionResult } from './prioritySelection';
-import type { SubIssueSelectionResult } from './subIssueSelection';
+import type { SubTaskSelectionResult } from './subTaskSelection';
 import type { RelationshipSelectionResult } from './relationshipSelection';
 
 // Union of all selection modes
 export type SelectionMode =
-  | { type: 'status'; issueIds: string[]; isCreateMode?: boolean }
-  | { type: 'priority'; issueIds: string[]; isCreateMode?: boolean }
+  | { type: 'status'; taskIds: string[]; isCreateMode?: boolean }
+  | { type: 'priority'; taskIds: string[]; isCreateMode?: boolean }
   | {
-      type: 'subIssue';
-      parentIssueId: string;
+      type: 'subTask';
+      parentTaskId: string;
       mode: 'addChild' | 'setParent';
     }
   | {
       type: 'relationship';
-      issueId: string;
+      taskId: string;
       relationshipType: 'blocking' | 'related' | 'has_duplicate';
       direction: 'forward' | 'reverse';
     };
@@ -49,10 +49,10 @@ function getInitialPageId(selectionType: SelectionMode['type']): string {
       return 'selectStatus';
     case 'priority':
       return 'selectPriority';
-    case 'subIssue':
-      return 'selectSubIssue';
+    case 'subTask':
+      return 'selectSubTask';
     case 'relationship':
-      return 'selectRelationshipIssue';
+      return 'selectRelationshipTask';
   }
 }
 
@@ -62,10 +62,10 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const {
     statuses,
-    issues,
-    issueRelationships,
-    updateIssue,
-    insertIssueRelationship,
+    tasks,
+    taskRelationships,
+    updateTask,
+    insertTaskRelationship,
   } = useProjectContext();
   const initialPageId = useMemo(
     () => getInitialPageId(selection.type),
@@ -96,78 +96,75 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
   );
 
   // Build filtered issue list for sub-issue selection
-  const filteredIssuesForSubIssue = useMemo((): Issue[] => {
-    if (selection.type !== 'subIssue') return [];
-    const { parentIssueId, mode } = selection;
+  const filteredTasksForSubTask = useMemo((): Task[] => {
+    if (selection.type !== 'subTask') return [];
+    const { parentTaskId, mode } = selection;
 
-    const issuesById = new Map(issues.map((i) => [i.id, i]));
+    const tasksById = new Map(tasks.map((i) => [i.id, i]));
 
-    const getAncestorIds = (issueId: string): Set<string> => {
+    const getAncestorIds = (taskId: string): Set<string> => {
       const ancestors = new Set<string>();
-      let current = issuesById.get(issueId);
-      while (current?.parent_issue_id) {
-        ancestors.add(current.parent_issue_id);
-        current = issuesById.get(current.parent_issue_id);
+      let current = tasksById.get(taskId);
+      while (current?.parent_task_id) {
+        ancestors.add(current.parent_task_id);
+        current = tasksById.get(current.parent_task_id);
       }
       return ancestors;
     };
 
-    const getDescendantIds = (issueId: string): Set<string> => {
+    const getDescendantIds = (taskId: string): Set<string> => {
       const descendants = new Set<string>();
-      const queue = [issueId];
+      const queue = [taskId];
       while (queue.length > 0) {
         const currentId = queue.shift()!;
-        for (const issue of issues) {
-          if (
-            issue.parent_issue_id === currentId &&
-            !descendants.has(issue.id)
-          ) {
-            descendants.add(issue.id);
-            queue.push(issue.id);
+        for (const task of tasks) {
+          if (task.parent_task_id === currentId && !descendants.has(task.id)) {
+            descendants.add(task.id);
+            queue.push(task.id);
           }
         }
       }
       return descendants;
     };
 
-    const anchorIssue = issuesById.get(parentIssueId);
+    const anchorTask = tasksById.get(parentTaskId);
 
     if (mode === 'addChild') {
-      const ancestorIds = getAncestorIds(parentIssueId);
-      return issues.filter((issue) => {
-        if (issue.id === parentIssueId) return false;
-        if (issue.parent_issue_id === parentIssueId) return false;
-        if (ancestorIds.has(issue.id)) return false;
+      const ancestorIds = getAncestorIds(parentTaskId);
+      return tasks.filter((task) => {
+        if (task.id === parentTaskId) return false;
+        if (task.parent_task_id === parentTaskId) return false;
+        if (ancestorIds.has(task.id)) return false;
         return true;
       });
     } else {
-      const descendantIds = getDescendantIds(parentIssueId);
-      return issues.filter((issue) => {
-        if (issue.id === parentIssueId) return false;
-        if (anchorIssue?.parent_issue_id === issue.id) return false;
-        if (descendantIds.has(issue.id)) return false;
+      const descendantIds = getDescendantIds(parentTaskId);
+      return tasks.filter((task) => {
+        if (task.id === parentTaskId) return false;
+        if (anchorTask?.parent_task_id === task.id) return false;
+        if (descendantIds.has(task.id)) return false;
         return true;
       });
     }
-  }, [issues, selection]);
+  }, [tasks, selection]);
 
   // Build filtered issue list for relationship selection
-  const filteredIssuesForRelationship = useMemo((): Issue[] => {
+  const filteredTasksForRelationship = useMemo((): Task[] => {
     if (selection.type !== 'relationship') return [];
-    const { issueId } = selection;
+    const { taskId } = selection;
 
     const existingRelatedIds = new Set(
-      issueRelationships
-        .filter((r) => r.issue_id === issueId || r.related_issue_id === issueId)
-        .flatMap((r) => [r.issue_id, r.related_issue_id])
+      taskRelationships
+        .filter((r) => r.task_id === taskId || r.related_task_id === taskId)
+        .flatMap((r) => [r.task_id, r.related_task_id])
     );
 
-    return issues.filter((issue) => {
-      if (issue.id === issueId) return false;
-      if (existingRelatedIds.has(issue.id)) return false;
+    return tasks.filter((task) => {
+      if (task.id === taskId) return false;
+      if (existingRelatedIds.has(task.id)) return false;
       return true;
     });
-  }, [issues, issueRelationships, selection]);
+  }, [tasks, taskRelationships, selection]);
 
   // Build pages based on selection mode
   const pages = useMemo((): Record<string, SelectionPage> => {
@@ -179,21 +176,21 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
         >;
       case 'priority':
         return buildPrioritySelectionPages() as Record<string, SelectionPage>;
-      case 'subIssue':
-        return buildSubIssueSelectionPages(
-          filteredIssuesForSubIssue,
+      case 'subTask':
+        return buildSubTaskSelectionPages(
+          filteredTasksForSubTask,
           selection.mode
         ) as Record<string, SelectionPage>;
       case 'relationship':
         return buildRelationshipSelectionPages(
-          filteredIssuesForRelationship
+          filteredTasksForRelationship
         ) as Record<string, SelectionPage>;
     }
   }, [
     selection,
     sortedStatuses,
-    filteredIssuesForSubIssue,
-    filteredIssuesForRelationship,
+    filteredTasksForSubTask,
+    filteredTasksForRelationship,
   ]);
 
   // Handle mutation after selection
@@ -204,25 +201,25 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
       if (selection.type === 'status') {
         const result = data as StatusSelectionResult;
         if (selection.isCreateMode) return; // Create mode: caller handles URL update
-        for (const issueId of selection.issueIds) {
-          updateIssue(issueId, { status_id: result.statusId });
+        for (const taskId of selection.taskIds) {
+          updateTask(taskId, { status_id: result.statusId });
         }
       } else if (selection.type === 'priority') {
         const result = data as PrioritySelectionResult;
         if (selection.isCreateMode) return;
-        for (const issueId of selection.issueIds) {
-          updateIssue(issueId, { priority: result.priority });
+        for (const taskId of selection.taskIds) {
+          updateTask(taskId, { priority: result.priority });
         }
-      } else if (selection.type === 'subIssue') {
-        const result = data as SubIssueSelectionResult;
+      } else if (selection.type === 'subTask') {
+        const result = data as SubTaskSelectionResult;
         if (result.type === 'selected') {
           if (selection.mode === 'addChild') {
-            updateIssue(result.issueId, {
-              parent_issue_id: selection.parentIssueId,
+            updateTask(result.taskId, {
+              parent_task_id: selection.parentTaskId,
             });
           } else {
-            updateIssue(selection.parentIssueId, {
-              parent_issue_id: result.issueId,
+            updateTask(selection.parentTaskId, {
+              parent_task_id: result.taskId,
             });
           }
         }
@@ -230,21 +227,21 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
       } else if (selection.type === 'relationship') {
         const result = data as RelationshipSelectionResult;
         if (selection.direction === 'forward') {
-          insertIssueRelationship({
-            issue_id: selection.issueId,
-            related_issue_id: result.issueId,
+          insertTaskRelationship({
+            task_id: selection.taskId,
+            related_task_id: result.taskId,
             relationship_type: selection.relationshipType,
           });
         } else {
-          insertIssueRelationship({
-            issue_id: result.issueId,
-            related_issue_id: selection.issueId,
+          insertTaskRelationship({
+            task_id: result.taskId,
+            related_task_id: selection.taskId,
             relationship_type: selection.relationshipType,
           });
         }
       }
     },
-    [selection, updateIssue, insertIssueRelationship]
+    [selection, updateTask, insertTaskRelationship]
   );
 
   const fallbackPage = pages[initialPageId] ?? Object.values(pages)[0];

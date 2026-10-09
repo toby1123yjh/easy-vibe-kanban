@@ -564,7 +564,7 @@
   },
   "linkPrToIssue": {
     "title": "プルリクエストをリンク",
-    "description": "既存のプルリクエストをこのイシューにリンクします。",
+    "description": "既存のプルリクエストをこのタスクにリンクします。",
     "urlTab": "URLから",
     "browseTab": "参照",
     "urlLabel": "プルリクエストURL",

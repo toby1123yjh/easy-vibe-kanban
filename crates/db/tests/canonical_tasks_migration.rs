@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use db::models::{
     arena_group::ArenaCandidatePurpose,
-    task::{Task, TaskExecutionKind, TaskOpenTarget, TaskStatus},
+    task::{Execution, ExecutionKind, ExecutionOpenTarget, ExecutionStatus},
 };
 use sqlx::{
     SqlitePool,
@@ -126,7 +126,7 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
         .execute(&upgraded)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES (?, ?, 'Legacy Issue')")
+    sqlx::query("INSERT INTO tasks (id, project_id, title) VALUES (?, ?, 'Legacy Task')")
         .bind(issue_id)
         .bind(project_id)
         .execute(&upgraded)
@@ -149,7 +149,7 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
         r#"
         INSERT INTO local_issues (
             id, project_id, issue_number, simple_id, status_id, title, sort_order
-        ) VALUES (?, ?, 1, 'LOCAL-1', ?, 'Legacy Issue', 1001)
+        ) VALUES (?, ?, 1, 'LOCAL-1', ?, 'Legacy Task', 1001)
         "#,
     )
     .bind(issue_id)
@@ -215,7 +215,7 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
         r#"
         INSERT INTO workflow_attempts (
             id, project_id, issue_id, workflow_id, name, status
-        ) VALUES (?, ?, ?, ?, 'Fixture Workflow Task', 'running')
+        ) VALUES (?, ?, ?, ?, 'Fixture Workflow Execution', 'running')
         "#,
     )
     .bind(attempt_id)
@@ -297,21 +297,21 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
         schema_signature(&upgraded).await
     );
 
-    let standalone_task = Task::find_agent_by_session_id(&upgraded, standalone_session_id)
+    let standalone_task = Execution::find_agent_by_session_id(&upgraded, standalone_session_id)
         .await
         .unwrap()
         .expect("standalone Session binding");
-    assert_eq!(standalone_task.execution_kind, TaskExecutionKind::Agent);
+    assert_eq!(standalone_task.execution_kind, ExecutionKind::Agent);
     assert_eq!(standalone_task.parent_task_id, None);
 
-    let workflow_summary = Task::summary_by_id(&upgraded, attempt_id)
+    let workflow_summary = Execution::summary_by_id(&upgraded, attempt_id)
         .await
         .unwrap()
-        .expect("Workflow Task summary");
-    assert_eq!(workflow_summary.status, TaskStatus::Running);
+        .expect("Workflow Execution summary");
+    assert_eq!(workflow_summary.status, ExecutionStatus::Running);
     assert!(matches!(
         workflow_summary.open_target,
-        TaskOpenTarget::Workflow {
+        ExecutionOpenTarget::Workflow {
             attempt_id: id,
             workflow_id: workflow,
             ..
@@ -324,10 +324,10 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
             .fetch_one(&upgraded)
             .await
             .unwrap();
-    let child_task = Task::find_by_id(&upgraded, child_task_id)
+    let child_task = Execution::find_by_id(&upgraded, child_task_id)
         .await
         .unwrap()
-        .expect("Agent Node child Task");
+        .expect("Agent Node child Execution");
     assert_eq!(child_task.parent_task_id, Some(attempt_id));
 
     let candidate: (Uuid, ArenaCandidatePurpose) =
@@ -351,17 +351,17 @@ async fn fresh_and_upgraded_databases_converge_on_the_canonical_schema() {
             .unwrap();
     assert_eq!(purpose_after_rename, ArenaCandidatePurpose::Synthesis);
 
-    let arena_summary = Task::summary_by_id(&upgraded, arena_group_id)
+    let arena_summary = Execution::summary_by_id(&upgraded, arena_group_id)
         .await
         .unwrap()
-        .expect("Arena Task summary");
-    assert_eq!(arena_summary.status, TaskStatus::Succeeded);
+        .expect("Arena Execution summary");
+    assert_eq!(arena_summary.status, ExecutionStatus::Succeeded);
 
     sqlx::query("DELETE FROM tasks WHERE id = ?")
         .bind(arena_group_id)
         .execute(&upgraded)
         .await
-        .expect("delete Arena Task with selected winner");
+        .expect("delete Arena Execution with selected winner");
     let remaining_group: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM arena_groups WHERE id = ?")
         .bind(arena_group_id)
         .fetch_one(&upgraded)

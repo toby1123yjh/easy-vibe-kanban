@@ -15,7 +15,7 @@ export type SearchResultKind =
   | 'command'
   | 'project'
   | 'session'
-  | 'issue'
+  | 'task'
   | 'workflow'
   | 'run';
 
@@ -113,7 +113,7 @@ function createStaticDestinations(
       group: 'feature-object',
       ...copy.destinations.projects,
       route: '/projects',
-      keywords: ['kanban', 'issues'],
+      keywords: ['kanban', 'tasks'],
     },
     {
       id: 'feature-workflows',

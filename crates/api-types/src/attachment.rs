@@ -8,6 +8,8 @@ use uuid::Uuid;
 pub struct Attachment {
     pub id: Uuid,
     pub blob_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub comment_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -19,6 +21,8 @@ pub struct Attachment {
 pub struct AttachmentWithBlob {
     pub id: Uuid,
     pub blob_id: Uuid,
+    #[serde(rename = "task_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub comment_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,

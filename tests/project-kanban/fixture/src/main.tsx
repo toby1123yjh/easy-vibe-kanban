@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import type { TaskSummary } from "shared/types";
+import type { ExecutionSummary } from "shared/types";
 import type {
   KanbanColumnProjection,
   KanbanMoveUpdate,
@@ -10,11 +10,11 @@ import { ProjectKanbanSkeleton } from "../../../../packages/web-core/src/feature
 import "../../../../packages/ui/src/styles/tokens.css";
 import "./style.css";
 
-const task: TaskSummary = {
+const task: ExecutionSummary = {
   id: "task-1",
   project_id: "project-1",
-  issue_id: "issue-1",
-  parent_task_id: null,
+  task_id: "issue-1",
+  parent_execution_id: null,
   title: "Run the canonical agent task",
   execution_kind: "agent",
   status: "running",
@@ -33,7 +33,7 @@ const columns: KanbanColumnProjection[] = [
     name: "Todo",
     color: "220 16% 56%",
     sortOrder: 1,
-    issues: [
+    tasks: [
       {
         id: "issue-1",
         simpleId: "VK-1",
@@ -50,17 +50,17 @@ const columns: KanbanColumnProjection[] = [
             color: "211 90% 50%",
           }),
         ),
-        tasks: [task],
+        executions: [task],
       },
       {
         id: "issue-2",
         simpleId: "VK-2",
-        title: "Second sortable issue",
+        title: "Second sortable task",
         statusId: "todo",
         priority: null,
         sortOrder: 2,
         tags: [],
-        tasks: [],
+        executions: [],
       },
       ...Array.from({ length: 10 }, (_, index) => ({
         id: `issue-long-${index}`,
@@ -70,7 +70,7 @@ const columns: KanbanColumnProjection[] = [
         priority: null,
         sortOrder: index + 3,
         tags: [],
-        tasks: [],
+        executions: [],
       })),
     ],
   },
@@ -79,7 +79,7 @@ const columns: KanbanColumnProjection[] = [
     name: "Doing",
     color: "211 90% 50%",
     sortOrder: 2,
-    issues: [
+    tasks: [
       {
         id: "issue-doing",
         simpleId: "VK-20",
@@ -88,7 +88,7 @@ const columns: KanbanColumnProjection[] = [
         priority: null,
         sortOrder: 1,
         tags: [],
-        tasks: [],
+        executions: [],
       },
     ],
   },
@@ -97,12 +97,12 @@ const columns: KanbanColumnProjection[] = [
     name: "Done",
     color: "142 71% 45%",
     sortOrder: 3,
-    issues: [],
+    tasks: [],
   },
 ];
 
 function Harness() {
-  const [selectedIssueId, setSelectedIssueId] = React.useState<string | null>(
+  const [selectedTaskId, setSelectedTaskId] = React.useState<string | null>(
     null,
   );
   const [moveCount, setMoveCount] = React.useState(0);
@@ -128,25 +128,25 @@ function Harness() {
         <ProjectKanbanView
           projectName="Fixture project"
           columns={columns}
-          issueCount={columns.reduce(
-            (count, column) => count + column.issues.length,
+          taskCount={columns.reduce(
+            (count, column) => count + column.tasks.length,
             0,
           )}
           query=""
-          selectedIssueId={selectedIssueId}
+          selectedTaskId={selectedTaskId}
           dragDisabled={false}
-          taskSource={{ state: "ready" }}
+          executionSource={{ state: "ready" }}
           panel={
-            selectedIssueId ? (
+            selectedTaskId ? (
               <aside
-                className="vk-issue-floating-panel"
-                aria-label="Issue details"
+                className="vk-task-floating-panel"
+                aria-label="Task details"
               >
                 <div className="fixture-panel">
-                  <h2>{selectedIssueId}</h2>
+                  <h2>{selectedTaskId}</h2>
                   <button
                     type="button"
-                    onClick={() => setSelectedIssueId(null)}
+                    onClick={() => setSelectedTaskId(null)}
                   >
                     Close panel
                   </button>
@@ -155,13 +155,13 @@ function Harness() {
             ) : null
           }
           onQueryChange={() => undefined}
-          onCreateIssue={() => undefined}
-          onOpenIssue={(issueId) => setSelectedIssueId(issueId)}
-          onOpenTask={() => setTaskOpenCount((count) => count + 1)}
-          onDeleteIssue={async (id) => {
+          onCreateTask={() => undefined}
+          onOpenTask={(taskId) => setSelectedTaskId(taskId)}
+          onOpenExecution={() => setTaskOpenCount((count) => count + 1)}
+          onDeleteTask={async (id) => {
             setDeletedId(id);
           }}
-          getTaskUnavailableReason={() => null}
+          getExecutionUnavailableReason={() => null}
           onMove={move}
         />
       )}

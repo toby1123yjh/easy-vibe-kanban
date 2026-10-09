@@ -12,10 +12,10 @@ import { useOrganizationStore } from '@/shared/stores/useOrganizationStore';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import { useHostId } from '@/shared/providers/HostIdProvider';
 import {
-  buildKanbanIssueComposerKey,
-  openKanbanIssueComposer,
-  type ProjectIssueCreateOptions,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  openKanbanTaskComposer,
+  type ProjectTaskCreateOptions,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 import {
   type ActionDefinition,
   type ActionExecutorContext,
@@ -75,14 +75,14 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
   );
 
   // Navigate to create issue mode (URL-based navigation)
-  const navigateToCreateIssue = useCallback(
-    (options?: ProjectIssueCreateOptions) => {
+  const navigateToCreateTask = useCallback(
+    (options?: ProjectTaskCreateOptions) => {
       if (!projectId) {
         return;
       }
 
-      openKanbanIssueComposer(
-        buildKanbanIssueComposerKey(hostId, projectId),
+      openKanbanTaskComposer(
+        buildKanbanTaskComposerKey(hostId, projectId),
         options
       );
     },
@@ -110,13 +110,13 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
 
   // Open status selection dialog (uses dynamic import to avoid circular deps)
   const openStatusSelection = useCallback(
-    async (projectId: string, issueIds: string[]) => {
+    async (projectId: string, taskIds: string[]) => {
       const { ProjectSelectionDialog } = await import(
         '@/shared/dialogs/command-bar/selections/ProjectSelectionDialog'
       );
       await ProjectSelectionDialog.show({
         projectId,
-        selection: { type: 'status', issueIds },
+        selection: { type: 'status', taskIds },
       });
     },
     []
@@ -124,13 +124,13 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
 
   // Open priority selection dialog (uses dynamic import to avoid circular deps)
   const openPrioritySelection = useCallback(
-    async (projectId: string, issueIds: string[]) => {
+    async (projectId: string, taskIds: string[]) => {
       const { ProjectSelectionDialog } = await import(
         '@/shared/dialogs/command-bar/selections/ProjectSelectionDialog'
       );
       await ProjectSelectionDialog.show({
         projectId,
-        selection: { type: 'priority', issueIds },
+        selection: { type: 'priority', taskIds },
       });
     },
     []
@@ -138,20 +138,20 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
 
   // Open assignee selection dialog (uses dynamic import to avoid circular deps)
   const openAssigneeSelection = useCallback(
-    async (projectId: string, issueIds: string[], isCreateMode = false) => {
+    async (projectId: string, taskIds: string[], isCreateMode = false) => {
       const { AssigneeSelectionDialog } = await import(
         '@/shared/dialogs/kanban/AssigneeSelectionDialog'
       );
-      await AssigneeSelectionDialog.show({ projectId, issueIds, isCreateMode });
+      await AssigneeSelectionDialog.show({ projectId, taskIds, isCreateMode });
     },
     []
   );
 
   // Open sub-issue selection dialog (uses dynamic import to avoid circular deps)
-  const openSubIssueSelection = useCallback(
+  const openSubTaskSelection = useCallback(
     async (
       projectId: string,
-      parentIssueId: string,
+      parentTaskId: string,
       mode: 'addChild' | 'setParent' = 'addChild'
     ) => {
       const { ProjectSelectionDialog } = await import(
@@ -159,7 +159,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       );
       return (await ProjectSelectionDialog.show({
         projectId,
-        selection: { type: 'subIssue', parentIssueId, mode },
+        selection: { type: 'subTask', parentTaskId, mode },
       })) as { type: string } | undefined;
     },
     []
@@ -167,11 +167,11 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
 
   // Open workspace selection dialog (uses dynamic import to avoid circular deps)
   const openWorkspaceSelection = useCallback(
-    async (projectId: string, issueId: string) => {
+    async (projectId: string, taskId: string) => {
       const { WorkspaceSelectionDialog } = await import(
         '@/shared/dialogs/command-bar/WorkspaceSelectionDialog'
       );
-      await WorkspaceSelectionDialog.show({ projectId, issueId, hostId });
+      await WorkspaceSelectionDialog.show({ projectId, taskId, hostId });
     },
     [hostId]
   );
@@ -180,7 +180,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
   const openRelationshipSelection = useCallback(
     async (
       projectId: string,
-      issueId: string,
+      taskId: string,
       relationshipType: 'blocking' | 'related' | 'has_duplicate',
       direction: 'forward' | 'reverse'
     ) => {
@@ -191,7 +191,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
         projectId,
         selection: {
           type: 'relationship',
-          issueId,
+          taskId,
           relationshipType,
           direction,
         },
@@ -220,10 +220,10 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
-      navigateToCreateIssue,
+      navigateToCreateTask,
       defaultCreateStatusId,
       kanbanOrgId: selectedOrgId ?? undefined,
       kanbanProjectId: projectId,
@@ -255,10 +255,10 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
     openStatusSelection,
     openPrioritySelection,
     openAssigneeSelection,
-    openSubIssueSelection,
+    openSubTaskSelection,
     openWorkspaceSelection,
     openRelationshipSelection,
-    navigateToCreateIssue,
+    navigateToCreateTask,
     defaultCreateStatusId,
     selectedOrgId,
     projectId,
@@ -273,7 +273,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       action: ActionDefinition,
       workspaceId?: string,
       repoIdOrProjectId?: string,
-      issueIds?: string[]
+      taskIds?: string[]
     ): Promise<void> => {
       try {
         switch (action.requiresTarget) {
@@ -303,13 +303,13 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
             );
             break;
 
-          case ActionTargetType.ISSUE:
-            if (!repoIdOrProjectId || !issueIds || issueIds.length === 0) {
+          case ActionTargetType.TASK:
+            if (!repoIdOrProjectId || !taskIds || taskIds.length === 0) {
               throw new Error(
                 `Action "${action.id}" requires project and issue selection`
               );
             }
-            await action.execute(executorContext, repoIdOrProjectId, issueIds);
+            await action.execute(executorContext, repoIdOrProjectId, taskIds);
             break;
         }
       } catch (error) {
@@ -348,7 +348,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
       setDefaultCreateStatusId,
@@ -361,7 +361,7 @@ export function ActionsProvider({ children }: ActionsProviderProps) {
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
       registerProjectMutations,

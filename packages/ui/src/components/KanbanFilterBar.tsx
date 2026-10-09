@@ -58,13 +58,13 @@ export interface RenderKanbanFiltersDialogProps<
   projectId: string;
   currentUserId: string | null;
   filters: KanbanFilterState<TSortField>;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
   onPrioritiesChange: (priorities: PriorityLevel[]) => void;
   onAssigneesChange: (assigneeIds: string[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
-  onShowSubIssuesChange: (show: boolean) => void;
+  onShowSubTasksChange: (show: boolean) => void;
   onShowWorkspacesChange: (show: boolean) => void;
   hideBlocked: boolean;
   onHideBlockedChange: (hide: boolean) => void;
@@ -85,7 +85,7 @@ interface KanbanFilterBarProps<
   projectId: string;
   currentUserId: string | null;
   filters: KanbanFilterState<TSortField>;
-  showSubIssues: boolean;
+  showSubTasks: boolean;
   showWorkspaces: boolean;
   hasActiveFilters: boolean;
   onSearchQueryChange: (searchQuery: string) => void;
@@ -93,12 +93,12 @@ interface KanbanFilterBarProps<
   onAssigneesChange: (assigneeIds: string[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onSortChange: (sortField: TSortField, sortDirection: 'asc' | 'desc') => void;
-  onShowSubIssuesChange: (show: boolean) => void;
+  onShowSubTasksChange: (show: boolean) => void;
   onShowWorkspacesChange: (show: boolean) => void;
   hideBlocked: boolean;
   onHideBlockedChange: (hide: boolean) => void;
   onClearFilters: () => void;
-  onCreateIssue: () => void;
+  onCreateTask: () => void;
   shouldAnimateCreateButton: boolean;
   isMobile?: boolean;
   className?: string;
@@ -122,7 +122,7 @@ export function KanbanFilterBar<
   projectId,
   currentUserId,
   filters,
-  showSubIssues,
+  showSubTasks,
   showWorkspaces,
   hasActiveFilters,
   onSearchQueryChange,
@@ -130,12 +130,12 @@ export function KanbanFilterBar<
   onAssigneesChange,
   onTagsChange,
   onSortChange,
-  onShowSubIssuesChange,
+  onShowSubTasksChange,
   onShowWorkspacesChange,
   hideBlocked,
   onHideBlockedChange,
   onClearFilters,
-  onCreateIssue,
+  onCreateTask,
   shouldAnimateCreateButton,
   isMobile,
   className,
@@ -166,7 +166,7 @@ export function KanbanFilterBar<
           <InputField
             value={filters.searchQuery}
             onChange={onSearchQueryChange}
-            placeholder={t('kanban.searchPlaceholder', 'Search issues...')}
+            placeholder={t('kanban.searchPlaceholder', 'Search tasks...')}
             variant="search"
             className="min-w-0 flex-1"
           />
@@ -213,7 +213,7 @@ export function KanbanFilterBar<
                     ? 'text-brand hover:text-brand'
                     : 'text-low hover:text-normal hover:bg-secondary'
                 )}
-                aria-label={t('kanban.searchPlaceholder', 'Search issues...')}
+                aria-label={t('kanban.searchPlaceholder', 'Search tasks...')}
               >
                 <MagnifyingGlassIcon className="size-icon-sm" weight="bold" />
               </button>
@@ -221,7 +221,7 @@ export function KanbanFilterBar<
               <InputField
                 value={filters.searchQuery}
                 onChange={onSearchQueryChange}
-                placeholder={t('kanban.searchPlaceholder', 'Search issues...')}
+                placeholder={t('kanban.searchPlaceholder', 'Search tasks...')}
                 variant="search"
                 actionIcon={filters.searchQuery ? XIcon : undefined}
                 onAction={handleClearSearch}
@@ -259,21 +259,21 @@ export function KanbanFilterBar<
           {isMobile ? (
             <button
               type="button"
-              onClick={() => onCreateIssue()}
+              onClick={() => onCreateTask()}
               className={cn(
                 'shrink-0 rounded-sm p-half bg-brand hover:bg-brand-hover text-on-brand transition-colors',
                 shouldAnimateCreateButton && 'create-issue-attention'
               )}
-              aria-label={t('kanban.newIssue', 'New issue')}
+              aria-label={t('kanban.newIssue', 'New task')}
             >
               <PlusIcon className="size-icon-sm" weight="bold" />
             </button>
           ) : (
             <PrimaryButton
               variant="secondary"
-              value={t('kanban.newIssue', 'New issue')}
+              value={t('kanban.newIssue', 'New task')}
               actionIcon={PlusIcon}
-              onClick={() => onCreateIssue()}
+              onClick={() => onCreateTask()}
               className={cn(
                 'shrink-0 whitespace-nowrap',
                 shouldAnimateCreateButton && 'create-issue-attention'
@@ -291,13 +291,13 @@ export function KanbanFilterBar<
         tags,
         users,
         filters,
-        showSubIssues,
+        showSubTasks,
         showWorkspaces,
         onPrioritiesChange,
         onAssigneesChange,
         onTagsChange,
         onSortChange,
-        onShowSubIssuesChange,
+        onShowSubTasksChange,
         onShowWorkspacesChange,
         hideBlocked,
         onHideBlockedChange,

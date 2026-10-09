@@ -18,7 +18,7 @@ export type IntegrationProjectOption = { id: string, name: string, };
 
 export type CreateExternalProject = { name: string, };
 
-export type CreateExternalIssue = { title: string, description: string | null, status_id: string | null, };
+export type CreateExternalTask = { title: string, description: string | null, status_id: string | null, };
 
 export type ProjectFileKind = "file" | "directory" | "symlink" | "other";
 
@@ -136,17 +136,17 @@ export type UpdateTag = { tag_name: string | null, content: string | null, };
 
 export type DraftFollowUpData = { message: string, executor_config: ExecutorConfig, selected_skills?: Array<SelectedSkill> | null, };
 
-export type DraftWorkspaceData = { message: string, repos: Array<DraftWorkspaceRepo>, directory_path: string | null, executor_config: ExecutorConfig | null, linked_issue: DraftWorkspaceLinkedIssue | null, attachments: Array<DraftWorkspaceAttachment>, };
+export type DraftWorkspaceData = { message: string, repos: Array<DraftWorkspaceRepo>, directory_path: string | null, executor_config: ExecutorConfig | null, linked_task: DraftWorkspaceLinkedTask | null, attachments: Array<DraftWorkspaceAttachment>, };
 
 export type DraftWorkspaceAttachment = { id: string, file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, };
 
-export type DraftWorkspaceLinkedIssue = { issue_id: string, simple_id: string, title: string, remote_project_id: string, };
+export type DraftWorkspaceLinkedTask = { task_id: string, simple_id: string, title: string, remote_project_id: string, };
 
 export type DraftWorkspaceRepo = { repo_id: string, target_branch: string, };
 
-export type DraftIssueData = { title: string, description: string | null, status_id: string,
+export type DraftTaskData = { title: string, description: string | null, status_id: string,
 /**
- * Stored as the string value of IssuePriority (e.g. "urgent", "high", "medium", "low")
+ * Stored as the string value of TaskPriority (e.g. "urgent", "high", "medium", "low")
  */
 priority: string | null, assignee_ids: Array<string>, tag_ids: Array<string>, create_draft_workspace: boolean,
 /**
@@ -156,7 +156,7 @@ project_id: string,
 /**
  * Parent issue ID if creating a sub-issue
  */
-parent_issue_id: string | null, };
+parent_task_id: string | null, };
 
 export type PreviewSettingsData = { url: string, screen_size: string | null, responsive_width: number | null, responsive_height: number | null, };
 
@@ -246,9 +246,9 @@ kanban_project_view_preferences: { [key in string]?: JsonValue }, };
 
 export type ProjectRepoDefaultsData = { repos: Array<DraftWorkspaceRepo>, directory_path: string | null, };
 
-export type ScratchPayload = { "type": "DRAFT_TASK", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_WORKSPACE", "data": DraftWorkspaceData } | { "type": "DRAFT_ISSUE", "data": DraftIssueData } | { "type": "PREVIEW_SETTINGS", "data": PreviewSettingsData } | { "type": "WORKSPACE_NOTES", "data": WorkspaceNotesData } | { "type": "UI_PREFERENCES", "data": UiPreferencesData } | { "type": "PROJECT_REPO_DEFAULTS", "data": ProjectRepoDefaultsData };
+export type ScratchPayload = { "type": "DRAFT_COMMENT", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_WORKSPACE", "data": DraftWorkspaceData } | { "type": "DRAFT_TASK", "data": DraftTaskData } | { "type": "PREVIEW_SETTINGS", "data": PreviewSettingsData } | { "type": "WORKSPACE_NOTES", "data": WorkspaceNotesData } | { "type": "UI_PREFERENCES", "data": UiPreferencesData } | { "type": "PROJECT_REPO_DEFAULTS", "data": ProjectRepoDefaultsData };
 
-export enum ScratchType { DRAFT_TASK = "DRAFT_TASK", DRAFT_FOLLOW_UP = "DRAFT_FOLLOW_UP", DRAFT_WORKSPACE = "DRAFT_WORKSPACE", DRAFT_ISSUE = "DRAFT_ISSUE", PREVIEW_SETTINGS = "PREVIEW_SETTINGS", WORKSPACE_NOTES = "WORKSPACE_NOTES", UI_PREFERENCES = "UI_PREFERENCES", PROJECT_REPO_DEFAULTS = "PROJECT_REPO_DEFAULTS" }
+export enum ScratchType { DRAFT_COMMENT = "DRAFT_COMMENT", DRAFT_FOLLOW_UP = "DRAFT_FOLLOW_UP", DRAFT_WORKSPACE = "DRAFT_WORKSPACE", DRAFT_TASK = "DRAFT_TASK", PREVIEW_SETTINGS = "PREVIEW_SETTINGS", WORKSPACE_NOTES = "WORKSPACE_NOTES", UI_PREFERENCES = "UI_PREFERENCES", PROJECT_REPO_DEFAULTS = "PROJECT_REPO_DEFAULTS" }
 
 export type Scratch = { id: string, payload: ScratchPayload, created_at: string, updated_at: string, };
 
@@ -264,7 +264,7 @@ export type ContainerOwnership = "managed" | "external";
 
 export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, container_ref: string | null, workspace_kind: WorkspaceKind, container_ownership: ContainerOwnership, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, };
 
-export type ArenaGroup = { id: string, task_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroup = { id: string, execution_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type ArenaStatus = "active" | "promoted" | "archived";
 
@@ -276,21 +276,21 @@ export type ArenaCandidatePurpose = "attempt" | "synthesis";
 
 export type ArenaCandidate = { id: string, arena_group_id: string, workspace_id: string, purpose: ArenaCandidatePurpose, sort_order: bigint, created_at: string, updated_at: string, };
 
-export type TaskExecutionKind = "agent" | "workflow" | "arena";
+export type ExecutionKind = "agent" | "workflow" | "arena";
 
-export type TaskStatus = "draft" | "pending" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
+export type ExecutionStatus = "draft" | "pending" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
 
-export type TaskOpenTarget = { "kind": "agent", session_id: string, workspace_id: string, } | { "kind": "workflow", attempt_id: string, workflow_id: string, latest_run_id: string | null, } | { "kind": "arena", arena_group_id: string, };
+export type ExecutionOpenTarget = { "kind": "agent", session_id: string, workspace_id: string, } | { "kind": "workflow", attempt_id: string, workflow_id: string, latest_run_id: string | null, } | { "kind": "arena", arena_group_id: string, };
 
-export type Task = { id: string, project_id: string, issue_id: string, parent_task_id: string | null, title: string, execution_kind: TaskExecutionKind, created_at: string, updated_at: string, };
+export type Execution = { id: string, project_id: string, task_id: string, parent_execution_id: string | null, title: string, execution_kind: ExecutionKind, created_at: string, updated_at: string, };
 
-export type TaskSummary = { id: string, project_id: string, issue_id: string, parent_task_id: string | null, title: string, execution_kind: TaskExecutionKind, status: TaskStatus, open_target: TaskOpenTarget, created_at: string, updated_at: string, };
+export type ExecutionSummary = { id: string, project_id: string, task_id: string, parent_execution_id: string | null, title: string, execution_kind: ExecutionKind, status: ExecutionStatus, open_target: ExecutionOpenTarget, created_at: string, updated_at: string, };
 
-export type TaskCursor = { updated_at: string, id: string, };
+export type ExecutionCursor = { updated_at: string, id: string, };
 
-export type TaskSummaryPage = { tasks: Array<TaskSummary>, next_cursor: TaskCursor | null, };
+export type ExecutionSummaryPage = { executions: Array<ExecutionSummary>, next_cursor: ExecutionCursor | null, };
 
-export type SessionListItem = { id: string, workspace_id: string, task_id: string | null, project_id: string | null, issue_id: string | null, title: string, executor: string | null, created_at: string, updated_at: string, };
+export type SessionListItem = { id: string, workspace_id: string, execution_id: string | null, project_id: string | null, task_id: string | null, title: string, executor: string | null, created_at: string, updated_at: string, };
 
 export type SessionCursor = { updated_at: string, id: string, };
 
@@ -298,7 +298,7 @@ export type SessionPage = { sessions: Array<SessionListItem>, next_cursor: Sessi
 
 export type ExecutionDataOwner = "local_host";
 
-export type ExecutionDataCapabilities = { owner: ExecutionDataOwner, task_queries: boolean, execution_actions: boolean, };
+export type ExecutionDataCapabilities = { owner: ExecutionDataOwner, execution_queries: boolean, execution_actions: boolean, };
 
 export type WorkflowSource = "system" | "project";
 
@@ -310,25 +310,25 @@ export type NodeExecutionStatus = "pending" | "running" | "awaiting_human" | "aw
 
 export type Workflow = { id: string, source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, revision: bigint, created_at: string, updated_at: string, };
 
-export type WorkflowRun = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+export type WorkflowRun = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, task_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
-export type WorkflowAttempt = { id: string, task_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
+export type WorkflowAttempt = { id: string, execution_id: string, workflow_id: string, latest_run_id: string | null, workspace_id: string | null, status: WorkflowAttemptStatus, created_at: string, updated_at: string, };
 
-export type NodeExecution = { id: string, run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+export type NodeExecution = { id: string, run_id: string, execution_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
 export type CreateWorkflow = { source: WorkflowSource, project_id: string | null, name: string, description: string | null, graph_json: string, };
 
 export type UpdateWorkflow = { expected_revision: bigint, name: string | null, description: string | null, graph_json: string | null, };
 
-export type CreateWorkflowRun = { workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
+export type CreateWorkflowRun = { workflow_id: string, attempt_id: string | null, task_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
-export type CreateWorkflowAttempt = { id: string, task_id: string, workflow_id: string, };
+export type CreateWorkflowAttempt = { id: string, execution_id: string, workflow_id: string, };
 
 export type UpdateWorkflowAttemptRuntime = { latest_run_id: string | null, workspace_id: string | null, status: WorkflowAttemptStatus, };
 
 export type UpdateWorkflowRunStatus = { status: WorkflowRunStatus, output_text: string | null, error_text: string | null, };
 
-export type CreateNodeExecution = { run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, };
+export type CreateNodeExecution = { run_id: string, execution_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, };
 
 export type UpdateNodeExecution = { status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, error_text: string | null, };
 
@@ -347,7 +347,7 @@ export type ArenaEventKind = "ask_all" | "workspace" | "challenge" | "synthesize
 
 export type ArenaEvent = { id: string, arena_group_id: string, kind: ArenaEventKind, prompt: string, source_workspace_id: string | null, target_workspace_id: string | null, synthesis_workspace_id: string | null, created_at: string, };
 
-export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, events: Array<ArenaEvent>, id: string, task_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
+export type ArenaGroupResponse = { workspaces: Array<ArenaWorkspaceSummary>, events: Array<ArenaEvent>, id: string, execution_id: string, prompt: string, base_branch: string, mode: ArenaMode, lifecycle_status: ArenaLifecycleStatus, winner_candidate_id: string | null, promoted_at: string | null, closed_at: string | null, created_at: string, updated_at: string, };
 
 export type PromoteArenaRequest = { candidate_id: string, };
 
@@ -381,7 +381,7 @@ export type UpdateWorkflowRequest = { expected_revision: number, name: string | 
 
 export type WorkflowRevisionConflict = { workflow_id: string, expected_revision: number, current_revision: number, };
 
-export type TriggerWorkflowRequest = { issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
+export type TriggerWorkflowRequest = { task_id: string, workspace_id: string | null, trigger_source: string, input_text: string, };
 
 export type CreateWorkflowAttemptRequest = { directory_path?: string, name: string | null, graph_json: string, repos?: Array<DraftWorkspaceRepo>, };
 
@@ -391,7 +391,7 @@ export type SelectArenaWinnerRequest = { candidate_id: string, node_execution_id
 
 export type SelectConditionBranchRequest = { node_execution_id: string, selected_target_node_ids: Array<string>, reason?: string, };
 
-export type WorkflowAttemptResponse = { id: string, project_id: string, issue_id: string, workflow_id: string, template_id: string | null, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, main_session_id: string | null, main_session_bound_at: string | null, definition_locked_at: string | null, created_at: string, updated_at: string, };
+export type WorkflowAttemptResponse = { id: string, project_id: string, task_id: string, workflow_id: string, template_id: string | null, latest_run_id: string | null, workspace_id: string | null, name: string, status: WorkflowAttemptStatus, main_session_id: string | null, main_session_bound_at: string | null, definition_locked_at: string | null, created_at: string, updated_at: string, };
 
 export type WorkflowAttemptListResponse = { attempts: Array<WorkflowAttemptResponse>, };
 
@@ -407,9 +407,9 @@ reused_results: Array<WorkflowReuseView>, };
 
 export type WorkflowRunRuntimeView = { run_id: string, status: WorkflowRunStatus, active_node_count: number, pending_node_count: number, waiting_node_count: number, failed_node_count: number, completed_node_count: number, reused_node_count: number, skipped_node_count: number, node_work: Array<WorkflowNodeWorkView>, };
 
-export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, issue_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, queue_phase?: string, };
+export type WorkflowRunResponse = { id: string, orchestration_run_id: string | null, workflow_id: string, attempt_id: string | null, task_id: string, workspace_id: string | null, trigger_source: string, input_text: string, output_text: string | null, status: WorkflowRunStatus, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, nodes: Array<WorkflowNodeExecutionResponse>, runtime_view?: WorkflowRunRuntimeView, queue_phase?: string, };
 
-export type WorkflowNodeExecutionResponse = { id: string, run_id: string, task_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, projection_status: ProjectionStatus | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
+export type WorkflowNodeExecutionResponse = { id: string, run_id: string, execution_id: string | null, node_id: string, node_type: string, iteration: bigint, status: NodeExecutionStatus, input_text: string | null, output_text: string | null, session_id: string | null, orchestration_node_execution_id: string | null, agent_run_id: string | null, projection_status: ProjectionStatus | null, execution_process_id: string | null, arena_group_id: string | null, tokens_used: bigint | null, cost_estimate: number | null, started_at: string | null, finished_at: string | null, error_text: string | null, created_at: string, updated_at: string, };
 
 export type WorkflowActionResponse = { run_id: string, node_id: string | null, status: WorkflowRunStatus, };
 
@@ -421,15 +421,15 @@ export type ScheduledTaskConcurrencyPolicy = "skip_if_running";
 
 export type ScheduledTaskLastStatus = "idle" | "running" | "awaiting_human" | "awaiting_arena" | "succeeded" | "failed" | "skipped" | "canceled";
 
-export type ScheduledTaskResponse = { id: string, project_id: string, target_type: ScheduledTaskTargetType, target_id: string, context_issue_id: string, name: string | null, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday: number | null, timezone: string, input_text: string, concurrency_policy: ScheduledTaskConcurrencyPolicy, last_run_id: string | null, last_status: ScheduledTaskLastStatus, last_error: string | null, last_triggered_at: string | null, next_run_at: string | null, created_at: string, updated_at: string, };
+export type ScheduledTaskResponse = { id: string, project_id: string, target_type: ScheduledTaskTargetType, target_id: string, context_task_id: string, name: string | null, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday: number | null, timezone: string, input_text: string, concurrency_policy: ScheduledTaskConcurrencyPolicy, last_run_id: string | null, last_status: ScheduledTaskLastStatus, last_error: string | null, last_triggered_at: string | null, next_run_at: string | null, created_at: string, updated_at: string, };
 
 export type ScheduledTaskListResponse = { tasks: Array<ScheduledTaskResponse>, };
 
 export type ListScheduledTasksQuery = { target_type?: ScheduledTaskTargetType, target_id?: string, };
 
-export type UpsertScheduledTaskRequest = { target_type: ScheduledTaskTargetType, target_id: string, context_issue_id: string, name?: string, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday?: number, timezone: string, input_text: string, };
+export type UpsertScheduledTaskRequest = { target_type: ScheduledTaskTargetType, target_id: string, context_task_id: string, name?: string, enabled: boolean, schedule_kind: ScheduledTaskKind, time_of_day: string, weekday?: number, timezone: string, input_text: string, };
 
-export type UpdateScheduledTaskRequest = { context_issue_id?: string, name?: string, enabled?: boolean, schedule_kind?: ScheduledTaskKind, time_of_day?: string, weekday?: number, timezone?: string, input_text?: string, };
+export type UpdateScheduledTaskRequest = { context_task_id?: string, name?: string, enabled?: boolean, schedule_kind?: ScheduledTaskKind, time_of_day?: string, weekday?: number, timezone?: string, input_text?: string, };
 
 export type ScheduledTaskRunNowResponse = { task: ScheduledTaskResponse, run?: WorkflowRunResponse, skipped: boolean, };
 
@@ -497,9 +497,9 @@ export enum MemberRole { ADMIN = "ADMIN", MEMBER = "MEMBER" }
 
 export enum InvitationStatus { PENDING = "PENDING", ACCEPTED = "ACCEPTED", DECLINED = "DECLINED", EXPIRED = "EXPIRED" }
 
-export type Organization = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, };
+export type Organization = { id: string, name: string, slug: string, is_personal: boolean, task_prefix: string, created_at: string, updated_at: string, };
 
-export type OrganizationWithRole = { id: string, name: string, slug: string, is_personal: boolean, issue_prefix: string, created_at: string, updated_at: string, user_role: MemberRole, };
+export type OrganizationWithRole = { id: string, name: string, slug: string, is_personal: boolean, task_prefix: string, created_at: string, updated_at: string, user_role: MemberRole, };
 
 export type ListOrganizationsResponse = { organizations: Array<OrganizationWithRole>, };
 
@@ -641,7 +641,7 @@ export type RemoveRelayPairedHostResponse = { removed: boolean, };
 
 export type CreateWorkspaceApiRequest = { name: string | null, };
 
-export type LinkedIssueInfo = { remote_project_id: string, issue_id: string, };
+export type LinkedTaskInfo = { remote_project_id: string, task_id: string, };
 
 export type CreateWorkspaceMode = "worktree" | "direct_folder" | "managed_directory";
 
@@ -709,9 +709,9 @@ export type RunScriptError = { "type": "no_script_configured" } | { "type": "pro
 
 export type AssociateWorkspaceAttachmentsRequest = { attachment_ids: Array<string>, };
 
-export type ImportIssueAttachmentsRequest = { issue_id: string, };
+export type ImportTaskAttachmentsRequest = { task_id: string, };
 
-export type ImportIssueAttachmentsResponse = { attachment_ids: Array<string>, };
+export type ImportTaskAttachmentsResponse = { attachment_ids: Array<string>, };
 
 export type AttachPrResponse = { pr_attached: boolean, pr_url: string | null, pr_number: bigint | null, pr_status: MergeStatus | null, };
 
@@ -723,7 +723,7 @@ export type GetPrCommentsError = { "type": "no_pr_attached" } | { "type": "cli_n
 
 export type GetPrCommentsQuery = { repo_id: string, };
 
-export type CreateAndStartWorkspaceRequest = { project_id?: string, mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_issue: LinkedIssueInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, resume_session_id?: string, resume_scope_path?: string, attachment_ids: Array<string> | null, };
+export type CreateAndStartWorkspaceRequest = { project_id?: string, mode: CreateWorkspaceMode, name: string | null, repos: Array<WorkspaceRepoInput>, directory_path?: string, linked_task: LinkedTaskInfo | null, executor_config: ExecutorConfig, prompt: string, selected_skills?: Array<SelectedSkill>, resume_session_id?: string, resume_scope_path?: string, attachment_ids: Array<string> | null, };
 
 export type CreateAndStartWorkspaceResponse = { workspace: Workspace, agent_run: AgentRunPortSnapshot, };
 
@@ -737,7 +737,7 @@ export type GitRemote = { name: string, url: string, };
 
 export type ListPrsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "auth_failed", message: string, } | { "type": "unsupported_provider" };
 
-export type LinkPrToIssueRequest = { pr_url: string, pr_number: number, base_branch: string, };
+export type LinkPrToTaskRequest = { pr_url: string, pr_number: number, base_branch: string, };
 
 export type CreateWorkspaceFromPrBody = { repo_id: string, pr_number: bigint, pr_title: string, pr_url: string, head_branch: string, base_branch: string, run_setup: boolean, remote_name: string | null, };
 

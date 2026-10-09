@@ -17,7 +17,7 @@ function execution(
   return {
     id: `${nodeId}-${String(iteration)}`,
     run_id: 'run-1',
-    task_id: null,
+    execution_id: null,
     node_id: nodeId,
     node_type: 'agent',
     iteration,

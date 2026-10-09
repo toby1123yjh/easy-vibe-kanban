@@ -47,7 +47,7 @@ pub struct BulkUpdateNotificationsResponse {
 }
 
 pub fn mutation() -> MutationBuilder<Notification, NoCreate, UpdateNotificationRequest> {
-    MutationBuilder::new("notifications")
+    MutationBuilder::new()
         .list(list_notifications)
         .get(get_notification)
         .update(update_notification)

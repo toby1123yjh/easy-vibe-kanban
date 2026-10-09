@@ -1,6 +1,6 @@
 {
   "sessionDeletion": {
-    "taskSummary": "This Task and its session history will be deleted. This cannot be undone.",
+    "taskSummary": "This Execution and its session history will be deleted. This cannot be undone.",
     "sessionSummary": "This session and its history will be deleted. This cannot be undone.",
     "filesWillDelete": "The directory and all files inside will be permanently deleted.",
     "filesWillKeep": "Unchecked: files stay on this device.",
@@ -9,22 +9,22 @@
     "filesRetained": "Session deleted. Some files were kept:",
     "deleteManagedFiles": "Also delete this session’s working directory and files",
     "withFilesDescription": "Delete “{{name}}”, its session history, and the managed working directory below? Other sessions, projects, and native agent history are preserved. This cannot be undone.",
-    "stopDescription": "The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the task and session will be kept.",
+    "stopDescription": "The agent for “{{name}}” is still running or its exit cannot be confirmed. Stop it safely, then delete? If stopping fails, the execution and session will be kept.",
     "stopAndDelete": "Stop and delete",
     "stopping": "Stopping and deleting…",
-    "stopFailed": "The agent has not stopped yet. Your task and session were kept; retry when ready.",
-    "taskTitle": "Delete Task and session?",
+    "stopFailed": "The agent has not stopped yet. Your execution and session were kept; retry when ready.",
+    "taskTitle": "Delete Execution and session?",
     "sessionTitle": "Delete session?",
-    "taskDescription": "Delete \"{{name}}\" and its bound session history from Vibe Kanban? The Issue, Project, Workspace, other Tasks and sessions, working files, and the agent's native history are preserved. This cannot be undone.",
+    "taskDescription": "Delete \"{{name}}\" and its bound session history from Vibe Kanban? The Task, Project, Workspace, other Executions and sessions, working files, and the agent's native history are preserved. This cannot be undone.",
     "sessionDescription": "Delete session \"{{name}}\" and its history from Vibe Kanban? The Workspace, other sessions, working files, and the agent's native history are preserved. This cannot be undone.",
-    "resolving": "Checking the current Task and session binding…",
-    "deleteTask": "Delete Task and session",
+    "resolving": "Checking the current Execution and session binding…",
+    "deleteTask": "Delete Execution and session",
     "deleteSession": "Delete session",
     "action": "Delete {{name}}",
     "deleting": "Deleting…",
     "failed": "Unable to delete. Please try again.",
     "scopeChanged": "The current Host or selection has changed. Cancel and reopen deletion from the intended row.",
-    "bindingChanged": "This Task is no longer bound to the selected session. Refresh the list and try again."
+    "bindingChanged": "This Execution is no longer bound to the selected session. Refresh the list and try again."
   },
   "dropzone": {
     "dropImagesHere": "Drop images here",
@@ -596,7 +596,7 @@
   },
   "linkPrToIssue": {
     "title": "Link Pull Request",
-    "description": "Link an existing pull request to this issue.",
+    "description": "Link an existing pull request to this task.",
     "urlTab": "From URL",
     "browseTab": "Browse",
     "urlLabel": "Pull Request URL",

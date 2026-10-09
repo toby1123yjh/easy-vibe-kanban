@@ -69,7 +69,7 @@ const template = {
 const instance = {
   id: 'report-instance',
   project_id: 'project-one',
-  issue_id: 'report-issue',
+  task_id: 'report-issue',
   workflow_id: template.id,
   template_id: template.id,
   latest_run_id: null,
@@ -89,8 +89,8 @@ const capturedContext = {
   workflow_name: template.name,
   main_agent_config: mainConfig,
   main_agent_prompt: template.main_agent_prompt,
-  prepared_issue_id: null,
-  issue_id: null,
+  prepared_task_id: null,
+  task_id: null,
   instance_id: null,
   workspace_id: 'prepared-workspace',
   latest_run_id: null,
@@ -477,10 +477,10 @@ test('opening a conversation saves first and navigates to the returned exact Ses
     workflow_id: template.id,
     request_id: expect.any(String),
   });
-  expect(mutations(calls)[1]?.body?.issue_id).toBeUndefined();
+  expect(mutations(calls)[1]?.body?.task_id).toBeUndefined();
 });
 
-test('preparation retry keeps request identity and explicit Issue, including remote exact-session navigation', async ({
+test('preparation retry keeps request identity and explicit Task, including remote exact-session navigation', async ({
   page,
 }) => {
   let attempts = 0;
@@ -512,7 +512,7 @@ test('preparation retry keeps request identity and explicit Issue, including rem
   expect(prepares).toHaveLength(2);
   expect(prepares[0].body).toEqual(prepares[1].body);
   expect(prepares[0].body).toMatchObject({
-    issue_id: 'report-issue',
+    task_id: 'report-issue',
     request_id: expect.any(String),
   });
 });
@@ -563,7 +563,7 @@ async function openEditorMainSettings(page: Page) {
   await expect(page.getByLabel('Main Agent instructions')).toBeVisible();
 }
 
-test('the production instance dialog prepares the existing Issue rather than an unrelated discussion', async ({
+test('the production instance dialog prepares the existing Task rather than an unrelated discussion', async ({
   page,
 }) => {
   const { calls } = await mockManagement(page, {
@@ -585,7 +585,7 @@ test('the production instance dialog prepares the existing Issue rather than an 
   expect(mutations(calls)[0]).toMatchObject({
     path: '/api/workflow-management/prepare-main-session',
     body: {
-      issue_id: 'report-issue',
+      task_id: 'report-issue',
       project_id: 'project-one',
       workflow_id: template.id,
     },

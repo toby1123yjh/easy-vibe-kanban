@@ -21,14 +21,14 @@ for (const scenario of [
       scenario.appears ? /^[23]\/1$/ : "1/1",
     );
     if (scenario.appears) {
-      await expect(page.getByRole("navigation")).toHaveText("Issue task");
+      await expect(page.getByRole("navigation")).toHaveText("Task task");
       await expect(page.getByTestId("rows")).toHaveText(
         JSON.stringify([
           {
             id: "session-1",
             workspace_id: "workspace-1",
-            name: "Issue task",
-            issue_id:
+            name: "Task task",
+            task_id:
               !scenario.direct && scenario.status === "success"
                 ? "issue-1"
                 : null,

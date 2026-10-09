@@ -130,7 +130,7 @@ test("switching language updates mounted project UI and document language withou
             {
               id: "session-1",
               workspace_id: "workspace-1",
-              task_id: null,
+              execution_id: null,
               title: "用户自己的 Session 标题",
             },
           ],

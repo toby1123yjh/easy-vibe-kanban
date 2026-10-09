@@ -11,7 +11,7 @@ use chrono::Utc;
 use db::models::{
     orchestration::OrchestrationNodeExecutionRecord,
     session::{CreateSession, Session, SessionError},
-    task::{CreateTask, Task, TaskExecutionKind},
+    task::{CreateExecution, Execution, ExecutionKind},
     workflow::{NodeExecutionStatus as DbNodeExecutionStatus, WorkflowRunStatus},
     workspace::{Workspace, WorkspaceError, WorkspaceKind},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -1125,7 +1125,7 @@ pub async fn accept_workflow_run<W: WorkflowWorkspaceResolver>(
     }
     let project_id = resolve_issue_project_id(pool, request.trigger.issue_id)
         .await?
-        .ok_or_else(|| ApiError::BadRequest("Issue not found".to_string()))?;
+        .ok_or_else(|| ApiError::BadRequest("Task not found".to_string()))?;
     let workflow = get_workflow_template(pool, request.workflow_id).await?;
     if workflow.project_id.is_some_and(|id| id != project_id) {
         return Err(ApiError::BadRequest(
@@ -2582,7 +2582,7 @@ pub(super) async fn initialize_workflow_run_in(
     if let Some(attempt_id) = attempt_id {
         let current: (String,Option<String>)=sqlx::query_as("SELECT w.graph_json,a.frozen_graph_json FROM workflow_attempts a JOIN workflows w ON w.id=a.workflow_id WHERE a.id=? AND a.issue_id=?")
             .bind(attempt_id).bind(request.issue_id).fetch_optional(&mut *transaction).await?
-            .ok_or_else(||ApiError::Conflict("Workflow instance no longer belongs to this Issue".into()))?;
+            .ok_or_else(||ApiError::Conflict("Workflow instance no longer belongs to this Task".into()))?;
         let expected_graph: WorkflowGraph =
             serde_json::from_str(current.1.as_deref().unwrap_or(&current.0))
                 .map_err(|_| ApiError::Conflict("Workflow definition is invalid".into()))?;
@@ -2682,7 +2682,7 @@ pub(super) async fn workflow_task_parent(
     .await?
     .ok_or_else(|| {
         ApiError::BadRequest(
-            "Workflow attempt is missing its canonical Task or belongs to another Issue"
+            "Workflow attempt is missing its canonical Execution or belongs to another Task"
                 .to_string(),
         )
     })?;
@@ -2732,45 +2732,45 @@ pub(super) async fn materialize_node_execution(
             let task_id = if let Some((task_id, parent_id)) = bound {
                 if parent_id != Some(parent.task_id) {
                     return Err(ApiError::Conflict(
-                        "Workflow Node Session belongs to another Task".to_string(),
+                        "Workflow Node Session belongs to another Execution".to_string(),
                     ));
                 }
                 task_id
             } else {
-                Task::create(
+                Execution::create(
                     connection,
-                    &CreateTask {
+                    &CreateExecution {
                         id: execution_id,
                         project_id: parent.project_id,
                         issue_id: parent.issue_id,
                         parent_task_id: Some(parent.task_id),
                         title: workflow_node_task_title(node),
-                        execution_kind: TaskExecutionKind::Agent,
+                        execution_kind: ExecutionKind::Agent,
                     },
                 )
                 .await
-                .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
-                Task::bind_agent_session(connection, execution_id, source_session_id)
+                .map_err(|error| ApiError::Session(SessionError::Execution(error)))?;
+                Execution::bind_agent_session(connection, execution_id, source_session_id)
                     .await
-                    .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+                    .map_err(|error| ApiError::Session(SessionError::Execution(error)))?;
                 execution_id
             };
             (Some(task_id), Some(source_session_id))
         }
         (WorkflowNodeKind::Arena, Some(parent)) => {
-            Task::create(
+            Execution::create(
                 connection,
-                &CreateTask {
+                &CreateExecution {
                     id: execution_id,
                     project_id: parent.project_id,
                     issue_id: parent.issue_id,
                     parent_task_id: Some(parent.task_id),
                     title: workflow_node_task_title(node),
-                    execution_kind: TaskExecutionKind::Arena,
+                    execution_kind: ExecutionKind::Arena,
                 },
             )
             .await
-            .map_err(|error| ApiError::Session(SessionError::Task(error)))?;
+            .map_err(|error| ApiError::Session(SessionError::Execution(error)))?;
             (Some(execution_id), None)
         }
         (WorkflowNodeKind::Agent, None) => (None, source_session_id),
@@ -5124,7 +5124,7 @@ mod tests {
         assert!(prompt.contains("## Direct Upstream Handoff"));
         assert!(prompt.contains("### agent-plan"));
         assert!(prompt.contains("Plan says implement the UI first."));
-        assert!(prompt.contains("## Node Task"));
+        assert!(prompt.contains("## Node Execution"));
         assert!(prompt.contains("Implement the requested change."));
         assert!(prompt.contains("Questions are allowed when needed"));
         assert!(prompt.contains("concise handoff for downstream nodes"));

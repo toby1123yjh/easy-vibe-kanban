@@ -1,7 +1,7 @@
 use api_types::{
-    CreateIssueCommentRequest, DeleteResponse, IssueComment, ListIssueCommentsQuery,
-    ListIssueCommentsResponse, MemberRole, MutationResponse, NotificationPayload, NotificationType,
-    UpdateIssueCommentRequest,
+    CreateTaskCommentRequest, DeleteResponse, ListTaskCommentsQuery, ListTaskCommentsResponse,
+    MemberRole, MutationResponse, NotificationPayload, NotificationType, TaskComment,
+    UpdateTaskCommentRequest,
 };
 use axum::{
     Json,
@@ -26,10 +26,10 @@ use crate::{
     notifications::notify_issue_subscribers,
 };
 
-/// Mutation definition for IssueComment - provides both router and TypeScript metadata.
-pub fn mutation()
--> MutationBuilder<IssueComment, CreateIssueCommentRequest, UpdateIssueCommentRequest> {
-    MutationBuilder::new("issue_comments")
+/// Mutation definition for TaskComment - provides both router and TypeScript metadata.
+pub fn mutation() -> MutationBuilder<TaskComment, CreateTaskCommentRequest, UpdateTaskCommentRequest>
+{
+    MutationBuilder::new()
         .list(list_issue_comments)
         .get(get_issue_comment)
         .create(create_issue_comment)
@@ -49,8 +49,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_issue_comments(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListIssueCommentsQuery>,
-) -> Result<Json<ListIssueCommentsResponse>, ErrorResponse> {
+    Query(query): Query<ListTaskCommentsQuery>,
+) -> Result<Json<ListTaskCommentsResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let issue_comments = IssueCommentRepository::list_by_issue(state.pool(), query.issue_id)
@@ -63,7 +63,7 @@ async fn list_issue_comments(
             )
         })?;
 
-    Ok(Json(ListIssueCommentsResponse { issue_comments }))
+    Ok(Json(ListTaskCommentsResponse { issue_comments }))
 }
 
 #[instrument(
@@ -75,7 +75,7 @@ async fn get_issue_comment(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_comment_id): Path<Uuid>,
-) -> Result<Json<IssueComment>, ErrorResponse> {
+) -> Result<Json<TaskComment>, ErrorResponse> {
     let comment = IssueCommentRepository::find_by_id(state.pool(), issue_comment_id)
         .await
         .map_err(|error| {
@@ -100,8 +100,8 @@ async fn get_issue_comment(
 async fn create_issue_comment(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreateIssueCommentRequest>,
-) -> Result<Json<MutationResponse<IssueComment>>, ErrorResponse> {
+    Json(payload): Json<CreateTaskCommentRequest>,
+) -> Result<Json<MutationResponse<TaskComment>>, ErrorResponse> {
     let organization_id = ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let is_reply = payload.parent_id.is_some();
@@ -141,7 +141,7 @@ async fn create_issue_comment(
             organization_id,
             ctx.user.id,
             &issue,
-            NotificationType::IssueCommentAdded,
+            NotificationType::TaskCommentAdded,
             NotificationPayload {
                 comment_preview: Some(comment_preview),
                 ..Default::default()
@@ -163,8 +163,8 @@ async fn update_issue_comment(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(issue_comment_id): Path<Uuid>,
-    Json(payload): Json<UpdateIssueCommentRequest>,
-) -> Result<Json<MutationResponse<IssueComment>>, ErrorResponse> {
+    Json(payload): Json<UpdateTaskCommentRequest>,
+) -> Result<Json<MutationResponse<TaskComment>>, ErrorResponse> {
     let comment = IssueCommentRepository::find_by_id(state.pool(), issue_comment_id)
         .await
         .map_err(|error| {

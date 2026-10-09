@@ -9,7 +9,7 @@ import {
   getWorkflowNodeActionGate,
   getWorkflowNodeExecutionForWork,
   getWorkflowNodeRuntimeSummary,
-  getWorkflowNodeTaskTarget,
+  getWorkflowNodeExecutionTarget,
   getWorkflowNodeWork,
   getWorkflowRunActionGate,
   getWorkflowRuntimeAttentionItems,
@@ -27,7 +27,7 @@ function node(
   return {
     id,
     run_id: 'run-1',
-    task_id: null,
+    execution_id: null,
     node_id: nodeId,
     node_type: nodeType,
     iteration,
@@ -55,7 +55,7 @@ const baseRun = {
   orchestration_run_id: null,
   workflow_id: 'workflow-1',
   attempt_id: null,
-  issue_id: 'issue-1',
+  task_id: 'issue-1',
   workspace_id: 'workspace-1',
   trigger_source: 'manual',
   input_text: 'Build feature',
@@ -385,10 +385,10 @@ describe('workflow runtime view', () => {
     } as ReturnType<typeof getWorkflowNodeWork>;
     const agent = {
       ...node('exec-agent', 'agent', 'agent', 'running'),
-      task_id: 'task-agent',
+      execution_id: 'task-agent',
       session_id: 'session-agent',
     };
-    expect(getWorkflowNodeTaskTarget(agent, currentAgentWork)).toEqual({
+    expect(getWorkflowNodeExecutionTarget(agent, currentAgentWork)).toEqual({
       kind: 'agent-session',
       taskId: 'task-agent',
       sessionId: 'session-agent',
@@ -396,11 +396,11 @@ describe('workflow runtime view', () => {
 
     const arena = {
       ...node('exec-arena', 'arena', 'arena', 'awaiting_arena'),
-      task_id: 'task-arena',
+      execution_id: 'task-arena',
       arena_group_id: 'arena-group',
     };
     expect(
-      getWorkflowNodeTaskTarget(arena, {
+      getWorkflowNodeExecutionTarget(arena, {
         ...currentAgentWork,
         can_open_session: false,
       })
@@ -411,16 +411,19 @@ describe('workflow runtime view', () => {
     });
 
     expect(
-      getWorkflowNodeTaskTarget(
+      getWorkflowNodeExecutionTarget(
         { ...agent, node_type: 'condition' },
         currentAgentWork
       )
     ).toBeNull();
     expect(
-      getWorkflowNodeTaskTarget({ ...agent, task_id: null }, currentAgentWork)
+      getWorkflowNodeExecutionTarget(
+        { ...agent, execution_id: null },
+        currentAgentWork
+      )
     ).toBeNull();
     expect(
-      getWorkflowNodeTaskTarget(agent, {
+      getWorkflowNodeExecutionTarget(agent, {
         ...currentAgentWork,
         runtime_authority: 'unknown',
       })

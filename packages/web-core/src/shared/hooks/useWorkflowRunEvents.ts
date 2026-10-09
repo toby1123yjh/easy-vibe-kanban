@@ -7,6 +7,7 @@ import {
   type WorkflowRuntimeEvent,
 } from '@/shared/lib/workflowApi';
 import { workflowRunQueryKeys } from './useWorkflowRun';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 export interface UseWorkflowRunEventsOptions {
   enabled?: boolean;
@@ -30,6 +31,7 @@ export function useWorkflowRunEvents(
 ) {
   const { enabled = true, onEvent, onRawEvent, onError } = options;
   const queryClient = useQueryClient();
+  const hostId = useHostId();
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -38,7 +40,9 @@ export function useWorkflowRunEvents(
       return;
     }
 
-    if (!runId || !enabled) {
+    // Relay requests use the signed transport; native EventSource cannot carry
+    // it. Remote runs retain the host-scoped polling in useWorkflowRun.
+    if (!runId || !enabled || hostId) {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -58,7 +62,7 @@ export function useWorkflowRunEvents(
       }
       // Invalidate the run query on specific workflow events
       void queryClient.invalidateQueries({
-        queryKey: workflowRunQueryKeys.detail(runId),
+        queryKey: workflowRunQueryKeys.detail(runId, hostId),
       });
     };
 
@@ -84,7 +88,7 @@ export function useWorkflowRunEvents(
       es.close();
       eventSourceRef.current = null;
     };
-  }, [runId, enabled, onEvent, onRawEvent, onError, queryClient]);
+  }, [runId, enabled, hostId, onEvent, onRawEvent, onError, queryClient]);
 
   return {
     eventSource: eventSourceRef.current,

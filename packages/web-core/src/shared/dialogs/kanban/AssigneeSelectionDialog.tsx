@@ -22,13 +22,13 @@ import {
   getProjectDestination,
 } from '@/shared/lib/routes/appNavigation';
 import {
-  buildKanbanIssueComposerKey,
-  patchKanbanIssueComposer,
-  useKanbanIssueComposer,
-} from '@/shared/stores/useKanbanIssueComposerStore';
+  buildKanbanTaskComposerKey,
+  patchKanbanTaskComposer,
+  useKanbanTaskComposer,
+} from '@/shared/stores/useKanbanTaskComposerStore';
 export interface AssigneeSelectionDialogProps {
   projectId: string;
-  issueIds: string[];
+  taskIds: string[];
   isCreateMode?: boolean;
   /** Initial assignee IDs for create mode (used instead of URL params when provided) */
   createModeAssigneeIds?: string[];
@@ -49,14 +49,14 @@ const getUserDisplayName = (user: OrganizationMemberWithProfile): string => {
 /** Inner component that uses contexts to render the selection UI */
 function AssigneeSelectionContent({
   projectId,
-  issueIds,
+  taskIds,
   isCreateMode,
   createModeAssigneeIds,
   onCreateModeAssigneesChange,
   additionalOptions,
 }: {
   projectId: string;
-  issueIds: string[];
+  taskIds: string[];
   isCreateMode: boolean;
   createModeAssigneeIds?: string[];
   onCreateModeAssigneesChange?: (assigneeIds: string[]) => void;
@@ -72,12 +72,12 @@ function AssigneeSelectionContent({
     [destination]
   );
   const resolvedProjectId = projectId || projectDestination?.projectId || null;
-  const issueComposerKey = useMemo(() => {
+  const taskComposerKey = useMemo(() => {
     if (!resolvedProjectId) return null;
     const hostId = getDestinationHostId(projectDestination);
-    return buildKanbanIssueComposerKey(hostId, resolvedProjectId);
+    return buildKanbanTaskComposerKey(hostId, resolvedProjectId);
   }, [resolvedProjectId, projectDestination]);
-  const issueComposer = useKanbanIssueComposer(issueComposerKey);
+  const taskComposer = useKanbanTaskComposer(taskComposerKey);
 
   // Get users from OrgContext - use membersWithProfilesById for OrganizationMemberWithProfile
   const { membersWithProfilesById } = useOrgContext();
@@ -87,7 +87,7 @@ function AssigneeSelectionContent({
   );
 
   // Get issue assignees and mutation functions from ProjectContext
-  const { issueAssignees, insertIssueAssignee, removeIssueAssignee } =
+  const { taskAssignees, insertTaskAssignee, removeTaskAssignee } =
     useProjectContext();
 
   // Local state for create mode when using callback pattern
@@ -103,33 +103,31 @@ function AssigneeSelectionContent({
   }, [hasCreateCallback, createModeAssigneeIds, modal.visible]);
 
   // Fallback: get/set create mode defaults from shared in-memory state.
-  const issueComposerAssigneeIds = issueComposer?.draft.assigneeIds ?? [];
+  const taskComposerAssigneeIds = taskComposer?.draft.assigneeIds ?? [];
 
-  const setIssueComposerAssigneeIds = useCallback(
+  const setTaskComposerAssigneeIds = useCallback(
     (assigneeIds: string[]) => {
-      if (!issueComposerKey) return;
-      patchKanbanIssueComposer(issueComposerKey, { assigneeIds });
+      if (!taskComposerKey) return;
+      patchKanbanTaskComposer(taskComposerKey, { assigneeIds });
     },
-    [issueComposerKey]
+    [taskComposerKey]
   );
 
   // Derive selected assignee IDs based on mode and callback availability
   const selectedIds = useMemo(() => {
     if (isCreateMode) {
-      return hasCreateCallback
-        ? localCreateAssignees
-        : issueComposerAssigneeIds;
+      return hasCreateCallback ? localCreateAssignees : taskComposerAssigneeIds;
     }
-    return issueAssignees
-      .filter((a) => issueIds.includes(a.issue_id))
+    return taskAssignees
+      .filter((a) => taskIds.includes(a.task_id))
       .map((a) => a.user_id);
   }, [
     isCreateMode,
-    issueIds,
-    issueAssignees,
+    taskIds,
+    taskAssignees,
     hasCreateCallback,
     localCreateAssignees,
-    issueComposerAssigneeIds,
+    taskComposerAssigneeIds,
   ]);
 
   const [search, setSearch] = useState('');
@@ -174,22 +172,22 @@ function AssigneeSelectionContent({
           setLocalCreateAssignees(newIds);
           onCreateModeAssigneesChange(newIds);
         } else {
-          setIssueComposerAssigneeIds(newIds);
+          setTaskComposerAssigneeIds(newIds);
         }
       } else {
         // Edit mode: apply mutation immediately for each issue
-        for (const issueId of issueIds) {
+        for (const taskId of taskIds) {
           if (isSelected) {
             // Remove the assignee
-            const record = issueAssignees.find(
-              (a) => a.issue_id === issueId && a.user_id === userId
+            const record = taskAssignees.find(
+              (a) => a.task_id === taskId && a.user_id === userId
             );
             if (record) {
-              removeIssueAssignee(record.id);
+              removeTaskAssignee(record.id);
             }
           } else {
             // Add the assignee
-            insertIssueAssignee({ issue_id: issueId, user_id: userId });
+            insertTaskAssignee({ task_id: taskId, user_id: userId });
           }
         }
       }
@@ -199,12 +197,12 @@ function AssigneeSelectionContent({
     [
       isCreateMode,
       selectedIds,
-      issueIds,
-      issueAssignees,
+      taskIds,
+      taskAssignees,
       onCreateModeAssigneesChange,
-      setIssueComposerAssigneeIds,
-      insertIssueAssignee,
-      removeIssueAssignee,
+      setTaskComposerAssigneeIds,
+      insertTaskAssignee,
+      removeTaskAssignee,
     ]
   );
 
@@ -240,7 +238,7 @@ function AssigneeSelectionContent({
 /** Wrapper that provides OrgContext and ProjectContext */
 function AssigneeSelectionWithContext({
   projectId,
-  issueIds,
+  taskIds,
   isCreateMode = false,
   createModeAssigneeIds,
   onCreateModeAssigneesChange,
@@ -270,7 +268,7 @@ function AssigneeSelectionWithContext({
       <ProjectProvider projectId={resolvedProjectId}>
         <AssigneeSelectionContent
           projectId={resolvedProjectId}
-          issueIds={issueIds}
+          taskIds={taskIds}
           isCreateMode={isCreateMode}
           createModeAssigneeIds={createModeAssigneeIds}
           onCreateModeAssigneesChange={onCreateModeAssigneesChange}
@@ -284,7 +282,7 @@ function AssigneeSelectionWithContext({
 const AssigneeSelectionDialogImpl = create<AssigneeSelectionDialogProps>(
   ({
     projectId,
-    issueIds,
+    taskIds,
     isCreateMode,
     createModeAssigneeIds,
     onCreateModeAssigneesChange,
@@ -293,7 +291,7 @@ const AssigneeSelectionDialogImpl = create<AssigneeSelectionDialogProps>(
     return (
       <AssigneeSelectionWithContext
         projectId={projectId}
-        issueIds={issueIds}
+        taskIds={taskIds}
         isCreateMode={isCreateMode}
         createModeAssigneeIds={createModeAssigneeIds}
         onCreateModeAssigneesChange={onCreateModeAssigneesChange}

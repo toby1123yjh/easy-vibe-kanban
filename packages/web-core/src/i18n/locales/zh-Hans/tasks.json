@@ -1,6 +1,6 @@
 {
   "sessionDeletion": {
-    "taskSummary": "将删除此任务及其会话历史，无法撤销。",
+    "taskSummary": "将删除此执行及其会话历史，无法撤销。",
     "sessionSummary": "将删除此会话及其历史记录，无法撤销。",
     "filesWillDelete": "将永久删除该目录及其中的全部文件。",
     "filesWillKeep": "不勾选则保留本机文件。",
@@ -9,22 +9,22 @@
     "filesRetained": "会话已删除，部分文件仍保留：",
     "deleteManagedFiles": "同时删除此会话的工作目录和文件",
     "withFilesDescription": "删除“{{name}}”、会话历史以及下方托管工作目录？其他会话、项目和智能体原生历史不受影响。此操作无法撤销。",
-    "stopDescription": "“{{name}}”的智能体仍在运行，或暂时无法确认已退出。是否安全停止后删除？若停止失败，将保留任务和会话。",
+    "stopDescription": "“{{name}}”的智能体仍在运行，或暂时无法确认已退出。是否安全停止后删除？若停止失败，将保留执行和会话。",
     "stopAndDelete": "停止并删除",
     "stopping": "正在停止并删除…",
-    "stopFailed": "智能体尚未停止，任务和会话已保留，请稍后重试。",
-    "taskTitle": "删除 任务 和会话？",
+    "stopFailed": "智能体尚未停止，执行和会话已保留，请稍后重试。",
+    "taskTitle": "删除 执行 和会话？",
     "sessionTitle": "删除会话？",
-    "taskDescription": "从 Vibe Kanban 中删除“{{name}}”及其绑定会话的历史记录？议题、项目、工作空间、其他 任务 和会话、工作文件及 智能体 原生历史记录均会保留。此操作无法撤销。",
+    "taskDescription": "从 Vibe Kanban 中删除“{{name}}”及其绑定会话的历史记录？任务、项目、工作空间、其他 执行 和会话、工作文件及 智能体 原生历史记录均会保留。此操作无法撤销。",
     "sessionDescription": "从 Vibe Kanban 中删除会话“{{name}}”及其历史记录？工作空间、其他会话、工作文件及 智能体 原生历史记录均会保留。此操作无法撤销。",
-    "resolving": "正在检查当前 任务 与会话的绑定关系…",
-    "deleteTask": "删除 任务 和会话",
+    "resolving": "正在检查当前 执行 与会话的绑定关系…",
+    "deleteTask": "删除 执行 和会话",
     "deleteSession": "删除会话",
     "action": "删除 {{name}}",
     "deleting": "正在删除…",
     "failed": "无法删除，请重试。",
     "scopeChanged": "当前 Host 或所选内容已更改。请取消，然后从目标条目重新发起删除。",
-    "bindingChanged": "此 任务 已不再绑定所选会话。请刷新列表后重试。"
+    "bindingChanged": "此 执行 已不再绑定所选会话。请刷新列表后重试。"
   },
   "dropzone": {
     "dropImagesHere": "将图片拖放到这里",
@@ -596,7 +596,7 @@
   },
   "linkPrToIssue": {
     "title": "关联拉取请求",
-    "description": "将现有的拉取请求关联到此问题。",
+    "description": "将现有的拉取请求关联到此任务。",
     "urlTab": "从 URL",
     "browseTab": "浏览",
     "urlLabel": "拉取请求 URL",

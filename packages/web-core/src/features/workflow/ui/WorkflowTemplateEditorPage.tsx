@@ -24,7 +24,7 @@ import {
 import {
   buildWorkflowRunInput,
   getWorkflowRunErrorMessage,
-} from '../model/issueWorkflow';
+} from '../model/taskWorkflow';
 import {
   acknowledgeLocalWorkflowSave,
   acknowledgeWorkflowPublication,
@@ -42,11 +42,11 @@ import {
 } from '../model/workflowAuthoring';
 import { isWorkflowNodeAuthorable } from '../model/workflowNodeCatalog';
 import {
-  deleteIssueWorkflowAttemptDraft,
-  parseIssueWorkflowAttemptDraftRouteId,
-  readIssueWorkflowAttemptDraft,
-  saveIssueWorkflowAttemptDraft,
-  type IssueWorkflowAttemptDraft,
+  deleteTaskWorkflowAttemptDraft,
+  parseTaskWorkflowAttemptDraftRouteId,
+  readTaskWorkflowAttemptDraft,
+  saveTaskWorkflowAttemptDraft,
+  type TaskWorkflowAttemptDraft,
 } from '../model/workflowAttemptDraftStorage';
 import { consumeWorkflowTemplateNodeFocus } from '../model/workflowTemplateNodeFocus';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
@@ -270,16 +270,16 @@ export function WorkflowTemplateEditorPage({
   workflowId,
 }: WorkflowTemplateEditorPageProps) {
   const { t } = useTranslation('common');
-  const localDraftId = parseIssueWorkflowAttemptDraftRouteId(workflowId);
+  const localDraftId = parseTaskWorkflowAttemptDraftRouteId(workflowId);
   const isLocalDraft = localDraftId !== null;
   const [storedLocalDraft, setLocalDraft] =
-    useState<IssueWorkflowAttemptDraft | null>(() =>
-      localDraftId ? readIssueWorkflowAttemptDraft(localDraftId) : null
+    useState<TaskWorkflowAttemptDraft | null>(() =>
+      localDraftId ? readTaskWorkflowAttemptDraft(localDraftId) : null
     );
   const localDraft = localDraftId
     ? storedLocalDraft?.id === localDraftId
       ? storedLocalDraft
-      : readIssueWorkflowAttemptDraft(localDraftId)
+      : readTaskWorkflowAttemptDraft(localDraftId)
     : null;
   const {
     data: loadedTemplate,
@@ -303,7 +303,7 @@ export function WorkflowTemplateEditorPage({
   const { createAttempt, isCreatingAttempt, runAttempt, isRunningAttempt } =
     useWorkflowAttemptMutations();
   const navigation = useAppNavigation();
-  const { getIssue } = useProjectContext();
+  const { getTask } = useProjectContext();
 
   const [authoringState, setAuthoringState] =
     useState<WorkflowAuthoringState | null>(null);
@@ -342,7 +342,7 @@ export function WorkflowTemplateEditorPage({
               source: 'project' as const,
               project_id: projectId,
               name: localDraft.name,
-              description: localDraft.issueDescription ?? null,
+              description: localDraft.taskDescription ?? null,
               graph_json: localDraft.graphJson,
               revision: 0,
               created_at: localDraft.createdAt,
@@ -352,14 +352,12 @@ export function WorkflowTemplateEditorPage({
         : loadedTemplate,
     [isLocalDraft, loadedTemplate, localDraft, projectId, workflowId]
   );
-  const draftIssue = localDraft ? getIssue(localDraft.issueId) : null;
-  const issue = workflowAttempt
-    ? getIssue(workflowAttempt.issue_id)
-    : draftIssue;
+  const draftTask = localDraft ? getTask(localDraft.taskId) : null;
+  const task = workflowAttempt ? getTask(workflowAttempt.task_id) : draftTask;
   const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
     projectId,
-    issueId: workflowAttempt?.issue_id ?? localDraft?.issueId ?? '',
-    issueTitle: issue?.title ?? localDraft?.issueTitle ?? name,
+    taskId: workflowAttempt?.task_id ?? localDraft?.taskId ?? '',
+    taskTitle: task?.title ?? localDraft?.taskTitle ?? name,
   });
   const formatWorkflowRunError = (err: unknown) => {
     if (err instanceof WorkflowRevisionConflictError) {
@@ -380,7 +378,7 @@ export function WorkflowTemplateEditorPage({
 
   useEffect(() => {
     setLocalDraft(
-      localDraftId ? readIssueWorkflowAttemptDraft(localDraftId) : null
+      localDraftId ? readTaskWorkflowAttemptDraft(localDraftId) : null
     );
   }, [localDraftId]);
 
@@ -492,7 +490,7 @@ export function WorkflowTemplateEditorPage({
         name: metadataSnapshot.name,
         graphJson: JSON.stringify(snapshot.graph),
       };
-      saveIssueWorkflowAttemptDraft(nextDraft);
+      saveTaskWorkflowAttemptDraft(nextDraft);
       setLocalDraft(nextDraft);
       setAuthoringState((current) =>
         current ? acknowledgeLocalWorkflowSave(current, snapshot) : current
@@ -604,7 +602,7 @@ export function WorkflowTemplateEditorPage({
 
     const attempt = await createAttempt({
       projectId,
-      issueId: localDraft.issueId,
+      taskId: localDraft.taskId,
       payload: {
         name,
         graph_json: JSON.stringify(nextGraph),
@@ -612,7 +610,7 @@ export function WorkflowTemplateEditorPage({
       },
     });
 
-    deleteIssueWorkflowAttemptDraft(localDraftId);
+    deleteTaskWorkflowAttemptDraft(localDraftId);
     if (navigateAfterSave) {
       allowNavigationRef.current = true;
       navigation.goToProjectWorkflowEdit(projectId, attempt.workflow_id, {
@@ -723,8 +721,8 @@ export function WorkflowTemplateEditorPage({
           workspace_id: null,
           trigger_source: 'manual',
           input_text: buildWorkflowRunInput({
-            title: issue?.title ?? name,
-            description: issue?.description ?? description,
+            title: task?.title ?? name,
+            description: task?.description ?? description,
           }),
           ...workspace,
         },
@@ -798,14 +796,14 @@ export function WorkflowTemplateEditorPage({
 
   const handleBack = () => {
     if (localDraft && !hasUnsavedChanges) {
-      deleteIssueWorkflowAttemptDraft(localDraft.id);
+      deleteTaskWorkflowAttemptDraft(localDraft.id);
     }
     if (localDraft) {
-      navigation.goToProjectIssue(projectId, localDraft.issueId);
+      navigation.goToProjectTask(projectId, localDraft.taskId);
       return;
     }
     if (workflowAttempt) {
-      navigation.goToProjectIssue(projectId, workflowAttempt.issue_id);
+      navigation.goToProjectTask(projectId, workflowAttempt.task_id);
       return;
     }
     navigation.goToProjectWorkflows(projectId);
@@ -816,7 +814,7 @@ export function WorkflowTemplateEditorPage({
   };
 
   const handleDiscardAndLeave = () => {
-    if (localDraft) deleteIssueWorkflowAttemptDraft(localDraft.id);
+    if (localDraft) deleteTaskWorkflowAttemptDraft(localDraft.id);
     allowNavigationRef.current = true;
     if (navigationBlocker.status === 'blocked') navigationBlocker.proceed();
   };
@@ -1203,10 +1201,10 @@ export function WorkflowTemplateEditorPage({
   const authoringIssues = validateWorkflowAuthoringGraph(graph);
   const canvasValidationIssues = [
     ...validationIssues,
-    ...authoringIssues.map((issue) => ({
+    ...authoringIssues.map((task) => ({
       type: 'error' as const,
-      nodeId: issue.nodeId,
-      message: getWorkflowAuthoringIssueMessage(issue, t),
+      nodeId: task.nodeId,
+      message: getWorkflowAuthoringIssueMessage(task, t),
     })),
   ];
   const isValid =
@@ -1271,7 +1269,7 @@ export function WorkflowTemplateEditorPage({
           key={loadedTemplate.id}
           projectId={projectId}
           template={loadedTemplate}
-          issueId={workflowAttempt?.issue_id}
+          taskId={workflowAttempt?.task_id}
           onPublished={(saved, previousRevision) => {
             setAuthoringState((current) =>
               current
@@ -1539,7 +1537,7 @@ export function WorkflowTemplateEditorPage({
               workflowId={
                 workflowAttempt.template_id ?? workflowAttempt.workflow_id
               }
-              issueId={workflowAttempt.issue_id}
+              taskId={workflowAttempt.task_id}
               disabled={
                 !!workflowAttempt.main_session_bound_at &&
                 !workflowAttempt.main_session_id

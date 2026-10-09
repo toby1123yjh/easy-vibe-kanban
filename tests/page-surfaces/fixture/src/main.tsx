@@ -95,11 +95,11 @@ function navigation() {
     goToProjectWorkflows: () => record("project-workflows"),
     goToProjectWorkflowEdit: () => record("project-workflow-edit"),
     goToProjectWorkflowRun: () => record("project-workflow-run"),
-    goToProjectIssue: () => record("project-issue"),
-    goToProjectIssueArena: () => record("project-issue-arena"),
-    goToProjectIssueWorkspace: () => record("project-issue-workspace"),
-    goToProjectIssueWorkspaceCreate: () =>
-      record("project-issue-workspace-create"),
+    goToProjectTask: () => record("project-task"),
+    goToProjectTaskArena: () => record("project-task-arena"),
+    goToProjectTaskWorkspace: () => record("project-task-workspace"),
+    goToProjectTaskWorkspaceCreate: () =>
+      record("project-task-workspace-create"),
     goToProjectWorkspaceCreate: (projectId: string) =>
       record(`project-workspace-create:${projectId}`),
   };
@@ -107,9 +107,9 @@ function navigation() {
 
 function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
   const projects = useFixtureProjects();
-  const [issueComposerRequests, setIssueComposerRequests] = React.useState(0);
-  const openIssueComposer = () =>
-    setIssueComposerRequests((count) => count + 1);
+  const [taskComposerRequests, setTaskComposerRequests] = React.useState(0);
+  const openTaskComposer = () =>
+    setTaskComposerRequests((count) => count + 1);
   const [scope, setScope] = React.useState("fixture");
   React.useEffect(() => {
     const changeScope = () => setScope((previous) => `${previous}-changed`);
@@ -142,7 +142,7 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
     <AppShellProjectsProvider value={projectsState}>
       <section data-testid="project-directory-surface" className="fixture-page">
         <output data-testid="issue-composer-requests" hidden>
-          {issueComposerRequests}
+          {taskComposerRequests}
         </output>
         {new URLSearchParams(location.search).has("defaultProject") ? (
           <DefaultProjectPage />
@@ -163,10 +163,10 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
                 <ProjectSessions
                   projectId="project-2"
                   variant="column"
-                  onCreateIssue={
-                    new URLSearchParams(location.search).has("noIssueComposer")
+                  onCreateTask={
+                    new URLSearchParams(location.search).has("noTaskComposer")
                       ? undefined
-                      : openIssueComposer
+                      : openTaskComposer
                   }
                 />
               ) : undefined
@@ -179,23 +179,23 @@ function ProjectDirectoryFixture({ board = false }: { board?: boolean }) {
                       name,
                       color: "210 80% 52%",
                       sortOrder: index,
-                      issues: [],
+                      tasks: [],
                     }),
                   )
                 : []
             }
-            issueCount={0}
+            taskCount={0}
             query=""
-            selectedIssueId={null}
+            selectedTaskId={null}
             dragDisabled={false}
-            taskSource={{ state: "ready" }}
+            executionSource={{ state: "ready" }}
             panel={null}
             onQueryChange={() => undefined}
-            onCreateIssue={openIssueComposer}
-            onOpenIssue={() => undefined}
+            onCreateTask={openTaskComposer}
             onOpenTask={() => undefined}
-            onDeleteIssue={async () => undefined}
-            getTaskUnavailableReason={() => null}
+            onOpenExecution={() => undefined}
+            onDeleteTask={async () => undefined}
+            getExecutionUnavailableReason={() => null}
             onMove={async () => undefined}
           />
         ) : (

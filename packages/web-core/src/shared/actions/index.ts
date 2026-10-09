@@ -54,7 +54,7 @@ import {
 } from '@/shared/stores/useUiPreferencesStore';
 
 import { workspacesApi, relayApi, repoApi } from '@/shared/lib/api';
-import { bulkUpdateIssues } from '@/shared/lib/remoteApi';
+import { bulkUpdateTasks } from '@/shared/lib/remoteApi';
 import { workspaceRecordKeys } from '@/shared/hooks/useWorkspaceRecord';
 import { workspaceRepoKeys } from '@/shared/hooks/useWorkspaceRepo';
 import { repoBranchKeys } from '@/shared/hooks/useRepoBranches';
@@ -92,23 +92,23 @@ import type {
   ActionDefinition,
   GlobalActionDefinition,
   WorkspaceActionDefinition,
-  IssueActionDefinition,
+  TaskActionDefinition,
 } from '@/shared/types/actions';
 import { ActionTargetType } from '@/shared/types/actions';
 
-async function resolveLinkedIssue(
+async function resolveLinkedTask(
   workspaceId: string,
   remoteWorkspaces: {
     local_workspace_id: string | null;
-    issue_id: string | null;
+    task_id: string | null;
     project_id: string;
   }[]
-): Promise<{ issueId: string; remoteProjectId: string } | undefined> {
+): Promise<{ taskId: string; remoteProjectId: string } | undefined> {
   const remoteWs = remoteWorkspaces.find(
     (w) => w.local_workspace_id === workspaceId
   );
-  if (remoteWs?.issue_id) {
-    return { issueId: remoteWs.issue_id, remoteProjectId: remoteWs.project_id };
+  if (remoteWs?.task_id) {
+    return { taskId: remoteWs.task_id, remoteProjectId: remoteWs.project_id };
   }
   return undefined;
 }
@@ -155,16 +155,16 @@ function getNextWorkspaceId(
 }
 
 // Helper to navigate to create-issue form for a sub-issue, carrying over parent assignees
-function navigateToCreateSubIssue(
+function navigateToCreateSubTask(
   ctx: ActionExecutorContext,
-  parentIssueId: string
+  parentTaskId: string
 ) {
   const assigneeIds = ctx.projectMutations
-    ?.getAssigneesForIssue(parentIssueId)
+    ?.getAssigneesForTask(parentTaskId)
     .map((a) => a.user_id);
-  ctx.navigateToCreateIssue({
+  ctx.navigateToCreateTask({
     statusId: ctx.defaultCreateStatusId,
-    parentIssueId,
+    parentTaskId,
     assigneeIds: assigneeIds?.length ? assigneeIds : undefined,
   });
 }
@@ -186,7 +186,7 @@ export const Actions = {
           workspacesApi.getWithSession(workspaceId),
         ]);
 
-        const linkedIssue = await resolveLinkedIssue(
+        const linkedTask = await resolveLinkedTask(
           workspaceId,
           ctx.remoteWorkspaces
         );
@@ -206,7 +206,7 @@ export const Actions = {
               target_branch: r.target_branch,
             })),
           },
-          linkedIssue,
+          linkedTask,
           executorConfig,
         });
         setCreateModeSeedState(createState);
@@ -293,8 +293,8 @@ export const Actions = {
       const remoteWs = ctx.remoteWorkspaces.find(
         (w) => w.local_workspace_id === workspaceId
       );
-      const linkedIssueSimpleId = remoteWs?.issue_id
-        ? ctx.projectMutations?.getIssue(remoteWs.issue_id)?.simple_id
+      const linkedTaskSimpleId = remoteWs?.task_id
+        ? ctx.projectMutations?.getTask(remoteWs.task_id)?.simple_id
         : undefined;
       const branchStatus = await workspacesApi.getBranchStatus(workspaceId);
       const hasOpenPR = branchStatus.some((repoStatus) =>
@@ -306,8 +306,8 @@ export const Actions = {
       const result = await DeleteWorkspaceDialog.show({
         branchName: workspace.branch,
         hasOpenPR,
-        isLinkedToIssue: Boolean(remoteWs?.issue_id),
-        linkedIssueSimpleId,
+        isLinkedToTask: Boolean(remoteWs?.task_id),
+        linkedTaskSimpleId,
       });
       if (result.action === 'confirmed') {
         // Calculate next workspace before deleting (only if deleting current)
@@ -319,8 +319,8 @@ export const Actions = {
         await workspacesApi.delete(workspaceId, result.deleteBranches);
 
         // Unlink from remote issue after successful deletion
-        if (result.unlinkFromIssue) {
-          await workspacesApi.unlinkFromIssue(workspaceId);
+        if (result.unlinkFromTask) {
+          await workspacesApi.unlinkFromTask(workspaceId);
         }
         ctx.queryClient.invalidateQueries({
           queryKey: workspaceSummaryKeys.all,
@@ -364,7 +364,7 @@ export const Actions = {
           getWorkspace(ctx.queryClient, workspaceId),
           workspacesApi.getRepos(workspaceId),
         ]);
-        const linkedIssue = await resolveLinkedIssue(
+        const linkedTask = await resolveLinkedTask(
           workspaceId,
           ctx.remoteWorkspaces
         );
@@ -377,7 +377,7 @@ export const Actions = {
               target_branch: workspace.branch,
             })),
           },
-          linkedIssue,
+          linkedTask,
         });
         setCreateModeSeedState(createState);
         ctx.appNavigation.goToWorkspacesCreate();
@@ -881,20 +881,20 @@ export const Actions = {
       const repo = repos.find((r) => r.id === repoId);
 
       // Resolve vibe-kanban identifier from remote workspace + issue
-      let issueIdentifier: string | undefined;
+      let taskIdentifier: string | undefined;
       const remoteWs = ctx.remoteWorkspaces.find(
         (w) => w.local_workspace_id === workspaceId
       );
-      if (remoteWs?.issue_id && ctx.projectMutations?.getIssue) {
-        const issue = ctx.projectMutations.getIssue(remoteWs.issue_id);
-        issueIdentifier = issue?.simple_id || remoteWs.issue_id;
+      if (remoteWs?.task_id && ctx.projectMutations?.getTask) {
+        const task = ctx.projectMutations.getTask(remoteWs.task_id);
+        taskIdentifier = task?.simple_id || remoteWs.task_id;
       }
 
       const result = await CreatePRDialog.show({
         attempt: workspace,
         repoId,
         targetBranch: repo?.target_branch,
-        issueIdentifier,
+        taskIdentifier,
       });
 
       if (!result.success && result.error) {
@@ -1232,38 +1232,38 @@ export const Actions = {
   } satisfies WorkspaceActionDefinition,
 
   // === Issue Actions ===
-  CreateIssue: {
+  CreateTask: {
     id: 'create-issue',
-    label: 'Create Issue',
+    label: 'Create Task',
     icon: PlusIcon,
     shortcut: 'I C',
     requiresTarget: ActionTargetType.NONE,
-    isVisible: (ctx) => ctx.layoutMode === 'kanban' && !ctx.isCreatingIssue,
+    isVisible: (ctx) => ctx.layoutMode === 'kanban' && !ctx.isCreatingTask,
     execute: (ctx) => {
-      ctx.navigateToCreateIssue({ statusId: ctx.defaultCreateStatusId });
+      ctx.navigateToCreateTask({ statusId: ctx.defaultCreateStatusId });
     },
   } satisfies GlobalActionDefinition,
 
-  ChangeIssueStatus: {
+  ChangeTaskStatus: {
     id: 'change-issue-status',
     label: 'Change Status',
     icon: ArrowsLeftRightIcon,
     shortcut: 'I S',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      await ctx.openStatusSelection(projectId, issueIds);
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      await ctx.openStatusSelection(projectId, taskIds);
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  ChangeNewIssueStatus: {
+  ChangeNewTaskStatus: {
     id: 'change-new-issue-status',
     label: 'Change Status',
     icon: ArrowsLeftRightIcon,
     shortcut: 'I S',
     requiresTarget: ActionTargetType.NONE,
-    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingIssue,
+    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingTask,
     execute: async (ctx) => {
       if (!ctx.kanbanProjectId) return;
       const { ProjectSelectionDialog } = await import(
@@ -1271,7 +1271,7 @@ export const Actions = {
       );
       await ProjectSelectionDialog.show({
         projectId: ctx.kanbanProjectId,
-        selection: { type: 'status', issueIds: [], isCreateMode: true },
+        selection: { type: 'status', taskIds: [], isCreateMode: true },
       });
     },
   } satisfies GlobalActionDefinition,
@@ -1281,21 +1281,21 @@ export const Actions = {
     label: 'Change Priority',
     icon: ArrowFatLineUpIcon,
     shortcut: 'I P',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      await ctx.openPrioritySelection(projectId, issueIds);
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      await ctx.openPrioritySelection(projectId, taskIds);
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  ChangeNewIssuePriority: {
+  ChangeNewTaskPriority: {
     id: 'change-new-issue-priority',
     label: 'Change Priority',
     icon: ArrowFatLineUpIcon,
     shortcut: 'I P',
     requiresTarget: ActionTargetType.NONE,
-    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingIssue,
+    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingTask,
     execute: async (ctx) => {
       if (!ctx.kanbanProjectId) return;
       const { ProjectSelectionDialog } = await import(
@@ -1303,7 +1303,7 @@ export const Actions = {
       );
       await ProjectSelectionDialog.show({
         projectId: ctx.kanbanProjectId,
-        selection: { type: 'priority', issueIds: [], isCreateMode: true },
+        selection: { type: 'priority', taskIds: [], isCreateMode: true },
       });
     },
   } satisfies GlobalActionDefinition,
@@ -1313,21 +1313,21 @@ export const Actions = {
     label: 'Change Assignees',
     icon: UsersIcon,
     shortcut: 'I A',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      await ctx.openAssigneeSelection(projectId, issueIds, false);
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      await ctx.openAssigneeSelection(projectId, taskIds, false);
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  ChangeNewIssueAssignees: {
+  ChangeNewTaskAssignees: {
     id: 'change-new-issue-assignees',
     label: 'Change Assignees',
     icon: UsersIcon,
     shortcut: 'I A',
     requiresTarget: ActionTargetType.NONE,
-    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingIssue,
+    isVisible: (ctx) => ctx.layoutMode === 'kanban' && ctx.isCreatingTask,
     execute: async (ctx) => {
       // Opens assignee selection for the issue being created
       // ProjectId will be resolved from route params inside the dialog
@@ -1335,214 +1335,214 @@ export const Actions = {
     },
   } satisfies GlobalActionDefinition,
 
-  MakeSubIssueOf: {
+  MakeSubTaskOf: {
     id: 'make-sub-issue-of',
-    label: 'Make Sub-issue of',
+    label: 'Make Sub-task of',
     icon: TreeStructureIcon,
     shortcut: 'I M',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
-        await ctx.openSubIssueSelection(projectId, issueIds[0], 'setParent');
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
+        await ctx.openSubTaskSelection(projectId, taskIds[0], 'setParent');
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  AddSubIssue: {
+  AddSubTask: {
     id: 'add-sub-issue',
-    label: 'Add Sub-issue',
+    label: 'Add Sub-task',
     icon: PlusIcon,
     shortcut: 'I B',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length !== 1) return;
-      const parentIssueId = issueIds[0];
-      const result = await ctx.openSubIssueSelection(
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length !== 1) return;
+      const parentTaskId = taskIds[0];
+      const result = await ctx.openSubTaskSelection(
         projectId,
-        parentIssueId,
+        parentTaskId,
         'addChild'
       );
       if (result?.type === 'createNew') {
-        navigateToCreateSubIssue(ctx, parentIssueId);
+        navigateToCreateSubTask(ctx, parentTaskId);
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  CreateSubIssue: {
+  CreateSubTask: {
     id: 'create-sub-issue',
-    label: 'Create Sub-issue',
+    label: 'Create Sub-task',
     icon: PlusIcon,
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, _projectId, issueIds) => {
-      if (issueIds.length !== 1) return;
-      navigateToCreateSubIssue(ctx, issueIds[0]);
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, _projectId, taskIds) => {
+      if (taskIds.length !== 1) return;
+      navigateToCreateSubTask(ctx, taskIds[0]);
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  RemoveParentIssue: {
+  RemoveParentTask: {
     id: 'remove-parent-issue',
     label: 'Remove Parent',
     icon: XIcon,
     shortcut: 'I U',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
       ctx.layoutMode === 'kanban' &&
-      ctx.hasSelectedKanbanIssue &&
-      ctx.hasSelectedKanbanIssueParent,
-    execute: async (_ctx, _projectId, issueIds) => {
-      await bulkUpdateIssues(
-        issueIds.map((issueId) => ({
-          id: issueId,
+      ctx.hasSelectedKanbanTask &&
+      ctx.hasSelectedKanbanTaskParent,
+    execute: async (_ctx, _projectId, taskIds) => {
+      await bulkUpdateTasks(
+        taskIds.map((taskId) => ({
+          id: taskId,
           changes: {
-            parent_issue_id: null,
-            parent_issue_sort_order: null,
+            parent_task_id: null,
+            parent_task_sort_order: null,
           },
         }))
       );
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
   LinkWorkspace: {
     id: 'link-workspace',
     label: 'Link Workspace',
     icon: LinkIcon,
     shortcut: 'I W',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
-        await ctx.openWorkspaceSelection(projectId, issueIds[0]);
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
+        await ctx.openWorkspaceSelection(projectId, taskIds[0]);
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  DeleteIssue: {
+  DeleteTask: {
     id: 'delete-issue',
-    label: 'Delete Issue',
+    label: 'Delete Task',
     icon: TrashIcon,
     shortcut: 'I X',
     variant: 'destructive',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, _projectId, issueIds) => {
-      const count = issueIds.length;
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, _projectId, taskIds) => {
+      const count = taskIds.length;
       const result = await ConfirmDialog.show({
-        title: count === 1 ? 'Delete Issue' : `Delete ${count} Issues`,
+        title: count === 1 ? 'Delete Task' : `Delete ${count} Issues`,
         message:
           count === 1
-            ? 'Are you sure you want to delete this issue? This action cannot be undone.'
+            ? 'Are you sure you want to delete this task? This action cannot be undone.'
             : `Are you sure you want to delete these ${count} issues? This action cannot be undone.`,
         confirmText: 'Delete',
         cancelText: 'Cancel',
         variant: 'destructive',
       });
-      if (result === 'confirmed' && ctx.projectMutations?.removeIssue) {
-        for (const issueId of issueIds) {
-          ctx.projectMutations.removeIssue(issueId);
+      if (result === 'confirmed' && ctx.projectMutations?.removeTask) {
+        for (const taskId of taskIds) {
+          ctx.projectMutations.removeTask(taskId);
         }
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
-  DuplicateIssue: {
+  DuplicateTask: {
     id: 'duplicate-issue',
-    label: 'Duplicate Issue',
+    label: 'Duplicate Task',
     icon: CopyIcon,
     shortcut: 'I D',
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, _projectId, issueIds) => {
-      if (issueIds.length !== 1) {
-        throw new Error('Can only duplicate one issue at a time');
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, _projectId, taskIds) => {
+      if (taskIds.length !== 1) {
+        throw new Error('Can only duplicate one task at a time');
       }
-      ctx.projectMutations?.duplicateIssue(issueIds[0]);
+      ctx.projectMutations?.duplicateTask(taskIds[0]);
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
   MarkBlocking: {
     id: 'mark-blocking',
     label: 'Mark Blocking',
     icon: ArrowBendUpRightIcon,
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
         await ctx.openRelationshipSelection(
           projectId,
-          issueIds[0],
+          taskIds[0],
           'blocking',
           'forward'
         );
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
   MarkBlockedBy: {
     id: 'mark-blocked-by',
     label: 'Mark Blocked By',
     icon: ProhibitIcon,
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
         await ctx.openRelationshipSelection(
           projectId,
-          issueIds[0],
+          taskIds[0],
           'blocking',
           'reverse'
         );
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
   MarkRelated: {
     id: 'mark-related',
     label: 'Mark Related',
     icon: ArrowsLeftRightIcon,
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
         await ctx.openRelationshipSelection(
           projectId,
-          issueIds[0],
+          taskIds[0],
           'related',
           'forward'
         );
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 
   MarkDuplicateOf: {
     id: 'mark-duplicate-of',
     label: 'Mark Duplicate Of',
     icon: CopyIcon,
-    requiresTarget: ActionTargetType.ISSUE,
+    requiresTarget: ActionTargetType.TASK,
     isVisible: (ctx) =>
-      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanIssue,
-    execute: async (ctx, projectId, issueIds) => {
-      if (issueIds.length === 1) {
+      ctx.layoutMode === 'kanban' && ctx.hasSelectedKanbanTask,
+    execute: async (ctx, projectId, taskIds) => {
+      if (taskIds.length === 1) {
         await ctx.openRelationshipSelection(
           projectId,
-          issueIds[0],
+          taskIds[0],
           'has_duplicate',
           'forward'
         );
       }
     },
-  } satisfies IssueActionDefinition,
+  } satisfies TaskActionDefinition,
 } as const satisfies Record<string, ActionDefinition>;
 
 // ContextBar action groups define which actions appear in each section

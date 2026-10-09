@@ -1,28 +1,28 @@
-import type { Issue } from 'shared/remote-types';
+import type { Task } from 'shared/remote-types';
 import type { SelectionPage } from '../SelectionDialog';
 
 export interface RelationshipSelectionResult {
-  issueId: string;
+  taskId: string;
 }
 
 export function buildRelationshipSelectionPages(
-  issues: Issue[]
+  tasks: Task[]
 ): Record<string, SelectionPage<RelationshipSelectionResult>> {
   return {
-    selectRelationshipIssue: {
-      id: 'selectRelationshipIssue',
-      title: 'Select Issue',
+    selectRelationshipTask: {
+      id: 'selectRelationshipTask',
+      title: 'Select Task',
       buildGroups: () => [
         {
-          label: 'Issues',
-          items: issues.map((issue) => ({ type: 'issue' as const, issue })),
+          label: 'Tasks',
+          items: tasks.map((task) => ({ type: 'task' as const, task })),
         },
       ],
       onSelect: (item) => {
-        if (item.type === 'issue') {
+        if (item.type === 'task') {
           return {
             type: 'complete',
-            data: { issueId: item.issue.id },
+            data: { taskId: item.task.id },
           };
         }
         return { type: 'complete', data: undefined as never };

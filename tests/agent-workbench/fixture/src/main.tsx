@@ -222,7 +222,7 @@ function AgentWorkbenchFixture() {
   return (
     <AgentWorkbenchContainer
       title="Canonical task title"
-      subtitle="Issue VIB-42 / /workspaces/task-1 / feature/task-1"
+      subtitle="Task VIB-42 / /workspaces/task-1 / feature/task-1"
       conversation={conversation}
       inspector={<InspectorFixture />}
       inspectorVisible={inspectorVisible}

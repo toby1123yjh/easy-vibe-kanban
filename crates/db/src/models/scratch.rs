@@ -156,7 +156,9 @@ pub struct UiPreferencesData {
 
 /// Linked issue data for draft workspace scratch
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct DraftWorkspaceLinkedIssue {
+pub struct DraftWorkspaceLinkedTask {
+    #[serde(rename = "task_id", alias = "issue_id")]
+    #[ts(rename = "task_id")]
     pub issue_id: String,
     pub simple_id: String,
     pub title: String,
@@ -185,7 +187,9 @@ pub struct DraftWorkspaceData {
     #[serde(default, alias = "selected_profile", alias = "config")]
     pub executor_config: Option<ExecutorConfig>,
     #[serde(default)]
-    pub linked_issue: Option<DraftWorkspaceLinkedIssue>,
+    #[serde(rename = "linked_task", alias = "linked_issue")]
+    #[ts(rename = "linked_task")]
+    pub linked_issue: Option<DraftWorkspaceLinkedTask>,
     #[serde(default)]
     pub attachments: Vec<DraftWorkspaceAttachment>,
 }
@@ -208,13 +212,13 @@ pub struct ProjectRepoDefaultsData {
 
 /// Data for a draft issue scratch (issue creation on kanban board)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-pub struct DraftIssueData {
+pub struct DraftTaskData {
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
     pub status_id: String,
-    /// Stored as the string value of IssuePriority (e.g. "urgent", "high", "medium", "low")
+    /// Stored as the string value of TaskPriority (e.g. "urgent", "high", "medium", "low")
     #[serde(default)]
     pub priority: Option<String>,
     #[serde(default)]
@@ -227,6 +231,8 @@ pub struct DraftIssueData {
     pub project_id: String,
     /// Parent issue ID if creating a sub-issue
     #[serde(default)]
+    #[serde(rename = "parent_task_id", alias = "parent_issue_id")]
+    #[ts(rename = "parent_task_id")]
     pub parent_issue_id: Option<String>,
 }
 
@@ -240,10 +246,10 @@ pub struct DraftIssueData {
 #[strum_discriminants(serde(rename_all = "SCREAMING_SNAKE_CASE"))]
 #[strum_discriminants(strum(serialize_all = "SCREAMING_SNAKE_CASE"))]
 pub enum ScratchPayload {
-    DraftTask(String),
+    DraftComment(String),
     DraftFollowUp(DraftFollowUpData),
     DraftWorkspace(DraftWorkspaceData),
-    DraftIssue(DraftIssueData),
+    DraftTask(DraftTaskData),
     PreviewSettings(PreviewSettingsData),
     WorkspaceNotes(WorkspaceNotesData),
     UiPreferences(UiPreferencesData),
@@ -295,7 +301,61 @@ impl Scratch {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRepoDefaultsData, ScratchPayload};
+    use super::{DraftTaskData, ProjectRepoDefaultsData, ScratchPayload};
+
+    #[test]
+    fn historical_nested_draft_links_serialize_with_task_names() {
+        let payload: ScratchPayload = serde_json::from_value(serde_json::json!({
+            "type": "DRAFT_WORKSPACE",
+            "data": {
+                "message": "Keep issue_id in my text",
+                "linked_issue": {
+                    "issue_id": "task-identity",
+                    "simple_id": "ISSUE-7",
+                    "title": "Keep this title",
+                    "remote_project_id": "project-identity"
+                }
+            }
+        }))
+        .unwrap();
+        let encoded = serde_json::to_value(payload).unwrap();
+        assert_eq!(encoded["data"]["message"], "Keep issue_id in my text");
+        assert_eq!(encoded["data"]["linked_task"]["task_id"], "task-identity");
+        assert!(encoded["data"].get("linked_issue").is_none());
+        assert!(encoded["data"]["linked_task"].get("issue_id").is_none());
+
+        let draft: DraftTaskData = serde_json::from_value(serde_json::json!({
+            "status_id": "status-identity",
+            "project_id": "project-identity",
+            "parent_issue_id": "parent-identity"
+        }))
+        .unwrap();
+        assert_eq!(draft.parent_issue_id.as_deref(), Some("parent-identity"));
+        let encoded = serde_json::to_value(draft).unwrap();
+        assert_eq!(encoded["parent_task_id"], "parent-identity");
+        assert!(encoded.get("parent_issue_id").is_none());
+    }
+
+    #[test]
+    fn comment_and_business_task_draft_variants_are_unambiguous() {
+        let comment: ScratchPayload = serde_json::from_value(serde_json::json!({
+            "type": "DRAFT_COMMENT", "data": "Keep DRAFT_ISSUE in this comment"
+        }))
+        .unwrap();
+        assert!(matches!(comment, ScratchPayload::DraftComment(_)));
+        let task: ScratchPayload = serde_json::from_value(serde_json::json!({
+            "type": "DRAFT_TASK",
+            "data": {"status_id": "status", "project_id": "project"}
+        }))
+        .unwrap();
+        assert!(matches!(task, ScratchPayload::DraftTask(_)));
+        assert!(
+            serde_json::from_value::<ScratchPayload>(serde_json::json!({
+                "type": "DRAFT_TASK", "data": "Requires the explicit SQL migration"
+            }))
+            .is_err()
+        );
+    }
 
     #[test]
     fn project_workspace_defaults_read_legacy_git_payloads() {

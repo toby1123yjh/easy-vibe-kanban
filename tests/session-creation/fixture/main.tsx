@@ -47,9 +47,9 @@ function Fixture() {
               })
             : createWorkspace.mutate({
                 data: {} as never,
-                linkToIssue: {
+                linkToTask: {
                   remoteProjectId: "project-1",
-                  issueId: "issue-1",
+                  taskId: "issue-1",
                 },
               })
         }

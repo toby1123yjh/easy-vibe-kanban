@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use api_types::{CreateIssueRequest, CreateProjectRequest, Issue, Project};
+use api_types::{CreateProjectRequest, CreateTaskRequest, Project, Task};
 use axum::{
     Extension, Json, Router,
     extract::{Path, State},
@@ -29,7 +29,7 @@ pub struct CreateExternalProject {
 
 #[derive(Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
-pub struct CreateExternalIssue {
+pub struct CreateExternalTask {
     pub title: String,
     pub description: Option<String>,
     pub status_id: Option<Uuid>,
@@ -39,8 +39,8 @@ pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/projects", post(create_project))
         .route("/projects/{project_id}", get(get_project))
-        .route("/projects/{project_id}/issues", post(create_issue))
-        .route("/projects/{project_id}/issues/{issue_id}", get(get_issue))
+        .route("/projects/{project_id}/tasks", post(create_issue))
+        .route("/projects/{project_id}/tasks/{issue_id}", get(get_issue))
 }
 
 /// The same resolver is consumed by file access and external workflow creation.
@@ -232,8 +232,9 @@ async fn create_project_record(
         if !enabled {
             return Err(ApiError::Unauthorized);
         }
-        local_remote::insert_local_project(
+        let staged = crate::routes::project_store::create_in(
             &mut tx,
+            &directory,
             CreateProjectRequest {
                 id: Some(request.resource_id),
                 organization_id: Uuid::nil(),
@@ -242,7 +243,7 @@ async fn create_project_record(
             },
         )
         .await?;
-        sqlx::query("INSERT INTO scratch (id, scratch_type, payload) VALUES (?, 'PROJECT_REPO_DEFAULTS', ?)").bind(request.resource_id).bind(payload).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO scratch (id, scratch_type, payload) VALUES (?, 'PROJECT_REPO_DEFAULTS', ?) ON CONFLICT(id,scratch_type) DO UPDATE SET payload=excluded.payload").bind(request.resource_id).bind(payload).execute(&mut *tx).await?;
         sqlx::query(
             "INSERT INTO external_integration_projects (integration_id, project_id) VALUES (?, ?)",
         )
@@ -251,6 +252,9 @@ async fn create_project_record(
         .execute(&mut *tx)
         .await?;
         IntegrationRequest::complete(&mut tx, caller.id, "project.create", "", key).await?;
+        if let Some(staged) = staged {
+            staged.publish()?;
+        }
     }
     tx.commit().await?;
     drop(child_handle);
@@ -262,12 +266,12 @@ async fn get_issue(
     State(deployment): State<DeploymentImpl>,
     Extension(caller): Extension<IntegrationCaller>,
     Path((project_id, issue_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<ApiResponse<Issue>>, ApiError> {
+) -> Result<Json<ApiResponse<Task>>, ApiError> {
     authorize_project(&deployment.db().pool, &caller, project_id).await?;
     let issue = local_remote::get_local_issue(&deployment.db().pool, issue_id).await?;
     if issue.project_id != project_id {
         return Err(ApiError::Forbidden(
-            "Issue is not in the authorized project".into(),
+            "Task is not in the authorized project".into(),
         ));
     }
     Ok(Json(ApiResponse::success(issue)))
@@ -278,17 +282,19 @@ async fn create_issue(
     Extension(caller): Extension<IntegrationCaller>,
     Path(project_id): Path<Uuid>,
     headers: HeaderMap,
-    Json(mut input): Json<CreateExternalIssue>,
-) -> Result<Json<ApiResponse<Issue>>, ApiError> {
+    Json(mut input): Json<CreateExternalTask>,
+) -> Result<Json<ApiResponse<Task>>, ApiError> {
     let pool = &deployment.db().pool;
     authorize_project(pool, &caller, project_id).await?;
     input.title = input.title.trim().to_owned();
     if input.title.is_empty() {
-        return Err(ApiError::BadRequest("Issue title is required".into()));
+        return Err(ApiError::BadRequest("Task title is required".into()));
     }
     let key = request_key(&headers)?;
     let hash = request_hash(&input)?;
     let scope = project_id.to_string();
+    // Validate/refresh the sole business authority before consulting its index.
+    crate::routes::project_store::read(pool, project_id).await?;
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
     let request = IntegrationRequest::reserve(
         &mut tx,
@@ -305,7 +311,26 @@ async fn create_issue(
             "IDEMPOTENCY_CONFLICT: Request key was used with different parameters".into(),
         ));
     }
+    // Keep the reserved identity across file publication / SQLite commit failure.
+    tx.commit().await?;
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let request = IntegrationRequest::reserve(
+        &mut tx,
+        caller.id,
+        "issue.create",
+        &scope,
+        &key,
+        &hash,
+        None,
+    )
+    .await?;
     if request.state != "complete" {
+        let authorized:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM external_integrations i JOIN external_integration_projects p ON p.integration_id=i.id WHERE i.id=? AND i.enabled=1 AND p.project_id=?)").bind(caller.id).bind(project_id).fetch_one(&mut *tx).await?;
+        if !authorized {
+            return Err(ApiError::Forbidden(
+                "Integration project grant was revoked".into(),
+            ));
+        }
         let status_id: Option<Uuid> = if let Some(status_id) = input.status_id {
             sqlx::query_scalar(
                 "SELECT id FROM local_project_statuses WHERE id = ? AND project_id = ?",
@@ -320,9 +345,9 @@ async fn create_issue(
         };
         let status_id = status_id
             .ok_or_else(|| ApiError::BadRequest("Select a valid project status".into()))?;
-        local_remote::insert_local_issue(
+        let (_, staged) = local_remote::insert_local_issue(
             &mut tx,
-            CreateIssueRequest {
+            CreateTaskRequest {
                 id: Some(request.resource_id),
                 project_id,
                 status_id,
@@ -340,6 +365,7 @@ async fn create_issue(
         )
         .await?;
         IntegrationRequest::complete(&mut tx, caller.id, "issue.create", &scope, &key).await?;
+        staged.publish()?;
     }
     tx.commit().await?;
     get_issue(

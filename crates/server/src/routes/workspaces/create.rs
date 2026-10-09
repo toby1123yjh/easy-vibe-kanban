@@ -8,7 +8,7 @@ use db::models::{
         CreateWorkspaceMode,
     },
     session::{CreateSession, Session},
-    task::{CreateTask, TaskExecutionKind},
+    task::{CreateExecution, ExecutionKind},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
@@ -425,7 +425,7 @@ pub async fn create_and_start_workspace(
             .is_some_and(|issue| issue.remote_project_id != project_id)
         {
             return Err(ApiError::BadRequest(
-                "Session project must match its Issue".into(),
+                "Session project must match its Task".into(),
             ));
         }
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)")
@@ -572,13 +572,13 @@ pub async fn create_and_start_workspace(
                 &create_session,
                 session_id,
                 workspace.id,
-                &CreateTask {
+                &CreateExecution {
                     id: Uuid::new_v4(),
                     project_id: linked_issue.remote_project_id,
                     issue_id: linked_issue.issue_id,
                     parent_task_id: None,
                     title,
-                    execution_kind: TaskExecutionKind::Agent,
+                    execution_kind: ExecutionKind::Agent,
                 },
             )
             .await?;
@@ -614,7 +614,7 @@ pub async fn create_and_start_workspace(
                 .collect::<Vec<_>>()
         };
 
-        // Link only after the canonical Session/Task exists, but before any
+        // Link only after the canonical Session/Execution exists, but before any
         // setup or Agent process can start. Process launch is intentionally
         // the final fallible stage because record compensation cannot safely
         // stand in for terminating an already-started provider process.
@@ -858,13 +858,13 @@ mod tests {
             .bind(task_id)
             .execute(pool)
             .await
-            .expect("insert Agent Task");
+            .expect("insert Agent Execution");
         sqlx::query("INSERT INTO agent_task_bindings (task_id, session_id) VALUES (?, ?)")
             .bind(task_id)
             .bind(session_id)
             .execute(pool)
             .await
-            .expect("insert Agent Task binding");
+            .expect("insert Agent Execution binding");
         sqlx::query("INSERT INTO agent_runs (id, session_id, workspace_id) VALUES (?, ?, ?)")
             .bind(agent_run_id)
             .bind(session_id)

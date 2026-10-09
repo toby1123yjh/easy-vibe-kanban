@@ -12,7 +12,7 @@ import { useHostId } from '@/shared/providers/HostIdProvider';
 interface WorkflowMainSessionButtonProps {
   projectId: string;
   workflowId: string;
-  issueId?: string;
+  taskId?: string;
   disabled?: boolean;
   beforePrepare?: () => Promise<boolean>;
 }
@@ -20,7 +20,7 @@ interface WorkflowMainSessionButtonProps {
 export function WorkflowMainSessionButton({
   projectId,
   workflowId,
-  issueId,
+  taskId,
   disabled,
   beforePrepare,
 }: WorkflowMainSessionButtonProps) {
@@ -30,7 +30,7 @@ export function WorkflowMainSessionButton({
   const shell = useAppShellProjects();
   const hostId = useHostId();
   const queryClient = useQueryClient();
-  const scopeKey = JSON.stringify([hostId, projectId, workflowId, issueId]);
+  const scopeKey = JSON.stringify([hostId, projectId, workflowId, taskId]);
   const scopeRef = useRef({
     key: scopeKey,
     pending: false,
@@ -63,7 +63,7 @@ export function WorkflowMainSessionButton({
         {
           project_id: projectId,
           workflow_id: workflowId,
-          issue_id: issueId,
+          task_id: taskId,
           request_id: scope.requestId,
         },
         hostId

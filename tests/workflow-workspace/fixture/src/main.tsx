@@ -11,8 +11,8 @@ import "../../../../packages/ui/src/styles/tokens.css";
 function Fixture() {
   const { selectWorkflowRepositories } = useWorkflowRepositorySelection({
     projectId: "project-a",
-    issueId: "issue-a",
-    issueTitle: "Test",
+    taskId: "issue-a",
+    taskTitle: "Test",
   });
   const [result, setResult] = useState("");
   return (

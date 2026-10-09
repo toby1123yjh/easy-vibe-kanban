@@ -1,6 +1,6 @@
 use api_types::{
-    CreatePullRequestIssueRequest, DeleteResponse, ListPullRequestIssuesResponse, MutationResponse,
-    PullRequestIssue,
+    CreatePullRequestTaskRequest, DeleteResponse, ListPullRequestTasksResponse, MutationResponse,
+    PullRequestTask,
 };
 use axum::{
     Json,
@@ -25,12 +25,13 @@ use crate::{
 };
 
 #[derive(Debug, serde::Deserialize)]
-pub struct ListPullRequestIssuesQuery {
+pub struct ListPullRequestTasksQuery {
+    #[serde(rename = "task_id")]
     pub issue_id: Uuid,
 }
 
-pub fn mutation() -> MutationBuilder<PullRequestIssue, CreatePullRequestIssueRequest, NoUpdate> {
-    MutationBuilder::new("pull_request_issues")
+pub fn mutation() -> MutationBuilder<PullRequestTask, CreatePullRequestTaskRequest, NoUpdate> {
+    MutationBuilder::new()
         .list(list_pull_request_issues)
         .get(get_pull_request_issue)
         .create(create_pull_request_issue)
@@ -49,8 +50,8 @@ pub fn router() -> axum::Router<AppState> {
 async fn list_pull_request_issues(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Query(query): Query<ListPullRequestIssuesQuery>,
-) -> Result<Json<ListPullRequestIssuesResponse>, ErrorResponse> {
+    Query(query): Query<ListPullRequestTasksQuery>,
+) -> Result<Json<ListPullRequestTasksResponse>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, query.issue_id).await?;
 
     let pull_request_issues =
@@ -64,7 +65,7 @@ async fn list_pull_request_issues(
                 )
             })?;
 
-    Ok(Json(ListPullRequestIssuesResponse {
+    Ok(Json(ListPullRequestTasksResponse {
         pull_request_issues,
     }))
 }
@@ -78,7 +79,7 @@ async fn get_pull_request_issue(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
     Path(id): Path<Uuid>,
-) -> Result<Json<PullRequestIssue>, ErrorResponse> {
+) -> Result<Json<PullRequestTask>, ErrorResponse> {
     let link = PullRequestIssueRepository::find_by_id(state.pool(), id)
         .await
         .map_err(|error| {
@@ -103,8 +104,8 @@ async fn get_pull_request_issue(
 async fn create_pull_request_issue(
     State(state): State<AppState>,
     Extension(ctx): Extension<RequestContext>,
-    Json(payload): Json<CreatePullRequestIssueRequest>,
-) -> Result<Json<MutationResponse<PullRequestIssue>>, ErrorResponse> {
+    Json(payload): Json<CreatePullRequestTaskRequest>,
+) -> Result<Json<MutationResponse<PullRequestTask>>, ErrorResponse> {
     ensure_issue_access(state.pool(), ctx.user.id, payload.issue_id).await?;
 
     let issue = IssueRepository::find_by_id(state.pool(), payload.issue_id)

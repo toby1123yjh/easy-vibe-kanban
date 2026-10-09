@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use db::models::{
     project::{Project, ProjectCursor, ProjectPage},
     session::{Session, SessionCursor, SessionPage},
-    task::{Task, TaskCursor, TaskError, TaskSummary, TaskSummaryPage},
+    task::{Execution, ExecutionCursor, ExecutionError, ExecutionSummary, ExecutionSummaryPage},
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub enum ExecutionDataOwner {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ExecutionDataCapabilities {
     pub owner: ExecutionDataOwner,
+    #[serde(rename = "execution_queries")]
+    #[ts(rename = "execution_queries")]
     pub task_queries: bool,
     pub execution_actions: bool,
 }
@@ -47,8 +49,9 @@ pub struct SessionListQuery {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TaskListQuery {
+pub struct ExecutionListQuery {
     pub project_id: Uuid,
+    #[serde(rename = "task_id")]
     pub issue_id: Option<Uuid>,
     pub cursor_updated_at: Option<DateTime<Utc>>,
     pub cursor_id: Option<Uuid>,
@@ -56,14 +59,14 @@ pub struct TaskListQuery {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TaskChildrenQuery {
+pub struct ExecutionChildrenQuery {
     pub cursor_updated_at: Option<DateTime<Utc>>,
     pub cursor_id: Option<Uuid>,
     pub limit: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DeleteTaskQuery {
+pub struct DeleteExecutionQuery {
     #[serde(default)]
     pub stop_running: bool,
     #[serde(default)]
@@ -136,13 +139,13 @@ async fn list_sessions(
     Ok(Json(ApiResponse::success(page)))
 }
 
-async fn list_tasks(
+async fn list_executions(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<TaskListQuery>,
-) -> Result<Json<ApiResponse<TaskSummaryPage>>, ApiError> {
+    Query(query): Query<ExecutionListQuery>,
+) -> Result<Json<ApiResponse<ExecutionSummaryPage>>, ApiError> {
     let cursor = cursor_parts(query.cursor_updated_at, query.cursor_id)?
-        .map(|(updated_at, id)| TaskCursor { updated_at, id });
-    let page = Task::list_top_level(
+        .map(|(updated_at, id)| ExecutionCursor { updated_at, id });
+    let page = Execution::list_top_level(
         &deployment.db().pool,
         query.project_id,
         query.issue_id,
@@ -153,30 +156,30 @@ async fn list_tasks(
     Ok(Json(ApiResponse::success(page)))
 }
 
-async fn get_task(
+async fn get_execution(
     State(deployment): State<DeploymentImpl>,
     Path(task_id): Path<Uuid>,
-) -> Result<Json<ApiResponse<TaskSummary>>, ApiError> {
-    let summary = Task::summary_by_id(&deployment.db().pool, task_id)
+) -> Result<Json<ApiResponse<ExecutionSummary>>, ApiError> {
+    let summary = Execution::summary_by_id(&deployment.db().pool, task_id)
         .await?
-        .ok_or(TaskError::NotFound { task_id })?;
+        .ok_or(ExecutionError::NotFound { task_id })?;
     Ok(Json(ApiResponse::success(summary)))
 }
 
-async fn list_task_children(
+async fn list_execution_children(
     State(deployment): State<DeploymentImpl>,
     Path(task_id): Path<Uuid>,
-    Query(query): Query<TaskChildrenQuery>,
-) -> Result<Json<ApiResponse<TaskSummaryPage>>, ApiError> {
-    if Task::find_by_id(&deployment.db().pool, task_id)
+    Query(query): Query<ExecutionChildrenQuery>,
+) -> Result<Json<ApiResponse<ExecutionSummaryPage>>, ApiError> {
+    if Execution::find_by_id(&deployment.db().pool, task_id)
         .await?
         .is_none()
     {
-        return Err(TaskError::NotFound { task_id }.into());
+        return Err(ExecutionError::NotFound { task_id }.into());
     }
     let cursor = cursor_parts(query.cursor_updated_at, query.cursor_id)?
-        .map(|(updated_at, id)| TaskCursor { updated_at, id });
-    let page = Task::list_children(
+        .map(|(updated_at, id)| ExecutionCursor { updated_at, id });
+    let page = Execution::list_children(
         &deployment.db().pool,
         task_id,
         cursor,
@@ -186,10 +189,10 @@ async fn list_task_children(
     Ok(Json(ApiResponse::success(page)))
 }
 
-async fn delete_task(
+async fn delete_execution(
     State(deployment): State<DeploymentImpl>,
     Path(task_id): Path<Uuid>,
-    Query(query): Query<DeleteTaskQuery>,
+    Query(query): Query<DeleteExecutionQuery>,
 ) -> Result<Json<ApiResponse<db::models::requests::SessionDeletionResult>>, ApiError> {
     let _queue_guard = super::sessions::lock_session_for_deletion(
         deployment.queued_message_service(),
@@ -228,9 +231,15 @@ pub fn router() -> Router<DeploymentImpl> {
             get(default_project_directory),
         )
         .route("/sessions/recent", get(list_sessions))
-        .route("/tasks", get(list_tasks))
-        .route("/tasks/{task_id}", get(get_task).delete(delete_task))
-        .route("/tasks/{task_id}/children", get(list_task_children))
+        .route("/executions", get(list_executions))
+        .route(
+            "/executions/{execution_id}",
+            get(get_execution).delete(delete_execution),
+        )
+        .route(
+            "/executions/{execution_id}/children",
+            get(list_execution_children),
+        )
 }
 
 #[cfg(test)]
@@ -238,13 +247,36 @@ mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
-    use super::{DeleteTaskQuery, cursor_parts};
+    use super::{
+        DeleteExecutionQuery, ExecutionDataCapabilities, ExecutionDataOwner, ExecutionListQuery,
+        cursor_parts,
+    };
+
+    #[test]
+    fn execution_queries_filter_by_business_task_identity() {
+        let project_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let query: ExecutionListQuery = serde_json::from_value(serde_json::json!({
+            "project_id": project_id,
+            "task_id": task_id
+        }))
+        .unwrap();
+        assert_eq!(query.issue_id, Some(task_id));
+        let capabilities = serde_json::to_value(ExecutionDataCapabilities {
+            owner: ExecutionDataOwner::LocalHost,
+            task_queries: true,
+            execution_actions: true,
+        })
+        .unwrap();
+        assert_eq!(capabilities["execution_queries"], true);
+        assert!(capabilities.get("task_queries").is_none());
+    }
 
     #[test]
     fn task_deletion_requires_the_confirmed_session_identity() {
-        assert!(serde_json::from_value::<DeleteTaskQuery>(serde_json::json!({})).is_err());
+        assert!(serde_json::from_value::<DeleteExecutionQuery>(serde_json::json!({})).is_err());
         let session_id = Uuid::new_v4();
-        let query: DeleteTaskQuery = serde_json::from_value(serde_json::json!({
+        let query: DeleteExecutionQuery = serde_json::from_value(serde_json::json!({
             "session_id": session_id
         }))
         .unwrap();

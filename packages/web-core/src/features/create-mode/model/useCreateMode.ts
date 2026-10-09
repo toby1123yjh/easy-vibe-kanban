@@ -6,8 +6,8 @@ import type {
   ExecutorConfig,
 } from 'shared/types';
 
-interface LinkedIssue {
-  issueId: string;
+interface LinkedTask {
+  taskId: string;
   simpleId?: string;
   title?: string;
   remoteProjectId: string;
@@ -31,9 +31,9 @@ export interface CreateModeContextValue {
   /** Whether the initial value has been applied from scratch */
   hasInitialValue: boolean;
   /** Issue to link the workspace to when created */
-  linkedIssue: LinkedIssue | null;
+  linkedTask: LinkedTask | null;
   /** Clear the linked issue */
-  clearLinkedIssue: () => void;
+  clearLinkedTask: () => void;
   /** Persisted executor config (model selector state) */
   executorConfig: ExecutorConfig | null;
   /** Update executor config (triggers debounced scratch save) */

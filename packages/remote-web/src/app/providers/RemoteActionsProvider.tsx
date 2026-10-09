@@ -26,10 +26,10 @@ import { useAppNavigation } from "@/shared/hooks/useAppNavigation";
 import { useAppRuntime } from "@/shared/hooks/useAppRuntime";
 import { useOrganizationStore } from "@/shared/stores/useOrganizationStore";
 import {
-  buildKanbanIssueComposerKey,
-  openKanbanIssueComposer,
-  type ProjectIssueCreateOptions,
-} from "@/shared/stores/useKanbanIssueComposerStore";
+  buildKanbanTaskComposerKey,
+  openKanbanTaskComposer,
+  type ProjectTaskCreateOptions,
+} from "@/shared/stores/useKanbanTaskComposerStore";
 
 interface RemoteActionsProviderProps {
   children: ReactNode;
@@ -62,11 +62,11 @@ export function RemoteActionsProvider({
     [],
   );
 
-  const navigateToCreateIssue = useCallback(
-    (options?: ProjectIssueCreateOptions) => {
+  const navigateToCreateTask = useCallback(
+    (options?: ProjectTaskCreateOptions) => {
       if (!projectId) return;
-      openKanbanIssueComposer(
-        buildKanbanIssueComposerKey(hostId ?? null, projectId),
+      openKanbanTaskComposer(
+        buildKanbanTaskComposerKey(hostId ?? null, projectId),
         options,
       );
     },
@@ -85,8 +85,8 @@ export function RemoteActionsProvider({
     noOpSelection("Assignee selection");
   }, []);
 
-  const openSubIssueSelection = useCallback(async () => {
-    noOpSelection("Sub-issue selection");
+  const openSubTaskSelection = useCallback(async () => {
+    noOpSelection("Sub-task selection");
     return undefined;
   }, []);
 
@@ -123,10 +123,10 @@ export function RemoteActionsProvider({
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
-      navigateToCreateIssue,
+      navigateToCreateTask,
       defaultCreateStatusId,
       kanbanOrgId: selectedOrgId ?? undefined,
       kanbanProjectId: projectId,
@@ -142,10 +142,10 @@ export function RemoteActionsProvider({
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
-      navigateToCreateIssue,
+      navigateToCreateTask,
       defaultCreateStatusId,
       selectedOrgId,
       projectId,
@@ -194,7 +194,7 @@ export function RemoteActionsProvider({
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
       setDefaultCreateStatusId,
@@ -207,7 +207,7 @@ export function RemoteActionsProvider({
       openStatusSelection,
       openPrioritySelection,
       openAssigneeSelection,
-      openSubIssueSelection,
+      openSubTaskSelection,
       openWorkspaceSelection,
       openRelationshipSelection,
       registerProjectMutations,

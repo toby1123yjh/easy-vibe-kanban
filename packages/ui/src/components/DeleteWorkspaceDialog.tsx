@@ -21,27 +21,27 @@ import { defineModal } from '../lib/modals';
 export interface DeleteWorkspaceDialogProps {
   branchName: string;
   hasOpenPR?: boolean;
-  isLinkedToIssue?: boolean;
-  linkedIssueSimpleId?: string;
+  isLinkedToTask?: boolean;
+  linkedTaskSimpleId?: string;
 }
 
 export type DeleteWorkspaceDialogResult = {
   action: 'confirmed' | 'canceled';
   deleteBranches?: boolean;
-  unlinkFromIssue?: boolean;
+  unlinkFromTask?: boolean;
 };
 
 const DeleteWorkspaceDialogImpl = NiceModal.create<DeleteWorkspaceDialogProps>(
   ({
     branchName,
     hasOpenPR = false,
-    isLinkedToIssue = false,
-    linkedIssueSimpleId,
+    isLinkedToTask = false,
+    linkedTaskSimpleId,
   }) => {
     const modal = useModal();
     const { t } = useTranslation();
     const [deleteBranches, setDeleteBranches] = useState(false);
-    const [unlinkFromIssue, setUnlinkFromIssue] = useState(true);
+    const [unlinkFromTask, setUnlinkFromTask] = useState(true);
 
     const canDeleteBranches = !hasOpenPR;
 
@@ -49,7 +49,7 @@ const DeleteWorkspaceDialogImpl = NiceModal.create<DeleteWorkspaceDialogProps>(
       modal.resolve({
         action: 'confirmed',
         deleteBranches: canDeleteBranches && deleteBranches,
-        unlinkFromIssue: isLinkedToIssue && unlinkFromIssue,
+        unlinkFromTask: isLinkedToTask && unlinkFromTask,
       } as DeleteWorkspaceDialogResult);
       modal.hide();
     };
@@ -113,23 +113,23 @@ const DeleteWorkspaceDialogImpl = NiceModal.create<DeleteWorkspaceDialogProps>(
                 </p>
               )}
             </div>
-            {isLinkedToIssue && (
+            {isLinkedToTask && (
               <div
                 className="flex items-center gap-3 text-sm font-medium cursor-pointer select-none"
-                onClick={() => setUnlinkFromIssue((v) => !v)}
+                onClick={() => setUnlinkFromTask((v) => !v)}
               >
-                <Checkbox checked={unlinkFromIssue} />
+                <Checkbox checked={unlinkFromTask} />
                 <span className="flex items-center gap-2">
                   <LinkBreakIcon className="h-4 w-4" />
                   {t(
                     'workspaces.deleteDialog.unlinkFromIssueLabel',
-                    'Also unlink from issue'
+                    'Also unlink from task'
                   )}
-                  {linkedIssueSimpleId && (
+                  {linkedTaskSimpleId && (
                     <>
                       {' '}
                       <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
-                        {linkedIssueSimpleId}
+                        {linkedTaskSimpleId}
                       </code>
                     </>
                   )}

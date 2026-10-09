@@ -270,7 +270,7 @@ export function ExportChooseProjects({
               Include attachments
             </span>
           </div>
-          <p className="text-xs text-low">Include files attached to issues.</p>
+          <p className="text-xs text-low">Include files attached to tasks.</p>
         </div>
       </label>
 

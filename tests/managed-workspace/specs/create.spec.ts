@@ -76,7 +76,7 @@ test("project selection derives its direct folder without changing draft", async
   ).toEqual([]);
 });
 
-test("Issue launch locks project and inherits Git branch without prompting", async ({
+test("Task launch locks project and inherits Git branch without prompting", async ({
   page,
 }) => {
   await open(page, "?project=1&repo=1");
@@ -87,7 +87,7 @@ test("Issue launch locks project and inherits Git branch without prompting", asy
     project_id: "project-1",
     mode: "worktree",
     repos: [{ repo_id: "repo-1", target_branch: "main" }],
-    linked_issue: { remote_project_id: "project-1", issue_id: "issue-1" },
+    linked_task: { remote_project_id: "project-1", task_id: "issue-1" },
   });
   expect(await page.evaluate(() => window.managedFixture.dialogCalls)).toEqual(
     [],
@@ -106,13 +106,13 @@ for (const draft of ["missing", "stale"]) {
     await expect(selector(page)).toBeDisabled();
     await expect(page.getByTestId("linked-issue")).toHaveText("P-ROUTE");
     await expect(
-      page.getByRole("button", { name: "Remove Issue link", exact: true }),
+      page.getByRole("button", { name: "Remove Task link", exact: true }),
     ).toHaveCount(0);
     expect(await calls(page)).toEqual([]);
 
     // Even a later draft update cannot remove the route-owned association.
     await page.evaluate(() =>
-      window.managedFixture.update({ linkedIssue: null }),
+      window.managedFixture.update({ linkedTask: null }),
     );
     await expect(page.getByTestId("linked-issue")).toHaveText("P-ROUTE");
     await send(page).click();
@@ -120,26 +120,26 @@ for (const draft of ["missing", "stale"]) {
       expect.objectContaining({
         data: expect.objectContaining({
           project_id: "project-1",
-          linked_issue: {
+          linked_task: {
             remote_project_id: "project-1",
-            issue_id: "route-issue",
+            task_id: "route-issue",
           },
         }),
-        linkToIssue: { remoteProjectId: "project-1", issueId: "route-issue" },
+        linkToTask: { remoteProjectId: "project-1", taskId: "route-issue" },
       }),
     ]);
   });
 }
 
-test("standalone entry retains optional Issue linking and plain session creation", async ({
+test("standalone entry retains optional Task linking and plain session creation", async ({
   page,
 }) => {
   await open(page, "?project=1&repo=1");
   await expect(page.getByTestId("linked-issue")).toHaveText(
-    "P-1Remove Issue link",
+    "P-1Remove Task link",
   );
   await page
-    .getByRole("button", { name: "Remove Issue link", exact: true })
+    .getByRole("button", { name: "Remove Task link", exact: true })
     .click();
   await expect(page.getByTestId("linked-issue")).toHaveCount(0);
   await expect(selector(page)).toBeEnabled();
@@ -147,9 +147,9 @@ test("standalone entry retains optional Issue linking and plain session creation
   await send(page).click();
   expect((await calls(page))[0].data).toMatchObject({
     project_id: DEFAULT,
-    linked_issue: null,
+    linked_task: null,
   });
-  expect((await calls(page))[0].linkToIssue).toBeUndefined();
+  expect((await calls(page))[0].linkToTask).toBeUndefined();
 });
 
 test("missing workspace blocks send and explicit setup saves project on original Host", async ({
@@ -285,7 +285,7 @@ test("late picker after Host change cannot save old selection", async ({
   ).toEqual([]);
 });
 
-test("project entry seeds ownership even without an Issue", async ({
+test("project entry seeds ownership even without an Task", async ({
   page,
 }) => {
   await open(page, "?initialProject=1&path=/project");
@@ -295,7 +295,7 @@ test("project entry seeds ownership even without an Issue", async ({
   expect((await calls(page))[0].data).toMatchObject({
     project_id: "project-1",
     directory_path: "/project",
-    linked_issue: null,
+    linked_task: null,
   });
 });
 

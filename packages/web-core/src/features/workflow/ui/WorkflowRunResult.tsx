@@ -10,15 +10,18 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@vibe/ui/components/Dialog';
-import { workflowApi } from '@/shared/lib/workflowApi';
+import { createWorkflowApi } from '@/shared/lib/workflowApi';
+import { useHostId } from '@/shared/providers/HostIdProvider';
 
 export function WorkflowRunResult({ run }: { run: WorkflowRunResponse }) {
   const { t } = useTranslation('settings');
+  const hostId = useHostId();
+  const scopedWorkflowApi = createWorkflowApi(hostId);
   const [open, setOpen] = useState(false);
   const active = !['succeeded', 'failed', 'canceled'].includes(run.status);
   const files = useQuery({
-    queryKey: ['workflow-file-changes', run.id, active],
-    queryFn: () => workflowApi.fileChanges(run.id),
+    queryKey: ['workflow-file-changes', hostId, run.id, active],
+    queryFn: () => scopedWorkflowApi.fileChanges(run.id),
     enabled: open,
     refetchInterval: open && active ? 4000 : false,
   });

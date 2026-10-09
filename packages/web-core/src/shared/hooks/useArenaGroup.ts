@@ -1,3 +1,4 @@
+import { getCurrentHostId, useHostId } from '@/shared/providers/HostIdProvider';
 import {
   useQuery,
   useQueryClient,
@@ -5,7 +6,7 @@ import {
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import {
-  arenaApi,
+  createArenaApi,
   isActiveArenaAgentRunStatus,
   type ArenaGroupResponse,
 } from '@/shared/lib/arenaApi';
@@ -14,9 +15,11 @@ import {
 // invalidate by group / by issue without redefining the shape.
 export const arenaQueryKeys = {
   all: ['arena'] as const,
-  group: (groupId: string) => ['arena', 'group', groupId] as const,
-  activeForIssue: (issueId: string) =>
-    ['arena', 'issue', issueId, 'active'] as const,
+  host: (hostId = getCurrentHostId()) => ['arena', hostId] as const,
+  group: (groupId: string, hostId = getCurrentHostId()) =>
+    ['arena', hostId, 'group', groupId] as const,
+  activeForTask: (taskId: string, hostId = getCurrentHostId()) =>
+    ['arena', hostId, 'task', taskId, 'active'] as const,
 };
 
 interface UseArenaGroupOptions {
@@ -42,11 +45,15 @@ export function useArenaGroup(
   groupId: string | null | undefined,
   options: UseArenaGroupOptions = {}
 ): UseQueryResult<ArenaGroupResponse> {
+  const hostId = useHostId();
+  const arenaApi = createArenaApi(hostId);
   const { refetchIntervalMs = DEFAULT_REFETCH_INTERVAL_MS, enabled = true } =
     options;
 
   return useQuery({
-    queryKey: groupId ? arenaQueryKeys.group(groupId) : ['arena', 'noop'],
+    queryKey: groupId
+      ? arenaQueryKeys.group(groupId, hostId)
+      : ['arena', 'noop'],
     queryFn: () => arenaApi.get(groupId as string),
     enabled: !!groupId && enabled,
     refetchInterval: (query) => {
@@ -69,19 +76,21 @@ export function useArenaGroup(
  * Used by the kanban-card → arena-tab redirect: when present, the
  * issue detail page should default to the arena view.
  */
-export function useActiveArenaForIssue(
-  issueId: string | null | undefined,
+export function useActiveArenaForTask(
+  taskId: string | null | undefined,
   options: UseArenaGroupOptions = {}
 ): UseQueryResult<ArenaGroupResponse | null> {
+  const hostId = useHostId();
+  const arenaApi = createArenaApi(hostId);
   const { refetchIntervalMs = DEFAULT_REFETCH_INTERVAL_MS, enabled = true } =
     options;
 
   return useQuery({
-    queryKey: issueId
-      ? arenaQueryKeys.activeForIssue(issueId)
+    queryKey: taskId
+      ? arenaQueryKeys.activeForTask(taskId, hostId)
       : ['arena', 'noop'],
-    queryFn: () => arenaApi.getActiveForIssue(issueId as string),
-    enabled: !!issueId && enabled,
+    queryFn: () => arenaApi.getActiveForTask(taskId as string),
+    enabled: !!taskId && enabled,
     refetchInterval: (query) => {
       if (refetchIntervalMs === false) return false;
       const data = query.state.data as ArenaGroupResponse | null | undefined;
@@ -102,29 +111,32 @@ export function useActiveArenaForIssue(
  * waiting for the next poll tick.
  */
 export function useArenaInvalidators() {
+  const hostId = useHostId();
   const queryClient = useQueryClient();
 
   const invalidateGroup = useCallback(
     (groupId: string) => {
       void queryClient.invalidateQueries({
-        queryKey: arenaQueryKeys.group(groupId),
+        queryKey: arenaQueryKeys.group(groupId, hostId),
       });
     },
-    [queryClient]
+    [queryClient, hostId]
   );
 
-  const invalidateIssue = useCallback(
-    (issueId: string) => {
+  const invalidateTask = useCallback(
+    (taskId: string) => {
       void queryClient.invalidateQueries({
-        queryKey: arenaQueryKeys.activeForIssue(issueId),
+        queryKey: arenaQueryKeys.activeForTask(taskId, hostId),
       });
     },
-    [queryClient]
+    [queryClient, hostId]
   );
 
   const invalidateAll = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: arenaQueryKeys.all });
-  }, [queryClient]);
+    void queryClient.invalidateQueries({
+      queryKey: arenaQueryKeys.host(hostId),
+    });
+  }, [queryClient, hostId]);
 
-  return { invalidateGroup, invalidateIssue, invalidateAll };
+  return { invalidateGroup, invalidateTask, invalidateAll };
 }

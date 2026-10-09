@@ -95,7 +95,7 @@ const organizations = [
     name: 'Fixture Organization',
     slug: 'fixture-org',
     is_personal: false,
-    issue_prefix: 'FIX',
+    task_prefix: 'FIX',
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     user_role: 'owner',

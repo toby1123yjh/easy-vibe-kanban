@@ -3,12 +3,12 @@ import type { DraftWorkspaceRepo } from 'shared/types';
 const DRAFT_ID_PREFIX = 'draft-';
 const STORAGE_KEY_PREFIX = 'vibe.workflowAttemptDraft.';
 
-export interface IssueWorkflowAttemptDraft {
+export interface TaskWorkflowAttemptDraft {
   id: string;
   projectId: string;
-  issueId: string;
-  issueTitle: string;
-  issueDescription?: string | null;
+  taskId: string;
+  taskTitle: string;
+  taskDescription?: string | null;
   name: string;
   graphJson: string;
   repos: DraftWorkspaceRepo[];
@@ -25,11 +25,11 @@ function storageKey(id: string): string {
   return `${STORAGE_KEY_PREFIX}${id}`;
 }
 
-export function createIssueWorkflowAttemptDraft(
-  draft: Omit<IssueWorkflowAttemptDraft, 'id' | 'createdAt'>
-): IssueWorkflowAttemptDraft {
+export function createTaskWorkflowAttemptDraft(
+  draft: Omit<TaskWorkflowAttemptDraft, 'id' | 'createdAt'>
+): TaskWorkflowAttemptDraft {
   const id = crypto.randomUUID();
-  const nextDraft: IssueWorkflowAttemptDraft = {
+  const nextDraft: TaskWorkflowAttemptDraft = {
     ...draft,
     id,
     createdAt: new Date().toISOString(),
@@ -38,11 +38,11 @@ export function createIssueWorkflowAttemptDraft(
   return nextDraft;
 }
 
-export function toIssueWorkflowAttemptDraftRouteId(id: string): string {
+export function toTaskWorkflowAttemptDraftRouteId(id: string): string {
   return `${DRAFT_ID_PREFIX}${id}`;
 }
 
-export function parseIssueWorkflowAttemptDraftRouteId(
+export function parseTaskWorkflowAttemptDraftRouteId(
   routeId: string
 ): string | null {
   return routeId.startsWith(DRAFT_ID_PREFIX)
@@ -50,26 +50,26 @@ export function parseIssueWorkflowAttemptDraftRouteId(
     : null;
 }
 
-export function readIssueWorkflowAttemptDraft(
+export function readTaskWorkflowAttemptDraft(
   id: string
-): IssueWorkflowAttemptDraft | null {
+): TaskWorkflowAttemptDraft | null {
   const raw = getStorage()?.getItem(storageKey(id));
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as IssueWorkflowAttemptDraft;
+    const parsed = JSON.parse(raw) as TaskWorkflowAttemptDraft;
     return parsed?.id === id ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function saveIssueWorkflowAttemptDraft(
-  draft: IssueWorkflowAttemptDraft
+export function saveTaskWorkflowAttemptDraft(
+  draft: TaskWorkflowAttemptDraft
 ): void {
   getStorage()?.setItem(storageKey(draft.id), JSON.stringify(draft));
 }
 
-export function deleteIssueWorkflowAttemptDraft(id: string): void {
+export function deleteTaskWorkflowAttemptDraft(id: string): void {
   getStorage()?.removeItem(storageKey(id));
 }

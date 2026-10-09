@@ -827,7 +827,7 @@ function transformGraph(
         },
         idFactory
       );
-      if ('issue' in connected) return connected;
+      if ('task' in connected) return connected;
       return {
         ...connected,
         selectedNodeIds: [nodeId],

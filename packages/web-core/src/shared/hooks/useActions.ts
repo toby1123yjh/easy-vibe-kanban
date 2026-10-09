@@ -16,7 +16,7 @@ export interface ActionsContextValue {
     action: ActionDefinition,
     workspaceId?: string,
     repoIdOrProjectId?: string,
-    issueIds?: string[]
+    taskIds?: string[]
   ) => Promise<void>;
 
   // Get resolved label for an action (supports dynamic labels via visibility context)
@@ -27,35 +27,35 @@ export interface ActionsContextValue {
   ) => string;
 
   // Open command bar in status selection mode
-  openStatusSelection: (projectId: string, issueIds: string[]) => Promise<void>;
+  openStatusSelection: (projectId: string, taskIds: string[]) => Promise<void>;
 
   // Open command bar in priority selection mode
   openPrioritySelection: (
     projectId: string,
-    issueIds: string[]
+    taskIds: string[]
   ) => Promise<void>;
 
   // Open assignee selection dialog
   openAssigneeSelection: (
     projectId: string,
-    issueIds: string[],
+    taskIds: string[],
     isCreateMode?: boolean
   ) => Promise<void>;
 
   // Open sub-issue selection in command bar
-  openSubIssueSelection: (
+  openSubTaskSelection: (
     projectId: string,
-    parentIssueId: string,
+    parentTaskId: string,
     mode?: 'addChild' | 'setParent'
   ) => Promise<{ type: string } | undefined>;
 
   // Open workspace selection dialog to link a workspace to an issue
-  openWorkspaceSelection: (projectId: string, issueId: string) => Promise<void>;
+  openWorkspaceSelection: (projectId: string, taskId: string) => Promise<void>;
 
   // Open relationship selection in command bar
   openRelationshipSelection: (
     projectId: string,
-    issueId: string,
+    taskId: string,
     relationshipType: 'blocking' | 'related' | 'has_duplicate',
     direction: 'forward' | 'reverse'
   ) => Promise<void>;

@@ -5,9 +5,9 @@ import type {
   ProjectPage,
   SessionCursor,
   SessionPage,
-  TaskCursor,
-  TaskSummary,
-  TaskSummaryPage,
+  ExecutionCursor,
+  ExecutionSummary,
+  ExecutionSummaryPage,
 } from 'shared/types';
 import { handleApiResponse } from './api';
 import {
@@ -30,16 +30,16 @@ export interface SessionPageOptions
   projectId?: string;
 }
 
-export interface TaskPageOptions
-  extends CursorPageOptions<TaskCursor>,
+export interface ExecutionPageOptions
+  extends CursorPageOptions<ExecutionCursor>,
     DiscoveryRequestOptions {
   projectId: string;
-  issueId?: string;
+  taskId?: string;
 }
 
-export type TaskChildrenPageOptions = CursorPageOptions<TaskCursor>;
+export type ExecutionChildrenPageOptions = CursorPageOptions<ExecutionCursor>;
 
-type StableCursor = ProjectCursor | SessionCursor | TaskCursor;
+type StableCursor = ProjectCursor | SessionCursor | ExecutionCursor;
 
 function appendCursor(params: URLSearchParams, cursor?: StableCursor | null) {
   if (!cursor) return;
@@ -96,17 +96,17 @@ export const executionDataApi = {
     return get(withQuery('/api/sessions/recent', params), options);
   },
 
-  listTasks(options: TaskPageOptions): Promise<TaskSummaryPage> {
+  listExecutions(options: ExecutionPageOptions): Promise<ExecutionSummaryPage> {
     const params = new URLSearchParams();
     params.set('project_id', options.projectId);
-    if (options.issueId) params.set('issue_id', options.issueId);
+    if (options.taskId) params.set('task_id', options.taskId);
     appendCursor(params, options.cursor);
     appendLimit(params, options.limit);
-    return get(withQuery('/api/tasks', params), options);
+    return get(withQuery('/api/executions', params), options);
   },
 
-  async deleteTask(
-    taskId: string,
+  async deleteExecution(
+    executionId: string,
     sessionId: string,
     hostId: string | null,
     stopRunning = false,
@@ -117,25 +117,28 @@ export const executionDataApi = {
     if (deleteManagedFiles) params.set('delete_managed_files', 'true');
     return handleApiResponse<SessionDeletionResult>(
       await makeLocalApiRequest(
-        withQuery(`/api/tasks/${encodeURIComponent(taskId)}`, params),
+        withQuery(`/api/executions/${encodeURIComponent(executionId)}`, params),
         { ...createDiscoveryRequestOptions({ hostId }), method: 'DELETE' }
       )
     );
   },
 
-  getTask(taskId: string): Promise<TaskSummary> {
-    return get(`/api/tasks/${encodeURIComponent(taskId)}`);
+  getExecution(executionId: string): Promise<ExecutionSummary> {
+    return get(`/api/executions/${encodeURIComponent(executionId)}`);
   },
 
-  listTaskChildren(
-    taskId: string,
-    options: TaskChildrenPageOptions = {}
-  ): Promise<TaskSummaryPage> {
+  listExecutionChildren(
+    executionId: string,
+    options: ExecutionChildrenPageOptions = {}
+  ): Promise<ExecutionSummaryPage> {
     const params = new URLSearchParams();
     appendCursor(params, options.cursor);
     appendLimit(params, options.limit);
     return get(
-      withQuery(`/api/tasks/${encodeURIComponent(taskId)}/children`, params)
+      withQuery(
+        `/api/executions/${encodeURIComponent(executionId)}/children`,
+        params
+      )
     );
   },
 };

@@ -1,8 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: '../../packages/web-core/src/features/projects/model',
-  testMatch: ['project-kanban.test.ts'],
+  testDir: '../../packages/web-core/src',
+  testMatch: ['**/project-kanban.test.ts', '**/taskShapeDecoder.test.ts'],
   fullyParallel: true,
   workers: 1,
   reporter: 'list',

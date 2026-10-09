@@ -36,7 +36,7 @@ export interface SaveAsDefaultProps {
   visible: boolean;
 }
 
-export interface LinkedIssueBadgeProps {
+export interface LinkedTaskBadgeProps {
   simpleId: string;
   title: string;
   onRemove?: () => void;
@@ -76,7 +76,7 @@ interface CreateChatBoxProps<TExecutor extends string = string> {
   dropzone?: DropzoneProps;
   projectSelector: ReactNode;
   sendDisabled?: boolean;
-  linkedIssue?: LinkedIssueBadgeProps | null;
+  linkedTask?: LinkedTaskBadgeProps | null;
 }
 
 /**
@@ -110,7 +110,7 @@ export function CreateChatBox<TExecutor extends string = string>({
   dropzone,
   projectSelector,
   sendDisabled = false,
-  linkedIssue,
+  linkedTask,
 }: CreateChatBoxProps<TExecutor>) {
   const { t } = useTranslation(["common", "tasks"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -207,22 +207,22 @@ export function CreateChatBox<TExecutor extends string = string>({
             onChange={handleFileInputChange}
           />
           {projectSelector}
-          {linkedIssue && (
+          {linkedTask && (
             <>
               <div
                 className="inline-flex items-center gap-half whitespace-nowrap text-sm text-low"
-                title={linkedIssue.title}
+                title={linkedTask.title}
               >
                 <span className="font-mono text-xs text-normal">
-                  {linkedIssue.simpleId}
+                  {linkedTask.simpleId}
                 </span>
-                {linkedIssue.onRemove && (
+                {linkedTask.onRemove && (
                   <button
                     type="button"
-                    onClick={linkedIssue.onRemove}
+                    onClick={linkedTask.onRemove}
                     disabled={isDisabled}
                     className="inline-flex items-center text-low hover:text-error transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label={`Remove link to ${linkedIssue.simpleId}`}
+                    aria-label={`Remove link to ${linkedTask.simpleId}`}
                   >
                     <XIcon className="size-icon-xs" weight="bold" />
                   </button>

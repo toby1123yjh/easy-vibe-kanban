@@ -23,7 +23,7 @@ use crate::{
 
 /// Mutation definition for Tags - provides both router and TypeScript metadata.
 pub fn mutation() -> MutationBuilder<Tag, CreateTagRequest, UpdateTagRequest> {
-    MutationBuilder::new("tags")
+    MutationBuilder::new()
         .list(list_tags)
         .get(get_tag)
         .create(create_tag)

@@ -1,4 +1,4 @@
-use api_types::{DeleteResponse, IssueFollower, MutationResponse};
+use api_types::{DeleteResponse, MutationResponse, TaskFollower};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -17,9 +17,9 @@ impl IssueFollowerRepository {
     pub async fn find_by_id(
         pool: &PgPool,
         id: Uuid,
-    ) -> Result<Option<IssueFollower>, IssueFollowerError> {
+    ) -> Result<Option<TaskFollower>, IssueFollowerError> {
         let record = sqlx::query_as!(
-            IssueFollower,
+            TaskFollower,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -39,9 +39,9 @@ impl IssueFollowerRepository {
     pub async fn list_by_issue(
         pool: &PgPool,
         issue_id: Uuid,
-    ) -> Result<Vec<IssueFollower>, IssueFollowerError> {
+    ) -> Result<Vec<TaskFollower>, IssueFollowerError> {
         let records = sqlx::query_as!(
-            IssueFollower,
+            TaskFollower,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -61,9 +61,9 @@ impl IssueFollowerRepository {
     pub async fn list_by_project(
         pool: &PgPool,
         project_id: Uuid,
-    ) -> Result<Vec<IssueFollower>, IssueFollowerError> {
+    ) -> Result<Vec<TaskFollower>, IssueFollowerError> {
         let records = sqlx::query_as!(
-            IssueFollower,
+            TaskFollower,
             r#"
             SELECT
                 id       AS "id!: Uuid",
@@ -84,11 +84,11 @@ impl IssueFollowerRepository {
         id: Option<Uuid>,
         issue_id: Uuid,
         user_id: Uuid,
-    ) -> Result<MutationResponse<IssueFollower>, IssueFollowerError> {
+    ) -> Result<MutationResponse<TaskFollower>, IssueFollowerError> {
         let id = id.unwrap_or_else(Uuid::new_v4);
         let mut tx = super::begin_tx(pool).await?;
         let data = sqlx::query_as!(
-            IssueFollower,
+            TaskFollower,
             r#"
             INSERT INTO issue_followers (id, issue_id, user_id)
             VALUES ($1, $2, $3)

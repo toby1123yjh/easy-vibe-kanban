@@ -15,8 +15,8 @@ import { WorkspaceTargetDialog } from '@/shared/dialogs/shared/WorkspaceTargetDi
 
 interface UseWorkflowRepositorySelectionOptions {
   projectId?: string | null;
-  issueId: string;
-  issueTitle: string;
+  taskId: string;
+  taskTitle: string;
 }
 
 export function useWorkflowRepositorySelection({

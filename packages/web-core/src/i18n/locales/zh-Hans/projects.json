@@ -35,7 +35,7 @@
   },
   "createProjectDialog": {
     "workspaceLabel": "工作目录（必选）",
-    "workspaceHint": "为后续任务设置默认位置。不会创建执行工作空间，也不会启动智能体。",
+    "workspaceHint": "选择项目目录。已有项目会加载原来的任务，不会启动智能体。",
     "chooseWorkspace": "选择文件夹或 Git 仓库",
     "changeWorkspace": "更改位置",
     "machineLabel": "所属机器",
@@ -53,11 +53,12 @@
     "namePlaceholder": "输入项目名称",
     "selectColor": "选择项目颜色",
     "creating": "正在创建…",
-    "createButton": "创建项目"
+    "createButton": "创建项目",
+    "openedWorkspaceSaveFailed": "项目已打开，但 Git 设置保存失败。可重试保存；取消不会删除项目和文件。"
   },
   "deleteProjectDialog": {
     "title": "删除项目？",
-    "description": "这将永久删除“{{name}}”及其所有议题。此操作无法撤销。",
+    "description": "这将永久删除“{{name}}”及其所有任务。此操作无法撤销。",
     "error": "删除项目失败，请重试。"
   },
   "scoped": {
@@ -92,7 +93,7 @@
     "noMatchesTitle": "没有匹配的项目",
     "noMatchesDescription": "请尝试其他项目名称。",
     "emptyTitle": "还没有项目",
-    "emptyDescription": "创建项目来组织 Issue 和任务。",
+    "emptyDescription": "创建项目来组织任务和执行。",
     "degradedTitle": "项目可能不是最新的",
     "degradedDescription": "重试失败请求期间，已加载的项目仍可使用。",
     "searchingRemaining": "正在搜索其余项目…",

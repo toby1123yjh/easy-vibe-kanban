@@ -13,16 +13,16 @@ export interface AgentWorkbenchHeader {
 export function deriveAgentWorkbenchHeader({
   canonicalSession,
   fallbackTitle,
-  issueLabel,
+  taskLabel,
   workspaceContext,
 }: {
   canonicalSession: SessionListItem | undefined;
   fallbackTitle: string;
-  issueLabel?: string;
+  taskLabel?: string;
   workspaceContext?: BuildWorkspaceContextOptions;
 }): AgentWorkbenchHeader {
   const contextLabels = [
-    issueLabel?.trim() || undefined,
+    taskLabel?.trim() || undefined,
     ...(workspaceContext ? buildWorkspaceContext(workspaceContext) : []).map(
       (part) => part.label
     ),

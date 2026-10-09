@@ -15,7 +15,7 @@ export function useProjectWorkspaceCreateDraft() {
   const openWorkspaceCreateFromState = useCallback(
     async (
       initialState: CreateModeInitialState,
-      options?: { issueId?: string | null }
+      options?: { taskId?: string | null }
     ): Promise<string | null> => {
       if (!projectId) return null;
 
@@ -28,15 +28,15 @@ export function useProjectWorkspaceCreateDraft() {
         return null;
       }
 
-      const issueId =
-        options?.issueId ??
-        initialState.linkedIssue?.issueId ??
-        routeState.issueId ??
+      const taskId =
+        options?.taskId ??
+        initialState.linkedTask?.taskId ??
+        routeState.taskId ??
         null;
-      if (issueId) {
-        appNavigation.goToProjectIssueWorkspaceCreate(
+      if (taskId) {
+        appNavigation.goToProjectTaskWorkspaceCreate(
           projectId,
-          issueId,
+          taskId,
           draftId
         );
       } else {
@@ -45,7 +45,7 @@ export function useProjectWorkspaceCreateDraft() {
 
       return draftId;
     },
-    [projectId, appNavigation, routeState.issueId, runtime]
+    [projectId, appNavigation, routeState.taskId, runtime]
   );
 
   return {

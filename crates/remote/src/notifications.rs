@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use api_types::{Issue, NotificationPayload, NotificationType};
+use api_types::{NotificationPayload, NotificationType, Task};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -13,7 +13,7 @@ pub async fn notify_issue_subscribers(
     pool: &PgPool,
     organization_id: Uuid,
     actor_user_id: Uuid,
-    issue: &Issue,
+    issue: &Task,
     notification_type: NotificationType,
     extra_payload: NotificationPayload,
     comment_id: Option<Uuid>,
@@ -51,7 +51,7 @@ pub async fn send_issue_notifications(
     organization_id: Uuid,
     actor_user_id: Uuid,
     recipients: &[Uuid],
-    issue: &Issue,
+    issue: &Task,
     notification_type: NotificationType,
     extra_payload: NotificationPayload,
     comment_id: Option<Uuid>,
@@ -86,7 +86,7 @@ pub async fn send_debounced_issue_notifications(
     organization_id: Uuid,
     actor_user_id: Uuid,
     recipients: &[Uuid],
-    issue: &Issue,
+    issue: &Task,
     notification_type: NotificationType,
     extra_payload: NotificationPayload,
     comment_id: Option<Uuid>,
@@ -120,7 +120,7 @@ pub async fn notify_user(
     organization_id: Uuid,
     actor_user_id: Uuid,
     recipient_user_id: Uuid,
-    issue: &Issue,
+    issue: &Task,
     notification_type: NotificationType,
     extra_payload: NotificationPayload,
 ) {
@@ -172,14 +172,14 @@ pub async fn collect_issue_recipients(
 }
 
 fn build_payload(
-    issue: &Issue,
+    issue: &Task,
     actor_user_id: Uuid,
     notification_type: NotificationType,
     extra_payload: NotificationPayload,
 ) -> NotificationPayload {
     let deeplink_path = match notification_type {
-        NotificationType::IssueDeleted => format!("/projects/{}", issue.project_id),
-        _ => format!("/projects/{}/issues/{}", issue.project_id, issue.id),
+        NotificationType::TaskDeleted => format!("/projects/{}", issue.project_id),
+        _ => format!("/projects/{}/tasks/{}", issue.project_id, issue.id),
     };
 
     NotificationPayload {

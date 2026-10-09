@@ -1,5 +1,5 @@
 use api_types::{
-    CreateIssueRelationshipRequest, IssueRelationship, IssueRelationshipType, MutationResponse,
+    CreateTaskRelationshipRequest, MutationResponse, TaskRelationship, TaskRelationshipType,
 };
 use rmcp::{
     ErrorData, handler::server::wrapper::Parameters, model::CallToolResult, schemars, tool,
@@ -11,30 +11,32 @@ use uuid::Uuid;
 use super::McpServer;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpCreateIssueRelationshipRequest {
-    #[schemars(description = "The source issue ID")]
+struct McpCreateTaskRelationshipRequest {
+    #[schemars(description = "The source task ID")]
+    #[serde(rename = "task_id")]
     issue_id: Uuid,
-    #[schemars(description = "The related issue ID")]
+    #[schemars(description = "The related task ID")]
+    #[serde(rename = "related_task_id")]
     related_issue_id: Uuid,
     #[schemars(description = "Relationship type: 'blocking', 'related', or 'has_duplicate'")]
-    relationship_type: IssueRelationshipType,
+    relationship_type: TaskRelationshipType,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpCreateIssueRelationshipResponse {
+struct McpCreateTaskRelationshipResponse {
     relationship_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-struct McpDeleteIssueRelationshipRequest {
+struct McpDeleteTaskRelationshipRequest {
     #[schemars(
-        description = "The relationship ID to delete (from get_issue or create_issue_relationship)"
+        description = "The relationship ID to delete (from get_task or create_task_relationship)"
     )]
     relationship_id: Uuid,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-struct McpDeleteIssueRelationshipResponse {
+struct McpDeleteTaskRelationshipResponse {
     success: bool,
     deleted_relationship_id: String,
 }
@@ -42,51 +44,51 @@ struct McpDeleteIssueRelationshipResponse {
 #[tool_router(router = issue_relationships_tools_router, vis = "pub")]
 impl McpServer {
     #[tool(
-        description = "Create a relationship between two issues. Types: 'blocking', 'related', 'has_duplicate'."
+        description = "Create a relationship between two tasks. Types: 'blocking', 'related', 'has_duplicate'."
     )]
     async fn create_issue_relationship(
         &self,
-        Parameters(McpCreateIssueRelationshipRequest {
+        Parameters(McpCreateTaskRelationshipRequest {
             issue_id,
             related_issue_id,
             relationship_type,
-        }): Parameters<McpCreateIssueRelationshipRequest>,
+        }): Parameters<McpCreateTaskRelationshipRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let payload = CreateIssueRelationshipRequest {
+        let payload = CreateTaskRelationshipRequest {
             id: None,
             issue_id,
             related_issue_id,
             relationship_type,
         };
 
-        let url = self.url("/api/remote/issue-relationships");
-        let response: MutationResponse<IssueRelationship> =
+        let url = self.url("/api/remote/task-relationships");
+        let response: MutationResponse<TaskRelationship> =
             match self.send_json(self.client.post(&url).json(&payload)).await {
                 Ok(r) => r,
                 Err(e) => return Ok(Self::tool_error(e)),
             };
 
-        McpServer::success(&McpCreateIssueRelationshipResponse {
+        McpServer::success(&McpCreateTaskRelationshipResponse {
             relationship_id: response.data.id.to_string(),
         })
     }
 
-    #[tool(description = "Delete a relationship between two issues.")]
+    #[tool(description = "Delete a relationship between two tasks.")]
     async fn delete_issue_relationship(
         &self,
-        Parameters(McpDeleteIssueRelationshipRequest { relationship_id }): Parameters<
-            McpDeleteIssueRelationshipRequest,
+        Parameters(McpDeleteTaskRelationshipRequest { relationship_id }): Parameters<
+            McpDeleteTaskRelationshipRequest,
         >,
     ) -> Result<CallToolResult, ErrorData> {
         let url = self.url(&format!(
-            "/api/remote/issue-relationships/{}",
+            "/api/remote/task-relationships/{}",
             relationship_id
         ));
         if let Err(e) = self.send_empty_json(self.client.delete(&url)).await {
             return Ok(Self::tool_error(e));
         }
 
-        McpServer::success(&McpDeleteIssueRelationshipResponse {
+        McpServer::success(&McpDeleteTaskRelationshipResponse {
             success: true,
             deleted_relationship_id: relationship_id.to_string(),
         })

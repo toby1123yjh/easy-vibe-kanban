@@ -370,9 +370,9 @@ function ProjectSunsetHarness() {
         goToProjectWorkflows: () => undefined,
         goToProjectWorkflowEdit: () => undefined,
         goToProjectWorkflowRun: () => undefined,
-        goToProjectIssue: () => undefined,
-        goToProjectIssueWorkspace: () => undefined,
-        goToProjectIssueWorkspaceCreate: () => undefined,
+        goToProjectTask: () => undefined,
+        goToProjectTaskWorkspace: () => undefined,
+        goToProjectTaskWorkspaceCreate: () => undefined,
         goToProjectWorkspaceCreate: () => undefined,
       }) as AppNavigation,
     []

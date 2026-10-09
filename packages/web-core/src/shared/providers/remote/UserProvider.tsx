@@ -22,9 +22,9 @@ export function UserProvider({ children }: UserProviderProps) {
   const workspacesResult = useShape(USER_WORKSPACES_SHAPE, params, { enabled });
 
   // Lookup helpers
-  const getWorkspacesForIssue = useCallback(
-    (issueId: string) => {
-      return workspacesResult.data.filter((w) => w.issue_id === issueId);
+  const getWorkspacesForTask = useCallback(
+    (taskId: string) => {
+      return workspacesResult.data.filter((w) => w.task_id === taskId);
     },
     [workspacesResult.data]
   );
@@ -40,9 +40,9 @@ export function UserProvider({ children }: UserProviderProps) {
       retry: workspacesResult.retry,
 
       // Lookup helpers
-      getWorkspacesForIssue,
+      getWorkspacesForTask,
     }),
-    [workspacesResult, getWorkspacesForIssue]
+    [workspacesResult, getWorkspacesForTask]
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

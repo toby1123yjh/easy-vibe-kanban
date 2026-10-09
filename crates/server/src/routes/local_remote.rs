@@ -1,13 +1,13 @@
 use api_types::{
-    CreateIssueAssigneeRequest, CreateIssueCommentReactionRequest, CreateIssueCommentRequest,
-    CreateIssueFollowerRequest, CreateIssueRelationshipRequest, CreateIssueRequest,
-    CreateIssueTagRequest, CreateProjectRequest, CreateProjectStatusRequest, CreateTagRequest,
-    DeleteResponse, Issue, IssueAssignee, IssueComment, IssueCommentReaction, IssueFollower,
-    IssuePriority, IssueRelationship, IssueRelationshipType, IssueTag, ListMembersResponse,
-    ListOrganizationsResponse, MemberRole, MutationResponse, OrganizationMember,
-    OrganizationMemberWithProfile, OrganizationWithRole, Project, ProjectStatus, Tag,
-    UpdateIssueCommentRequest, UpdateIssueRequest, UpdateProjectRequest,
-    UpdateProjectStatusRequest, UpdateTagRequest, User, Workspace,
+    CreateProjectRequest, CreateProjectStatusRequest, CreateTagRequest, CreateTaskAssigneeRequest,
+    CreateTaskCommentReactionRequest, CreateTaskCommentRequest, CreateTaskFollowerRequest,
+    CreateTaskRelationshipRequest, CreateTaskRequest, CreateTaskTagRequest, DeleteResponse,
+    ListMembersResponse, ListOrganizationsResponse, MemberRole, MutationResponse,
+    OrganizationMember, OrganizationMemberWithProfile, OrganizationWithRole, Project,
+    ProjectStatus, Tag, Task, TaskAssignee, TaskComment, TaskCommentReaction, TaskFollower,
+    TaskPriority, TaskRelationship, TaskRelationshipType, TaskTag, UpdateProjectRequest,
+    UpdateProjectStatusRequest, UpdateTagRequest, UpdateTaskCommentRequest, UpdateTaskRequest,
+    User, Workspace,
 };
 use axum::{
     Router,
@@ -24,7 +24,7 @@ use db::models::{
     execution_process::ExecutionProcessRunReason,
     requests::WorkspaceRepoInput,
     session::{CreateSession, Session},
-    task::{CreateTask, Task, TaskExecutionKind},
+    task::{CreateExecution, Execution, ExecutionKind},
     workspace::Workspace as DbWorkspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -48,7 +48,7 @@ use crate::{
 
 const LOCAL_PROJECT_COLOR: &str = "210 80% 52%";
 
-const DEFAULT_STATUSES: [(&str, &str, i32, bool); 5] = [
+pub(super) const DEFAULT_STATUSES: [(&str, &str, i32, bool); 5] = [
     ("Todo", "210 80% 52%", 100, false),
     ("In Progress", "38 92% 50%", 200, false),
     ("In Review", "265 70% 62%", 300, false),
@@ -56,7 +56,7 @@ const DEFAULT_STATUSES: [(&str, &str, i32, bool); 5] = [
     ("Cancelled", "0 0% 50%", 500, true),
 ];
 
-const DEFAULT_TAGS: [(&str, &str); 4] = [
+pub(super) const DEFAULT_TAGS: [(&str, &str); 4] = [
     ("bug", "355 65% 53%"),
     ("feature", "124 82% 30%"),
     ("documentation", "205 100% 40%"),
@@ -76,7 +76,8 @@ struct ProjectQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct IssueQuery {
+struct TaskQuery {
+    #[serde(rename = "task_id")]
     issue_id: Option<Uuid>,
 }
 
@@ -110,15 +111,15 @@ struct BulkUpdateProjectStatusesRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct BulkUpdateIssueItem {
+struct BulkUpdateTaskItem {
     id: Uuid,
     #[serde(flatten)]
-    changes: UpdateIssueRequest,
+    changes: UpdateTaskRequest,
 }
 
 #[derive(Debug, Deserialize)]
-struct BulkUpdateIssuesRequest {
-    updates: Vec<BulkUpdateIssueItem>,
+struct BulkUpdateTasksRequest {
+    updates: Vec<BulkUpdateTaskItem>,
 }
 
 pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
@@ -135,19 +136,13 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/fallback/project_statuses",
             get(fallback_project_statuses),
         )
-        .route("/v1/fallback/issues", get(fallback_issues))
+        .route("/v1/fallback/tasks", get(fallback_issues))
         .route("/v1/fallback/tags", get(fallback_tags))
-        .route("/v1/fallback/issue_tags", get(fallback_issue_tags))
+        .route("/v1/fallback/task_tags", get(fallback_issue_tags))
+        .route("/v1/fallback/task_assignees", get(fallback_issue_assignees))
+        .route("/v1/fallback/task_followers", get(fallback_issue_followers))
         .route(
-            "/v1/fallback/issue_assignees",
-            get(fallback_issue_assignees),
-        )
-        .route(
-            "/v1/fallback/issue_followers",
-            get(fallback_issue_followers),
-        )
-        .route(
-            "/v1/fallback/issue_relationships",
+            "/v1/fallback/task_relationships",
             get(fallback_issue_relationships),
         )
         .route("/v1/fallback/pull_requests", get(fallback_pull_requests))
@@ -164,9 +159,9 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(fallback_user_workspaces),
         )
         .route("/v1/fallback/notifications", get(fallback_notifications))
-        .route("/v1/fallback/issue_comments", get(fallback_issue_comments))
+        .route("/v1/fallback/task_comments", get(fallback_issue_comments))
         .route(
-            "/v1/fallback/issue_comment_reactions",
+            "/v1/fallback/task_comment_reactions",
             get(fallback_issue_comment_reactions),
         )
         .route("/v1/fallback/workflows", get(fallback_workflows))
@@ -176,6 +171,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             get(fallback_node_executions),
         )
         .route("/v1/projects", post(create_project))
+        .route("/v1/projects/open", post(open_project))
         .route("/v1/projects/bulk", post(bulk_update_projects))
         .route(
             "/v1/projects/{project_id}",
@@ -192,54 +188,54 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
             "/v1/project_statuses/{status_id}",
             patch(update_project_status).delete(delete_project_status),
         )
-        .route("/v1/issues", post(create_issue))
-        .route("/v1/issues/bulk", post(bulk_update_issues))
+        .route("/v1/tasks", post(create_issue))
+        .route("/v1/tasks/bulk", post(bulk_update_issues))
         .route(
-            "/v1/issues/{issue_id}",
+            "/v1/tasks/{issue_id}",
             patch(update_issue).delete(delete_issue),
         )
         .route("/v1/tags", post(create_tag))
         .route("/v1/tags/{tag_id}", patch(update_tag).delete(delete_tag))
-        .route("/v1/issue_tags", post(create_issue_tag))
-        .route("/v1/issue_tags/{issue_tag_id}", delete(delete_issue_tag))
-        .route("/v1/issue_assignees", post(create_issue_assignee))
+        .route("/v1/task_tags", post(create_issue_tag))
+        .route("/v1/task_tags/{issue_tag_id}", delete(delete_issue_tag))
+        .route("/v1/task_assignees", post(create_issue_assignee))
         .route(
-            "/v1/issue_assignees/{issue_assignee_id}",
+            "/v1/task_assignees/{issue_assignee_id}",
             delete(delete_issue_assignee),
         )
-        .route("/v1/issue_followers", post(create_issue_follower))
+        .route("/v1/task_followers", post(create_issue_follower))
         .route(
-            "/v1/issue_followers/{issue_follower_id}",
+            "/v1/task_followers/{issue_follower_id}",
             delete(delete_issue_follower),
         )
-        .route("/v1/issue_relationships", post(create_issue_relationship))
+        .route("/v1/task_relationships", post(create_issue_relationship))
         .route(
-            "/v1/issue_relationships/{relationship_id}",
+            "/v1/task_relationships/{relationship_id}",
             delete(delete_issue_relationship),
         )
-        .route("/v1/issue_comments", post(create_issue_comment))
+        .route("/v1/task_comments", post(create_issue_comment))
         .route(
-            "/v1/issue_comments/{comment_id}",
+            "/v1/task_comments/{comment_id}",
             patch(update_issue_comment).delete(delete_issue_comment),
         )
         .route(
-            "/v1/issue_comment_reactions",
+            "/v1/task_comment_reactions",
             post(create_issue_comment_reaction),
         )
         .route(
-            "/v1/issue_comment_reactions/{reaction_id}",
+            "/v1/task_comment_reactions/{reaction_id}",
             delete(delete_issue_comment_reaction),
         )
         // ── AI Arena (race mode) ────────────────────────────────────────
         // see docs/future/ai-arena/spec.md §4 + plan.md Step 1.3
         .route("/v1/fallback/arena_groups", get(fallback_arena_groups))
         .route(
-            "/v1/issues/{issue_id}/workspaces",
+            "/v1/tasks/{issue_id}/workspaces",
             get(list_issue_workspaces),
         )
-        .route("/v1/issues/{issue_id}/arena", post(create_arena_group))
+        .route("/v1/tasks/{issue_id}/arena", post(create_arena_group))
         .route(
-            "/v1/issues/{issue_id}/arena/active",
+            "/v1/tasks/{issue_id}/arena/active",
             get(get_active_arena_for_issue),
         )
         .route(
@@ -276,51 +272,26 @@ fn txid() -> i64 {
     Utc::now().timestamp_millis()
 }
 
-fn priority_to_str(priority: IssuePriority) -> &'static str {
-    match priority {
-        IssuePriority::Urgent => "urgent",
-        IssuePriority::High => "high",
-        IssuePriority::Medium => "medium",
-        IssuePriority::Low => "low",
-    }
-}
-
-fn priority_from_str(value: Option<String>) -> Option<IssuePriority> {
+fn priority_from_str(value: Option<String>) -> Option<TaskPriority> {
     match value.as_deref() {
-        Some("urgent") => Some(IssuePriority::Urgent),
-        Some("high") => Some(IssuePriority::High),
-        Some("medium") => Some(IssuePriority::Medium),
-        Some("low") => Some(IssuePriority::Low),
+        Some("urgent") => Some(TaskPriority::Urgent),
+        Some("high") => Some(TaskPriority::High),
+        Some("medium") => Some(TaskPriority::Medium),
+        Some("low") => Some(TaskPriority::Low),
         _ => None,
     }
 }
 
-fn relationship_type_to_str(relationship_type: IssueRelationshipType) -> &'static str {
-    match relationship_type {
-        IssueRelationshipType::Blocking => "blocking",
-        IssueRelationshipType::Related => "related",
-        IssueRelationshipType::HasDuplicate => "has_duplicate",
-    }
-}
-
-fn relationship_type_from_str(value: String) -> IssueRelationshipType {
+fn relationship_type_from_str(value: String) -> TaskRelationshipType {
     match value.as_str() {
-        "blocking" => IssueRelationshipType::Blocking,
-        "has_duplicate" => IssueRelationshipType::HasDuplicate,
-        _ => IssueRelationshipType::Related,
+        "blocking" => TaskRelationshipType::Blocking,
+        "has_duplicate" => TaskRelationshipType::HasDuplicate,
+        _ => TaskRelationshipType::Related,
     }
 }
 
 fn empty_rows(table: &str) -> ResponseJson<Value> {
     ResponseJson(json!({ table: [] }))
-}
-
-async fn project_exists(pool: &SqlitePool, project_id: Uuid) -> Result<bool, ApiError> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects WHERE id = ?")
-        .bind(project_id)
-        .fetch_one(pool)
-        .await?;
-    Ok(count > 0)
 }
 
 async fn ensure_project_metadata(pool: &SqlitePool) -> Result<(), ApiError> {
@@ -362,7 +333,7 @@ async fn ensure_project_metadata(pool: &SqlitePool) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn project_from_row(row: &SqliteRow) -> Result<Project, sqlx::Error> {
+pub(super) fn project_from_row(row: &SqliteRow) -> Result<Project, sqlx::Error> {
     Ok(Project {
         id: row.try_get("id")?,
         organization_id: row.try_get("organization_id")?,
@@ -397,16 +368,37 @@ async fn list_local_projects(pool: &SqlitePool) -> Result<Vec<Project>, ApiError
     .fetch_all(pool)
     .await?;
 
-    rows.iter()
-        .map(project_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+    let mut projects = Vec::with_capacity(rows.len());
+    for row in rows {
+        let project = project_from_row(&row)?;
+        let mounted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM project_task_mounts WHERE project_id=?)",
+        )
+        .bind(project.id)
+        .fetch_one(pool)
+        .await?;
+        projects.push(if mounted {
+            super::project_store::read(pool, project.id).await?.project
+        } else {
+            project
+        });
+    }
+    projects.sort_by_key(|p| p.sort_order);
+    Ok(projects)
 }
 
 pub(crate) async fn get_local_project(
     pool: &SqlitePool,
     project_id: Uuid,
 ) -> Result<Project, ApiError> {
+    let mounted: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM project_task_mounts WHERE project_id=?)")
+            .bind(project_id)
+            .fetch_one(pool)
+            .await?;
+    if mounted {
+        return Ok(super::project_store::read(pool, project_id).await?.project);
+    }
     ensure_project_metadata(pool).await?;
 
     let row = sqlx::query(
@@ -433,60 +425,12 @@ pub(crate) async fn get_local_project(
 }
 
 async fn create_local_project(
-    pool: &SqlitePool,
-    request: CreateProjectRequest,
+    _pool: &SqlitePool,
+    _request: CreateProjectRequest,
 ) -> Result<Project, ApiError> {
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    let project_id = insert_local_project(&mut tx, request).await?;
-    tx.commit().await?;
-    get_local_project(pool, project_id).await
-}
-
-pub(crate) async fn insert_local_project(
-    conn: &mut sqlx::SqliteConnection,
-    request: CreateProjectRequest,
-) -> Result<Uuid, ApiError> {
-    let project_id = request.id.unwrap_or_else(Uuid::new_v4);
-    let sort_order: i32 =
-        sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM local_project_metadata")
-            .fetch_one(&mut *conn)
-            .await?;
-
-    sqlx::query("INSERT INTO projects (id, name) VALUES (?, ?)")
-        .bind(project_id)
-        .bind(request.name)
-        .execute(&mut *conn)
-        .await?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO local_project_metadata
-            (project_id, organization_id, color, sort_order)
-        VALUES (?, ?, ?, ?)
-        "#,
-    )
-    .bind(project_id)
-    .bind(local_org_id())
-    .bind(request.color)
-    .bind(sort_order)
-    .execute(&mut *conn)
-    .await?;
-
-    for (name, color, sort_order, hidden) in DEFAULT_STATUSES {
-        sqlx::query("INSERT INTO local_project_statuses (id, project_id, name, color, sort_order, hidden) VALUES (?, ?, ?, ?, ?, ?)")
-            .bind(Uuid::new_v4()).bind(project_id).bind(name).bind(color).bind(sort_order).bind(hidden)
-            .execute(&mut *conn).await?;
-    }
-    for (name, color) in DEFAULT_TAGS {
-        sqlx::query("INSERT INTO local_tags (id, project_id, name, color) VALUES (?, ?, ?, ?)")
-            .bind(Uuid::new_v4())
-            .bind(project_id)
-            .bind(name)
-            .bind(color)
-            .execute(&mut *conn)
-            .await?;
-    }
-    Ok(project_id)
+    Err(ApiError::BadRequest(
+        "Choose a project directory and use the project open endpoint".into(),
+    ))
 }
 
 async fn update_local_project(
@@ -499,38 +443,23 @@ async fn update_local_project(
             "The default project is read-only".into(),
         ));
     }
-    if let Some(name) = changes.name {
-        sqlx::query(
-            "UPDATE projects SET name = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
-        )
-        .bind(name)
-        .bind(project_id)
-        .execute(pool)
-        .await?;
-    }
-
-    if changes.color.is_some() || changes.sort_order.is_some() {
-        ensure_project_metadata(pool).await?;
-
-        let existing = get_local_project(pool, project_id).await?;
-        sqlx::query(
-            r#"
-            UPDATE local_project_metadata
-            SET color = ?, sort_order = ?, updated_at = datetime('now', 'subsec')
-            WHERE project_id = ?
-            "#,
-        )
-        .bind(changes.color.unwrap_or(existing.color))
-        .bind(changes.sort_order.unwrap_or(existing.sort_order))
-        .bind(project_id)
-        .execute(pool)
-        .await?;
-    }
-
-    get_local_project(pool, project_id).await
+    super::project_store::mutate(pool, project_id, |document| {
+        if let Some(name) = changes.name {
+            document.project.name = name;
+        }
+        if let Some(color) = changes.color {
+            document.project.color = color;
+        }
+        if let Some(sort_order) = changes.sort_order {
+            document.project.sort_order = sort_order;
+        }
+        document.project.updated_at = Utc::now();
+        Ok(document.project.clone())
+    })
+    .await
 }
 
-fn status_from_row(row: &SqliteRow) -> Result<ProjectStatus, sqlx::Error> {
+pub(super) fn status_from_row(row: &SqliteRow) -> Result<ProjectStatus, sqlx::Error> {
     Ok(ProjectStatus {
         id: row.try_get("id")?,
         project_id: row.try_get("project_id")?,
@@ -546,74 +475,18 @@ async fn list_project_statuses(
     pool: &SqlitePool,
     project_id: Uuid,
 ) -> Result<Vec<ProjectStatus>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT id, project_id, name, color, sort_order, hidden, created_at
-        FROM local_project_statuses
-        WHERE project_id = ?
-        ORDER BY sort_order ASC
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(status_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
-}
-
-async fn get_project_status(pool: &SqlitePool, status_id: Uuid) -> Result<ProjectStatus, ApiError> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, project_id, name, color, sort_order, hidden, created_at
-        FROM local_project_statuses
-        WHERE id = ?
-        "#,
-    )
-    .bind(status_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("Project status not found".to_string()))?;
-
-    status_from_row(&row).map_err(ApiError::from)
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    let mut rows = super::project_store::read(pool, project_id).await?.statuses;
+    rows.sort_by_key(|row| row.sort_order);
+    Ok(rows)
 }
 
 async fn ensure_default_statuses(
     pool: &SqlitePool,
     project_id: Uuid,
 ) -> Result<Vec<ProjectStatus>, ApiError> {
-    if !project_exists(pool, project_id).await? {
-        return Ok(Vec::new());
-    }
-
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM local_project_statuses WHERE project_id = ?")
-            .bind(project_id)
-            .fetch_one(pool)
-            .await?;
-
-    if count == 0 {
-        for (name, color, sort_order, hidden) in DEFAULT_STATUSES {
-            sqlx::query(
-                r#"
-                INSERT INTO local_project_statuses
-                    (id, project_id, name, color, sort_order, hidden)
-                VALUES (?, ?, ?, ?, ?, ?)
-                "#,
-            )
-            .bind(Uuid::new_v4())
-            .bind(project_id)
-            .bind(name)
-            .bind(color)
-            .bind(sort_order)
-            .bind(hidden)
-            .execute(pool)
-            .await?;
-        }
-    }
-
     list_project_statuses(pool, project_id).await
 }
 
@@ -621,24 +494,20 @@ async fn create_local_status(
     pool: &SqlitePool,
     request: CreateProjectStatusRequest,
 ) -> Result<ProjectStatus, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query(
-        r#"
-        INSERT INTO local_project_statuses
-            (id, project_id, name, color, sort_order, hidden)
-        VALUES (?, ?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(id)
-    .bind(request.project_id)
-    .bind(request.name)
-    .bind(request.color)
-    .bind(request.sort_order)
-    .bind(request.hidden)
-    .execute(pool)
-    .await?;
-
-    get_project_status(pool, id).await
+    super::project_store::mutate(pool, request.project_id, |document| {
+        let row = ProjectStatus {
+            id: request.id.unwrap_or_else(Uuid::new_v4),
+            project_id: request.project_id,
+            name: request.name,
+            color: request.color,
+            sort_order: request.sort_order,
+            hidden: request.hidden,
+            created_at: Utc::now(),
+        };
+        document.statuses.push(row.clone());
+        Ok(row)
+    })
+    .await
 }
 
 async fn update_local_status(
@@ -646,34 +515,38 @@ async fn update_local_status(
     status_id: Uuid,
     changes: UpdateProjectStatusRequest,
 ) -> Result<ProjectStatus, ApiError> {
-    let existing = get_project_status(pool, status_id).await?;
-
-    sqlx::query(
-        r#"
-        UPDATE local_project_statuses
-        SET name = ?, color = ?, sort_order = ?, hidden = ?
-        WHERE id = ?
-        "#,
-    )
-    .bind(changes.name.unwrap_or(existing.name))
-    .bind(changes.color.unwrap_or(existing.color))
-    .bind(changes.sort_order.unwrap_or(existing.sort_order))
-    .bind(changes.hidden.unwrap_or(existing.hidden))
-    .bind(status_id)
-    .execute(pool)
-    .await?;
-
-    get_project_status(pool, status_id).await
+    let owner = super::project_store::owner(pool, "statuses", status_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        let row = document
+            .statuses
+            .iter_mut()
+            .find(|row| row.id == status_id)
+            .ok_or_else(|| ApiError::BadRequest("Project status not found".into()))?;
+        if let Some(name) = changes.name {
+            row.name = name;
+        }
+        if let Some(color) = changes.color {
+            row.color = color;
+        }
+        if let Some(sort_order) = changes.sort_order {
+            row.sort_order = sort_order;
+        }
+        if let Some(hidden) = changes.hidden {
+            row.hidden = hidden;
+        }
+        Ok(row.clone())
+    })
+    .await
 }
 
-fn issue_from_row(row: &SqliteRow) -> Result<Issue, sqlx::Error> {
+pub(super) fn issue_from_row(row: &SqliteRow) -> Result<Task, sqlx::Error> {
     let extension_metadata = row
         .try_get::<String, _>("extension_metadata")
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .unwrap_or(Value::Null);
 
-    Ok(Issue {
+    Ok(Task {
         id: row.try_get("id")?,
         project_id: row.try_get("project_id")?,
         issue_number: row.try_get("issue_number")?,
@@ -695,206 +568,72 @@ fn issue_from_row(row: &SqliteRow) -> Result<Issue, sqlx::Error> {
     })
 }
 
-async fn list_project_issues(pool: &SqlitePool, project_id: Uuid) -> Result<Vec<Issue>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            id,
-            project_id,
-            issue_number,
-            simple_id,
-            status_id,
-            title,
-            description,
-            priority,
-            start_date,
-            target_date,
-            completed_at,
-            sort_order,
-            parent_issue_id,
-            parent_issue_sort_order,
-            extension_metadata,
-            creator_user_id,
-            created_at,
-            updated_at
-        FROM local_issues
-        WHERE project_id = ?
-        ORDER BY sort_order ASC, created_at ASC
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(issue_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+async fn list_project_issues(pool: &SqlitePool, project_id: Uuid) -> Result<Vec<Task>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    let mut rows = super::project_store::read(pool, project_id).await?.tasks;
+    rows.sort_by(|a, b| {
+        a.sort_order
+            .total_cmp(&b.sort_order)
+            .then(a.created_at.cmp(&b.created_at))
+    });
+    Ok(rows)
 }
 
-pub(crate) async fn get_local_issue(pool: &SqlitePool, issue_id: Uuid) -> Result<Issue, ApiError> {
-    let row = sqlx::query(
-        r#"
-        SELECT
-            id,
-            project_id,
-            issue_number,
-            simple_id,
-            status_id,
-            title,
-            description,
-            priority,
-            start_date,
-            target_date,
-            completed_at,
-            sort_order,
-            parent_issue_id,
-            parent_issue_sort_order,
-            extension_metadata,
-            creator_user_id,
-            created_at,
-            updated_at
-        FROM local_issues
-        WHERE id = ?
-        "#,
-    )
-    .bind(issue_id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| ApiError::BadRequest("Issue not found".to_string()))?;
-
-    issue_from_row(&row).map_err(ApiError::from)
+pub(crate) async fn get_local_issue(pool: &SqlitePool, issue_id: Uuid) -> Result<Task, ApiError> {
+    let owner = super::project_store::owner(pool, "tasks", issue_id).await?;
+    super::project_store::read(pool, owner)
+        .await?
+        .tasks
+        .into_iter()
+        .find(|row| row.id == issue_id)
+        .ok_or_else(|| ApiError::BadRequest("Record not found".into()))
 }
 
 async fn create_local_issue(
     pool: &SqlitePool,
-    request: CreateIssueRequest,
-) -> Result<Issue, ApiError> {
-    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-    let id = insert_local_issue(&mut tx, request).await?;
-    tx.commit().await?;
-    get_local_issue(pool, id).await
+    request: CreateTaskRequest,
+) -> Result<Task, ApiError> {
+    super::project_store::mutate(pool, request.project_id, |document| {
+        let id = document.insert_task(request)?;
+        document
+            .tasks
+            .iter()
+            .find(|row| row.id == id)
+            .cloned()
+            .ok_or_else(|| ApiError::BadRequest("Execution not found".into()))
+    })
+    .await
 }
 
 pub(crate) async fn insert_local_issue(
     conn: &mut sqlx::SqliteConnection,
-    request: CreateIssueRequest,
-) -> Result<Uuid, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    let issue_number: i32 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(issue_number), 0) + 1 FROM local_issues WHERE project_id = ?",
-    )
-    .bind(request.project_id)
-    .fetch_one(&mut *conn)
-    .await?;
-    let simple_id = format!("LOCAL-{issue_number}");
-    let extension_metadata =
-        serde_json::to_string(&request.extension_metadata).unwrap_or_else(|_| "null".to_string());
-
-    sqlx::query(
-        r#"
-        INSERT INTO local_issues (
-            id,
-            project_id,
-            issue_number,
-            simple_id,
-            status_id,
-            title,
-            description,
-            priority,
-            start_date,
-            target_date,
-            completed_at,
-            sort_order,
-            parent_issue_id,
-            parent_issue_sort_order,
-            extension_metadata,
-            creator_user_id
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(id)
-    .bind(request.project_id)
-    .bind(issue_number)
-    .bind(simple_id)
-    .bind(request.status_id)
-    .bind(request.title)
-    .bind(request.description)
-    .bind(request.priority.map(priority_to_str))
-    .bind(request.start_date)
-    .bind(request.target_date)
-    .bind(request.completed_at)
-    .bind(request.sort_order)
-    .bind(request.parent_issue_id)
-    .bind(request.parent_issue_sort_order)
-    .bind(extension_metadata)
-    .bind(local_user_id())
-    .execute(&mut *conn)
-    .await?;
-
-    Ok(id)
+    request: CreateTaskRequest,
+) -> Result<(Uuid, super::project_store::PreparedDocument), ApiError> {
+    super::project_store::insert_task_in(conn, request).await
 }
 
 async fn update_local_issue(
     pool: &SqlitePool,
     issue_id: Uuid,
-    changes: UpdateIssueRequest,
-) -> Result<Issue, ApiError> {
-    let existing = get_local_issue(pool, issue_id).await?;
-    let extension_metadata = changes
-        .extension_metadata
-        .unwrap_or(existing.extension_metadata);
-    let extension_metadata =
-        serde_json::to_string(&extension_metadata).unwrap_or_else(|_| "null".to_string());
-
-    sqlx::query(
-        r#"
-        UPDATE local_issues
-        SET
-            status_id = ?,
-            title = ?,
-            description = ?,
-            priority = ?,
-            start_date = ?,
-            target_date = ?,
-            completed_at = ?,
-            sort_order = ?,
-            parent_issue_id = ?,
-            parent_issue_sort_order = ?,
-            extension_metadata = ?,
-            updated_at = datetime('now', 'subsec')
-        WHERE id = ?
-        "#,
-    )
-    .bind(changes.status_id.unwrap_or(existing.status_id))
-    .bind(changes.title.unwrap_or(existing.title))
-    .bind(changes.description.unwrap_or(existing.description))
-    .bind(
-        changes
-            .priority
-            .unwrap_or(existing.priority)
-            .map(priority_to_str),
-    )
-    .bind(changes.start_date.unwrap_or(existing.start_date))
-    .bind(changes.target_date.unwrap_or(existing.target_date))
-    .bind(changes.completed_at.unwrap_or(existing.completed_at))
-    .bind(changes.sort_order.unwrap_or(existing.sort_order))
-    .bind(changes.parent_issue_id.unwrap_or(existing.parent_issue_id))
-    .bind(
-        changes
-            .parent_issue_sort_order
-            .unwrap_or(existing.parent_issue_sort_order),
-    )
-    .bind(extension_metadata)
-    .bind(issue_id)
-    .execute(pool)
-    .await?;
-
-    get_local_issue(pool, issue_id).await
+    changes: UpdateTaskRequest,
+) -> Result<Task, ApiError> {
+    let owner = super::project_store::owner(pool, "tasks", issue_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        let row = document
+            .tasks
+            .iter_mut()
+            .find(|row| row.id == issue_id)
+            .ok_or_else(|| ApiError::BadRequest("Execution not found".into()))?;
+        super::project_store::patch(row, changes)?;
+        row.updated_at = Utc::now();
+        Ok(row.clone())
+    })
+    .await
 }
 
-fn tag_from_row(row: &SqliteRow) -> Result<Tag, sqlx::Error> {
+pub(super) fn tag_from_row(row: &SqliteRow) -> Result<Tag, sqlx::Error> {
     Ok(Tag {
         id: row.try_get("id")?,
         project_id: row.try_get("project_id")?,
@@ -904,60 +643,16 @@ fn tag_from_row(row: &SqliteRow) -> Result<Tag, sqlx::Error> {
 }
 
 async fn list_project_tags(pool: &SqlitePool, project_id: Uuid) -> Result<Vec<Tag>, ApiError> {
-    let rows = sqlx::query(
-        "SELECT id, project_id, name, color FROM local_tags WHERE project_id = ? ORDER BY name ASC",
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(tag_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
-}
-
-async fn ensure_default_tags(pool: &SqlitePool, project_id: Uuid) -> Result<Vec<Tag>, ApiError> {
-    if !project_exists(pool, project_id).await? {
-        return Ok(Vec::new());
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
     }
-
-    for (name, color) in DEFAULT_TAGS {
-        sqlx::query(
-            r#"
-            INSERT INTO local_tags (id, project_id, name, color)
-            SELECT ?, ?, ?, ?
-            WHERE NOT EXISTS (
-                SELECT 1 FROM local_tags
-                WHERE project_id = ? AND name = ?
-            )
-            "#,
-        )
-        .bind(Uuid::new_v4())
-        .bind(project_id)
-        .bind(name)
-        .bind(color)
-        .bind(project_id)
-        .bind(name)
-        .execute(pool)
-        .await?;
-    }
-
-    list_project_tags(pool, project_id).await
+    let mut rows = super::project_store::read(pool, project_id).await?.tags;
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(rows)
 }
 
-async fn get_local_tag(pool: &SqlitePool, tag_id: Uuid) -> Result<Tag, ApiError> {
-    let row = sqlx::query("SELECT id, project_id, name, color FROM local_tags WHERE id = ?")
-        .bind(tag_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| ApiError::BadRequest("Tag not found".to_string()))?;
-
-    tag_from_row(&row).map_err(ApiError::from)
-}
-
-fn issue_tag_from_row(row: &SqliteRow) -> Result<IssueTag, sqlx::Error> {
-    Ok(IssueTag {
+pub(super) fn issue_tag_from_row(row: &SqliteRow) -> Result<TaskTag, sqlx::Error> {
+    Ok(TaskTag {
         id: row.try_get("id")?,
         issue_id: row.try_get("issue_id")?,
         tag_id: row.try_get("tag_id")?,
@@ -967,27 +662,17 @@ fn issue_tag_from_row(row: &SqliteRow) -> Result<IssueTag, sqlx::Error> {
 async fn list_project_issue_tags(
     pool: &SqlitePool,
     project_id: Uuid,
-) -> Result<Vec<IssueTag>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT it.id, it.issue_id, it.tag_id
-        FROM local_issue_tags it
-        JOIN local_issues i ON i.id = it.issue_id
-        WHERE i.project_id = ?
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(issue_tag_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+) -> Result<Vec<TaskTag>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    Ok(super::project_store::read(pool, project_id)
+        .await?
+        .task_tags)
 }
 
-fn issue_assignee_from_row(row: &SqliteRow) -> Result<IssueAssignee, sqlx::Error> {
-    Ok(IssueAssignee {
+pub(super) fn issue_assignee_from_row(row: &SqliteRow) -> Result<TaskAssignee, sqlx::Error> {
+    Ok(TaskAssignee {
         id: row.try_get("id")?,
         issue_id: row.try_get("issue_id")?,
         user_id: row.try_get("user_id")?,
@@ -998,27 +683,17 @@ fn issue_assignee_from_row(row: &SqliteRow) -> Result<IssueAssignee, sqlx::Error
 async fn list_project_issue_assignees(
     pool: &SqlitePool,
     project_id: Uuid,
-) -> Result<Vec<IssueAssignee>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT ia.id, ia.issue_id, ia.user_id, ia.assigned_at
-        FROM local_issue_assignees ia
-        JOIN local_issues i ON i.id = ia.issue_id
-        WHERE i.project_id = ?
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(issue_assignee_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+) -> Result<Vec<TaskAssignee>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    Ok(super::project_store::read(pool, project_id)
+        .await?
+        .task_assignees)
 }
 
-fn issue_follower_from_row(row: &SqliteRow) -> Result<IssueFollower, sqlx::Error> {
-    Ok(IssueFollower {
+pub(super) fn issue_follower_from_row(row: &SqliteRow) -> Result<TaskFollower, sqlx::Error> {
+    Ok(TaskFollower {
         id: row.try_get("id")?,
         issue_id: row.try_get("issue_id")?,
         user_id: row.try_get("user_id")?,
@@ -1028,27 +703,19 @@ fn issue_follower_from_row(row: &SqliteRow) -> Result<IssueFollower, sqlx::Error
 async fn list_project_issue_followers(
     pool: &SqlitePool,
     project_id: Uuid,
-) -> Result<Vec<IssueFollower>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT f.id, f.issue_id, f.user_id
-        FROM local_issue_followers f
-        JOIN local_issues i ON i.id = f.issue_id
-        WHERE i.project_id = ?
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(issue_follower_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+) -> Result<Vec<TaskFollower>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    Ok(super::project_store::read(pool, project_id)
+        .await?
+        .task_followers)
 }
 
-fn issue_relationship_from_row(row: &SqliteRow) -> Result<IssueRelationship, sqlx::Error> {
-    Ok(IssueRelationship {
+pub(super) fn issue_relationship_from_row(
+    row: &SqliteRow,
+) -> Result<TaskRelationship, sqlx::Error> {
+    Ok(TaskRelationship {
         id: row.try_get("id")?,
         issue_id: row.try_get("issue_id")?,
         related_issue_id: row.try_get("related_issue_id")?,
@@ -1060,27 +727,17 @@ fn issue_relationship_from_row(row: &SqliteRow) -> Result<IssueRelationship, sql
 async fn list_project_issue_relationships(
     pool: &SqlitePool,
     project_id: Uuid,
-) -> Result<Vec<IssueRelationship>, ApiError> {
-    let rows = sqlx::query(
-        r#"
-        SELECT r.id, r.issue_id, r.related_issue_id, r.relationship_type, r.created_at
-        FROM local_issue_relationships r
-        JOIN local_issues i ON i.id = r.issue_id
-        WHERE i.project_id = ?
-        "#,
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-
-    rows.iter()
-        .map(issue_relationship_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::from)
+) -> Result<Vec<TaskRelationship>, ApiError> {
+    if project_id == db::models::project::DEFAULT_PROJECT_ID {
+        return Ok(vec![]);
+    }
+    Ok(super::project_store::read(pool, project_id)
+        .await?
+        .task_relationships)
 }
 
-fn issue_comment_from_row(row: &SqliteRow) -> Result<IssueComment, sqlx::Error> {
-    Ok(IssueComment {
+fn issue_comment_from_row(row: &SqliteRow) -> Result<TaskComment, sqlx::Error> {
+    Ok(TaskComment {
         id: row.try_get("id")?,
         issue_id: row.try_get("issue_id")?,
         author_id: row.try_get("author_id")?,
@@ -1094,7 +751,7 @@ fn issue_comment_from_row(row: &SqliteRow) -> Result<IssueComment, sqlx::Error> 
 async fn list_issue_comments(
     pool: &SqlitePool,
     issue_id: Uuid,
-) -> Result<Vec<IssueComment>, ApiError> {
+) -> Result<Vec<TaskComment>, ApiError> {
     let rows = sqlx::query(
         r#"
         SELECT id, issue_id, author_id, parent_id, message, created_at, updated_at
@@ -1113,7 +770,7 @@ async fn list_issue_comments(
         .map_err(ApiError::from)
 }
 
-async fn get_issue_comment(pool: &SqlitePool, comment_id: Uuid) -> Result<IssueComment, ApiError> {
+async fn get_issue_comment(pool: &SqlitePool, comment_id: Uuid) -> Result<TaskComment, ApiError> {
     let row = sqlx::query(
         r#"
         SELECT id, issue_id, author_id, parent_id, message, created_at, updated_at
@@ -1124,13 +781,13 @@ async fn get_issue_comment(pool: &SqlitePool, comment_id: Uuid) -> Result<IssueC
     .bind(comment_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| ApiError::BadRequest("Issue comment not found".to_string()))?;
+    .ok_or_else(|| ApiError::BadRequest("Task comment not found".to_string()))?;
 
     issue_comment_from_row(&row).map_err(ApiError::from)
 }
 
-fn issue_comment_reaction_from_row(row: &SqliteRow) -> Result<IssueCommentReaction, sqlx::Error> {
-    Ok(IssueCommentReaction {
+fn issue_comment_reaction_from_row(row: &SqliteRow) -> Result<TaskCommentReaction, sqlx::Error> {
+    Ok(TaskCommentReaction {
         id: row.try_get("id")?,
         comment_id: row.try_get("comment_id")?,
         user_id: row.try_get("user_id")?,
@@ -1142,7 +799,7 @@ fn issue_comment_reaction_from_row(row: &SqliteRow) -> Result<IssueCommentReacti
 async fn list_issue_comment_reactions(
     pool: &SqlitePool,
     issue_id: Uuid,
-) -> Result<Vec<IssueCommentReaction>, ApiError> {
+) -> Result<Vec<TaskCommentReaction>, ApiError> {
     let rows = sqlx::query(
         r#"
         SELECT r.id, r.comment_id, r.user_id, r.emoji, r.created_at
@@ -1165,7 +822,7 @@ async fn list_issue_comment_reactions(
 async fn get_issue_comment_reaction(
     pool: &SqlitePool,
     reaction_id: Uuid,
-) -> Result<IssueCommentReaction, ApiError> {
+) -> Result<TaskCommentReaction, ApiError> {
     let row = sqlx::query(
         r#"
         SELECT id, comment_id, user_id, emoji, created_at
@@ -1176,7 +833,7 @@ async fn get_issue_comment_reaction(
     .bind(reaction_id)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| ApiError::BadRequest("Issue comment reaction not found".to_string()))?;
+    .ok_or_else(|| ApiError::BadRequest("Task comment reaction not found".to_string()))?;
 
     issue_comment_reaction_from_row(&row).map_err(ApiError::from)
 }
@@ -1390,11 +1047,11 @@ async fn fallback_issues(
     Query(query): Query<ProjectQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(project_id) = query.project_id else {
-        return Ok(empty_rows("issues"));
+        return Ok(empty_rows("tasks"));
     };
 
     let issues = list_project_issues(&deployment.db().pool, project_id).await?;
-    Ok(ResponseJson(json!({ "issues": issues })))
+    Ok(ResponseJson(json!({ "tasks": issues })))
 }
 
 async fn fallback_tags(
@@ -1414,11 +1071,11 @@ async fn fallback_issue_tags(
     Query(query): Query<ProjectQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(project_id) = query.project_id else {
-        return Ok(empty_rows("issue_tags"));
+        return Ok(empty_rows("task_tags"));
     };
 
     let issue_tags = list_project_issue_tags(&deployment.db().pool, project_id).await?;
-    Ok(ResponseJson(json!({ "issue_tags": issue_tags })))
+    Ok(ResponseJson(json!({ "task_tags": issue_tags })))
 }
 
 async fn fallback_issue_assignees(
@@ -1426,11 +1083,11 @@ async fn fallback_issue_assignees(
     Query(query): Query<ProjectQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(project_id) = query.project_id else {
-        return Ok(empty_rows("issue_assignees"));
+        return Ok(empty_rows("task_assignees"));
     };
 
     let issue_assignees = list_project_issue_assignees(&deployment.db().pool, project_id).await?;
-    Ok(ResponseJson(json!({ "issue_assignees": issue_assignees })))
+    Ok(ResponseJson(json!({ "task_assignees": issue_assignees })))
 }
 
 async fn fallback_issue_followers(
@@ -1438,11 +1095,11 @@ async fn fallback_issue_followers(
     Query(query): Query<ProjectQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(project_id) = query.project_id else {
-        return Ok(empty_rows("issue_followers"));
+        return Ok(empty_rows("task_followers"));
     };
 
     let issue_followers = list_project_issue_followers(&deployment.db().pool, project_id).await?;
-    Ok(ResponseJson(json!({ "issue_followers": issue_followers })))
+    Ok(ResponseJson(json!({ "task_followers": issue_followers })))
 }
 
 async fn fallback_issue_relationships(
@@ -1450,13 +1107,13 @@ async fn fallback_issue_relationships(
     Query(query): Query<ProjectQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(project_id) = query.project_id else {
-        return Ok(empty_rows("issue_relationships"));
+        return Ok(empty_rows("task_relationships"));
     };
 
     let issue_relationships =
         list_project_issue_relationships(&deployment.db().pool, project_id).await?;
     Ok(ResponseJson(
-        json!({ "issue_relationships": issue_relationships }),
+        json!({ "task_relationships": issue_relationships }),
     ))
 }
 
@@ -1501,28 +1158,28 @@ async fn fallback_notifications() -> ResponseJson<Value> {
 
 async fn fallback_issue_comments(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<IssueQuery>,
+    Query(query): Query<TaskQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(issue_id) = query.issue_id else {
-        return Ok(empty_rows("issue_comments"));
+        return Ok(empty_rows("task_comments"));
     };
 
     let issue_comments = list_issue_comments(&deployment.db().pool, issue_id).await?;
-    Ok(ResponseJson(json!({ "issue_comments": issue_comments })))
+    Ok(ResponseJson(json!({ "task_comments": issue_comments })))
 }
 
 async fn fallback_issue_comment_reactions(
     State(deployment): State<DeploymentImpl>,
-    Query(query): Query<IssueQuery>,
+    Query(query): Query<TaskQuery>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let Some(issue_id) = query.issue_id else {
-        return Ok(empty_rows("issue_comment_reactions"));
+        return Ok(empty_rows("task_comment_reactions"));
     };
 
     let issue_comment_reactions =
         list_issue_comment_reactions(&deployment.db().pool, issue_id).await?;
     Ok(ResponseJson(
-        json!({ "issue_comment_reactions": issue_comment_reactions }),
+        json!({ "task_comment_reactions": issue_comment_reactions }),
     ))
 }
 
@@ -1556,6 +1213,32 @@ async fn fallback_node_executions(
     Ok(ResponseJson(
         workflows::fallback_node_executions_payload(&deployment.db().pool, query.run_id).await?,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenProjectRequest {
+    directory_path: String,
+    name: String,
+    color: String,
+    id: Option<Uuid>,
+}
+
+async fn open_project(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<OpenProjectRequest>,
+) -> Result<ResponseJson<MutationResponse<Project>>, ApiError> {
+    let data = super::project_store::open(
+        &deployment.db().pool,
+        &request.directory_path,
+        CreateProjectRequest {
+            id: request.id,
+            organization_id: local_org_id(),
+            name: request.name,
+            color: request.color,
+        },
+    )
+    .await?;
+    Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
 async fn create_project(
@@ -1667,18 +1350,20 @@ async fn delete_project_status(
     State(deployment): State<DeploymentImpl>,
     Path(status_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_project_statuses WHERE id = ?")
-        .bind(status_id)
-        .execute(&deployment.db().pool)
-        .await?;
-
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "statuses", status_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document.statuses.retain(|row| row.id != status_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueRequest>,
-) -> Result<ResponseJson<MutationResponse<Issue>>, ApiError> {
+    Json(request): Json<CreateTaskRequest>,
+) -> Result<ResponseJson<MutationResponse<Task>>, ApiError> {
     let data = create_local_issue(&deployment.db().pool, request).await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
@@ -1686,15 +1371,15 @@ async fn create_issue(
 async fn update_issue(
     State(deployment): State<DeploymentImpl>,
     Path(issue_id): Path<Uuid>,
-    Json(changes): Json<UpdateIssueRequest>,
-) -> Result<ResponseJson<MutationResponse<Issue>>, ApiError> {
+    Json(changes): Json<UpdateTaskRequest>,
+) -> Result<ResponseJson<MutationResponse<Task>>, ApiError> {
     let data = update_local_issue(&deployment.db().pool, issue_id, changes).await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
 async fn bulk_update_issues(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<BulkUpdateIssuesRequest>,
+    Json(request): Json<BulkUpdateTasksRequest>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
     for update in request.updates {
         update_local_issue(&deployment.db().pool, update.id, update.changes).await?;
@@ -1707,11 +1392,31 @@ async fn delete_issue(
     State(deployment): State<DeploymentImpl>,
     Path(issue_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_issues WHERE id = ?")
-        .bind(issue_id)
-        .execute(&deployment.db().pool)
-        .await?;
-
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tasks", issue_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document.tasks.retain(|row| row.id != issue_id);
+        document
+            .tasks
+            .iter_mut()
+            .filter(|row| row.parent_issue_id == Some(issue_id))
+            .for_each(|row| {
+                row.parent_issue_id = None;
+                row.parent_issue_sort_order = None;
+            });
+        document.task_tags.retain(|row| row.issue_id != issue_id);
+        document
+            .task_assignees
+            .retain(|row| row.issue_id != issue_id);
+        document
+            .task_followers
+            .retain(|row| row.issue_id != issue_id);
+        document
+            .task_relationships
+            .retain(|row| row.issue_id != issue_id && row.related_issue_id != issue_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
@@ -1719,15 +1424,18 @@ async fn create_tag(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CreateTagRequest>,
 ) -> Result<ResponseJson<MutationResponse<Tag>>, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query("INSERT INTO local_tags (id, project_id, name, color) VALUES (?, ?, ?, ?)")
-        .bind(id)
-        .bind(request.project_id)
-        .bind(request.name)
-        .bind(request.color)
-        .execute(&deployment.db().pool)
+    let data =
+        super::project_store::mutate(&deployment.db().pool, request.project_id, |document| {
+            let row = Tag {
+                id: request.id.unwrap_or_else(Uuid::new_v4),
+                project_id: request.project_id,
+                name: request.name,
+                color: request.color,
+            };
+            document.tags.push(row.clone());
+            Ok(row)
+        })
         .await?;
-    let data = get_local_tag(&deployment.db().pool, id).await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1736,14 +1444,23 @@ async fn update_tag(
     Path(tag_id): Path<Uuid>,
     Json(changes): Json<UpdateTagRequest>,
 ) -> Result<ResponseJson<MutationResponse<Tag>>, ApiError> {
-    let existing = get_local_tag(&deployment.db().pool, tag_id).await?;
-    sqlx::query("UPDATE local_tags SET name = ?, color = ? WHERE id = ?")
-        .bind(changes.name.unwrap_or(existing.name))
-        .bind(changes.color.unwrap_or(existing.color))
-        .bind(tag_id)
-        .execute(&deployment.db().pool)
-        .await?;
-    let data = get_local_tag(&deployment.db().pool, tag_id).await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tags", tag_id).await?;
+    let data = super::project_store::mutate(pool, owner, |document| {
+        let row = document
+            .tags
+            .iter_mut()
+            .find(|row| row.id == tag_id)
+            .ok_or_else(|| ApiError::BadRequest("Tag not found".into()))?;
+        if let Some(name) = changes.name {
+            row.name = name;
+        }
+        if let Some(color) = changes.color {
+            row.color = color;
+        }
+        Ok(row.clone())
+    })
+    .await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1751,29 +1468,40 @@ async fn delete_tag(
     State(deployment): State<DeploymentImpl>,
     Path(tag_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_tags WHERE id = ?")
-        .bind(tag_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tags", tag_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document.tags.retain(|row| row.id != tag_id);
+        document.task_tags.retain(|row| row.tag_id != tag_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue_tag(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueTagRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueTag>>, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query("INSERT OR IGNORE INTO local_issue_tags (id, issue_id, tag_id) VALUES (?, ?, ?)")
-        .bind(id)
-        .bind(request.issue_id)
-        .bind(request.tag_id)
-        .execute(&deployment.db().pool)
-        .await?;
-    let data = IssueTag {
-        id,
-        issue_id: request.issue_id,
-        tag_id: request.tag_id,
-    };
+    Json(request): Json<CreateTaskTagRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskTag>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tasks", request.issue_id).await?;
+    let data = super::project_store::mutate(pool, owner, |document| {
+        if let Some(row) = document
+            .task_tags
+            .iter()
+            .find(|row| row.issue_id == request.issue_id && row.tag_id == request.tag_id)
+        {
+            return Ok(row.clone());
+        }
+        let row = TaskTag {
+            id: request.id.unwrap_or_else(Uuid::new_v4),
+            issue_id: request.issue_id,
+            tag_id: request.tag_id,
+        };
+        document.task_tags.push(row.clone());
+        Ok(row)
+    })
+    .await?;
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1781,33 +1509,40 @@ async fn delete_issue_tag(
     State(deployment): State<DeploymentImpl>,
     Path(issue_tag_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_issue_tags WHERE id = ?")
-        .bind(issue_tag_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "task_tags", issue_tag_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document.task_tags.retain(|row| row.id != issue_tag_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue_assignee(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueAssigneeRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueAssignee>>, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query(
-        "INSERT OR IGNORE INTO local_issue_assignees (id, issue_id, user_id) VALUES (?, ?, ?)",
-    )
-    .bind(id)
-    .bind(request.issue_id)
-    .bind(request.user_id)
-    .execute(&deployment.db().pool)
+    Json(request): Json<CreateTaskAssigneeRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskAssignee>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tasks", request.issue_id).await?;
+    let data = super::project_store::mutate(pool, owner, |document| {
+        if let Some(row) = document
+            .task_assignees
+            .iter()
+            .find(|row| row.issue_id == request.issue_id && row.user_id == request.user_id)
+        {
+            return Ok(row.clone());
+        }
+        let row = TaskAssignee {
+            id: request.id.unwrap_or_else(Uuid::new_v4),
+            issue_id: request.issue_id,
+            user_id: request.user_id,
+            assigned_at: Utc::now(),
+        };
+        document.task_assignees.push(row.clone());
+        Ok(row)
+    })
     .await?;
-
-    let data = IssueAssignee {
-        id,
-        issue_id: request.issue_id,
-        user_id: request.user_id,
-        assigned_at: Utc::now(),
-    };
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1815,32 +1550,41 @@ async fn delete_issue_assignee(
     State(deployment): State<DeploymentImpl>,
     Path(issue_assignee_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_issue_assignees WHERE id = ?")
-        .bind(issue_assignee_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "task_assignees", issue_assignee_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document
+            .task_assignees
+            .retain(|row| row.id != issue_assignee_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue_follower(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueFollowerRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueFollower>>, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query(
-        "INSERT OR IGNORE INTO local_issue_followers (id, issue_id, user_id) VALUES (?, ?, ?)",
-    )
-    .bind(id)
-    .bind(request.issue_id)
-    .bind(request.user_id)
-    .execute(&deployment.db().pool)
+    Json(request): Json<CreateTaskFollowerRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskFollower>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tasks", request.issue_id).await?;
+    let data = super::project_store::mutate(pool, owner, |document| {
+        if let Some(row) = document
+            .task_followers
+            .iter()
+            .find(|row| row.issue_id == request.issue_id && row.user_id == request.user_id)
+        {
+            return Ok(row.clone());
+        }
+        let row = TaskFollower {
+            id: request.id.unwrap_or_else(Uuid::new_v4),
+            issue_id: request.issue_id,
+            user_id: request.user_id,
+        };
+        document.task_followers.push(row.clone());
+        Ok(row)
+    })
     .await?;
-
-    let data = IssueFollower {
-        id,
-        issue_id: request.issue_id,
-        user_id: request.user_id,
-    };
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1848,39 +1592,43 @@ async fn delete_issue_follower(
     State(deployment): State<DeploymentImpl>,
     Path(issue_follower_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_issue_followers WHERE id = ?")
-        .bind(issue_follower_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "task_followers", issue_follower_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document
+            .task_followers
+            .retain(|row| row.id != issue_follower_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue_relationship(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueRelationshipRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueRelationship>>, ApiError> {
-    let id = request.id.unwrap_or_else(Uuid::new_v4);
-    sqlx::query(
-        r#"
-        INSERT INTO local_issue_relationships
-            (id, issue_id, related_issue_id, relationship_type)
-        VALUES (?, ?, ?, ?)
-        "#,
-    )
-    .bind(id)
-    .bind(request.issue_id)
-    .bind(request.related_issue_id)
-    .bind(relationship_type_to_str(request.relationship_type))
-    .execute(&deployment.db().pool)
+    Json(request): Json<CreateTaskRelationshipRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskRelationship>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "tasks", request.issue_id).await?;
+    let data = super::project_store::mutate(pool, owner, |document| {
+        if let Some(row) = document.task_relationships.iter().find(|row| {
+            row.issue_id == request.issue_id
+                && row.related_issue_id == request.related_issue_id
+                && row.relationship_type == request.relationship_type
+        }) {
+            return Ok(row.clone());
+        }
+        let row = TaskRelationship {
+            id: request.id.unwrap_or_else(Uuid::new_v4),
+            issue_id: request.issue_id,
+            related_issue_id: request.related_issue_id,
+            relationship_type: request.relationship_type,
+            created_at: Utc::now(),
+        };
+        document.task_relationships.push(row.clone());
+        Ok(row)
+    })
     .await?;
-
-    let data = IssueRelationship {
-        id,
-        issue_id: request.issue_id,
-        related_issue_id: request.related_issue_id,
-        relationship_type: request.relationship_type,
-        created_at: Utc::now(),
-    };
     Ok(ResponseJson(MutationResponse { data, txid: txid() }))
 }
 
@@ -1888,17 +1636,22 @@ async fn delete_issue_relationship(
     State(deployment): State<DeploymentImpl>,
     Path(relationship_id): Path<Uuid>,
 ) -> Result<ResponseJson<DeleteResponse>, ApiError> {
-    sqlx::query("DELETE FROM local_issue_relationships WHERE id = ?")
-        .bind(relationship_id)
-        .execute(&deployment.db().pool)
-        .await?;
+    let pool = &deployment.db().pool;
+    let owner = super::project_store::owner(pool, "task_relationships", relationship_id).await?;
+    super::project_store::mutate(pool, owner, |document| {
+        document
+            .task_relationships
+            .retain(|row| row.id != relationship_id);
+        Ok(())
+    })
+    .await?;
     Ok(ResponseJson(DeleteResponse { txid: txid() }))
 }
 
 async fn create_issue_comment(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueCommentRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueComment>>, ApiError> {
+    Json(request): Json<CreateTaskCommentRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskComment>>, ApiError> {
     let id = request.id.unwrap_or_else(Uuid::new_v4);
     sqlx::query(
         r#"
@@ -1922,8 +1675,8 @@ async fn create_issue_comment(
 async fn update_issue_comment(
     State(deployment): State<DeploymentImpl>,
     Path(comment_id): Path<Uuid>,
-    Json(changes): Json<UpdateIssueCommentRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueComment>>, ApiError> {
+    Json(changes): Json<UpdateTaskCommentRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskComment>>, ApiError> {
     let existing = get_issue_comment(&deployment.db().pool, comment_id).await?;
     sqlx::query(
         r#"
@@ -1955,8 +1708,8 @@ async fn delete_issue_comment(
 
 async fn create_issue_comment_reaction(
     State(deployment): State<DeploymentImpl>,
-    Json(request): Json<CreateIssueCommentReactionRequest>,
-) -> Result<ResponseJson<MutationResponse<IssueCommentReaction>>, ApiError> {
+    Json(request): Json<CreateTaskCommentReactionRequest>,
+) -> Result<ResponseJson<MutationResponse<TaskCommentReaction>>, ApiError> {
     let id = request.id.unwrap_or_else(Uuid::new_v4);
     sqlx::query(
         r#"
@@ -2187,14 +1940,10 @@ async fn ensure_issue_in_project(
     issue_id: Uuid,
     project_id: Uuid,
 ) -> Result<(), ApiError> {
-    let row = sqlx::query("SELECT 1 FROM local_issues WHERE id = ? AND project_id = ?")
-        .bind(issue_id)
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-    if row.is_none() {
+    let document = super::project_store::read(pool, project_id).await?;
+    if !document.tasks.iter().any(|task| task.id == issue_id) {
         return Err(ApiError::BadRequest(format!(
-            "issue {issue_id} does not belong to project {project_id}"
+            "Task {issue_id} does not belong to project {project_id}"
         )));
     }
     Ok(())
@@ -2475,7 +2224,7 @@ async fn start_arena_workspace(
 
 /// Spawn one explicit Arena candidate: create the Workspace row, attach its
 /// repositories, persist candidate identity, then start the initial Agent run.
-/// The caller performs group-wide cleanup for every error after Task creation.
+/// The caller performs group-wide cleanup for every error after Execution creation.
 async fn spawn_arena_attempt(
     deployment: &DeploymentImpl,
     group: &ArenaGroup,
@@ -2683,15 +2432,15 @@ async fn create_arena_group(
     let task_id = Uuid::new_v4();
     let group_id = Uuid::new_v4();
     let mut transaction = pool.begin().await?;
-    Task::create(
+    Execution::create(
         &mut transaction,
-        &CreateTask {
+        &CreateExecution {
             id: task_id,
             project_id,
             issue_id,
             parent_task_id: None,
             title: prompt.trim().chars().take(160).collect(),
-            execution_kind: TaskExecutionKind::Arena,
+            execution_kind: ExecutionKind::Arena,
         },
     )
     .await?;
@@ -3416,9 +3165,9 @@ async fn retry_arena_workspace(
         name: payload.name,
         prompt: payload.prompt,
     };
-    let task = Task::find_by_id(pool, group.task_id)
+    let task = Execution::find_by_id(pool, group.task_id)
         .await?
-        .ok_or_else(|| ApiError::Conflict("Arena Task is missing".to_string()))?;
+        .ok_or_else(|| ApiError::Conflict("Arena Execution is missing".to_string()))?;
     spawn_arena_attempt(
         &deployment,
         &group,
@@ -3534,7 +3283,7 @@ async fn list_issue_workspaces(
 
 #[cfg(test)]
 mod tests {
-    use api_types::{CreateIssueRequest, CreateProjectRequest, IssuePriority};
+    use api_types::{CreateProjectRequest, CreateTaskRequest, TaskPriority};
     use chrono::Utc;
     use executors::runtime::{AgentRunStatus, ProjectionStatus, RunState};
     use serde_json::Value;
@@ -3547,74 +3296,10 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .expect("connect in-memory sqlite");
-
-        for statement in [
-            r#"
-            CREATE TABLE projects (
-                id BLOB PRIMARY KEY,
-                name TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE local_project_metadata (
-                project_id BLOB PRIMARY KEY,
-                organization_id BLOB NOT NULL,
-                color TEXT NOT NULL DEFAULT '210 80% 52%',
-                sort_order INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE local_project_statuses (
-                id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                name TEXT NOT NULL,
-                color TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                hidden INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE local_issues (
-                id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                issue_number INTEGER NOT NULL,
-                simple_id TEXT NOT NULL,
-                status_id BLOB NOT NULL,
-                title TEXT NOT NULL,
-                description TEXT,
-                priority TEXT,
-                start_date TEXT,
-                target_date TEXT,
-                completed_at TEXT,
-                sort_order REAL NOT NULL,
-                parent_issue_id BLOB,
-                parent_issue_sort_order REAL,
-                extension_metadata TEXT NOT NULL DEFAULT 'null',
-                creator_user_id BLOB,
-                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
-            )
-            "#,
-            r#"
-            CREATE TABLE local_tags (
-                id BLOB PRIMARY KEY,
-                project_id BLOB NOT NULL,
-                name TEXT NOT NULL,
-                color TEXT NOT NULL
-            )
-            "#,
-        ] {
-            sqlx::query(statement)
-                .execute(&pool)
-                .await
-                .expect("create test schema");
-        }
-
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrate fixture");
         pool
     }
 
@@ -3725,14 +3410,20 @@ mod tests {
     #[tokio::test]
     async fn local_issue_create_seeds_default_statuses_and_simple_id() {
         let pool = setup_pool().await;
-        let project_id = Uuid::new_v4();
-
-        sqlx::query("INSERT INTO projects (id, name) VALUES (?, ?)")
-            .bind(project_id)
-            .bind("Local Project")
-            .execute(&pool)
-            .await
-            .expect("insert project");
+        let directory = tempfile::tempdir().unwrap();
+        let project = crate::routes::project_store::open(
+            &pool,
+            directory.path().to_str().unwrap(),
+            CreateProjectRequest {
+                id: None,
+                organization_id: super::local_org_id(),
+                name: "Local project".into(),
+                color: "210 80% 52%".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let project_id = project.id;
 
         let statuses = super::ensure_default_statuses(&pool, project_id)
             .await
@@ -3745,13 +3436,13 @@ mod tests {
 
         let issue = super::create_local_issue(
             &pool,
-            CreateIssueRequest {
+            CreateTaskRequest {
                 id: None,
                 project_id,
                 status_id: statuses[0].id,
                 title: "First local issue".to_string(),
-                description: Some("stored only in SQLite".to_string()),
-                priority: Some(IssuePriority::High),
+                description: Some("stored in the project file".to_string()),
+                priority: Some(TaskPriority::High),
                 start_date: None,
                 target_date: None,
                 completed_at: None,
@@ -3766,17 +3457,19 @@ mod tests {
 
         assert_eq!(issue.project_id, project_id);
         assert_eq!(issue.issue_number, 1);
-        assert_eq!(issue.simple_id, "LOCAL-1");
+        assert_eq!(issue.simple_id, "TASK-1");
         assert_eq!(issue.title, "First local issue");
-        assert_eq!(issue.priority, Some(IssuePriority::High));
+        assert_eq!(issue.priority, Some(TaskPriority::High));
     }
 
     #[tokio::test]
     async fn local_project_create_seeds_default_tags() {
         let pool = setup_pool().await;
+        let directory = tempfile::tempdir().unwrap();
 
-        let project = super::create_local_project(
+        let project = crate::routes::project_store::open(
             &pool,
+            directory.path().to_str().unwrap(),
             CreateProjectRequest {
                 id: None,
                 organization_id: super::local_org_id(),

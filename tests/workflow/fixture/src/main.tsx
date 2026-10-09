@@ -26,9 +26,9 @@ import {
 } from '../../../../packages/web-core/src/features/workflow/model/workflowGraph';
 import { WorkflowCanvas } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowCanvas';
 import { WorkflowEdgeInspector } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowEdgeInspector';
-import { IssueWorkflowEntryCard } from '../../../../packages/web-core/src/features/workflow/ui/IssueWorkflowEntryCard';
+import { TaskWorkflowEntryCard } from '../../../../packages/web-core/src/features/workflow/ui/TaskWorkflowEntryCard';
 import { WorkflowNodeInspector } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowNodeInspector';
-import { IssueTaskAttemptsSection } from '../../../../packages/ui/src/components/IssueTaskAttemptsSection';
+import { TaskExecutionAttemptsSection } from '../../../../packages/ui/src/components/TaskExecutionAttemptsSection';
 import type { ValidationIssue } from '../../../../packages/web-core/src/features/workflow/ui/WorkflowValidationPanel';
 import {
   UserSystemContext,
@@ -517,7 +517,7 @@ function WorkflowEntryHarness() {
 
   return (
     <main>
-      <IssueWorkflowEntryCard
+      <TaskWorkflowEntryCard
         isCreating={false}
         error={null}
         onOpenCanvas={() => setLastAction('open-canvas')}
@@ -555,7 +555,7 @@ function TaskAttemptsHarness() {
 
   return (
     <main>
-      <IssueTaskAttemptsSection
+      <TaskExecutionAttemptsSection
         attempts={attempts}
         onOpenAttempt={(attempt) => setLastAction(`open:${attempt.kind}`)}
         onCreateWorkflowAttempt={() => setLastAction('create-workflow')}

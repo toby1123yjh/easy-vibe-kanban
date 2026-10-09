@@ -10,7 +10,7 @@
   },
   "deleteProjectDialog": {
     "title": "Delete Project?",
-    "description": "This will permanently delete \"{{name}}\" and all its issues. This action cannot be undone.",
+    "description": "This will permanently delete \"{{name}}\" and all its tasks. This action cannot be undone.",
     "error": "Failed to delete project. Please try again."
   },
   "directory": {
@@ -35,7 +35,7 @@
     "noMatchesTitle": "一致するプロジェクトはありません",
     "noMatchesDescription": "別のプロジェクト名を試してください。",
     "emptyTitle": "プロジェクトはまだありません",
-    "emptyDescription": "プロジェクトを作成してIssueとタスクを整理しましょう。",
+    "emptyDescription": "プロジェクトを作成してTaskとタスクを整理しましょう。",
     "degradedTitle": "プロジェクトが最新でない可能性があります",
     "degradedDescription": "失敗したリクエストを再試行する間も読み込み済みのプロジェクトを利用できます。",
     "searchingRemaining": "残りのプロジェクトを検索中…",

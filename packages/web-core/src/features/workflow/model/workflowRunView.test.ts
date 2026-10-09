@@ -34,7 +34,7 @@ const baseRun = {
   orchestration_run_id: null,
   workflow_id: 'workflow-1',
   attempt_id: null,
-  issue_id: 'issue-1',
+  task_id: 'issue-1',
   workspace_id: null,
   trigger_source: 'manual',
   input_text: 'Implement workflow',
@@ -49,7 +49,7 @@ const baseRun = {
     {
       id: 'node-exec-1',
       run_id: 'run-1',
-      task_id: null,
+      execution_id: null,
       node_id: 'plan',
       node_type: 'agent',
       iteration: 0n,
@@ -72,7 +72,7 @@ const baseRun = {
     {
       id: 'node-exec-2',
       run_id: 'run-1',
-      task_id: null,
+      execution_id: null,
       node_id: 'review',
       node_type: 'human_gate',
       iteration: 0n,
@@ -340,20 +340,20 @@ describe('workflow run view helpers', () => {
   it('builds workspace links that select a specific Session', () => {
     expect(
       buildWorkspaceSessionHref(
-        '/projects/project-1/issues/issue-1/workspaces/workspace-1',
+        '/projects/project-1/tasks/task-1/workspaces/workspace-1',
         'session 1'
       )
     ).toBe(
-      '/projects/project-1/issues/issue-1/workspaces/workspace-1?session_id=session%201'
+      '/projects/project-1/tasks/task-1/workspaces/workspace-1?session_id=session%201'
     );
 
     expect(
       buildWorkspaceSessionHref(
-        '/projects/project-1/issues/issue-1/workspaces/workspace-1?panel=chat#bottom',
+        '/projects/project-1/tasks/task-1/workspaces/workspace-1?panel=chat#bottom',
         'session-2'
       )
     ).toBe(
-      '/projects/project-1/issues/issue-1/workspaces/workspace-1?panel=chat&session_id=session-2#bottom'
+      '/projects/project-1/tasks/task-1/workspaces/workspace-1?panel=chat&session_id=session-2#bottom'
     );
   });
 

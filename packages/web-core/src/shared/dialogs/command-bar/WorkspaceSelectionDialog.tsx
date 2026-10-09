@@ -8,7 +8,7 @@ import { getWorkspaceDefaults } from '@/shared/lib/workspaceDefaults';
 import { ErrorDialog } from '@vibe/ui/components/ErrorDialog';
 import { useProjectWorkspaceCreateDraft } from '@/shared/hooks/useProjectWorkspaceCreateDraft';
 import {
-  buildLinkedIssueCreateState,
+  buildLinkedTaskCreateState,
   buildLocalWorkspaceIdSet,
   buildWorkspaceCreateInitialState,
   buildWorkspaceCreatePrompt,
@@ -30,7 +30,7 @@ import { useUserContext } from '@/shared/hooks/useUserContext';
 
 export interface WorkspaceSelectionDialogProps {
   projectId: string;
-  issueId: string;
+  taskId: string;
   hostId?: string | null;
 }
 
@@ -38,7 +38,7 @@ const PAGE_SIZE = 50;
 
 function getLinkWorkspaceErrorMessage(error: unknown): string | null {
   if (error instanceof ApiError && error.status === 409) {
-    return 'This workspace is already linked to an issue.';
+    return 'This workspace is already linked to an task.';
   }
 
   if (error instanceof Error) {
@@ -47,7 +47,7 @@ function getLinkWorkspaceErrorMessage(error: unknown): string | null {
       normalizedMessage.includes('already exists') ||
       normalizedMessage.includes('already linked')
     ) {
-      return 'This workspace is already linked to an issue.';
+      return 'This workspace is already linked to an task.';
     }
     return error.message;
   }
@@ -58,11 +58,11 @@ function getLinkWorkspaceErrorMessage(error: unknown): string | null {
 /** Inner component that uses contexts to render the selection UI */
 function WorkspaceSelectionContent({
   projectId,
-  issueId,
+  taskId,
   hostId,
 }: {
   projectId: string;
-  issueId: string;
+  taskId: string;
   hostId?: string | null;
 }) {
   const { t } = useTranslation('common');
@@ -74,10 +74,10 @@ function WorkspaceSelectionContent({
   const { activeWorkspaces, archivedWorkspaces } = useWorkspaceContext();
 
   // Get already-linked workspaces from UserContext (workspaces are user-scoped)
-  const { getWorkspacesForIssue, workspaces } = useUserContext();
+  const { getWorkspacesForTask, workspaces } = useUserContext();
 
   // Get issue data from ProjectContext (issues are project-scoped)
-  const { getIssue } = useProjectContext();
+  const { getTask } = useProjectContext();
 
   const [search, setSearch] = useState('');
   const [isLinking, setIsLinking] = useState(false);
@@ -93,13 +93,13 @@ function WorkspaceSelectionContent({
 
   // Get IDs of workspaces already linked to this issue
   const linkedLocalWorkspaceIds = useMemo(() => {
-    const remoteWorkspaces = getWorkspacesForIssue(issueId);
+    const remoteWorkspaces = getWorkspacesForTask(taskId);
     return new Set(
       remoteWorkspaces
         .map((w) => w.local_workspace_id)
         .filter((id): id is string => id !== null)
     );
-  }, [getWorkspacesForIssue, issueId]);
+  }, [getWorkspacesForTask, taskId]);
 
   // Combine active and archived workspaces with archived flag
   const allWorkspaces = useMemo(() => {
@@ -143,7 +143,7 @@ function WorkspaceSelectionContent({
 
       setIsLinking(true);
       try {
-        await workspacesApi.linkToIssue(workspaceId, projectId, issueId);
+        await workspacesApi.linkToTask(workspaceId, projectId, taskId);
         // Success - close dialog. UI will auto-update via Electric sync.
         modal.hide();
       } catch (err) {
@@ -160,7 +160,7 @@ function WorkspaceSelectionContent({
         setIsLinking(false);
       }
     },
-    [projectId, issueId, isLinking, modal, t]
+    [projectId, taskId, isLinking, modal, t]
   );
 
   const handleCreateNewWorkspace = useCallback(async () => {
@@ -169,10 +169,10 @@ function WorkspaceSelectionContent({
 
     try {
       // Get issue details for initial prompt
-      const issue = getIssue(issueId);
+      const task = getTask(taskId);
       const initialPrompt = buildWorkspaceCreatePrompt(
-        issue?.title ?? null,
-        issue?.description ?? null
+        task?.title ?? null,
+        task?.description ?? null
       );
 
       // Build set of local workspace IDs that exist on this machine
@@ -192,12 +192,12 @@ function WorkspaceSelectionContent({
       const createState = buildWorkspaceCreateInitialState({
         prompt: initialPrompt,
         defaults,
-        linkedIssue: buildLinkedIssueCreateState(issue, projectId),
+        linkedTask: buildLinkedTaskCreateState(task, projectId),
       });
 
       modal.hide();
       const draftId = await openWorkspaceCreateFromState(createState, {
-        issueId,
+        taskId,
       });
       if (!draftId) {
         await ErrorDialog.show({
@@ -215,8 +215,8 @@ function WorkspaceSelectionContent({
   }, [
     modal,
     openWorkspaceCreateFromState,
-    getIssue,
-    issueId,
+    getTask,
+    taskId,
     projectId,
     hostId,
     workspaces,
@@ -328,7 +328,7 @@ function WorkspaceSelectionContent({
 /** Wrapper that provides UserContext and ProjectContext */
 function WorkspaceSelectionWithContext({
   projectId,
-  issueId,
+  taskId,
   hostId,
 }: WorkspaceSelectionDialogProps) {
   if (!projectId) {
@@ -340,7 +340,7 @@ function WorkspaceSelectionWithContext({
       <ProjectProvider projectId={projectId}>
         <WorkspaceSelectionContent
           projectId={projectId}
-          issueId={issueId}
+          taskId={taskId}
           hostId={hostId}
         />
       </ProjectProvider>
@@ -349,11 +349,11 @@ function WorkspaceSelectionWithContext({
 }
 
 const WorkspaceSelectionDialogImpl = create<WorkspaceSelectionDialogProps>(
-  ({ projectId, issueId, hostId }) => {
+  ({ projectId, taskId, hostId }) => {
     return (
       <WorkspaceSelectionWithContext
         projectId={projectId}
-        issueId={issueId}
+        taskId={taskId}
         hostId={hostId}
       />
     );
