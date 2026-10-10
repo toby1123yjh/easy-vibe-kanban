@@ -22,6 +22,19 @@
 6. 使用 npm Trusted Publishing 发布到 npm registry。
 7. 上传 `.tgz` 和 Windows zip 作为 GitHub artifact。
 
+## main 自动发布
+
+推送到 `main` 会自动运行同一个 workflow。当前重构产品使用新的版本线：
+
+```text
+AUTO_VERSION_BASE: 2.0.0-beta.1
+AUTO_NPM_TAG: beta
+```
+
+workflow 会读取 npm registry 中已经存在的 `2.0.0-beta.N`，选择下一个未发布的版本。当前已有 `2.0.0-beta.1` 和 `2.0.0-beta.2` 时，下一次 main 推送会发布 `2.0.0-beta.3`。开始新的版本线时，只需要调整 workflow 中的 `AUTO_VERSION_BASE` 和对应的 npm tag。
+
+手动触发时仍可以填写精确版本；留空版本会使用上面的自动版本线。`dry-run` 只打包和校验，不会发布。
+
 ## npm 后台配置
 
 首次使用前，需要在 npm 网站中配置 trusted publisher。
@@ -52,8 +65,8 @@ Environment name: 留空
 5. 填写参数：
 
 ```text
-version: 0.1.44-easy.1
-npm_tag: latest
+version: 2.0.0-beta.3
+npm_tag: beta
 publish_mode: publish
 ```
 
@@ -72,15 +85,15 @@ npm 不允许重复发布同一个 `name@version`。已经发布过的版本号�
 推荐规则：
 
 ```text
-0.1.44-easy.0
-0.1.44-easy.1
-0.1.44-easy.2
-0.1.45-easy.0
+2.0.0-beta.1
+2.0.0-beta.2
+2.0.0-beta.3
+2.0.0-beta.4
 ```
 
-如果只改 npm 包发布流程或 Windows 包装逻辑，可以递增 `-easy.N`。
+当前自动发布使用 `2.0.0-beta.N` 版本线，推送 `main` 会自动选择下一个未发布的序号并使用 `beta` tag。
 
-如果跟随上游升级基础版本，可以递增基础版本号，例如从 `0.1.44-easy.N` 到 `0.1.45-easy.0`。
+如果需要开始新的产品版本线，调整 workflow 中的 `AUTO_VERSION_BASE` 和 `AUTO_NPM_TAG`，并同步更新本节示例。
 
 ## 发布后验证
 

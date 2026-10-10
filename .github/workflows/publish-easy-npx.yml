@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Exact npm version; leave blank to calculate the next -easy.N version"
+        description: "Exact npm version; leave blank to calculate the next 2.0.0-beta.N version"
         required: false
         default: ""
         type: string
@@ -37,6 +37,10 @@ permissions:
   id-token: write
 
 env:
+  # The 2.0.0 beta line is the release reset for the rebuilt product. Change
+  # this marker when starting another release line; do not edit old npm versions.
+  AUTO_VERSION_BASE: 2.0.0-beta.1
+  AUTO_NPM_TAG: beta
   NODE_VERSION: 22.22.1
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
@@ -72,7 +76,14 @@ jobs:
 
           const requestedVersion = (process.env.REQUESTED_VERSION || '').trim();
           const sourceVersion = JSON.parse(fs.readFileSync('npx-cli/package.json', 'utf8')).version;
-          const coreVersion = String(sourceVersion).split('-')[0];
+          const autoVersionBase = (process.env.AUTO_VERSION_BASE || '').trim();
+          const baseMatch = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-(beta|easy)\.(0|[1-9][0-9]*)$/.exec(autoVersionBase);
+          if (!baseMatch) {
+            throw new Error(`Invalid AUTO_VERSION_BASE: ${autoVersionBase}`);
+          }
+          const coreVersion = `${baseMatch[1]}.${baseMatch[2]}.${baseMatch[3]}`;
+          const releaseChannel = baseMatch[4];
+          const baseSequence = Number(baseMatch[5]);
           let version = requestedVersion;
 
           if (!version) {
@@ -86,19 +97,18 @@ jobs:
               const parsed = JSON.parse(raw);
               publishedVersions = Array.isArray(parsed) ? parsed : [parsed];
             } catch {
-              // A new package has no versions yet. The first automatic release is -easy.1.
+              // A new package has no versions yet. The first automatic release
+              // starts at the configured AUTO_VERSION_BASE sequence.
             }
 
             const escapedCore = coreVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const pattern = new RegExp(`^${escapedCore}-easy\\.(\\d+)$`);
-            let next = 0;
+            const pattern = new RegExp(`^${escapedCore}-${releaseChannel}\\.(\\d+)$`);
+            let next = baseSequence - 1;
             for (const candidate of publishedVersions) {
               const match = pattern.exec(String(candidate));
               if (match) next = Math.max(next, Number(match[1]));
             }
-            const sourceMatch = pattern.exec(String(sourceVersion));
-            if (sourceMatch) next = Math.max(next, Number(sourceMatch[1]));
-            version = `${coreVersion}-easy.${next + 1}`;
+            version = `${coreVersion}-${releaseChannel}.${next + 1}`;
           }
 
           const versionPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(beta|easy)\.(0|[1-9][0-9]*))?$/;
@@ -106,7 +116,9 @@ jobs:
             throw new Error(`Invalid npm version: ${version}`);
           }
 
-          const npmTag = (process.env.REQUESTED_NPM_TAG || '').trim() || 'latest';
+          const npmTag = process.env.EVENT_NAME === 'push'
+            ? ((process.env.AUTO_NPM_TAG || '').trim() || 'latest')
+            : ((process.env.REQUESTED_NPM_TAG || '').trim() || 'latest');
           const publishMode = process.env.EVENT_NAME === 'push'
             ? 'publish'
             : ((process.env.REQUESTED_PUBLISH_MODE || '').trim() || 'publish');

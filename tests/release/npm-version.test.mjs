@@ -7,6 +7,8 @@ const workflow = readFileSync(
   new URL('../../.github/workflows/publish-easy-npx.yml', import.meta.url),
   'utf8'
 );
+const autoVersionBase = workflow.match(/AUTO_VERSION_BASE:\s*([^\r\n]+)/)?.[1]?.trim();
+assert.equal(autoVersionBase, '2.0.0-beta.1');
 const validationStep = workflow.split(
   '- name: Validate requested npm version'
 )[1]?.split('\n      - name:')[0];
